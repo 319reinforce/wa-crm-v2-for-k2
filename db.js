@@ -231,32 +231,91 @@ function getAllCreators(filters = {}) {
     return db.prepare(sql).all(...params);
 }
 
-// 获取单个 creator 完整信息
+// 获取单个 creator 完整信息（优化：合并为 2 次查询）
 function getCreatorFull(creatorId) {
     const db = getDb();
 
-    const creator = db.prepare('SELECT * FROM creators WHERE id = ?').get(creatorId);
-    if (!creator) return null;
+    // Query 1: creators + wacrm + joinbrands（通过 LEFT JOIN 合并）
+    const row = db.prepare(`
+        SELECT c.*,
+               wc.priority as wc_priority,
+               wc.beta_status as wc_beta_status,
+               wc.monthly_fee_status,
+               wc.monthly_fee_amount,
+               wc.monthly_fee_deducted,
+               wc.agency_bound,
+               wc.agency_bound_at,
+               wc.agency_deadline,
+               wc.video_count,
+               wc.video_target,
+               wc.video_last_checked,
+               wc.event_score,
+               wc.urgency_level,
+               j.keeper_username as jb_keeper_username,
+               j.keeper_gmv as jb_keeper_gmv,
+               j.keeper_gmv30,
+               j.keeper_orders,
+               j.keeper_videos,
+               j.keeper_videos_posted,
+               j.keeper_videos_sold,
+               j.keeper_card_rate,
+               j.keeper_order_rate,
+               j.keeper_reg_time,
+               j.keeper_activate_time,
+               j.ev_joined,
+               j.ev_ready_sent,
+               j.ev_trial_7day,
+               j.ev_monthly_invited,
+               j.ev_monthly_joined,
+               j.ev_whatsapp_shared,
+               j.ev_gmv_1k,
+               j.ev_gmv_3k,
+               j.ev_gmv_10k,
+               j.ev_churned
+        FROM creators c
+        LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
+        LEFT JOIN joinbrands_link j ON j.creator_id = c.id
+        WHERE c.id = ?
+    `).get(creatorId);
 
+    if (!row) return null;
+
+    // 重构为旧格式，保持调用方兼容
+    const creator = { id: row.id, primary_name: row.primary_name, wa_phone: row.wa_phone,
+        keeper_username: row.keeper_username, wa_owner: row.wa_owner, source: row.source,
+        is_active: row.is_active, created_at: row.created_at, updated_at: row.updated_at };
+
+    const wacrm = (row.wc_priority !== undefined) ? {
+        priority: row.wc_priority, beta_status: row.wc_beta_status, monthly_fee_status: row.monthly_fee_status,
+        monthly_fee_amount: row.monthly_fee_amount, monthly_fee_deducted: row.monthly_fee_deducted,
+        agency_bound: row.agency_bound, agency_bound_at: row.agency_bound_at, agency_deadline: row.agency_deadline,
+        video_count: row.video_count, video_target: row.video_target, video_last_checked: row.video_last_checked,
+        event_score: row.event_score, urgency_level: row.urgency_level
+    } : null;
+
+    const joinbrands = (row.ev_joined !== undefined) ? {
+        keeper_username: row.jb_keeper_username, keeper_gmv: row.jb_keeper_gmv, keeper_gmv30: row.keeper_gmv30,
+        keeper_orders: row.keeper_orders, keeper_videos: row.keeper_videos,
+        keeper_videos_posted: row.keeper_videos_posted, keeper_videos_sold: row.keeper_videos_sold,
+        keeper_card_rate: row.keeper_card_rate, keeper_order_rate: row.keeper_order_rate,
+        keeper_reg_time: row.keeper_reg_time, keeper_activate_time: row.keeper_activate_time,
+        ev_joined: row.ev_joined, ev_ready_sent: row.ev_ready_sent, ev_trial_7day: row.ev_trial_7day,
+        ev_monthly_invited: row.ev_monthly_invited, ev_monthly_joined: row.ev_monthly_joined,
+        ev_whatsapp_shared: row.ev_whatsapp_shared, ev_gmv_1k: row.ev_gmv_1k,
+        ev_gmv_3k: row.ev_gmv_3k, ev_gmv_10k: row.ev_gmv_10k, ev_churned: row.ev_churned
+    } : null;
+
+    // Query 2: messages（单独查，消息量大不宜 JOIN）
     const messages = db.prepare(
         'SELECT * FROM wa_messages WHERE creator_id = ? ORDER BY timestamp ASC'
     ).all(creatorId);
 
-    const wacrm = db.prepare('SELECT * FROM wa_crm_data WHERE creator_id = ?').get(creatorId);
-
+    // Query 3: aliases
     const aliases = db.prepare(
         'SELECT * FROM creator_aliases WHERE creator_id = ?'
     ).all(creatorId);
 
-    const joinbrands = db.prepare('SELECT * FROM joinbrands_link WHERE creator_id = ?').get(creatorId) || null;
-
-    return {
-        ...creator,
-        messages,
-        wacrm,
-        aliases,
-        joinbrands
-    };
+    return { ...creator, messages, wacrm, aliases, joinbrands };
 }
 
 module.exports = {

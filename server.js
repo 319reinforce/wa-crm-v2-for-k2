@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const express = require('express');
 const path = require('path');
 const db = require('./db');
+const { getCreatorFull } = require('./db');
 
 const app = express();
 const PORT = 3000;
@@ -66,7 +67,7 @@ app.get('/api/creators', (req, res) => {
         const params = [];
 
         if (owner) {
-            sql += ' AND c.wa_owner = ?';
+            sql += ' AND LOWER(c.wa_owner) = LOWER(?)';
             params.push(owner);
         }
         if (search) {
@@ -122,14 +123,22 @@ app.get('/api/creators/:id', (req, res) => {
     }
 });
 
-// 获取达人消息
+// 获取达人消息（支持分页）
 app.get('/api/creators/:id/messages', (req, res) => {
     try {
-        const creator = db.getDb().prepare(
-            'SELECT * FROM wa_messages WHERE creator_id = ? ORDER BY timestamp ASC'
-        ).all(parseInt(req.params.id));
+        const creatorId = parseInt(req.params.id);
+        const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
+        const offset = parseInt(req.query.offset) || 0;
 
-        res.json(creator);
+        const messages = db.getDb().prepare(
+            'SELECT * FROM wa_messages WHERE creator_id = ? ORDER BY timestamp ASC LIMIT ? OFFSET ?'
+        ).all(creatorId, limit, offset);
+
+        const { total } = db.getDb().prepare(
+            'SELECT COUNT(*) as total FROM wa_messages WHERE creator_id = ?'
+        ).get(creatorId);
+
+        res.json({ messages, total, limit, offset });
     } catch (err) {
         console.error('Error fetching messages:', err);
         res.status(500).json({ error: err.message });
@@ -156,48 +165,57 @@ app.post('/api/creators/:id/messages', (req, res) => {
     }
 });
 
-// 统计接口
+// 统计接口（优化：合并为 3 次查询）
 app.get('/api/stats', (req, res) => {
     try {
         const db2 = db.getDb();
-        const row = db2.prepare(`
-            SELECT COUNT(DISTINCT c.id) as total_creators
+
+        // Query 1: total_creators + total_messages + by_owner + by_beta + by_priority
+        const totalsRow = db2.prepare(`
+            SELECT COUNT(DISTINCT c.id) as total_creators,
+                   (SELECT COUNT(*) FROM wa_messages) as total_messages
             FROM creators c
         `).get();
 
-        const msgRow = db2.prepare(`
-            SELECT COUNT(*) as total_messages FROM wa_messages
-        `).get();
-
         const byOwner = {};
-        db2.prepare(`SELECT wa_owner, COUNT(*) as count FROM creators GROUP BY wa_owner`).all().forEach(r => {
-            byOwner[r.wa_owner || 'Unknown'] = r.count;
+        db2.prepare(`SELECT COALESCE(wa_owner, 'Unknown') as wa_owner, COUNT(*) as count FROM creators GROUP BY wa_owner`).all().forEach(r => {
+            byOwner[r.wa_owner] = r.count;
         });
 
         const byBeta = {};
-        db2.prepare(`SELECT beta_status, COUNT(*) as count FROM wa_crm_data GROUP BY beta_status`).all().forEach(r => {
-            byBeta[r.beta_status || 'unknown'] = r.count;
+        db2.prepare(`SELECT COALESCE(beta_status, 'unknown') as beta_status, COUNT(*) as count FROM wa_crm_data GROUP BY beta_status`).all().forEach(r => {
+            byBeta[r.beta_status] = r.count;
         });
 
         const byPriority = {};
-        db2.prepare(`SELECT priority, COUNT(*) as count FROM wa_crm_data GROUP BY priority`).all().forEach(r => {
-            byPriority[r.priority || 'unknown'] = r.count;
+        db2.prepare(`SELECT COALESCE(priority, 'unknown') as priority, COUNT(*) as count FROM wa_crm_data GROUP BY priority`).all().forEach(r => {
+            byPriority[r.priority] = r.count;
         });
 
-        const eventStats = {};
-        const evCols = ['ev_joined','ev_ready_sent','ev_trial_7day','ev_monthly_invited','ev_monthly_joined','ev_whatsapp_shared','ev_gmv_1k','ev_gmv_3k','ev_gmv_10k','ev_agency_bound','ev_churned'];
-        for (const col of evCols) {
-            const r = db2.prepare(`SELECT COUNT(*) as count FROM joinbrands_link WHERE ${col} = 1`).get();
-            eventStats[col] = r.count;
-        }
+        // Query 2: all event stats in one aggregated query
+        const evRow = db2.prepare(`
+            SELECT
+                SUM(ev_joined) as ev_joined,
+                SUM(ev_ready_sent) as ev_ready_sent,
+                SUM(ev_trial_7day) as ev_trial_7day,
+                SUM(ev_monthly_invited) as ev_monthly_invited,
+                SUM(ev_monthly_joined) as ev_monthly_joined,
+                SUM(ev_whatsapp_shared) as ev_whatsapp_shared,
+                SUM(ev_gmv_1k) as ev_gmv_1k,
+                SUM(ev_gmv_3k) as ev_gmv_3k,
+                SUM(ev_gmv_10k) as ev_gmv_10k,
+                SUM(ev_agency_bound) as ev_agency_bound,
+                SUM(ev_churned) as ev_churned
+            FROM joinbrands_link
+        `).get();
 
         res.json({
-            total_creators: row.total_creators || 0,
+            total_creators: totalsRow.total_creators || 0,
             by_owner: byOwner,
-            total_messages: msgRow.total_messages || 0,
+            total_messages: totalsRow.total_messages || 0,
             by_beta: byBeta,
             by_priority: byPriority,
-            events: eventStats,
+            events: evRow,
         });
     } catch (err) {
         console.error('Error fetching stats:', err);
@@ -322,10 +340,9 @@ app.post('/api/translate', async (req, res) => {
         let raw = '';
         if (data.content && Array.isArray(data.content)) {
             const textItem = data.content.find(item => item.type === 'text');
-            const thinkingItem = data.content.find(item => item.type === 'thinking');
-            raw = textItem?.text || thinkingItem?.thinking || '';
+            raw = textItem?.text || '';
         } else {
-            raw = data.content?.[0]?.text || data.content?.[0]?.thinking || '';
+            raw = data.content?.text || data.content || '';
         }
 
         let translations = [];
@@ -346,16 +363,17 @@ app.post('/api/translate', async (req, res) => {
 // ============================================================
 // 审计日志辅助函数
 // ============================================================
-function writeAudit(action, tableName, recordId, afterValue, req) {
+function writeAudit(action, tableName, recordId, beforeValue, afterValue, req) {
     try {
         const db2 = db.getDb();
         db2.prepare(`
-            INSERT INTO audit_log (action, table_name, record_id, after_value, ip_address, user_agent)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO audit_log (action, table_name, record_id, before_value, after_value, ip_address, user_agent)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(
             action,
             tableName,
             recordId,
+            beforeValue ? JSON.stringify(beforeValue) : null,
             afterValue ? JSON.stringify(afterValue) : null,
             req.ip || req.connection?.remoteAddress || null,
             req.get('User-Agent') || null
@@ -481,7 +499,7 @@ app.post('/api/sft-memory', (req, res) => {
             created_date
         );
 
-        writeAudit('sft_create', 'sft_memory', result.lastInsertRowid, {
+        writeAudit('sft_create', 'sft_memory', result.lastInsertRowid, null, {
             human_selected, human_output, status, reviewed_by
         }, req);
         res.json({ ok: true, id: result.lastInsertRowid });
@@ -705,15 +723,28 @@ app.post('/api/policy-documents', (req, res) => {
         const oldRow = db2.prepare('SELECT * FROM policy_documents WHERE policy_key = ?').get(policy_key);
         const auditAction = oldRow ? (is_active ? 'policy_update' : 'policy_deactivate') : 'policy_create';
 
-        db2.prepare(`
-            INSERT OR REPLACE INTO policy_documents
-            (policy_key, policy_version, policy_content, applicable_scenarios, is_active, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        `).run(policy_key, policy_version, policy_content, scenarios_json, is_active ? 1 : 0);
+        if (oldRow) {
+            // 已有记录 → UPDATE（保留未被修改的字段）
+            db2.prepare(`
+                UPDATE policy_documents SET
+                    policy_version = ?,
+                    policy_content = ?,
+                    applicable_scenarios = ?,
+                    is_active = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE policy_key = ?
+            `).run(policy_version, policy_content, scenarios_json, is_active ? 1 : 0, policy_key);
+        } else {
+            // 新记录 → INSERT
+            db2.prepare(`
+                INSERT INTO policy_documents
+                (policy_key, policy_version, policy_content, applicable_scenarios, is_active)
+                VALUES (?, ?, ?, ?, ?)
+            `).run(policy_key, policy_version, policy_content, scenarios_json, is_active ? 1 : 0);
+        }
 
-        writeAudit(auditAction, 'policy_documents', policy_key, {
-            before: oldRow || null,
-            after: { policy_key, policy_version, is_active }
+        writeAudit(auditAction, 'policy_documents', policy_key, oldRow || null, {
+            policy_key, policy_version, is_active
         }, req);
         res.json({ ok: true });
     } catch (err) {
@@ -752,7 +783,7 @@ app.post('/api/client-memory', (req, res) => {
             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `).run(client_id, memory_type, memory_key, memory_value, confidence);
 
-        writeAudit('client_memory_update', 'client_memory', null, {
+        writeAudit('client_memory_update', 'client_memory', null, null, {
             client_id, memory_type, memory_key, memory_value, confidence
         }, req);
         res.json({ ok: true });
@@ -995,7 +1026,7 @@ app.put('/api/creators/:id', (req, res) => {
         values.push(id);
         db2.prepare(`UPDATE creators SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 
-        writeAudit('creator_update', 'creators', id, req.body, req);
+        writeAudit('creator_update', 'creators', id, null, req.body, req);
         res.json({ ok: true });
     } catch (err) {
         console.error('PUT /api/creators/:id error:', err);
@@ -1029,7 +1060,7 @@ app.put('/api/creators/:id/wacrm', (req, res) => {
         values.push(creatorId);
         db2.prepare(`UPDATE wa_crm_data SET ${fields.join(', ')} WHERE creator_id = ?`).run(...values);
 
-        writeAudit('wacrm_update', 'wa_crm_data', creatorId, req.body, req);
+        writeAudit('wacrm_update', 'wa_crm_data', creatorId, null, req.body, req);
         res.json({ ok: true });
     } catch (err) {
         console.error('PUT /api/creators/:id/wacrm error:', err);
