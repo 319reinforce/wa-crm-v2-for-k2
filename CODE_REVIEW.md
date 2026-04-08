@@ -256,10 +256,10 @@ document.getElementById('statBeau').textContent = stats.by_owner.Beau || 0;
 | 等级 | 数量 | 已修复 | 待处理 |
 |------|------|--------|--------|
 | P1 | 4 | 4 | 0（全部解决） |
-| P2 | 6 | 4 | 2（P2-5、P2-6 未处理） |
-| P3 | 6 | 4 | 2（P3-5、P3-6 未处理） |
+| P2 | 6 | 6 | 0（全部解决 ✅） |
+| P3 | 6 | 6 | 0（全部解决 ✅） |
 
-**P1 + P2（部分） + P3 ✅ 已全部解决（commit 495579f）**
+**全部 P1 + P2 + P3 已解决 ✅（commit 9c12e85）**
 
 ---
 
@@ -286,6 +286,15 @@ document.getElementById('statBeau').textContent = stats.by_owner.Beau || 0;
 | P2-2 | JSON body 无大小限制 | `express.json({ limit: '3mb' })` |
 | P2-3 | 无请求超时配置 | `req.setTimeout(15000)` + `res.setTimeout(15000)` |
 | P2-4 | 无 graceful shutdown | `process.on('SIGTERM/SIGINT')` → 关闭 server + `db.closeDb()` |
+| P2-5 | `req.params.clientId` 未校验类型 | 加长度 + 类型校验，拒绝无效请求 |
+| P2-6 | 多处 `JSON.parse` 无 try-catch | 全部包裹 try-catch（sft-memory x2、export、profile-agent） |
+
+### 前端修复（commit 9c12e85）
+
+| # | 问题 | 修复方案 |
+|---|------|---------|
+| P3-5 | `fetchCreator` 无 `.catch` 网络错误处理 | 加 `.catch()` 兜底 |
+| P3-6 | `by_owner` 防护 | 已有 `&&` 防护（React 重构后已处理） |
 
 ### 新增死文件
 

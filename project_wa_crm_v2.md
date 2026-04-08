@@ -5,9 +5,25 @@
 
 ---
 
-## 2026-04-08 — P2 生产安全修复（commit 495579f）
+## 2026-04-08 — P2-5/P2-6 + P3-5/P3-6 全部修复（commit 9c12e85）
 
-### P2 — 生产安全（全部修复 ✅）
+### P2 — 剩余问题修复 ✅
+
+| # | 问题 | 修复方案 | 文件 |
+|---|------|---------|------|
+| P2-5 | `clientId` 参数未校验 | 加长度 + 类型校验，拒绝无效 clientId | `server.js` |
+| P2-6 | JSON.parse 无 try-catch | 4处全部包裹（sft-memory x2、exportRecord、profile-agent） | `server.js` / `agents/profile-agent.js` |
+
+### 前端修复 ✅
+
+| # | 问题 | 修复方案 | 文件 |
+|---|------|---------|------|
+| P3-5 | `fetchCreator` fetch 无 .catch | 加 `.catch()` 兜底 | `src/App.jsx` |
+| P3-6 | by_owner 无防护 | 已有 `&&` 防护（React 重构后已处理） | — |
+
+---
+
+## 2026-04-08 — P2 生产安全修复（commit 495579f）
 
 | # | 问题 | 修复方案 | 文件 |
 |---|------|---------|------|
