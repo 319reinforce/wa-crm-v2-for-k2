@@ -14,8 +14,18 @@ const app = express();
 const PORT = 3000;
 
 // 中间件
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json({ limit: '3mb' }));         // P2-2: JSON body 上限 3MB
+if (process.env.NODE_ENV !***REMOVED*** 'production') {
+    // P2-1: 生产环境应移除此行，改用 Nginx/CDN 托管静态文件
+    app.use(express.static(path.join(__dirname, 'public')));
+}
+
+// P2-3: 请求超时配置
+app.use((req, res, next) => {
+    req.setTimeout(15000);
+    res.setTimeout(15000);
+    next();
+});
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** API ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
@@ -1256,11 +1266,29 @@ const experienceRouter = require('./routes/experience');
 app.use('/api/experience', experienceRouter);
 
 // 启动服务器
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n✅ WA CRM v2 Server`);
     console.log(`   Local:   http://localhost:${PORT}`);
     console.log(`   LAN:     http://192.168.1.51:${PORT}`);
     console.log(`   SQLite:  crm.db\n`);
+});
+
+// P2-4: graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('SIGTERM received, shutting down gracefully...');
+    server.close(() => {
+        db.closeDb();
+        console.log('Server closed.');
+        process.exit(0);
+    });
+});
+process.on('SIGINT', () => {
+    console.log('SIGINT received, shutting down gracefully...');
+    server.close(() => {
+        db.closeDb();
+        console.log('Server closed.');
+        process.exit(0);
+    });
 });
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
