@@ -1,0 +1,32 @@
+{
+  "name": "wa-crm-v2",
+  "version": "1.0.0",
+  "description": "WhatsApp CRM v2 - SQLite based",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "migrate": "node migrate.js",
+    "index": "node index_v2.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "dotenv": "^16.4.5",
+    "emoji-picker-react": "^4.18.0",
+    "express": "^4.21.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-resizable-panels": "^4.9.0",
+    "whatsapp-web.js": "^1.26.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.2",
+    "@vitejs/plugin-react": "^6.0.1",
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.2",
+    "vite": "^8.0.3"
+  }
+}
