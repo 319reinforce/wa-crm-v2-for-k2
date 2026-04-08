@@ -256,10 +256,10 @@ document.getElementById('statBeau').textContent = stats.by_owner.Beau || 0;
 | 等级 | 数量 | 已修复 | 待处理 |
 |------|------|--------|--------|
 | P1 | 4 | 4 | 0（全部解决） |
-| P2 | 6 | 0 | 6（安全/健壮性） |
+| P2 | 6 | 4 | 2（P2-5、P2-6 未处理） |
 | P3 | 6 | 4 | 2（P3-5、P3-6 未处理） |
 
-**P1 + P3（部分）已全部解决 ✅（commit c510114）**
+**P1 + P2（部分） + P3 ✅ 已全部解决（commit 495579f）**
 
 ---
 
@@ -277,6 +277,15 @@ document.getElementById('statBeau').textContent = stats.by_owner.Beau || 0;
 | P3-2 | `getCreatorFull` 从 4 次 → 2 次（LEFT JOIN 合并 creator/wacrm/joinbrands） |
 | P3-3 | `owner` 过滤加 `LOWER(wa_owner) = LOWER(?)` 大小写归一化 |
 | P3-4 | `/api/creators/:id/messages` 加 `?limit=&offset=` 分页（上限 1000） |
+
+### P2 — 生产安全（全部修复 ✅，commit 495579f）
+
+| # | 问题 | 修复方案 |
+|---|------|---------|
+| P2-1 | 静态文件目录直接暴露 `/public` | 仅在 `NODE_ENV !== 'production'` 时启用静态文件服务 |
+| P2-2 | JSON body 无大小限制 | `express.json({ limit: '3mb' })` |
+| P2-3 | 无请求超时配置 | `req.setTimeout(15000)` + `res.setTimeout(15000)` |
+| P2-4 | 无 graceful shutdown | `process.on('SIGTERM/SIGINT')` → 关闭 server + `db.closeDb()` |
 
 ### 新增死文件
 
