@@ -149,7 +149,7 @@ function learnFromSftRecord(sftRecord) {
     const tags = [];
     if (!sftRecord) return tags;
 
-    const ctx = sftRecord.context_json ? JSON.parse(sftRecord.context_json) : {};
+    const ctx = (() => { try { return sftRecord.context_json ? JSON.parse(sftRecord.context_json) : {}; } catch (_) { return {}; } })();
     const scene = ctx.scene || 'unknown';
 
     // 场景标签

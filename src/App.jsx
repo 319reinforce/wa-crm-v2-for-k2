@@ -804,6 +804,10 @@ function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
         setLoading(false)
         setRefreshing(false)
       })
+      .catch(() => {
+        setLoading(false)
+        setRefreshing(false)
+      })
   }, [creatorId])
 
   useEffect(() => {
