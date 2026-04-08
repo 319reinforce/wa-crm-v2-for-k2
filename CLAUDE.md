@@ -1,12 +1,135 @@
-# 代码审核路由
+# WA CRM v2 — AI Agent 接入指南
 
-| Task Type | Agent | When to Use |
-|-----------|-------|-------------|
-| minimax review | minimax-reviewer | 快速审核、日常审查 |
-| gpt review | gpt-reviewer | 深度审核、复杂逻辑、安全检查 |
+> 本文件供其他 AI Agent 阅读，作为项目入口
 
-## 使用方式
+---
 
-- `"用 minimax-reviewer 帮我审核这段代码"` → MiniMax 快速审核
-- `"用 gpt-reviewer 深度审核这段代码"` → GPT-4 深度审核
-- `"帮我检查这段代码有没有安全问题"` → 路由到 GPT-4 安全检查
+## 快速接入指令
+
+当你需要在这个项目中工作时，按以下顺序阅读：
+
+```
+1. 先读 CLAUDE.md（你在这里）→ 了解项目全貌
+2. 再读 BOT_INTEGRATION.md → 了解 API 和集成方式
+3. 最后读 SFT_PROJECT.md → 深入理解 SFT 训练和 Experience Router
+```
+
+---
+
+## 项目基本信息
+
+| 项目 | 值 |
+|------|-----|
+| 名称 | WA CRM v2 |
+| 类型 | WhatsApp 达人 CRM + SFT 语料收集平台 |
+| 路径 | `/Users/depp/wa-bot/wa-crm-v2/` |
+| 后端端口 | `3000` |
+| 前端端口 | `3000`（开发）|
+| wa-ai-crm（旧版）| 端口 `2000` |
+| 数据库 | SQLite → `crm.db` |
+
+---
+
+## 核心模块速查
+
+### 后端
+
+| 文件 | 作用 |
+|------|------|
+| `server.js` | Express 服务器，REST API 端口 3000 |
+| `db.js` | SQLite ORM（better-sqlite3） |
+| `schema.sql` | 数据库 schema 定义 |
+| `agents/profile-agent.js` | 客户画像 Agent：标签提取 + summary 生成 |
+| `routes/experience.js` | Experience Router 核心逻辑 |
+
+### 前端
+
+| 文件 | 作用 |
+|------|------|
+| `src/App.jsx` | 主应用 — 三面板布局（flex 实现）+ 移动端响应式（抽屉导航 + 全屏聊天） |
+| `src/components/WAMessageComposer.jsx` | 消息编辑器，含 Scene 检测 + AI 生成 + 移动端 UI |
+| `src/components/SFTDashboard.jsx` | SFT 语料看板 |
+| `src/utils/minimax.js` | MiniMax API Client（调用 `/api/minimax` 代理） |
+| `src/utils/systemPrompt.js` | 共享 system prompt 模板（前后端共用同一份） |
+
+---
+
+## 数据库核心表
+
+| 表名 | 用途 |
+|------|------|
+| `creators` | 达人主表（wa_phone 唯一标识） |
+| `wa_messages` | WA 对话消息 |
+| `sft_memory` | SFT 训练语料 |
+| `sft_feedback` | Skip/Reject/Edit 反馈记录 |
+| `client_memory` | 客户单独记忆 |
+| `client_profiles` | 客户独立画像 |
+| `client_tags` | 动态标签（多源标注） |
+| `policy_documents` | 政策文档 |
+| `operator_experiences` | **Experience Router**：operator 专属 AI 体验配置 |
+| `audit_log` | 操作审计日志 |
+
+---
+
+## Experience Router（已实现）
+
+> **现状**：`routes/experience.js` 已实现，`POST /api/experience/route` 根据 client_id/operator 自动路由到 Beau 或 Yiyun 的专属 AI 体验。
+
+**路由逻辑：**
+```
+client_id / operator → 查 operator_experiences → 编译 system_prompt → 生成候选回复
+```
+
+**Beau 专属规则示例：**
+- 20天Beta计划，$200激励，$10/天
+- GMV里程碑庆祝：$5k / $10k GMV
+- DRIFTO MCN 签约期仅2个月
+
+**Yiyun 专属规则示例：**
+- 7天试用任务包，20 AI generations/day
+- $20月费：从视频补贴扣除
+- 一问一答，不过度展开，不主动延伸
+
+---
+
+## 必读文档
+
+| 文档 | 用途 |
+|------|------|
+| `BOT_INTEGRATION.md` | API 端点速查、数据库表、快速开始 |
+| `SFT_PROJECT.md` | SFT 语料系统、Experience Router、Scene 检测、Profile Agent 完整说明 |
+| `CODE_REVIEW.md` | 已知代码问题清单（P0/P1/P2） |
+| `docs/EVENT_SYSTEM_REQUIREMENTS.md` | 事件系统需求梳理（代码未实现） |
+
+---
+
+## 禁止事项
+
+1. **禁止**直接修改 `crm.db`（通过 audit_log 追溯变更）
+2. **禁止**在未调用 `GET /api/policy-documents` 的情况下输出涉及政策内容的回复
+3. **禁止**将 `wa_phone` 泄露到日志或外部系统
+4. **必须**使用参数化查询，禁止拼接 SQL
+5. **禁止**在未确认 operator 身份前使用 Beau 或 Yiyun 的话术体系
+
+## 当前已知数据问题
+
+- **`joinbrands_link` 表为空**：所有 115 位达人的 `ev_*` 事件标签均为 null，数据未录入。
+- **事件筛选**：筛选逻辑已修好（`c._full.joinbrands.ev_*`），但数据为空导致筛选无结果。
+
+---
+
+## 启动命令
+
+```bash
+cd /Users/depp/wa-bot/wa-crm-v2
+node server.js        # 启动服务（端口 3000）
+```
+
+---
+
+## 遇到问题？
+
+1. 调用 `GET /api/health` 确认服务状态
+2. 调用 `GET /api/audit-log?limit=5` 查看最近操作
+3. 查 `CODE_REVIEW.md` 已知问题清单
+4. 读 `SFT_PROJECT.md` 深入理解系统逻辑

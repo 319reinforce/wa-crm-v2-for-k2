@@ -2,11 +2,12 @@
 
 > 审核时间：2026-04-03
 > 审核范围：server.js、db.js、schema.sql、key_creators.js
-> 代码状态：P0/P1/P2 问题已全部修复，剩余问题如下
+> 更新：2026-04-08 CLAUDE.md 修正（Experience Router 已实现、systemPrompt.js 已落地）
+> 代码状态：P0 已修复；P1 审计日志/死代码/P1-3 未修复；P2/P3 未处理
 
 ---
 
-## 🔴 P1 — 功能缺陷
+## 🔴 P1 — 功能缺陷（P1-1 ~ P1-4 未修复）
 
 ### 1. `INSERT OR REPLACE` 策略导致 `before_value` 永远为 null
 
@@ -252,10 +253,31 @@ document.getElementById('statBeau').textContent = stats.by_owner.Beau || 0;
 
 ## 📋 总结
 
-| 等级 | 数量 | 代表问题 |
-|------|------|----------|
-| P1 | 4 | INSERT OR REPLACE 审计丢失、key_creators 死代码、is_active 失效 |
-| P2 | 6 | 静态目录暴露、JSON 无 limit、无超时、无 graceful shutdown |
-| P3 | 6 | stats N+1 查询、getCreatorFull N+1、前端无错误处理 |
+| 等级 | 数量 | 已修复 | 待处理 |
+|------|------|--------|--------|
+| P1 | 4 | 0 | 4（P1-1~P1-4 审计日志/死代码/参数失效） |
+| P2 | 6 | 0 | 6（安全/健壮性） |
+| P3 | 6 | 0 | 6（性能/代码质量） |
 
 **建议优先修复 P1**（功能正确性），其次 **P2**（生产安全），最后 P3（性能优化）。
+
+---
+
+## 📅 2026-04-08 补充
+
+### 新增死文件
+
+- **`src/components/ReviewPanel.jsx`**：文件存在但从未被 import，是死代码，可以删除
+
+### 文档已更正
+
+- CLAUDE.md 中 Experience Router "尚未实现" 描述已更正为"已实现"
+- CLAUDE.md 中 `systemPrompt.js` "已移除" 描述已更正为"前后端共用同一份"
+- CLAUDE.md 后端模块列表已加入 `routes/experience.js`
+
+### SFT 优化 v2 新增内容
+
+- `src/utils/systemPrompt.js`（共享模板）
+- `sft_feedback` 表（skip/reject/edit 反馈）
+- `idx_sft_dedup` 唯一索引（SHA256 去重）
+- 5 个新 API：pending review / review / trends / sft-feedback / sft-feedback/stats
