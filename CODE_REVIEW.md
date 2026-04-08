@@ -255,15 +255,28 @@ document.getElementById('statBeau').textContent = stats.by_owner.Beau || 0;
 
 | 等级 | 数量 | 已修复 | 待处理 |
 |------|------|--------|--------|
-| P1 | 4 | 0 | 4（P1-1~P1-4 审计日志/死代码/参数失效） |
+| P1 | 4 | 4 | 0（全部解决） |
 | P2 | 6 | 0 | 6（安全/健壮性） |
-| P3 | 6 | 0 | 6（性能/代码质量） |
+| P3 | 6 | 4 | 2（P3-5、P3-6 未处理） |
 
-**建议优先修复 P1**（功能正确性），其次 **P2**（生产安全），最后 P3（性能优化）。
+**P1 + P3（部分）已全部解决 ✅（commit c510114）**
 
 ---
 
 ## 📅 2026-04-08 补充
+
+### ✅ P1 + P3 全部修复（commit c510114）
+
+| 修复项 | 说明 |
+|--------|------|
+| P1-1 | `INSERT OR REPLACE` → `UPDATE`（旧记录）+ `INSERT`（新记录），避免 DELETE 触发器问题 |
+| P1-2 | `writeAudit` 新增 `beforeValue` 参数，`before_value` 和 `after_value` 正确分离 |
+| P1-3 | `key_creators` require 已不存在（前期已清理） |
+| P1-4 | `is_active` SQL 过滤逻辑已存在（`WHERE c.is_active = ?`） |
+| P3-1 | `/api/stats` 从 15+ 次查询 → 3 次（ev stats 用 `SUM` 聚合） |
+| P3-2 | `getCreatorFull` 从 4 次 → 2 次（LEFT JOIN 合并 creator/wacrm/joinbrands） |
+| P3-3 | `owner` 过滤加 `LOWER(wa_owner) = LOWER(?)` 大小写归一化 |
+| P3-4 | `/api/creators/:id/messages` 加 `?limit=&offset=` 分页（上限 1000） |
 
 ### 新增死文件
 

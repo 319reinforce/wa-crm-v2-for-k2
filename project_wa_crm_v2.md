@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-04-08 — P1 功能缺陷 + P3 性能优化（commit c510114）
+
+### P1 — 功能缺陷（全部修复 ✅）
+
+| # | 问题 | 修复方案 | 文件 |
+|---|------|---------|------|
+| P1-1 | `INSERT OR REPLACE` 导致审计 before_value 为 null | 改用 `UPDATE`（旧记录）+ `INSERT`（新记录） | `server.js` |
+| P1-2 | `writeAudit` 不写 before_value 列 | 新增 `beforeValue` 参数，`before_value` 和 `after_value` 正确分离 | `server.js` |
+| P1-3 | `key_creators.js` 被 require 但从未使用 | 此前已清理 | — |
+| P1-4 | `is_active` 参数从未使用 | 实际上 SQL 过滤已存在（line 90-93），无需修改 | `server.js` |
+
+### P3 — 性能与代码质量（全部修复 ✅）
+
+| # | 问题 | 修复方案 | 文件 |
+|---|------|---------|------|
+| P3-1 | `/api/stats` 串行 15+ 次 DB 查询 | 合并为 3 次（ev stats 用 `SUM` 聚合单次查询） | `server.js` |
+| P3-2 | `getCreatorFull` N+1（4次查询） | LEFT JOIN 合并 creator + wacrm + joinbrands → 2次 | `db.js` |
+| P3-3 | `owner` 参数大小写敏感 | `LOWER(wa_owner) = LOWER(?)` 归一化 | `server.js` |
+| P3-4 | `/api/creators/:id/messages` 无分页 | 加 `?limit=&offset=` 参数，上限 1000 | `server.js` |
+
+---
+
 ## 2026-04-08 — SFT 优化 v2 完成 + Git 版本管理上线
 
 ### SFT 语料质量优化 v2（5 项，隐私脱敏除外）
