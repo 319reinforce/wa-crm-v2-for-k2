@@ -1,0 +1,11 @@
+node_modules/
+public/assets/
+data/*.json
+*.db
+*.db-shm
+*.db-wal
+.wwebjs_auth/
+.wwebjs_cache/
+.env
+*.log
+.DS_Store
