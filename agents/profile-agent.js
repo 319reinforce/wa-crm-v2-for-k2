@@ -14,13 +14,19 @@
  *   node agents/profile-agent.js --event wa_message --client_id 16145639865 --data '{}'
  */
 
+require('dotenv').config();
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
 const DB_PATH = path.join(__dirname, '..', 'crm.db');
-const API_KEY = '***REMOVED***';
-const API_BASE = 'https://api.minimaxi.com/anthropic';
+const API_KEY = process.env.MINIMAX_API_KEY;
+const API_BASE = process.env.MINIMAX_API_BASE || 'https://api.minimaxi.com/anthropic';
+
+if (!API_KEY) {
+    console.error('[profile-agent] FATAL: MINIMAX_API_KEY environment variable is not set');
+    process.exit(1);
+}
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** MiniMax API ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
@@ -53,6 +59,7 @@ async function generateSummary(clientInfo, tags, recentMemory) {
             max_tokens: 200,
             temperature: 0.5,
         }),
+        signal: AbortSignal.timeout(30000),
     });
 
     if (!response.ok) {

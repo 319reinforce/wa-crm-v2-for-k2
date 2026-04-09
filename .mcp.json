@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp@latest"],
+      "env": {}
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/depp/wa-bot/wa-crm-v2"],
+      "env": {}
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "env": {}
+    },
+    "mysql": {
+      "command": "npx",
+      "args": ["-y", "@yukihito/mysql-mcp-server", "--host", "127.0.0.1", "--port", "3306", "--name", "root", "--password", "", "--database", "wa_crm_v2"],
+      "env": {}
+    }
+  }
+}

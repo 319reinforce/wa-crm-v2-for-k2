@@ -24,8 +24,8 @@ function getAllOperatorExperiences() {
     ).all();
 }
 
-function compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs) {
-    const exp = getOperatorExperience(operator);
+async function compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs) {
+    const exp = await getOperatorExperience(operator);
     if (!exp) {
         throw new Error(`Operator ${operator} not found or inactive`);
     }
@@ -127,7 +127,7 @@ function getOperatorByClientId(clientId) {
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Routes ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
-router.get('/operators', (req, res) => {
+router.get('/operators', async (req, res) => {
     try {
         const operators = getAllOperatorExperiences();
         res.json({ success: true, data: operators });
@@ -136,7 +136,7 @@ router.get('/operators', (req, res) => {
     }
 });
 
-router.get('/:operator', (req, res) => {
+router.get('/:operator', async (req, res) => {
     try {
         const { operator } = req.params;
         const exp = getOperatorExperience(operator);
@@ -154,7 +154,7 @@ router.get('/:operator', (req, res) => {
     }
 });
 
-router.get('/:operator/clients', (req, res) => {
+router.get('/:operator/clients', async (req, res) => {
     try {
         const { operator } = req.params;
         const dbInstance = db.getDb();
@@ -251,6 +251,7 @@ router.post('/route', async (req, res) => {
                     'Content-Length': Buffer.byteLength(body),
                 },
                 body,
+                signal: AbortSignal.timeout(30000),
             });
 
             const respText = await response.text();
@@ -292,7 +293,7 @@ router.post('/route', async (req, res) => {
     }
 });
 
-router.get('/:operator/system-prompt', (req, res) => {
+router.get('/:operator/system-prompt', async (req, res) => {
     try {
         const { operator } = req.params;
         const { scene = 'unknown', client_id } = req.query;

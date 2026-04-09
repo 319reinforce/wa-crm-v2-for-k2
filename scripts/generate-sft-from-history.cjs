@@ -9,12 +9,13 @@
  * 用法：node scripts/generate-sft-from-history.cjs
  */
 
+require('dotenv').config();
 const Database = require('better-sqlite3');
 const path = require('path');
 
 const DB_PATH = path.join(__dirname, '..', 'crm.db');
-const API_KEY = '***REMOVED***';
-const API_BASE = 'https://api.minimaxi.com/anthropic';
+const API_KEY = process.env.MINIMAX_API_KEY;
+const API_BASE = process.env.MINIMAX_API_BASE || 'https://api.minimaxi.com/anthropic';
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 质量过滤 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 

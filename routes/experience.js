@@ -279,7 +279,7 @@ router.post('/route', async (req, res) => {
         const systemMsg = { role: 'system', content: systemPrompt };
 
         // 8. 调用 MiniMax API 生成 2 个候选回复
-        const API_KEY = process.env.MINIMAX_API_KEY || '***REMOVED***';
+        const API_KEY = process.env.MINIMAX_API_KEY;
         const API_BASE = process.env.MINIMAX_API_BASE || 'https://api.minimaxi.com/anthropic';
 
         async function generateResponse(messages, temperature) {

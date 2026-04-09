@@ -12,10 +12,12 @@ const { EVENT_KEYWORDS } = require('../constants/eventKeywords');
 const { getPolicy } = require('../utils/policyMatcher');
 
 // GET /api/events
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db2 = db.getDb();
-    const { status, owner, creator_id, event_key, limit = 50, offset = 0 } = req.query;
+    const { status, owner, creator_id, event_key } = req.query;
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 1000);
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0);
 
     let sql = `SELECT e.*, c.primary_name as creator_name, c.wa_phone as creator_phone
                FROM events e
@@ -28,11 +30,15 @@ router.get('/', (req, res) => {
     if (creator_id) { sql += ` AND e.creator_id = ?`; params.push(creator_id); }
     if (event_key) { sql += ` AND e.event_key = ?`; params.push(event_key); }
 
-    sql += ` ORDER BY e.created_at DESC LIMIT ? OFFSET ?`;
-    params.push(parseInt(limit), parseInt(offset));
+    sql += ` ORDER BY e.created_at DESC LIMIT ${limit} OFFSET ${offset}`;
 
-    const events = db2.prepare(sql).all(...params);
-    const total = db2.prepare(`SELECT COUNT(*) as count FROM events e WHERE 1=1${status ? ' AND e.status = ?' : ''}${owner ? ' AND e.owner = ?' : ''}${creator_id ? ' AND e.creator_id = ?' : ''}${event_key ? ' AND e.event_key = ?' : ''}`).get(...(status ? [status] : owner ? [owner] : creator_id ? [creator_id] : event_key ? [event_key] : []));
+    const cond = status ? [status] : owner ? [owner] : creator_id ? [creator_id] : event_key ? [event_key] : [];
+    const countSql = `SELECT COUNT(*) as count FROM events e WHERE 1=1${status ? ' AND e.status = ?' : ''}${owner ? ' AND e.owner = ?' : ''}${creator_id ? ' AND e.creator_id = ?' : ''}${event_key ? ' AND e.event_key = ?' : ''}`;
+
+    const [events, total] = await Promise.all([
+      db2.prepare(sql).all(...params),
+      db2.prepare(countSql).get(...cond),
+    ]);
 
     res.json({ events, total: total.count, limit: parseInt(limit), offset: parseInt(offset) });
   } catch (err) {
@@ -42,10 +48,10 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/events/:id
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const db2 = db.getDb();
-    const event = db2.prepare(`
+    const event = await db2.prepare(`
       SELECT e.*, c.primary_name as creator_name, c.wa_phone as creator_phone
       FROM events e
       LEFT JOIN creators c ON c.id = e.creator_id
@@ -55,7 +61,7 @@ router.get('/:id', (req, res) => {
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
     event.policy = getPolicy(event.owner, event.event_key);
-    event.periods = db2.prepare(`
+    event.periods = await db2.prepare(`
       SELECT * FROM event_periods WHERE event_id = ? ORDER BY period_start DESC
     `).all(req.params.id);
 
@@ -67,7 +73,7 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/events
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const db2 = db.getDb();
     const { creator_id, event_key, event_type, owner, trigger_source = 'manual', trigger_text = '', start_at, end_at, meta = {} } = req.body;
@@ -76,18 +82,17 @@ router.post('/', (req, res) => {
       return res.status(400).json({ error: 'creator_id, event_key, event_type, owner required' });
     }
 
-    const existing = db2.prepare(`SELECT id FROM events WHERE creator_id = ? AND event_key = ? AND status = 'active'`).get(creator_id, event_key);
+    const existing = await db2.prepare(`SELECT id FROM events WHERE creator_id = ? AND event_key = ? AND status = 'active'`).get(creator_id, event_key);
     if (existing) {
       return res.status(409).json({ error: '同一达人已有相同事件处于 active 状态', existing_id: existing.id });
     }
 
-    const stmt = db2.prepare(`
+    const result = await db2.prepare(`
       INSERT INTO events (creator_id, event_key, event_type, owner, status, trigger_source, trigger_text, start_at, end_at, meta)
       VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(creator_id, event_key, event_type, owner, trigger_source, trigger_text, start_at || new Date().toISOString(), end_at, JSON.stringify(meta));
+    `).run(creator_id, event_key, event_type, owner, trigger_source, trigger_text, start_at || new Date().toISOString(), end_at, JSON.stringify(meta));
 
-    res.json({ id: result.insertId, status: 'active' });
+    res.json({ id: result.lastInsertRowid, status: 'active' });
   } catch (err) {
     console.error('POST /api/events error:', err);
     res.status(500).json({ error: err.message });
@@ -95,12 +100,12 @@ router.post('/', (req, res) => {
 });
 
 // PATCH /api/events/:id
-router.patch('/:id', (req, res) => {
+router.patch('/:id', async (req, res) => {
   try {
     const db2 = db.getDb();
     const { status, end_at, meta } = req.body;
 
-    const existing = db2.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
+    const existing = await db2.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Event not found' });
 
     const updates = [];
@@ -114,7 +119,7 @@ router.patch('/:id', (req, res) => {
     updates.push('updated_at = CURRENT_TIMESTAMP');
     params.push(req.params.id);
 
-    db2.prepare(`UPDATE events SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    await db2.prepare(`UPDATE events SET ${updates.join(', ')} WHERE id = ?`).run(...params);
     res.json({ ok: true });
   } catch (err) {
     console.error('PATCH /api/events/:id error:', err);
@@ -123,15 +128,15 @@ router.patch('/:id', (req, res) => {
 });
 
 // DELETE /api/events/:id
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const db2 = db.getDb();
-    const event = db2.prepare('SELECT status FROM events WHERE id = ?').get(req.params.id);
+    const event = await db2.prepare('SELECT status FROM events WHERE id = ?').get(req.params.id);
     if (!event) return res.status(404).json({ error: 'Event not found' });
     if (event.status !***REMOVED*** 'pending') return res.status(400).json({ error: '只能删除 pending 状态的事件' });
 
-    db2.prepare('DELETE FROM event_periods WHERE event_id = ?').run(req.params.id);
-    db2.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
+    await db2.prepare('DELETE FROM event_periods WHERE event_id = ?').run(req.params.id);
+    await db2.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     console.error('DELETE /api/events/:id error:', err);
@@ -140,13 +145,13 @@ router.delete('/:id', (req, res) => {
 });
 
 // POST /api/events/detect
-router.post('/detect', (req, res) => {
+router.post('/detect', async (req, res) => {
   try {
     const { text, creator_id } = req.body;
     if (!text || !creator_id) return res.status(400).json({ error: 'text and creator_id required' });
 
     const db2 = db.getDb();
-    const creator = db2.prepare('SELECT * FROM creators WHERE id = ?').get(creator_id);
+    const creator = await db2.prepare('SELECT * FROM creators WHERE id = ?').get(creator_id);
     if (!creator) return res.status(404).json({ error: 'Creator not found' });
 
     const lowerText = text.toLowerCase();
@@ -177,7 +182,7 @@ router.post('/detect', (req, res) => {
     const gmvKeywords = ['gmv', '$', 'revenue', '销售额', '成交'];
     for (const kw of gmvKeywords) {
       if (lowerText.includes(kw) && creator.keeper_username) {
-        const keeper = db2.prepare('SELECT * FROM keeper_link WHERE creator_id = ?').get(creator_id);
+        const keeper = await db2.prepare('SELECT * FROM keeper_link WHERE creator_id = ?').get(creator_id);
         if (keeper && keeper.keeper_gmv > 0) {
           detected.push({
             event_key: 'gmv_milestone',
@@ -201,10 +206,10 @@ router.post('/detect', (req, res) => {
 });
 
 // GET /api/events/:id/periods
-router.get('/:id/periods', (req, res) => {
+router.get('/:id/periods', async (req, res) => {
   try {
     const db2 = db.getDb();
-    const periods = db2.prepare(`
+    const periods = await db2.prepare(`
       SELECT * FROM event_periods WHERE event_id = ? ORDER BY period_start DESC
     `).all(req.params.id);
     res.json({ periods });
@@ -215,12 +220,12 @@ router.get('/:id/periods', (req, res) => {
 });
 
 // POST /api/events/:id/judge
-router.post('/:id/judge', (req, res) => {
+router.post('/:id/judge', async (req, res) => {
   try {
     const db2 = db.getDb();
     const { period_start, period_end, video_count } = req.body;
 
-    const event = db2.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
+    const event = await db2.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
     const policy = getPolicy(event.owner, event.event_key);
@@ -234,20 +239,20 @@ router.post('/:id/judge', (req, res) => {
       bonus_earned = video_count * bonus_per_video;
     }
 
-    const existingPeriod = db2.prepare(`SELECT id FROM event_periods WHERE event_id = ? AND period_start = ?`).get(req.params.id, period_start);
+    const existingPeriod = await db2.prepare(`SELECT id FROM event_periods WHERE event_id = ? AND period_start = ?`).get(req.params.id, period_start);
     let periodId;
     if (existingPeriod) {
-      db2.prepare(`
+      await db2.prepare(`
         UPDATE event_periods SET video_count = ?, bonus_earned = ?, status = 'settled', updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(video_count, bonus_earned, existingPeriod.id);
       periodId = existingPeriod.id;
     } else {
-      const result = db2.prepare(`
+      const result = await db2.prepare(`
         INSERT INTO event_periods (event_id, period_start, period_end, video_count, bonus_earned, status)
         VALUES (?, ?, ?, ?, ?, 'settled')
       `).run(req.params.id, period_start, period_end || period_start, video_count, bonus_earned);
-      periodId = result.insertId;
+      periodId = result.lastInsertRowid;
     }
 
     res.json({
@@ -266,14 +271,34 @@ router.post('/:id/judge', (req, res) => {
 });
 
 // POST /api/events/gmv-check
-router.post('/gmv-check', (req, res) => {
+router.post('/gmv-check', async (req, res) => {
   try {
     const db2 = db.getDb();
-    const activeGmvEvents = db2.prepare(`SELECT e.*, c.primary_name as creator_name, c.keeper_username FROM events e JOIN creators c ON c.id = e.creator_id WHERE e.event_type = 'gmv' AND e.status = 'active'`).all();
+    const activeGmvEvents = await db2.prepare(`SELECT e.*, c.primary_name as creator_name, c.keeper_username FROM events e JOIN creators c ON c.id = e.creator_id WHERE e.event_type = 'gmv' AND e.status = 'active'`).all();
+
+    if (activeGmvEvents.length ***REMOVED***= 0) {
+      return res.json({ events: [] });
+    }
+
+    // Batch fetch all keeper_links upfront (fixes N+1)
+    const creatorIds = activeGmvEvents.map(e => e.creator_id);
+    const keepers = await db2.prepare(`SELECT * FROM keeper_link WHERE creator_id IN (${creatorIds.map(() => '?').join(',')})`).all(...creatorIds);
+    const keeperMap = {};
+    keepers.forEach(k => { keeperMap[k.creator_id] = k; });
+
+    // Batch fetch all event_periods upfront (fixes N+1)
+    const eventIds = activeGmvEvents.map(e => e.id);
+    const periods = await db2.prepare(`SELECT * FROM event_periods WHERE event_id IN (${eventIds.map(() => '?').join(',')}) AND status = 'active'`).all(...eventIds);
+    const periodMap = {};
+    periods.forEach(p => {
+      if (!periodMap[p.event_id] || new Date(p.period_end) > new Date(periodMap[p.event_id].period_end)) {
+        periodMap[p.event_id] = p;
+      }
+    });
 
     const results = [];
     for (const evt of activeGmvEvents) {
-      const keeper = db2.prepare('SELECT * FROM keeper_link WHERE creator_id = ?').get(evt.creator_id);
+      const keeper = keeperMap[evt.creator_id];
       if (!keeper) continue;
 
       const gmv = keeper.keeper_gmv || 0;
@@ -285,7 +310,7 @@ router.post('/gmv-check', (req, res) => {
           if (gmv >= milestone.threshold) {
             if (milestone.reward_type ***REMOVED***= 'cash') totalReward += milestone.value;
             else if (milestone.reward_type ***REMOVED***= 'commission_boost') {
-              const recentPeriod = db2.prepare(`SELECT video_count FROM event_periods WHERE event_id = ? ORDER BY period_end DESC LIMIT 1`).get(evt.id);
+              const recentPeriod = periodMap[evt.id];
               if (recentPeriod && recentPeriod.video_count >= 35) {
                 totalReward += milestone.value;
               }
@@ -313,15 +338,15 @@ router.post('/gmv-check', (req, res) => {
 });
 
 // GET /api/events/summary/:creatorId
-router.get('/summary/:creatorId', (req, res) => {
+router.get('/summary/:creatorId', async (req, res) => {
   try {
     const db2 = db.getDb();
     const creatorId = req.params.creatorId;
 
-    const creator = db2.prepare('SELECT id, primary_name, wa_owner FROM creators WHERE id = ?').get(creatorId);
+    const creator = await db2.prepare('SELECT id, primary_name, wa_owner FROM creators WHERE id = ?').get(creatorId);
     if (!creator) return res.status(404).json({ error: 'Creator not found' });
 
-    const events = db2.prepare(`SELECT * FROM events WHERE creator_id = ? ORDER BY created_at DESC`).all(creatorId);
+    const events = await db2.prepare(`SELECT * FROM events WHERE creator_id = ? ORDER BY created_at DESC`).all(creatorId);
     const activeEvents = events.filter(e => e.status ***REMOVED***= 'active');
     const completedEvents = events.filter(e => e.status ***REMOVED***= 'completed');
 
@@ -349,7 +374,7 @@ router.get('/summary/:creatorId', (req, res) => {
 });
 
 // GET /api/events/policy/:owner/:eventKey
-router.get('/policy/:owner/:eventKey', (req, res) => {
+router.get('/policy/:owner/:eventKey', async (req, res) => {
   try {
     const { owner, eventKey } = req.params;
     const policy = getPolicy(owner, eventKey);

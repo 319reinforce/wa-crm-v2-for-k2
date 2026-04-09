@@ -7,19 +7,20 @@ const router = express.Router();
 const db = require('../../db');
 
 // GET /api/audit-log
-router.get('/audit-log', (req, res) => {
+router.get('/audit-log', async (req, res) => {
     try {
         const db2 = db.getDb();
-        const { action, limit = 50, offset = 0 } = req.query;
+        const { action } = req.query;
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 1000);
+        const offset = Math.max(parseInt(req.query.offset) || 0, 0);
         let sql = 'SELECT * FROM audit_log WHERE 1=1';
         const params = [];
         if (action) {
             sql += ' AND action = ?';
             params.push(action);
         }
-        sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-        params.push(parseInt(limit), parseInt(offset));
-        const rows = db2.prepare(sql).all(...params);
+        sql += ` ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+        const rows = await db2.prepare(sql).all(...params);
         res.json(rows.map(r => ({
             ...r,
             after_value: r.after_value ? JSON.parse(r.after_value) : null,
@@ -32,7 +33,7 @@ router.get('/audit-log', (req, res) => {
 });
 
 // GET /api/ab-evaluation
-router.get('/ab-evaluation', (req, res) => {
+router.get('/ab-evaluation', async (req, res) => {
     try {
         const db2 = db.getDb();
         const { start_date, end_date, owner } = req.query;
@@ -49,12 +50,20 @@ router.get('/ab-evaluation', (req, res) => {
             params.push(owner);
         }
 
-        const total = db2.prepare(`SELECT COUNT(*) as count FROM sft_memory sm ${joinCreators} ${where}`).get(...params)?.count || 0;
-        const opt1Count = db2.prepare(`SELECT COUNT(*) as count FROM sft_memory sm ${joinCreators} ${where} AND sm.human_selected = 'opt1'`).get(...params)?.count || 0;
-        const opt2Count = db2.prepare(`SELECT COUNT(*) as count FROM sft_memory sm ${joinCreators} ${where} AND sm.human_selected = 'opt2'`).get(...params)?.count || 0;
-        const customCount = db2.prepare(`SELECT COUNT(*) as count FROM sft_memory sm ${joinCreators} ${where} AND sm.human_selected = 'custom'`).get(...params)?.count || 0;
+        const countsRow = (await db2.prepare(`
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN sm.human_selected = 'opt1' THEN 1 ELSE 0 END) as opt1_count,
+                SUM(CASE WHEN sm.human_selected = 'opt2' THEN 1 ELSE 0 END) as opt2_count,
+                SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
+            FROM sft_memory sm ${joinCreators} ${where}
+        `).get(...params)) || { total: 0, opt1_count: 0, opt2_count: 0, custom_count: 0 };
+        const total = countsRow.total || 0;
+        const opt1Count = countsRow.opt1_count || 0;
+        const opt2Count = countsRow.opt2_count || 0;
+        const customCount = countsRow.custom_count || 0;
 
-        const bySceneRows = db2.prepare(`
+        const bySceneRows = await db2.prepare(`
             SELECT
                 JSON_EXTRACT(context_json, '$.scene') as scene,
                 COUNT(*) as total,
@@ -76,7 +85,7 @@ router.get('/ab-evaluation', (req, res) => {
             };
         }
 
-        const byOwnerRows = db2.prepare(`
+        const byOwnerRows = await db2.prepare(`
             SELECT
                 c.wa_owner as owner,
                 COUNT(*) as total,
@@ -97,13 +106,13 @@ router.get('/ab-evaluation', (req, res) => {
             };
         }
 
-        const byDayRows = db2.prepare(`
+        const byDayRows = await db2.prepare(`
             SELECT
                 DATE(created_at) as date,
                 COUNT(*) as total,
                 SUM(CASE WHEN human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
             FROM sft_memory
-            WHERE created_at >= DATE('now', '-30 days')
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
             GROUP BY DATE(created_at)
             ORDER BY date ASC
         `).all();

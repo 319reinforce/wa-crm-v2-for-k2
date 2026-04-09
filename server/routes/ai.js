@@ -14,7 +14,7 @@ router.post('/minimax', async (req, res) => {
         // 隔离校验：client_id 必须在 creators 表中存在
         if (client_id) {
             const db2 = db.getDb();
-            const valid = db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(client_id);
+            const valid = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(client_id);
             if (!valid) {
                 return res.status(403).json({ error: '无效的 client_id' });
             }
@@ -58,6 +58,7 @@ router.post('/minimax', async (req, res) => {
                     max_tokens: max_tokens || 500,
                     temperature: tempsMM[0],
                 }),
+                signal: AbortSignal.timeout(60000),
             }),
             fetch('https://api.minimaxi.com/anthropic/v1/messages', {
                 method: 'POST',
@@ -72,10 +73,21 @@ router.post('/minimax', async (req, res) => {
                     max_tokens: max_tokens || 500,
                     temperature: tempsMM[1],
                 }),
+                signal: AbortSignal.timeout(60000),
             }),
         ]);
         const [data1, data2] = await Promise.all([raw1.json(), raw2.json()]);
-        const extractText = (d) => d?.content?.find(c => c.type ***REMOVED***= 'text')?.text || '';
+        const extractText = (d) => {
+            // OpenAI format: { choices: [{ message: { content: "..." } }] }
+            if (d?.choices?.[0]?.message?.content) {
+                return d.choices[0].message.content;
+            }
+            // MiniMax format: { content: [{ type: 'text', text: '...' }] }
+            if (d?.content?.find) {
+                return d.content.find(c => c.type ***REMOVED***= 'text')?.text || '';
+            }
+            return '';
+        };
         return res.json({
             id: data1?.id || 'minimax-' + Date.now(),
             type: 'message',

@@ -10,9 +10,10 @@ const router = express.Router();
 const db = require('../../db');
 const { writeAudit } = require('../middleware/audit');
 const { sha256 } = require('../utils/crypto');
+const { parseJsonSafe, validateHumanOutput } = require('../services/sftService');
 
 // POST /api/sft-memory
-router.post('/sft-memory', (req, res) => {
+router.post('/sft-memory', async (req, res) => {
     try {
         const {
             model_candidates,
@@ -28,15 +29,9 @@ router.post('/sft-memory', (req, res) => {
             return res.status(400).json({ error: 'human_selected and human_output required' });
         }
 
-        const trimmedOutput = (human_output || '').trim();
-        if (trimmedOutput.length < 3) {
-            return res.status(400).json({ error: 'human_output too short (< 3 chars)' });
-        }
-        if (/^[🔶✅❌👍👎💬📋✨🎉🙏👏🎊⭐️🎯💡🔔📌📎🎬🗣️👀✅☑️✔️❤️🧡💛💚💙💜🤎🖤🤍]+$/.test(trimmedOutput)) {
-            return res.status(400).json({ error: 'human_output is pure emoji, rejected' });
-        }
-        if (/^[.,!?。，！?、：:;；\-—_=+*#]+$/.test(trimmedOutput)) {
-            return res.status(400).json({ error: 'human_output is pure punctuation, rejected' });
+        const validation = validateHumanOutput(human_output);
+        if (!validation.valid) {
+            return res.status(400).json({ error: validation.error });
         }
 
         const db2 = db.getDb();
@@ -72,26 +67,26 @@ router.post('/sft-memory', (req, res) => {
             chosen_output = human_output; rejected_output = opt1;
         }
 
-        const existing = db2.prepare(`
+        const existing = await db2.prepare(`
             SELECT id FROM sft_memory
             WHERE client_id_hash = ? AND input_text_hash = ? AND human_output_hash = ? AND created_date = ?
         `).get(client_id_hash, input_text_hash, human_output_hash, created_date);
 
         if (existing) {
             const newStatus = (status ***REMOVED***= 'approved') ? existing.status || status : status;
-            db2.prepare(`
+            await db2.prepare(`
                 UPDATE sft_memory SET
-                    human_output = excluded.human_output,
-                    status = CASE WHEN excluded.status = 'approved' THEN status ELSE excluded.status END,
-                    similarity = excluded.similarity,
-                    chosen_output = excluded.chosen_output,
-                    rejected_output = excluded.rejected_output
+                    human_output = VALUES(human_output),
+                    status = CASE WHEN VALUES(status) = 'approved' THEN status ELSE VALUES(status) END,
+                    similarity = VALUES(similarity),
+                    chosen_output = VALUES(chosen_output),
+                    rejected_output = VALUES(rejected_output)
                 WHERE id = ?
             `).run(human_output, newStatus, similarity, chosen_output, rejected_output, existing.id);
             return res.json({ ok: true, id: existing.id, updated: true });
         }
 
-        const result = db2.prepare(`
+        const result = await db2.prepare(`
             INSERT INTO sft_memory
             (model_opt1, model_opt2, human_selected, human_output,
              model_predicted, model_rejected, is_custom_input, human_reason,
@@ -123,10 +118,10 @@ router.post('/sft-memory', (req, res) => {
             rejected_output
         );
 
-        writeAudit('sft_create', 'sft_memory', result.insertId, null, {
+        await writeAudit('sft_create', 'sft_memory', result.lastInsertRowid, null, {
             human_selected, human_output, status, reviewed_by
         }, req);
-        res.json({ ok: true, id: result.insertId });
+        res.json({ ok: true, id: result.lastInsertRowid });
     } catch (err) {
         console.error('POST /api/sft-memory error:', err);
         res.status(500).json({ error: err.message });
@@ -134,21 +129,21 @@ router.post('/sft-memory', (req, res) => {
 });
 
 // GET /api/sft-memory
-router.get('/sft-memory', (req, res) => {
+router.get('/sft-memory', async (req, res) => {
     try {
         const db2 = db.getDb();
-        const { limit = 50, offset = 0 } = req.query;
-        const rows = db2.prepare(`
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 1000);
+        const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+        const rows = await db2.prepare(`
             SELECT * FROM sft_memory
             ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-        `).all(parseInt(limit), parseInt(offset));
-        res.json(rows.map(r => {
-            let context = null, message_history = null;
-            try { if (r.context_json) context = JSON.parse(r.context_json); } catch (_) {}
-            try { if (r.message_history) message_history = JSON.parse(r.message_history); } catch (_) {}
-            return { ...r, context, message_history };
-        }));
+            LIMIT ${limit} OFFSET ${offset}
+        `).all();
+        res.json(rows.map(r => ({
+            ...r,
+            context: parseJsonSafe(r.context_json),
+            message_history: parseJsonSafe(r.message_history),
+        })));
     } catch (err) {
         console.error('GET /api/sft-memory error:', err);
         res.status(500).json({ error: err.message });
@@ -156,21 +151,20 @@ router.get('/sft-memory', (req, res) => {
 });
 
 // GET /api/sft-memory/pending
-router.get('/sft-memory/pending', (req, res) => {
+router.get('/sft-memory/pending', async (req, res) => {
     try {
         const db2 = db.getDb();
-        const rows = db2.prepare(`
+        const rows = await db2.prepare(`
             SELECT * FROM sft_memory
             WHERE status IN ('pending_review', 'needs_review')
             ORDER BY created_at DESC
             LIMIT 100
         `).all();
-        res.json(rows.map(r => {
-            let context = null, message_history = null;
-            try { if (r.context_json) context = JSON.parse(r.context_json); } catch (_) {}
-            try { if (r.message_history) message_history = JSON.parse(r.message_history); } catch (_) {}
-            return { ...r, context, message_history };
-        }));
+        res.json(rows.map(r => ({
+            ...r,
+            context: parseJsonSafe(r.context_json),
+            message_history: parseJsonSafe(r.message_history),
+        })));
     } catch (err) {
         console.error('GET /api/sft-memory/pending error:', err);
         res.status(500).json({ error: err.message });
@@ -178,7 +172,7 @@ router.get('/sft-memory/pending', (req, res) => {
 });
 
 // PATCH /api/sft-memory/:id/review
-router.patch('/sft-memory/:id/review', (req, res) => {
+router.patch('/sft-memory/:id/review', async (req, res) => {
     try {
         const { action, comment } = req.body;
         if (!action || !['approve', 'reject'].includes(action)) {
@@ -186,11 +180,11 @@ router.patch('/sft-memory/:id/review', (req, res) => {
         }
         const db2 = db.getDb();
         const newStatus = action ***REMOVED***= 'approve' ? 'approved' : 'rejected';
-        const result = db2.prepare(`
+        const result = await db2.prepare(`
             UPDATE sft_memory SET status = ?, reviewed_by = ?, human_reason = COALESCE(?, human_reason)
             WHERE id = ?
         `).run(newStatus, 'human_review', comment || null, parseInt(req.params.id));
-        if (result.affectedRows ***REMOVED***= 0) {
+        if (result.changes ***REMOVED***= 0) {
             return res.status(404).json({ error: 'Record not found' });
         }
         res.json({ ok: true, status: newStatus });
@@ -201,15 +195,15 @@ router.patch('/sft-memory/:id/review', (req, res) => {
 });
 
 // GET /api/sft-memory/stats
-router.get('/sft-memory/stats', (req, res) => {
+router.get('/sft-memory/stats', async (req, res) => {
     try {
         const db2 = db.getDb();
-        const total = db2.prepare('SELECT COUNT(*) as count FROM sft_memory').get().count;
-        const opt1 = db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'opt1'").get().count;
-        const opt2 = db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'opt2'").get().count;
-        const custom = db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'custom'").get().count;
-        const pending = db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status IN ('pending_review','needs_review')").get().count;
-        const approved = db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved'").get().count;
+        const total = (await db2.prepare('SELECT COUNT(*) as count FROM sft_memory').get()).count;
+        const opt1 = (await db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'opt1'").get()).count;
+        const opt2 = (await db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'opt2'").get()).count;
+        const custom = (await db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'custom'").get()).count;
+        const pending = (await db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status IN ('pending_review','needs_review')").get()).count;
+        const approved = (await db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved'").get()).count;
         res.json({
             total,
             opt1_selected: opt1,
@@ -226,10 +220,10 @@ router.get('/sft-memory/stats', (req, res) => {
 });
 
 // GET /api/sft-memory/trends
-router.get('/sft-memory/trends', (req, res) => {
+router.get('/sft-memory/trends', async (req, res) => {
     try {
         const db2 = db.getDb();
-        const rows = db2.prepare(`
+        const rows = await db2.prepare(`
             SELECT
                 DATE(created_at) as date,
                 COUNT(*) as total,
@@ -238,7 +232,7 @@ router.get('/sft-memory/trends', (req, res) => {
                 SUM(CASE WHEN human_selected = 'custom' THEN 1 ELSE 0 END) as custom_cnt,
                 SUM(CASE WHEN status = 'pending_review' THEN 1 ELSE 0 END) as pending_cnt
             FROM sft_memory
-            WHERE created_at >= DATE('now', '-30 days')
+            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
             GROUP BY DATE(created_at)
             ORDER BY date ASC
         `).all();
@@ -249,10 +243,10 @@ router.get('/sft-memory/trends', (req, res) => {
         const opt2_rate = rows.map(r => r.total > 0 ? +(r.opt2_cnt / r.total * 100).toFixed(1) : 0);
         const custom_rate = rows.map(r => r.total > 0 ? +(r.custom_cnt / r.total * 100).toFixed(1) : 0);
 
-        const skipRows = db2.prepare(`
+        const skipRows = await db2.prepare(`
             SELECT DATE(created_at) as date, COUNT(*) as skip_cnt
             FROM sft_feedback
-            WHERE feedback_type = 'skip' AND created_at >= DATE('now', '-30 days')
+            WHERE feedback_type = 'skip' AND created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
             GROUP BY DATE(created_at)
         `).all();
         const skipMap = {};
@@ -270,18 +264,18 @@ router.get('/sft-memory/trends', (req, res) => {
 });
 
 // POST /api/sft-feedback
-router.post('/sft-feedback', (req, res) => {
+router.post('/sft-feedback', async (req, res) => {
     try {
         const { client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail, reject_reason } = req.body;
         if (!feedback_type || !['skip', 'reject', 'edit'].includes(feedback_type)) {
             return res.status(400).json({ error: 'feedback_type must be skip, reject, or edit' });
         }
         const db2 = db.getDb();
-        const result = db2.prepare(`
+        const result = await db2.prepare(`
             INSERT INTO sft_feedback (client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail, reject_reason)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(client_id || null, feedback_type, input_text || null, opt1 || null, opt2 || null, final_output || null, scene || null, detail || null, reject_reason || null);
-        res.json({ ok: true, id: result.insertId });
+        res.json({ ok: true, id: result.lastInsertRowid });
     } catch (err) {
         console.error('POST /api/sft-feedback error:', err);
         res.status(500).json({ error: err.message });
@@ -289,15 +283,14 @@ router.post('/sft-feedback', (req, res) => {
 });
 
 // GET /api/sft-feedback/stats
-router.get('/sft-feedback/stats', (req, res) => {
+router.get('/sft-feedback/stats', async (req, res) => {
     try {
         const db2 = db.getDb();
-        const total = db2.prepare('SELECT COUNT(*) as count FROM sft_feedback').get().count;
+        const total = (await db2.prepare('SELECT COUNT(*) as count FROM sft_feedback').get()).count;
+        const byTypeRows = await db2.prepare('SELECT feedback_type, COUNT(*) as count FROM sft_feedback GROUP BY feedback_type').all();
         const byType = {};
-        db2.prepare('SELECT feedback_type, COUNT(*) as count FROM sft_feedback GROUP BY feedback_type').all().forEach(r => {
-            byType[r.feedback_type] = r.count;
-        });
-        const byScene = db2.prepare(`
+        byTypeRows.forEach(r => { byType[r.feedback_type] = r.count; });
+        const byScene = await db2.prepare(`
             SELECT scene, feedback_type, COUNT(*) as count
             FROM sft_feedback WHERE scene IS NOT NULL
             GROUP BY scene, feedback_type
@@ -320,14 +313,15 @@ router.get('/sft-export', async (req, res) => {
         const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
 
         const db2 = db.getDb();
-        const { format = 'json', limit = 1000, status = 'approved', lang = 'all' } = req.query;
+        const { format = 'json', status = 'approved', lang = 'all' } = req.query;
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 1000, 1), 5000);
 
-        const rows = db2.prepare(`
+        const rows = await db2.prepare(`
             SELECT * FROM sft_memory
             WHERE status = ?
             ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-        `).all(status, parseInt(limit), 0);
+            LIMIT ${limit} OFFSET 0
+        `).all(status);
 
         const isEnglish = (text) => /^[a-zA-Z\s.,!?]+$/.test((text || '').slice(0, 100));
 

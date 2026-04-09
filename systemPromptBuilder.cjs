@@ -3,7 +3,7 @@
  * experience.js（推理）和 server.js（export）共用同一套 prompt 构建逻辑
  */
 
-const db = require('./db');
+const db = require('./db.js');
 
 /**
  * 完整的 system prompt 构建（与推理时完全一致）

@@ -13,14 +13,14 @@ const db = require('../../db');
 const { writeAudit } = require('../middleware/audit');
 
 // GET /api/client-memory/:clientId
-router.get('/client-memory/:clientId', (req, res) => {
+router.get('/client-memory/:clientId', async (req, res) => {
     try {
         const { clientId } = req.params;
         if (!clientId || typeof clientId !***REMOVED*** 'string' || clientId.length > 50) {
             return res.status(400).json({ error: 'invalid clientId' });
         }
         const db2 = db.getDb();
-        const rows = db2.prepare(`
+        const rows = await db2.prepare(`
             SELECT * FROM client_memory
             WHERE client_id = ?
             ORDER BY memory_type, confidence DESC
@@ -33,14 +33,14 @@ router.get('/client-memory/:clientId', (req, res) => {
 });
 
 // POST /api/client-memory
-router.post('/client-memory', (req, res) => {
+router.post('/client-memory', async (req, res) => {
     try {
         const { client_id, memory_type, memory_key, memory_value, confidence = 1 } = req.body;
         if (!client_id || !memory_type || !memory_key || !memory_value) {
             return res.status(400).json({ error: 'client_id, memory_type, memory_key, memory_value required' });
         }
         const db2 = db.getDb();
-        db2.prepare(`
+        await db2.prepare(`
             INSERT INTO client_memory
             (client_id, memory_type, memory_key, memory_value, confidence, updated_at)
             VALUES (?, ?, ?, ?, ?, NOW())
@@ -58,22 +58,22 @@ router.post('/client-memory', (req, res) => {
 });
 
 // GET /api/client-profile/:clientId
-router.get('/client-profile/:clientId', (req, res) => {
+router.get('/client-profile/:clientId', async (req, res) => {
     try {
         const db2 = db.getDb();
         const { clientId } = req.params;
 
-        const profile = db2.prepare('SELECT * FROM client_profiles WHERE client_id = ?').get(clientId);
-        const tags = db2.prepare(
+        const profile = await db2.prepare('SELECT * FROM client_profiles WHERE client_id = ?').get(clientId);
+        const tags = await db2.prepare(
             'SELECT * FROM client_tags WHERE client_id = ? ORDER BY confidence DESC'
         ).all(clientId);
-        const memory = db2.prepare(
+        const memory = await db2.prepare(
             'SELECT * FROM client_memory WHERE client_id = ? ORDER BY created_at DESC LIMIT 20'
         ).all(clientId);
 
         const profileData = profile || { summary: null, tiktok_data: null, stage: null, last_interaction: null, last_updated: null };
 
-        const creator = db2.prepare(`
+        const creator = await db2.prepare(`
             SELECT c.primary_name as name, c.wa_owner, c.keeper_username,
                    wc.beta_status as conversion_stage, wc.priority,
                    k.keeper_gmv, k.keeper_videos, k.keeper_orders
@@ -105,18 +105,18 @@ router.get('/client-profile/:clientId', (req, res) => {
 });
 
 // PUT /api/client-profile/:clientId
-router.put('/client-profile/:clientId', (req, res) => {
+router.put('/client-profile/:clientId', async (req, res) => {
     try {
         const db2 = db.getDb();
         const { clientId } = req.params;
         const { summary } = req.body;
 
-        const updated = db2.prepare(`
+        const updated = await db2.prepare(`
             UPDATE client_profiles SET summary = ?, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?
         `).run(summary || '', clientId);
 
         if (updated.changes ***REMOVED***= 0) {
-            db2.prepare(`
+            await db2.prepare(`
                 INSERT INTO client_profiles (client_id, summary) VALUES (?, ?)
             `).run(clientId, summary || '');
         }
@@ -129,7 +129,7 @@ router.put('/client-profile/:clientId', (req, res) => {
 });
 
 // PUT /api/client-profiles/:clientId/tags
-router.put('/client-profiles/:clientId/tags', (req, res) => {
+router.put('/client-profiles/:clientId/tags', async (req, res) => {
     try {
         const db2 = db.getDb();
         const { clientId } = req.params;
@@ -138,10 +138,10 @@ router.put('/client-profiles/:clientId/tags', (req, res) => {
         if (!tag) return res.status(400).json({ error: 'tag required' });
 
         if (action ***REMOVED***= 'delete') {
-            db2.prepare('DELETE FROM client_tags WHERE client_id = ? AND tag = ?').run(clientId, tag);
+            await db2.prepare('DELETE FROM client_tags WHERE client_id = ? AND tag = ?').run(clientId, tag);
         } else {
             const fullTag = tag.includes(':') ? tag : `${tag}:${value || 'true'}`;
-            db2.prepare(`
+            await db2.prepare(`
                 INSERT INTO client_tags (client_id, tag, source, confidence)
                 VALUES (?, ?, 'manual', ?)
                 ON DUPLICATE KEY UPDATE confidence = VALUES(confidence), tag = VALUES(tag)
@@ -156,7 +156,7 @@ router.put('/client-profiles/:clientId/tags', (req, res) => {
 });
 
 // POST /api/client-profiles/:clientId/memory
-router.post('/client-profiles/:clientId/memory', (req, res) => {
+router.post('/client-profiles/:clientId/memory', async (req, res) => {
     try {
         const db2 = db.getDb();
         const { clientId } = req.params;
@@ -166,7 +166,7 @@ router.post('/client-profiles/:clientId/memory', (req, res) => {
             return res.status(400).json({ error: 'memory_type, memory_key and memory_value required' });
         }
 
-        db2.prepare(`
+        await db2.prepare(`
             INSERT INTO client_memory (client_id, memory_type, memory_key, memory_value)
             VALUES (?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE memory_value = VALUES(memory_value)
@@ -180,7 +180,7 @@ router.post('/client-profiles/:clientId/memory', (req, res) => {
 });
 
 // DELETE /api/client-profiles/:clientId/memory
-router.delete('/client-profiles/:clientId/memory', (req, res) => {
+router.delete('/client-profiles/:clientId/memory', async (req, res) => {
     try {
         const db2 = db.getDb();
         const { clientId } = req.params;
@@ -190,7 +190,7 @@ router.delete('/client-profiles/:clientId/memory', (req, res) => {
             return res.status(400).json({ error: 'memory_type and memory_key required' });
         }
 
-        db2.prepare('DELETE FROM client_memory WHERE client_id = ? AND memory_type = ? AND memory_key = ?')
+        await db2.prepare('DELETE FROM client_memory WHERE client_id = ? AND memory_type = ? AND memory_key = ?')
             .run(clientId, memory_type, memory_key);
 
         res.json({ ok: true });
@@ -201,7 +201,7 @@ router.delete('/client-profiles/:clientId/memory', (req, res) => {
 });
 
 // POST /api/profile-agent/event
-router.post('/profile-agent/event', (req, res) => {
+router.post('/profile-agent/event', async (req, res) => {
     try {
         const { event_type, client_id, data: eventData } = req.body;
         if (!event_type || !client_id) {
@@ -210,14 +210,14 @@ router.post('/profile-agent/event', (req, res) => {
 
         const db2 = db.getDb();
 
-        const creator = db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(client_id);
+        const creator = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(client_id);
         if (!creator) {
             return res.status(404).json({ error: 'client not found' });
         }
 
-        let profile = db2.prepare('SELECT id FROM client_profiles WHERE client_id = ?').get(client_id);
+        const profile = await db2.prepare('SELECT id FROM client_profiles WHERE client_id = ?').get(client_id);
         if (!profile) {
-            db2.prepare('INSERT INTO client_profiles (client_id) VALUES (?)').run(client_id);
+            await db2.prepare('INSERT INTO client_profiles (client_id) VALUES (?)').run(client_id);
         }
 
         let tags_added = [];
@@ -241,8 +241,8 @@ router.post('/profile-agent/event', (req, res) => {
 
         // Insert tags
         for (const { tag, source } of tags_added) {
-            db2.prepare(
-                'INSERT OR IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, ?, ?, 2)'
+            await db2.prepare(
+                'INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, ?, ?, 2)'
             ).run(client_id, tag, source);
         }
 

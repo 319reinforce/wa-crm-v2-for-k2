@@ -1,13 +1,11 @@
 /**
  * MySQL 数据库操作库
  * WA CRM v2
- * 迁移自 better-sqlite3 → mysql2 + deasync（同步封装）
- * 对外接口与 SQLite 版本完全一致（prepare/get/all/run/transaction）
+ * mysql2/promise 异步封装，async/await 接口
+ * 对外接口与 better-sqlite3 版本一致（prepare/get/all/run/transaction）
  */
-
-const mysql = require('mysql2');
-const deasync = require('deasync');
-const path = require('path');
+require('dotenv').config();
+const mysql = require('mysql2/promise');
 
 const DB_CONFIG = {
     host: process.env.DB_HOST || '127.0.0.1',
@@ -34,37 +32,16 @@ function getPool() {
 }
 
 // 关闭连接池
-function closeDb() {
+async function closeDb() {
     if (pool) {
-        pool.end();
+        await pool.end();
         pool = null;
     }
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 同步执行封装 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
-
-// 用 deasync 把 Promise 转成同步返回值（阻塞事件循环，模拟 better-sqlite3）
-function syncQuery(sql, params = []) {
-    const p = getPool();
-    let done = false;
-    let result = null;
-    let err = null;
-    p.query(sql, params, (e, r) => { err = e; result = r; done = true; });
-    // 轮询直到完成（deasync 方式）
-    while (!done) { deasync.runLoopOnce(); }
-    if (err) throw err;
-    return result;
-}
-
-// 同步执行（单行）
-function syncQueryOne(sql, params = []) {
-    const rows = syncQuery(sql, params);
-    return rows[0] || null;
-}
-
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** SQLite 接口兼容层 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
-// SQLite → MySQL 结果格式适配
+// MySQL → SQLite 结果格式适配
 function toSqliteFormat(result) {
     return {
         lastInsertRowid: result.insertId || 0,
@@ -75,114 +52,91 @@ function toSqliteFormat(result) {
 const db = {
     prepare(sql) {
         return {
-            get(...params) {
-                return syncQueryOne(sql, params);
+            get: async (...params) => {
+                const [rows] = await getPool().execute(sql, params);
+                return rows[0] || null;
             },
-            all(...params) {
-                return syncQuery(sql, params);
+            all: async (...params) => {
+                const [rows] = await getPool().execute(sql, params);
+                return rows;
             },
-            run(...params) {
-                const r = syncQuery(sql, params);
-                return toSqliteFormat(r);
+            run: async (...params) => {
+                const [result] = await getPool().execute(sql, params);
+                return toSqliteFormat(result);
             },
         };
     },
 
-    transaction(fn) {
-        const p = getPool();
-        let done = false;
-        let txErr = null;
-        p.getConnection((err, conn) => {
-            if (err) { txErr = err; done = true; return; }
-            conn.beginTransaction((err) => {
-                if (err) { txErr = err; done = true; conn.release(); return; }
-                try {
-                    const txDb = {
-                        prepare(sql) {
-                            return {
-                                get(...params) {
-                                    let gDone = false;
-                                    let gResult = null;
-                                    let gErr = null;
-                                    conn.query(sql, params, (e, r) => { gErr = e; gResult = r && r[0] || null; gDone = true; });
-                                    while (!gDone) { deasync.runLoopOnce(); }
-                                    if (gErr) throw gErr;
-                                    return gResult;
-                                },
-                                all(...params) {
-                                    let aDone = false;
-                                    let aResult = null;
-                                    let aErr = null;
-                                    conn.query(sql, params, (e, r) => { aErr = e; aResult = r; aDone = true; });
-                                    while (!aDone) { deasync.runLoopOnce(); }
-                                    if (aErr) throw aErr;
-                                    return aResult;
-                                },
-                                run(...params) {
-                                    let rDone = false;
-                                    let rResult = null;
-                                    let rErr = null;
-                                    conn.query(sql, params, (e, r) => { rErr = e; rResult = r; rDone = true; });
-                                    while (!rDone) { deasync.runLoopOnce(); }
-                                    if (rErr) throw rErr;
-                                    return toSqliteFormat(rResult);
-                                },
-                            };
+    transaction: async (fn) => {
+        const conn = await getPool().getConnection();
+        await conn.beginTransaction();
+        try {
+            const txDb = {
+                prepare(sql) {
+                    return {
+                        get: async (...params) => {
+                            const [rows] = await conn.execute(sql, params);
+                            return rows[0] || null;
+                        },
+                        all: async (...params) => {
+                            const [rows] = await conn.execute(sql, params);
+                            return rows;
+                        },
+                        run: async (...params) => {
+                            const [result] = await conn.execute(sql, params);
+                            return toSqliteFormat(result);
                         },
                     };
-                    const result = fn(txDb);
-                    conn.commit((err) => {
-                        if (err) { conn.rollback(); conn.release(); txErr = err; }
-                        conn.release();
-                        done = true;
-                    });
-                } catch (e) {
-                    conn.rollback(() => { conn.release(); txErr = e; });
-                    done = true;
-                }
-            });
-        });
-        while (!done) { deasync.runLoopOnce(); }
-        if (txErr) throw txErr;
+                },
+            };
+            const result = await fn(txDb);
+            await conn.commit();
+            return result;
+        } catch (e) {
+            await conn.rollback();
+            throw e;
+        } finally {
+            conn.release();
+        }
     },
 };
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Creator 操作 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
-function getOrCreateCreator(phone, name, source = 'wa') {
-    const existing = db.prepare('SELECT id, primary_name FROM creators WHERE wa_phone = ?').get(phone);
-    if (existing) {
-        if (name) {
-            db.prepare('UPDATE creators SET primary_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-                .run(name, existing.id);
+async function getOrCreateCreator(phone, name, source = 'wa') {
+    return await db.transaction(async (txDb) => {
+        const existing = await txDb.prepare('SELECT id, primary_name FROM creators WHERE wa_phone = ?').get(phone);
+        if (existing) {
+            if (name) {
+                await txDb.prepare('UPDATE creators SET primary_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                    .run(name, existing.id);
+            }
+            return existing.id;
         }
-        return existing.id;
-    }
-    const result = db.prepare(
-        'INSERT INTO creators (primary_name, wa_phone, source) VALUES (?, ?, ?)'
-    ).run(name || 'Unknown', phone, source);
-    return result.lastInsertRowid;
+        const result = await txDb.prepare(
+            'INSERT INTO creators (primary_name, wa_phone, source) VALUES (?, ?, ?)'
+        ).run(name || 'Unknown', phone, source);
+        return result.lastInsertRowid;
+    });
 }
 
-function findCreator(query) {
+async function findCreator(query) {
     if (query.phone) {
-        const byPhone = db.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(query.phone);
-        if (byPhone) return byPhone.id;
+        return (await db.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(query.phone))?.id || null;
     }
     if (query.keeper_username) {
-        const byKeeper = db.prepare('SELECT id FROM creators WHERE keeper_username = ?').get(query.keeper_username);
-        if (byKeeper) return byKeeper.id;
+        return (await db.prepare('SELECT id FROM creators WHERE keeper_username = ?').get(query.keeper_username))?.id || null;
     }
     if (query.alias_type && query.alias_value) {
-        const byAlias = db.prepare(
+        return (await db.prepare(
             'SELECT creator_id FROM creator_aliases WHERE alias_type = ? AND alias_value = ?'
-        ).get(query.alias_type, query.alias_value);
-        if (byAlias) return byAlias.creator_id;
+        ).get(query.alias_type, query.alias_value))?.creator_id || null;
     }
     return null;
 }
 
-function updateCreator(id, updates) {
+async function updateCreator(id, updates) {
+    if (!updates || typeof updates !***REMOVED*** 'object') return;
     const allowed = ['primary_name', 'keeper_username', 'wa_owner', 'is_active'];
     const fields = [];
     const values = [];
@@ -194,78 +148,89 @@ function updateCreator(id, updates) {
     }
     if (fields.length ***REMOVED***= 0) return;
     values.push(id);
-    db.prepare(`UPDATE creators SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...values);
+    await db.prepare(`UPDATE creators SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...values);
 }
 
-function addAlias(creatorId, aliasType, aliasValue, verified = false) {
+async function addAlias(creatorId, aliasType, aliasValue, verified = false) {
     try {
-        db.prepare(
+        await db.prepare(
             'INSERT IGNORE INTO creator_aliases (creator_id, alias_type, alias_value, is_verified) VALUES (?, ?, ?, ?)'
         ).run(creatorId, aliasType, aliasValue, verified ? 1 : 0);
     } catch (e) {
-        // 忽略重复别名错误
+        if (e.code !***REMOVED*** 'ER_DUP_ENTRY') throw e;
     }
 }
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 消息操作 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
-function insertMessage(creatorId, role, text, timestamp) {
-    db.prepare(
+async function insertMessage(creatorId, role, text, timestamp) {
+    await db.prepare(
         'INSERT INTO wa_messages (creator_id, role, text, timestamp) VALUES (?, ?, ?, ?)'
     ).run(creatorId, role, text, timestamp);
 }
 
-function insertMessagesBatch(creatorId, messages) {
-    const existing = db.prepare(
-        'SELECT timestamp FROM wa_messages WHERE creator_id = ?'
-    ).all(creatorId);
-    const existingTimestamps = new Set(existing.map(r => r.timestamp));
-    const filtered = messages.filter(m => !existingTimestamps.has(m.timestamp));
-    if (filtered.length ***REMOVED***= 0) return;
-
-    db.transaction(async (txDb) => {
+async function insertMessagesBatch(creatorId, messages) {
+    if (!messages || messages.length ***REMOVED***= 0) return;
+    await db.transaction(async (txDb) => {
         const insert = txDb.prepare(
-            'INSERT INTO wa_messages (creator_id, role, text, timestamp) VALUES (?, ?, ?, ?)'
+            'INSERT IGNORE INTO wa_messages (creator_id, role, text, timestamp) VALUES (?, ?, ?, ?)'
         );
-        for (const msg of filtered) {
-            insert.run(creatorId, msg.role, msg.text, msg.timestamp);
+        for (const msg of messages) {
+            await insert.run(creatorId, msg.role, msg.text, msg.timestamp);
         }
     });
 }
 
-function getMessageCount(creatorId) {
-    const result = db.prepare('SELECT COUNT(*) as count FROM wa_messages WHERE creator_id = ?').get(creatorId);
-    return result ? result.count : 0;
+async function getMessageCount(creatorId) {
+    const result = await db.prepare('SELECT COUNT(*) as cnt FROM wa_messages WHERE creator_id = ?').get(creatorId);
+    return result ? (result.cnt || 0) : 0;
 }
 
-function getLastMessage(creatorId) {
-    return db.prepare(
+async function getLastMessage(creatorId) {
+    return await db.prepare(
         'SELECT * FROM wa_messages WHERE creator_id = ? ORDER BY timestamp DESC LIMIT 1'
     ).get(creatorId);
 }
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** WA CRM 数据操作 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
-function getOrCreateWacrm(creatorId) {
-    let wacrm = db.prepare('SELECT * FROM wa_crm_data WHERE creator_id = ?').get(creatorId);
-    if (!wacrm) {
-        db.prepare('INSERT INTO wa_crm_data (creator_id) VALUES (?)').run(creatorId);
-        wacrm = db.prepare('SELECT * FROM wa_crm_data WHERE creator_id = ?').get(creatorId);
-    }
-    return wacrm;
+async function getOrCreateWacrm(creatorId) {
+    return await db.transaction(async (txDb) => {
+        let wacrm = await txDb.prepare('SELECT * FROM wa_crm_data WHERE creator_id = ?').get(creatorId);
+        if (!wacrm) {
+            await txDb.prepare('INSERT IGNORE INTO wa_crm_data (creator_id) VALUES (?)').run(creatorId);
+            wacrm = await txDb.prepare('SELECT * FROM wa_crm_data WHERE creator_id = ?').get(creatorId);
+        }
+        return wacrm;
+    });
 }
 
-function updateWacrm(creatorId, updates) {
-    const fields = Object.keys(updates);
+async function updateWacrm(creatorId, updates) {
+    const allowed = [
+        'priority', 'next_action', 'event_score', 'urgency_level',
+        'monthly_fee_status', 'monthly_fee_amount', 'monthly_fee_deducted',
+        'beta_status', 'beta_cycle_start', 'beta_program_type',
+        'agency_bound', 'agency_bound_at', 'agency_deadline',
+        'video_count', 'video_target', 'video_last_checked'
+    ];
+    const fields = [];
+    const values = [];
+    for (const key of Object.keys(updates)) {
+        if (allowed.includes(key)) {
+            fields.push(`${key} = ?`);
+            values.push(updates[key]);
+        }
+    }
     if (fields.length ***REMOVED***= 0) return;
-    const setClause = fields.map(f => `${f} = ?`).join(', ');
-    const values = [...Object.values(updates), creatorId];
-    db.prepare(`UPDATE wa_crm_data SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE creator_id = ?`).run(...values);
+    values.push(creatorId);
+    await db.prepare(`UPDATE wa_crm_data SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE creator_id = ?`).run(...values);
 }
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 查询 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
-function getAllCreators(filters = {}) {
+async function getAllCreators(filters = {}) {
+    const limit = Math.min(parseInt(filters.limit) || 100, 500);
+    const offset = parseInt(filters.offset) || 0;
     let sql = `
         SELECT
             c.id, c.primary_name, c.wa_phone, c.keeper_username, c.wa_owner,
@@ -285,12 +250,12 @@ function getAllCreators(filters = {}) {
         sql += ' AND c.is_active = ?';
         params.push(filters.is_active ? 1 : 0);
     }
-    sql += ' GROUP BY c.id ORDER BY msg_count DESC';
-    return db.prepare(sql).all(...params);
+    sql += ` GROUP BY c.id ORDER BY msg_count DESC LIMIT ${limit} OFFSET ${offset}`;
+    return await db.prepare(sql).all(...params);
 }
 
-function getCreatorFull(creatorId) {
-    const row = db.prepare(`
+async function getCreatorFull(creatorId) {
+    const row = await db.prepare(`
         SELECT c.*,
                wc.priority as wc_priority,
                wc.beta_status as wc_beta_status,
@@ -354,13 +319,13 @@ function getCreatorFull(creatorId) {
         ev_agency_bound: row.ev_agency_bound, ev_churned: row.ev_churned
     } : null;
 
-    const messages = db.prepare(
-        'SELECT * FROM wa_messages WHERE creator_id = ? ORDER BY timestamp ASC'
+    const messages = await db.prepare(
+        'SELECT * FROM wa_messages WHERE creator_id = ? ORDER BY timestamp DESC LIMIT 100'
     ).all(creatorId);
-    const aliases = db.prepare(
-        'SELECT * FROM creator_aliases WHERE creator_id = ?'
+    const aliases = await db.prepare(
+        'SELECT * FROM creator_aliases WHERE creator_id = ? LIMIT 50'
     ).all(creatorId);
-    const keeperRow = db.prepare(
+    const keeperRow = await db.prepare(
         'SELECT keeper_gmv, keeper_gmv30, keeper_orders, keeper_videos, keeper_videos_posted, keeper_videos_sold, keeper_card_rate, keeper_order_rate, keeper_reg_time, keeper_activate_time FROM keeper_link WHERE creator_id = ?'
     ).get(creatorId);
 

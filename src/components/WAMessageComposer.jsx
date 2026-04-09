@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { generateCandidateResponses } from '../utils/minimax';
 import EmojiPicker from 'emoji-picker-react';
+import AIReplyPicker from './AIReplyPicker';
 
 const API_BASE = '/api';
 
@@ -184,6 +185,8 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
     // 政策文档和客户记忆（预加载）
     const [policyDocs, setPolicyDocs] = useState([]);
     const [clientMemory, setClientMemory] = useState([]);
+    // 活跃事件数据（用于 inferAutoTopic 置信度加权 + Prompt 注入）
+    const [activeEvents, setActiveEvents] = useState([]);
 
     const pollingRef = useRef(null);
     const chatScrollRef = useRef(null);
@@ -687,6 +690,7 @@ ${fullEventSummary}
 
         // 构建 system prompt（含话题上下文 + 丰富上下文 + 双模式）
         // 方向三：差异化 Prompt — 同一话题用简短版，新话题用完整版
+        const isSameTopic = effectiveTopic && ['manual', 'auto'].includes(effectiveTopic.trigger);
         const topicContext = effectiveTopic
             ? buildTopicContext({ topic: effectiveTopic, creator, activeEvents, mode: isSameTopic ? 'same_topic' : 'new_topic' })
             : '';
@@ -696,7 +700,6 @@ ${fullEventSummary}
         // 方向二：最近优先机制
         // - 同一话题（manual/auto）：最近10条直接传，更早消息摘要注入Prompt
         // - 新话题（keyword/time）：全部消息，不做摘要
-        const isSameTopic = effectiveTopic && ['manual', 'auto'].includes(effectiveTopic.trigger);
         const convSummary = isSameTopic ? buildConversationSummary(allMsgs) : null;
 
         // 对话消息：按场景截取
@@ -734,14 +737,15 @@ ${fullEventSummary}
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                client_id,
-                model: 'MiniMax/Abab6.5s-Chat',
                 messages: allMessages,
+                client_id,
                 max_tokens: 500,
                 temperature: [0.8, 0.4],
             }),
+            signal: AbortSignal.timeout(60000),
         });
         const data = await res.json();
+        console.log('[generateViaExperienceRouter] raw data:', JSON.stringify(data).slice(0, 200));
 
         // 提取 opt1 / opt2（统一从 content_opt1 / content_opt2 拿）
         // MiniMax 返回: { content: [{type:"text", text:opt1}], content_opt2: [{type:"text", text:opt2}] }
@@ -765,40 +769,91 @@ ${fullEventSummary}
         return [];
     };
 
-    // 预加载政策文档和客户记忆
-    useEffect(() => {
-        const load = async () => {
-            const [docs, mem] = await Promise.all([
-                fetchPolicyDocs(),
-                client?.phone
-                    ? fetch(`${API_BASE}/client-memory/${client.phone}`).then(r => r.ok ? r.json() : []).catch(() => [])
-                    : []
-            ]);
-            setPolicyDocs(docs);
-            setClientMemory(mem || []);
-        };
-        load();
-    }, [client?.phone]);
+    // 追踪最近一次互动时间（用于48小时话题切换）
+    const lastActivityRef = useRef(null);
 
-    // 切换达人时清除旧状态，触发新一轮 AI 生成
+    // pendingCandidates ref：避免 cleanup 时的 stale closure 问题
+    const pendingCandidatesRef = useRef(pendingCandidates);
+    // 同步更新 ref（setState 之后）
+    pendingCandidatesRef.current = pendingCandidates;
+
+    // generationRaceRef：防止切换达人后旧的生成结果覆盖新的
+    const generationRaceRef = useRef(0);
+
+    // 预加载政策文档和客户记忆，LOAD 完成后触发 AI 生成
     useEffect(() => {
-        if (!client?.id) return;
+        if (!client?.id || !client?.phone) return;
+
+        // 清除旧状态
         setActivePicker(null);
         setPendingCandidates([]);
         setMessages([]);
-        setInputText('');
-    }, [client?.id]);
+        setCurrentTopic(null);
+        setAutoDetectedTopic(null);
+        pendingCandidatesRef.current = [];
+        lastActivityRef.current = null;
+
+        // 每个新达人都+1，这样旧达人的异步生成结果会被忽略
+        const currentRace = ++generationRaceRef.current;
+        let cancelled = false;
+
+        const load = async () => {
+            const creatorId = client?.id;
+            const [docs, mem, evtData] = await Promise.all([
+                fetchPolicyDocs(),
+                fetch(`${API_BASE}/client-memory/${client.phone}`)
+                    .then(r => r.ok ? r.json() : [])
+                    .catch(() => []),
+                creatorId
+                    ? fetch(`${API_BASE}/events/summary/${creatorId}`)
+                        .then(r => r.ok ? r.json() : { events: [] })
+                        .catch(() => ({ events: [] }))
+                    : Promise.resolve({ events: [] }),
+            ]);
+            // 检查：期间是否切换过达人？
+            if (cancelled || currentRace !***REMOVED*** generationRaceRef.current) return;
+            setPolicyDocs(docs);
+            setClientMemory(mem || []);
+            setActiveEvents((evtData.events || []).filter(e => e.status ***REMOVED***= 'active'));
+
+            // 等 policyDocs 加载后再生成
+            try {
+                const res = await fetch(`${API_BASE}/creators/${client.id}/messages`);
+                if (cancelled || currentRace !***REMOVED*** generationRaceRef.current || !res.ok) return;
+                const data = await res.json();
+                const msgs = Array.isArray(data) ? data : (data.messages || []);
+                if (cancelled || currentRace !***REMOVED*** generationRaceRef.current || msgs.length ***REMOVED***= 0) return;
+                const lastMsg = msgs[msgs.length - 1];
+                const result = await generateForIncoming(lastMsg);
+                if (result && currentRace ***REMOVED***= generationRaceRef.current) {
+                    pushPicker(result);
+                }
+            } catch (e) {
+                console.error('[generateOnSwitch] error:', e);
+            }
+        };
+        load();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [client?.phone]);
 
     // 为一条 incoming 消息生成候选
     const generateForIncoming = async (incomingMsg) => {
+        if (!client?.id || !client?.phone) return null;
         setPickerLoading(true);
         try {
             // 重新 fetch 最新消息，避免闭包 stale 问题
             const msgsRes = await fetch(`${API_BASE}/creators/${client.id}/messages`);
-            const msgsData = msgsRes.ok ? (await msgsRes.json()) : [];
+            if (!msgsRes.ok) return null;
+            const msgsData = await msgsRes.json();
             const msgs = Array.isArray(msgsData) ? msgsData : (msgsData.messages || []);
             const conversation = buildConversation(msgs);
-            conversation.messages.push({ role: 'user', text: incomingMsg.text });
+            // 只有真实的 user 消息才追加；me 消息已在 buildConversation 中作为 assistant 包含
+            if (incomingMsg.role ***REMOVED***= 'user') {
+                conversation.messages.push({ role: 'user', text: incomingMsg.text });
+            }
 
             const richCtx = buildRichContext({ incomingMsg, client, creator, policyDocs, clientMemory, messages: msgs });
 
@@ -808,6 +863,7 @@ ${fullEventSummary}
                 client_id: client.phone,
                 richCtx,
             });
+            console.log('[generateForIncoming] result candidates:', result ? JSON.stringify({opt1: result.opt1?.slice(0,50), opt2: result.opt2?.slice(0,50)}) : 'NULL');
 
             return {
                 incomingMsg,
@@ -836,24 +892,6 @@ ${fullEventSummary}
             return result;
         });
     }, []);
-
-    // 切换达人时清除旧状态，触发新一轮 AI 生成
-    useEffect(() => {
-        if (!client?.id) return;
-        setActivePicker(null);
-        setPendingCandidates([]);
-        setMessages([]);
-        setInputText('');
-        lastActivityRef.current = null;
-    }, [client?.id]);
-
-    // 追踪最近一次互动时间（用于48小时话题切换）
-    const lastActivityRef = useRef(null);
-
-    // pendingCandidates ref：避免 cleanup 时的 stale closure 问题
-    const pendingCandidatesRef = useRef(pendingCandidates);
-    // 同步更新 ref（setState 之后）
-    pendingCandidatesRef.current = pendingCandidates;
 
     // 每5分钟检查一次48小时无互动（即使没有新消息）
     useEffect(() => {
@@ -943,9 +981,9 @@ ${fullEventSummary}
     // 自动话题检测：messages 变化时重新推断（仅在无手动话题时更新显示）
     useEffect(() => {
         if (messages.length ***REMOVED***= 0) return;
-        const detected = inferAutoTopic({ messages, activeEvents: [] });
+        const detected = inferAutoTopic({ messages, activeEvents });
         setAutoDetectedTopic(detected);
-    }, [messages]);
+    }, [messages, activeEvents]);
 
     // 从对话中提取并保存客户偏好
     const extractAndSaveMemory = async (incomingMsg, sentText) => {
@@ -1069,6 +1107,7 @@ ${fullEventSummary}
                 body: JSON.stringify({
                     texts: last20.map(m => ({ text: m.text, role: m.role }))
                 }),
+                signal: AbortSignal.timeout(30000),
             });
             const data = await response.json();
             const newMap = {};
@@ -1319,12 +1358,12 @@ ${fullEventSummary}
         // 提取客户偏好
         await extractAndSaveMemory(null, sentText);
 
-        // 发送 WhatsApp 消息
+        // 发送 WhatsApp 消息（根据达人负责人选择 operator 账号）
         try {
-            await fetch('http://127.0.0.1:3001/wa-send', {
+            await fetch(`${API_BASE}/wa/send`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone: client.phone, text: sentText })
+                body: JSON.stringify({ phone: client.phone, text: sentText, operator: client.wa_owner || 'Beau' })
             });
         } catch (e) {
             console.error('[WA Send] 发送失败:', e);
@@ -1839,109 +1878,6 @@ ${fullEventSummary}
                 </div>
             </div>
         </>
-    );
-}
-
-// ***REMOVED******REMOVED******REMOVED*** AI Reply Picker（内联 3 选 1）***REMOVED******REMOVED******REMOVED***
-function AIReplyPicker({ incomingMsg, candidates, customText, onCustomChange, onSelect, onSkip, onEditCandidate, onRegenerate, loading }) {
-    const PICKER_BG = '#EFF6FF';
-    const PICKER_BORDER = '#BFDBFE';
-    const PICKER_ACCENT = '#3b82f6';
-
-    return (
-        <div style={{ background: PICKER_BG, borderTop: '2px solid ' + PICKER_BORDER }}>
-            {/* 标题栏 */}
-            <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid ' + PICKER_BORDER }}>
-                <div className="flex items-center gap-2">
-                    <span className="text-base">🤖</span>
-                    <span className="text-sm font-bold" style={{ color: PICKER_ACCENT }}>AI 推荐回复</span>
-                </div>
-                <div className="flex items-center gap-3">
-                    {incomingMsg && (
-                        <span className="text-xs px-3 py-1 rounded-full hidden sm:inline" style={{ background: 'rgba(0,0,0,0.06)', color: WA.textMuted }}>
-                            来: {incomingMsg.text.slice(0, 40)}{incomingMsg.text.length > 40 ? '...' : ''}
-                        </span>
-                    )}
-                    <button
-                        onClick={onRegenerate}
-                        disabled={loading}
-                        className="text-sm px-3 py-1.5 rounded-xl font-medium flex items-center gap-1.5 disabled:opacity-50"
-                        style={{ background: 'rgba(59,130,246,0.12)', color: '#3b82f6' }}
-                        title="重新生成"
-                    >
-                        <span className={loading ? 'animate-spin' : ''}>{loading ? '⏳' : '🔄'}</span>
-                        <span className="hidden sm:inline">重新生成</span>
-                    </button>
-                    <button onClick={onSkip} className="text-sm px-3 py-1.5 rounded-xl hover:bg-black/10 font-medium" style={{ color: WA.textMuted }}>
-                        跳过
-                    </button>
-                </div>
-            </div>
-
-            {loading ? (
-                <div className="flex items-center justify-center gap-3 py-8">
-                    <span className="animate-spin text-2xl">⏳</span>
-                    <span className="text-sm" style={{ color: WA.textMuted }}>AI 正在生成候选回复...</span>
-                </div>
-            ) : (
-                <div className="p-3 md:p-4 space-y-2 md:space-y-3">
-                    {/* opt1 */}
-                    <div className="flex flex-col sm:flex-row gap-2">
-                        <div className="flex-1 rounded-2xl px-4 py-3 text-sm leading-relaxed" style={{ background: WA.bubbleOut, color: WA.textDark, boxShadow: '0 1px 2px rgba(0,0,0,0.1)', maxHeight: '180px', display: 'flex', flexDirection: 'column' }}>
-                            <div className="flex items-center gap-2 mb-2 shrink-0">
-                                <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: '#3b82f620', color: '#3b82f6' }}>A</span>
-                                <span className="text-xs" style={{ color: WA.textMuted }}>方案一</span>
-                            </div>
-                            <div className="whitespace-pre-wrap break-words overflow-y-auto flex-1" style={{ maxHeight: '120px' }}>{candidates?.opt1 || '(空)'}</div>
-                        </div>
-                        <div className="flex sm:flex-col gap-2 shrink-0">
-                            <button
-                                onClick={() => onEditCandidate(candidates?.opt1)}
-                                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl text-sm font-medium text-white"
-                                style={{ background: '#3b82f6' }}
-                            >
-                                编辑
-                            </button>
-                            <button
-                                onClick={() => onSelect('opt1')}
-                                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl text-sm font-bold text-white"
-                                style={{ background: '#3b82f688' }}
-                            >
-                                发送
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* opt2 */}
-                    <div className="flex flex-col sm:flex-row gap-2">
-                        <div className="flex-1 rounded-2xl px-4 py-3 text-sm leading-relaxed" style={{ background: WA.bubbleOut, color: WA.textDark, boxShadow: '0 1px 2px rgba(0,0,0,0.1)', maxHeight: '180px', display: 'flex', flexDirection: 'column' }}>
-                            <div className="flex items-center gap-2 mb-2 shrink-0">
-                                <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: '#10b98120', color: '#10b981' }}>B</span>
-                                <span className="text-xs" style={{ color: WA.textMuted }}>方案二</span>
-                            </div>
-                            <div className="whitespace-pre-wrap break-words overflow-y-auto flex-1" style={{ maxHeight: '120px' }}>{candidates?.opt2 || '(空)'}</div>
-                        </div>
-                        <div className="flex sm:flex-col gap-2 shrink-0">
-                            <button
-                                onClick={() => onEditCandidate(candidates?.opt2)}
-                                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl text-sm font-medium text-white"
-                                style={{ background: '#10b981' }}
-                            >
-                                编辑
-                            </button>
-                            <button
-                                onClick={() => onSelect('opt2')}
-                                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl text-sm font-bold text-white"
-                                style={{ background: '#10b98188' }}
-                            >
-                                发送
-                            </button>
-                        </div>
-                    </div>
-
-                </div>
-            )}
-        </div>
     );
 }
 

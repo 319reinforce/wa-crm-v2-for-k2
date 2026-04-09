@@ -4,10 +4,10 @@
  */
 const db = require('../../db');
 
-function writeAudit(action, tableName, recordId, beforeValue, afterValue, req) {
+async function writeAudit(action, tableName, recordId, beforeValue, afterValue, req) {
     try {
         const db2 = db.getDb();
-        db2.prepare(`
+        await db2.prepare(`
             INSERT INTO audit_log (action, table_name, record_id, before_value, after_value, ip_address, user_agent)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(

@@ -30,7 +30,7 @@ function scheduleProfileRefresh(clientId) {
 async function refreshProfileSummary(clientId) {
     try {
         const db2 = db.getDb();
-        const creator = db2.prepare(`
+        const creator = await db2.prepare(`
             SELECT c.primary_name as name, c.wa_owner, c.keeper_username,
                    wc.beta_status as conversion_stage,
                    k.keeper_gmv, k.keeper_videos
@@ -42,10 +42,10 @@ async function refreshProfileSummary(clientId) {
 
         if (!creator) return;
 
-        const tags = db2.prepare(
+        const tags = await db2.prepare(
             'SELECT * FROM client_tags WHERE client_id = ? ORDER BY confidence DESC LIMIT 15'
         ).all(clientId);
-        const memory = db2.prepare(
+        const memory = await db2.prepare(
             'SELECT * FROM client_memory WHERE client_id = ? ORDER BY created_at DESC LIMIT 5'
         ).all(clientId);
 
@@ -73,6 +73,7 @@ async function refreshProfileSummary(clientId) {
                 max_tokens: 400,
                 temperature: 0.5,
             }),
+            signal: AbortSignal.timeout(30000),
         });
 
         if (!response.ok) return;
@@ -81,11 +82,11 @@ async function refreshProfileSummary(clientId) {
         const summary = textItem?.text?.trim();
 
         if (summary) {
-            const updated = db2.prepare(
+            const updated = await db2.prepare(
                 'UPDATE client_profiles SET summary = ?, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?'
             ).run(summary, clientId);
             if (updated.changes ***REMOVED***= 0) {
-                db2.prepare(
+                await db2.prepare(
                     'INSERT INTO client_profiles (client_id, summary) VALUES (?, ?)'
                 ).run(clientId, summary);
             }

@@ -90,7 +90,9 @@ function App() {
         if (dragging ***REMOVED***= 'list-detail') {
           next.list = Math.min(Math.max(200, clientX), 500)
         } else if (dragging ***REMOVED***= 'detail-chat') {
-          next.detail = Math.min(Math.max(240, window.innerWidth - clientX), 520)
+          // clientX is the position of divider 2 (detail-chat boundary)
+          // Detail panel width = divider2_position - divider1_position - divider1_width
+          next.detail = Math.min(Math.max(240, clientX - next.list - 6), 520)
         }
         try { localStorage.setItem('wa_panel_widths', JSON.stringify(next)) } catch (_) {}
         return next
@@ -483,6 +485,7 @@ function App() {
         <div className="flex-1 flex flex-col min-w-0">
           {selectedCreator ? (
             <WAMessageComposer
+              key={selectedCreator.id}
               client={{
                 id: selectedCreator.id,
                 phone: selectedCreator.wa_phone,

@@ -8,14 +8,14 @@ const db = require('../../db');
 const { writeAudit } = require('../middleware/audit');
 
 // GET /api/policy-documents
-router.get('/policy-documents', (req, res) => {
+router.get('/policy-documents', async (req, res) => {
     try {
         const db2 = db.getDb();
         const { active_only } = req.query;
         let sql = 'SELECT * FROM policy_documents';
         if (active_only ***REMOVED***= 'true') sql += ' WHERE is_active = 1';
         sql += ' ORDER BY policy_key';
-        const rows = db2.prepare(sql).all();
+        const rows = await db2.prepare(sql).all();
         res.json(rows.map(r => ({
             ...r,
             applicable_scenarios: r.applicable_scenarios ? JSON.parse(r.applicable_scenarios) : []
@@ -27,7 +27,7 @@ router.get('/policy-documents', (req, res) => {
 });
 
 // POST /api/policy-documents
-router.post('/policy-documents', (req, res) => {
+router.post('/policy-documents', async (req, res) => {
     try {
         const { policy_key, policy_version, policy_content, applicable_scenarios, is_active = 1 } = req.body;
         if (!policy_key || !policy_version || !policy_content) {
@@ -36,11 +36,11 @@ router.post('/policy-documents', (req, res) => {
         const db2 = db.getDb();
         const scenarios_json = applicable_scenarios ? JSON.stringify(applicable_scenarios) : null;
 
-        const oldRow = db2.prepare('SELECT * FROM policy_documents WHERE policy_key = ?').get(policy_key);
+        const oldRow = await db2.prepare('SELECT * FROM policy_documents WHERE policy_key = ?').get(policy_key);
         const auditAction = oldRow ? (is_active ? 'policy_update' : 'policy_deactivate') : 'policy_create';
 
         if (oldRow) {
-            db2.prepare(`
+            await db2.prepare(`
                 UPDATE policy_documents SET
                     policy_version = ?,
                     policy_content = ?,
@@ -50,7 +50,7 @@ router.post('/policy-documents', (req, res) => {
                 WHERE policy_key = ?
             `).run(policy_version, policy_content, scenarios_json, is_active ? 1 : 0, policy_key);
         } else {
-            db2.prepare(`
+            await db2.prepare(`
                 INSERT INTO policy_documents
                 (policy_key, policy_version, policy_content, applicable_scenarios, is_active)
                 VALUES (?, ?, ?, ?, ?)

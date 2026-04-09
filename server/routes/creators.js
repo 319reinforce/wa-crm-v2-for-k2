@@ -9,7 +9,7 @@ const { getCreatorFull } = require('../../db');
 const { writeAudit } = require('../middleware/audit');
 
 // GET /api/creators — 获取所有达人
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
     try {
         const { owner, search, is_active, beta_status, priority, agency, event } = req.query;
 
@@ -101,7 +101,7 @@ router.get('/', (req, res) => {
 
         sql += ' GROUP BY c.id ORDER BY msg_count DESC';
 
-        const creators = db.getDb().prepare(sql).all(...params);
+        const creators = await db.getDb().prepare(sql).all(...params);
         res.json(creators);
     } catch (err) {
         console.error('Error fetching creators:', err);
@@ -110,9 +110,9 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/creators/:id — 获取单个达人完整信息
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
     try {
-        const creator = getCreatorFull(parseInt(req.params.id));
+        const creator = await getCreatorFull(parseInt(req.params.id));
         if (!creator) {
             return res.status(404).json({ error: 'Creator not found' });
         }
@@ -124,7 +124,7 @@ router.get('/:id', (req, res) => {
 });
 
 // PUT /api/creators/:id — 更新达人基本信息
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
     try {
         const db2 = db.getDb();
         const { primary_name, wa_phone, wa_owner, keeper_username } = req.body;
@@ -141,9 +141,9 @@ router.put('/:id', (req, res) => {
 
         fields.push('updated_at = CURRENT_TIMESTAMP');
         values.push(id);
-        db2.prepare(`UPDATE creators SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+        await db2.prepare(`UPDATE creators SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 
-        writeAudit('creator_update', 'creators', id, null, req.body, req);
+        await writeAudit('creator_update', 'creators', id, null, req.body, req);
         res.json({ ok: true });
     } catch (err) {
         console.error('PUT /api/creators/:id error:', err);
@@ -152,7 +152,7 @@ router.put('/:id', (req, res) => {
 });
 
 // PUT /api/creators/:id/wacrm — 更新 WA CRM 数据
-router.put('/:id/wacrm', (req, res) => {
+router.put('/:id/wacrm', async (req, res) => {
     try {
         const db2 = db.getDb();
         const {
@@ -184,11 +184,11 @@ router.put('/:id/wacrm', (req, res) => {
         if (wacrmFields.length > 0) {
             wacrmFields.push('updated_at = CURRENT_TIMESTAMP');
             wacrmValues.push(creatorId);
-            const existing = db2.prepare('SELECT id FROM wa_crm_data WHERE creator_id = ?').get(creatorId);
+            const existing = await db2.prepare('SELECT id FROM wa_crm_data WHERE creator_id = ?').get(creatorId);
             if (!existing) {
-                db2.prepare('INSERT INTO wa_crm_data (creator_id) VALUES (?)').run(creatorId);
+                await db2.prepare('INSERT INTO wa_crm_data (creator_id) VALUES (?)').run(creatorId);
             }
-            db2.prepare(`UPDATE wa_crm_data SET ${wacrmFields.join(', ')} WHERE creator_id = ?`).run(...wacrmValues);
+            await db2.prepare(`UPDATE wa_crm_data SET ${wacrmFields.join(', ')} WHERE creator_id = ?`).run(...wacrmValues);
         }
 
         // joinbrands_link events
@@ -205,7 +205,7 @@ router.put('/:id/wacrm', (req, res) => {
 
         if (jbFields.length > 0) {
             jbValues.push(creatorId);
-            db2.prepare(`INSERT INTO joinbrands_link (creator_id, ${jbFields.map(f => f.split(' = ')[0]).join(', ')}) VALUES (?, ${jbFields.map(() => '?').join(', ')}) ON DUPLICATE KEY UPDATE ${jbFields.join(', ')}`).run(creatorId, ...jbValues);
+            await db2.prepare(`INSERT INTO joinbrands_link (creator_id, ${jbFields.map(f => f.split(' = ')[0]).join(', ')}) VALUES (?, ${jbFields.map(() => '?').join(', ')}) ON DUPLICATE KEY UPDATE ${jbFields.join(', ')}`).run(creatorId, ...jbValues);
             updatedFields.push(...jbFields.map(f => 'jb.' + f.split(' = ')[0]));
         }
 
@@ -225,33 +225,33 @@ router.put('/:id/wacrm', (req, res) => {
 
         if (kFields.length > 0) {
             kValues.push(creatorId);
-            db2.prepare(`INSERT INTO keeper_link (creator_id, ${kFields.map(f => f.split(' = ')[0]).join(', ')}) VALUES (?, ${kFields.map(() => '?').join(', ')}) ON DUPLICATE KEY UPDATE ${kFields.join(', ')}`).run(creatorId, ...kValues);
+            await db2.prepare(`INSERT INTO keeper_link (creator_id, ${kFields.map(f => f.split(' = ')[0]).join(', ')}) VALUES (?, ${kFields.map(() => '?').join(', ')}) ON DUPLICATE KEY UPDATE ${kFields.join(', ')}`).run(creatorId, ...kValues);
             updatedFields.push(...kFields.map(f => 'k.' + f.split(' = ')[0]));
         }
 
         // 级联逻辑
         if (ev_churned) {
-            db2.prepare(`UPDATE wa_crm_data SET beta_status = 'churned' WHERE creator_id = ?`).run(creatorId);
+            await db2.prepare(`UPDATE wa_crm_data SET beta_status = 'churned' WHERE creator_id = ?`).run(creatorId);
             updatedFields.push('wacrm.beta_status→churned');
         }
 
         // 事件标签 → client_tags 联动
-        const creatorPhone = db2.prepare('SELECT wa_phone FROM creators WHERE id = ?').get(creatorId);
+        const creatorPhone = await db2.prepare('SELECT wa_phone FROM creators WHERE id = ?').get(creatorId);
         if (creatorPhone) {
             if (ev_trial_active) {
-                db2.prepare(`INSERT OR IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'stage:trial', 'system', 3)`).run(creatorPhone.wa_phone);
+                await db2.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'stage:trial', 'system', 3)`).run(creatorPhone.wa_phone);
             }
             if (ev_monthly_started) {
-                db2.prepare(`INSERT OR IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'stage:monthly', 'system', 3)`).run(creatorPhone.wa_phone);
+                await db2.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'stage:monthly', 'system', 3)`).run(creatorPhone.wa_phone);
             }
             if (ev_gmv_1k) {
-                db2.prepare(`INSERT OR IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:1k', 'system', 3)`).run(creatorPhone.wa_phone);
+                await db2.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:1k', 'system', 3)`).run(creatorPhone.wa_phone);
             }
             if (ev_gmv_5k) {
-                db2.prepare(`INSERT OR IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:5k', 'system', 3)`).run(creatorPhone.wa_phone);
+                await db2.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:5k', 'system', 3)`).run(creatorPhone.wa_phone);
             }
             if (ev_gmv_10k) {
-                db2.prepare(`INSERT OR IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:10k', 'system', 3)`).run(creatorPhone.wa_phone);
+                await db2.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:10k', 'system', 3)`).run(creatorPhone.wa_phone);
             }
         }
 
@@ -259,7 +259,7 @@ router.put('/:id/wacrm', (req, res) => {
             return res.status(400).json({ error: 'No fields to update' });
         }
 
-        writeAudit('creator_profile_update', 'multi', creatorId, null, { ...req.body, updated: updatedFields }, req);
+        await writeAudit('creator_profile_update', 'multi', creatorId, null, { ...req.body, updated: updatedFields }, req);
         res.json({ ok: true, updated: updatedFields });
     } catch (err) {
         console.error('PUT /api/creators/:id/wacrm error:', err);
