@@ -1,0 +1,395 @@
+/**
+ * SFT routes
+ * GET /api/sft-memory, POST /api/sft-memory, GET /api/sft-memory/pending,
+ * PATCH /api/sft-memory/:id/review, GET /api/sft-memory/stats,
+ * GET /api/sft-memory/trends, POST /api/sft-feedback, GET /api/sft-feedback/stats,
+ * GET /api/sft-export
+ */
+const express = require('express');
+const router = express.Router();
+const db = require('../../db');
+const { writeAudit } = require('../middleware/audit');
+const { sha256 } = require('../utils/crypto');
+
+// POST /api/sft-memory
+router.post('/sft-memory', (req, res) => {
+    try {
+        const {
+            model_candidates,
+            human_selected,
+            human_output,
+            diff_analysis,
+            context,
+            messages = [],
+            reviewed_by = 'system'
+        } = req.body;
+
+        if (!human_selected || !human_output) {
+            return res.status(400).json({ error: 'human_selected and human_output required' });
+        }
+
+        const trimmedOutput = (human_output || '').trim();
+        if (trimmedOutput.length < 3) {
+            return res.status(400).json({ error: 'human_output too short (< 3 chars)' });
+        }
+        if (/^[🔶✅❌👍👎💬📋✨🎉🙏👏🎊⭐️🎯💡🔔📌📎🎬🗣️👀✅☑️✔️❤️🧡💛💚💙💜🤎🖤🤍]+$/.test(trimmedOutput)) {
+            return res.status(400).json({ error: 'human_output is pure emoji, rejected' });
+        }
+        if (/^[.,!?。，！?、：:;；\-—_=+*#]+$/.test(trimmedOutput)) {
+            return res.status(400).json({ error: 'human_output is pure punctuation, rejected' });
+        }
+
+        const db2 = db.getDb();
+        const context_json = context ? JSON.stringify(context) : null;
+        const ctx = context || {};
+        const client_id = ctx.client_id || '';
+        const input_text = ctx.input_text || '';
+        const scene = ctx.scene || 'unknown';
+        const similarity = diff_analysis?.similarity ?? null;
+
+        let status = 'approved';
+        if (diff_analysis?.is_custom) {
+            status = similarity >= 85 ? 'approved' : 'pending_review';
+        } else if (similarity !***REMOVED*** null && similarity < 85) {
+            status = 'pending_review';
+        }
+
+        const client_id_hash = sha256(client_id);
+        const input_text_hash = sha256(input_text);
+        const human_output_hash = sha256(human_output);
+        const created_date = new Date().toISOString().split('T')[0];
+        const message_history_json = messages.length > 0 ? JSON.stringify(messages.slice(-10)) : null;
+
+        const opt1 = model_candidates?.opt1 || null;
+        const opt2 = model_candidates?.opt2 || null;
+        let chosen_output = null;
+        let rejected_output = null;
+        if (human_selected ***REMOVED***= 'opt1') {
+            chosen_output = opt1; rejected_output = opt2;
+        } else if (human_selected ***REMOVED***= 'opt2') {
+            chosen_output = opt2; rejected_output = opt1;
+        } else if (human_selected ***REMOVED***= 'custom') {
+            chosen_output = human_output; rejected_output = opt1;
+        }
+
+        const existing = db2.prepare(`
+            SELECT id FROM sft_memory
+            WHERE client_id_hash = ? AND input_text_hash = ? AND human_output_hash = ? AND created_date = ?
+        `).get(client_id_hash, input_text_hash, human_output_hash, created_date);
+
+        if (existing) {
+            const newStatus = (status ***REMOVED***= 'approved') ? existing.status || status : status;
+            db2.prepare(`
+                UPDATE sft_memory SET
+                    human_output = excluded.human_output,
+                    status = CASE WHEN excluded.status = 'approved' THEN status ELSE excluded.status END,
+                    similarity = excluded.similarity,
+                    chosen_output = excluded.chosen_output,
+                    rejected_output = excluded.rejected_output
+                WHERE id = ?
+            `).run(human_output, newStatus, similarity, chosen_output, rejected_output, existing.id);
+            return res.json({ ok: true, id: existing.id, updated: true });
+        }
+
+        const result = db2.prepare(`
+            INSERT INTO sft_memory
+            (model_opt1, model_opt2, human_selected, human_output,
+             model_predicted, model_rejected, is_custom_input, human_reason,
+             context_json, status, reviewed_by,
+             similarity, scene, message_history,
+             client_id_hash, input_text_hash, human_output_hash, created_date,
+             chosen_output, rejected_output)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            model_candidates?.opt1 || null,
+            model_candidates?.opt2 || null,
+            human_selected,
+            human_output,
+            diff_analysis?.model_predicted || null,
+            diff_analysis?.model_rejected || null,
+            diff_analysis?.is_custom ? 1 : 0,
+            diff_analysis?.human_reason || null,
+            context_json,
+            status,
+            reviewed_by,
+            similarity,
+            scene,
+            message_history_json,
+            client_id_hash,
+            input_text_hash,
+            human_output_hash,
+            created_date,
+            chosen_output,
+            rejected_output
+        );
+
+        writeAudit('sft_create', 'sft_memory', result.insertId, null, {
+            human_selected, human_output, status, reviewed_by
+        }, req);
+        res.json({ ok: true, id: result.insertId });
+    } catch (err) {
+        console.error('POST /api/sft-memory error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/sft-memory
+router.get('/sft-memory', (req, res) => {
+    try {
+        const db2 = db.getDb();
+        const { limit = 50, offset = 0 } = req.query;
+        const rows = db2.prepare(`
+            SELECT * FROM sft_memory
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        `).all(parseInt(limit), parseInt(offset));
+        res.json(rows.map(r => {
+            let context = null, message_history = null;
+            try { if (r.context_json) context = JSON.parse(r.context_json); } catch (_) {}
+            try { if (r.message_history) message_history = JSON.parse(r.message_history); } catch (_) {}
+            return { ...r, context, message_history };
+        }));
+    } catch (err) {
+        console.error('GET /api/sft-memory error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/sft-memory/pending
+router.get('/sft-memory/pending', (req, res) => {
+    try {
+        const db2 = db.getDb();
+        const rows = db2.prepare(`
+            SELECT * FROM sft_memory
+            WHERE status IN ('pending_review', 'needs_review')
+            ORDER BY created_at DESC
+            LIMIT 100
+        `).all();
+        res.json(rows.map(r => {
+            let context = null, message_history = null;
+            try { if (r.context_json) context = JSON.parse(r.context_json); } catch (_) {}
+            try { if (r.message_history) message_history = JSON.parse(r.message_history); } catch (_) {}
+            return { ...r, context, message_history };
+        }));
+    } catch (err) {
+        console.error('GET /api/sft-memory/pending error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PATCH /api/sft-memory/:id/review
+router.patch('/sft-memory/:id/review', (req, res) => {
+    try {
+        const { action, comment } = req.body;
+        if (!action || !['approve', 'reject'].includes(action)) {
+            return res.status(400).json({ error: 'action must be approve or reject' });
+        }
+        const db2 = db.getDb();
+        const newStatus = action ***REMOVED***= 'approve' ? 'approved' : 'rejected';
+        const result = db2.prepare(`
+            UPDATE sft_memory SET status = ?, reviewed_by = ?, human_reason = COALESCE(?, human_reason)
+            WHERE id = ?
+        `).run(newStatus, 'human_review', comment || null, parseInt(req.params.id));
+        if (result.affectedRows ***REMOVED***= 0) {
+            return res.status(404).json({ error: 'Record not found' });
+        }
+        res.json({ ok: true, status: newStatus });
+    } catch (err) {
+        console.error('PATCH /api/sft-memory/:id/review error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/sft-memory/stats
+router.get('/sft-memory/stats', (req, res) => {
+    try {
+        const db2 = db.getDb();
+        const total = db2.prepare('SELECT COUNT(*) as count FROM sft_memory').get().count;
+        const opt1 = db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'opt1'").get().count;
+        const opt2 = db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'opt2'").get().count;
+        const custom = db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'custom'").get().count;
+        const pending = db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status IN ('pending_review','needs_review')").get().count;
+        const approved = db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved'").get().count;
+        res.json({
+            total,
+            opt1_selected: opt1,
+            opt2_selected: opt2,
+            custom_input: custom,
+            pending_review: pending,
+            approved,
+            model_override_rate: total > 0 ? ((custom / total) * 100).toFixed(1) + '%' : '0%'
+        });
+    } catch (err) {
+        console.error('GET /api/sft-memory/stats error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/sft-memory/trends
+router.get('/sft-memory/trends', (req, res) => {
+    try {
+        const db2 = db.getDb();
+        const rows = db2.prepare(`
+            SELECT
+                DATE(created_at) as date,
+                COUNT(*) as total,
+                SUM(CASE WHEN human_selected = 'opt1' THEN 1 ELSE 0 END) as opt1_cnt,
+                SUM(CASE WHEN human_selected = 'opt2' THEN 1 ELSE 0 END) as opt2_cnt,
+                SUM(CASE WHEN human_selected = 'custom' THEN 1 ELSE 0 END) as custom_cnt,
+                SUM(CASE WHEN status = 'pending_review' THEN 1 ELSE 0 END) as pending_cnt
+            FROM sft_memory
+            WHERE created_at >= DATE('now', '-30 days')
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+        `).all();
+
+        const dates = rows.map(r => r.date);
+        const volumes = rows.map(r => r.total);
+        const opt1_rate = rows.map(r => r.total > 0 ? +(r.opt1_cnt / r.total * 100).toFixed(1) : 0);
+        const opt2_rate = rows.map(r => r.total > 0 ? +(r.opt2_cnt / r.total * 100).toFixed(1) : 0);
+        const custom_rate = rows.map(r => r.total > 0 ? +(r.custom_cnt / r.total * 100).toFixed(1) : 0);
+
+        const skipRows = db2.prepare(`
+            SELECT DATE(created_at) as date, COUNT(*) as skip_cnt
+            FROM sft_feedback
+            WHERE feedback_type = 'skip' AND created_at >= DATE('now', '-30 days')
+            GROUP BY DATE(created_at)
+        `).all();
+        const skipMap = {};
+        skipRows.forEach(r => { skipMap[r.date] = r.skip_cnt; });
+        const skip_rate = rows.map(r => {
+            const skip = skipMap[r.date] || 0;
+            return r.total > 0 ? +(skip / (r.total + skip) * 100).toFixed(1) : 0;
+        });
+
+        res.json({ dates, volumes, opt1_rate, opt2_rate, custom_rate, skip_rate });
+    } catch (err) {
+        console.error('GET /api/sft-memory/trends error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/sft-feedback
+router.post('/sft-feedback', (req, res) => {
+    try {
+        const { client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail, reject_reason } = req.body;
+        if (!feedback_type || !['skip', 'reject', 'edit'].includes(feedback_type)) {
+            return res.status(400).json({ error: 'feedback_type must be skip, reject, or edit' });
+        }
+        const db2 = db.getDb();
+        const result = db2.prepare(`
+            INSERT INTO sft_feedback (client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail, reject_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(client_id || null, feedback_type, input_text || null, opt1 || null, opt2 || null, final_output || null, scene || null, detail || null, reject_reason || null);
+        res.json({ ok: true, id: result.insertId });
+    } catch (err) {
+        console.error('POST /api/sft-feedback error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/sft-feedback/stats
+router.get('/sft-feedback/stats', (req, res) => {
+    try {
+        const db2 = db.getDb();
+        const total = db2.prepare('SELECT COUNT(*) as count FROM sft_feedback').get().count;
+        const byType = {};
+        db2.prepare('SELECT feedback_type, COUNT(*) as count FROM sft_feedback GROUP BY feedback_type').all().forEach(r => {
+            byType[r.feedback_type] = r.count;
+        });
+        const byScene = db2.prepare(`
+            SELECT scene, feedback_type, COUNT(*) as count
+            FROM sft_feedback WHERE scene IS NOT NULL
+            GROUP BY scene, feedback_type
+        `).all();
+        const sceneMap = {};
+        byScene.forEach(r => {
+            if (!sceneMap[r.scene]) sceneMap[r.scene] = { skip: 0, reject: 0, edit: 0 };
+            sceneMap[r.scene][r.feedback_type] = r.count;
+        });
+        res.json({ total, by_type: byType, by_scene: sceneMap });
+    } catch (err) {
+        console.error('GET /api/sft-feedback/stats error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/sft-export
+router.get('/sft-export', async (req, res) => {
+    try {
+        const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
+
+        const db2 = db.getDb();
+        const { format = 'json', limit = 1000, status = 'approved', lang = 'all' } = req.query;
+
+        const rows = db2.prepare(`
+            SELECT * FROM sft_memory
+            WHERE status = ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        `).all(status, parseInt(limit), 0);
+
+        const isEnglish = (text) => /^[a-zA-Z\s.,!?]+$/.test((text || '').slice(0, 100));
+
+        function buildConversationMessages(history, inputText) {
+            const msgs = [];
+            if (history && history.length > 0) {
+                for (const m of history) {
+                    msgs.push({ role: m.role ***REMOVED***= 'me' ? 'assistant' : 'user', content: m.text });
+                }
+            }
+            msgs.push({ role: 'user', content: inputText || '' });
+            return msgs;
+        }
+
+        const exportRecord = (r) => {
+            let ctx = {};
+            let history = [];
+            try { if (r.context_json) ctx = JSON.parse(r.context_json); } catch (_) {}
+            try { if (r.message_history) history = JSON.parse(r.message_history); } catch (_) {}
+            const inputText = ctx.input_text || '';
+
+            if (lang ***REMOVED***= 'en' && !isEnglish(inputText) && !isEnglish(r.human_output || '')) {
+                return null;
+            }
+
+            const systemPrompt = buildFullSystemPrompt(ctx.client_id, r.scene || ctx.scene || 'unknown', history);
+            const conversationMsgs = buildConversationMessages(history, inputText);
+
+            return {
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    ...conversationMsgs,
+                    { role: 'assistant', content: r.human_output || '' }
+                ],
+                metadata: {
+                    human_selected: r.human_selected,
+                    scene: r.scene || ctx.scene || 'unknown',
+                    similarity: r.similarity,
+                    model_opt1: r.model_opt1,
+                    model_opt2: r.model_opt2,
+                    is_custom_input: r.is_custom_input,
+                    reviewed_by: r.reviewed_by,
+                    created_at: r.created_at,
+                    system_prompt_version: r.system_prompt_version || 'v1',
+                    chosen_output: r.chosen_output,
+                    rejected_output: r.rejected_output,
+                }
+            };
+        };
+
+        if (format ***REMOVED***= 'jsonl') {
+            res.setHeader('Content-Type', 'application/x-ndjson');
+            const exported = rows.map(r => exportRecord(r)).filter(Boolean);
+            res.end(exported.map(r => JSON.stringify(r)).join('\n'));
+        } else {
+            res.setHeader('Content-Type', 'application/json');
+            res.json(rows.map(r => exportRecord(r)).filter(Boolean));
+        }
+    } catch (err) {
+        console.error('GET /api/sft-export error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+module.exports = router;

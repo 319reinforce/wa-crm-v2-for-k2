@@ -49,6 +49,7 @@
 | `src/App.jsx` | 主应用 — 三面板布局（flex 实现）+ 移动端响应式（抽屉导航 + 全屏聊天） |
 | `src/components/WAMessageComposer.jsx` | 消息编辑器，含 Scene 检测 + AI 生成 + 移动端 UI |
 | `src/components/SFTDashboard.jsx` | SFT 语料看板 |
+| `src/components/EventPanel.jsx` | 事件管理面板（含列表、详情、创建、判定）|
 | `src/utils/minimax.js` | MiniMax API Client（调用 `/api/minimax` 代理） |
 | `src/utils/systemPrompt.js` | 共享 system prompt 模板（前后端共用同一份） |
 

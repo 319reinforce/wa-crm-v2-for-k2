@@ -1,350 +1,334 @@
--- WA CRM v2 SQLite Schema
--- 达人统一身份存储
+-- WA CRM v2 MySQL Schema
+-- 从 SQLite 迁移至 MySQL 9.x
+-- 字符集：utf8mb4_unicode_ci
+
+CREATE DATABASE IF NOT EXISTS wa_crm_v2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE wa_crm_v2;
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- 达人主表（唯一数据源）
+-- 达人主表
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS creators (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    primary_name    TEXT,                    -- 主要展示名
-    wa_phone        TEXT UNIQUE,             -- WhatsApp电话（唯一标识）
-    keeper_username TEXT UNIQUE,             -- Keeper用户名
-    wa_owner        TEXT DEFAULT 'Beau',     -- 负责人 Beau/Yiyun
-    source          TEXT DEFAULT 'unknown',  -- 数据来源 wa/keeper/joinbrands/manual
-    is_active       INTEGER DEFAULT 1,       -- 是否活跃
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    primary_name    TEXT,
+    wa_phone        VARCHAR(32) NOT NULL UNIQUE COMMENT 'WhatsApp电话（唯一标识）',
+    keeper_username VARCHAR(64) UNIQUE COMMENT 'Keeper用户名',
+    wa_owner        VARCHAR(32) DEFAULT 'Beau' COMMENT '负责人 Beau/Yiyun',
+    source          VARCHAR(32) DEFAULT 'unknown' COMMENT '数据来源',
+    is_active       TINYINT(1) DEFAULT 1 COMMENT '是否活跃',
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_creators_phone ON creators(wa_phone);
-CREATE INDEX IF NOT EXISTS idx_creators_keeper ON creators(keeper_username);
-CREATE INDEX IF NOT EXISTS idx_creators_owner ON creators(wa_owner);
+CREATE INDEX idx_creators_phone ON creators(wa_phone);
+CREATE INDEX idx_creators_keeper ON creators(keeper_username);
+CREATE INDEX idx_creators_owner ON creators(wa_owner);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- 别名映射表（支持同一达人多身份查询）
+-- 别名映射表
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS creator_aliases (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    creator_id   INTEGER REFERENCES creators(id) ON DELETE CASCADE,
-    alias_type   TEXT NOT NULL,  -- wa_phone | wa_name | keeper_user | tiktok | jb_name | email
-    alias_value  TEXT NOT NULL,
-    is_verified  INTEGER DEFAULT 0,  -- 是否已人工确认
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id   INT NOT NULL,
+    alias_type   VARCHAR(32) NOT NULL COMMENT 'wa_phone|wa_name|keeper_user|tiktok|jb_name|email',
+    alias_value  VARCHAR(128) NOT NULL,
+    is_verified  TINYINT(1) DEFAULT 0,
     matched_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(alias_type, alias_value)
-);
+    UNIQUE KEY uk_alias (alias_type, alias_value),
+    FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_aliases_creator ON creator_aliases(creator_id);
-CREATE INDEX IF NOT EXISTS idx_aliases_lookup ON creator_aliases(alias_type, alias_value);
+CREATE INDEX idx_aliases_creator ON creator_aliases(creator_id);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 -- WA 消息表
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS wa_messages (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    creator_id  INTEGER REFERENCES creators(id) ON DELETE CASCADE,
-    role        TEXT NOT NULL,               -- 'me' | 'user'
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    creator_id  INT NOT NULL,
+    role        VARCHAR(16) NOT NULL COMMENT "'me'|'user'|'assistant'",
+    operator    VARCHAR(32) DEFAULT NULL COMMENT "'Beau'|'Yiyun'|'WangYouKe'等",
     text        TEXT,
-    timestamp   INTEGER,                      -- Unix timestamp (ms)
-    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+    timestamp   BIGINT COMMENT 'Unix timestamp (ms)',
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_messages_creator ON wa_messages(creator_id);
-CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON wa_messages(timestamp);
+CREATE INDEX idx_messages_creator ON wa_messages(creator_id);
+CREATE INDEX idx_messages_timestamp ON wa_messages(timestamp);
+CREATE UNIQUE INDEX idx_messages_dedup ON wa_messages(creator_id, timestamp);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- WA CRM 扩展数据（事件状态）
+-- WA CRM 扩展数据
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS wa_crm_data (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    creator_id          INTEGER UNIQUE REFERENCES creators(id) ON DELETE CASCADE,
-
-    -- 事件状态
-    priority            TEXT DEFAULT 'low',
-    next_action        TEXT,
-
-    -- 评分
-    event_score         REAL DEFAULT 0,
-    urgency_level       INTEGER DEFAULT 5,
-
-    -- 月费状态
-    monthly_fee_status  TEXT DEFAULT 'pending',
-    monthly_fee_amount REAL DEFAULT 20,
-    monthly_fee_deducted INTEGER DEFAULT 0,
-
-    -- Beta状态
-    beta_status         TEXT DEFAULT 'not_introduced',
-    beta_cycle_start    INTEGER,
-    beta_program_type   TEXT DEFAULT '20_day_beta',
-
-    -- Agency绑定
-    agency_bound        INTEGER DEFAULT 0,
-    agency_bound_at     INTEGER,
-    agency_deadline     INTEGER,
-
-    -- 视频数
-    video_count         INTEGER DEFAULT 0,
-    video_target        INTEGER DEFAULT 35,
-    video_last_checked  INTEGER,
-
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NOT NULL UNIQUE,
+    priority            VARCHAR(16) DEFAULT 'low',
+    next_action         TEXT,
+    event_score         DOUBLE DEFAULT 0,
+    urgency_level       INT DEFAULT 5,
+    monthly_fee_status  VARCHAR(32) DEFAULT 'pending',
+    monthly_fee_amount  DOUBLE DEFAULT 20,
+    monthly_fee_deducted INT DEFAULT 0,
+    beta_status         VARCHAR(32) DEFAULT 'not_introduced',
+    beta_cycle_start    BIGINT,
+    beta_program_type   VARCHAR(32) DEFAULT '20_day_beta',
+    agency_bound        TINYINT(1) DEFAULT 0,
+    agency_bound_at     BIGINT,
+    agency_deadline     BIGINT,
+    video_count         INT DEFAULT 0,
+    video_target        INT DEFAULT 35,
+    video_last_checked  BIGINT,
     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_crm_creator ON wa_crm_data(creator_id);
+CREATE INDEX idx_crm_creator ON wa_crm_data(creator_id);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 -- Keeper 系统关联
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS keeper_link (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    creator_id      INTEGER UNIQUE REFERENCES creators(id) ON DELETE CASCADE,
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NOT NULL UNIQUE,
+    keeper_username     VARCHAR(64) UNIQUE,
+    keeper_gmv          DOUBLE DEFAULT 0,
+    keeper_gmv30        DOUBLE DEFAULT 0,
+    keeper_orders       INT DEFAULT 0,
+    keeper_videos       INT DEFAULT 0,
+    keeper_videos_posted INT DEFAULT 0,
+    keeper_videos_sold  INT DEFAULT 0,
+    keeper_card_rate    VARCHAR(16),
+    keeper_order_rate   VARCHAR(16),
+    keeper_reg_time     BIGINT,
+    keeper_activate_time BIGINT,
+    last_synced         DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-    keeper_username TEXT UNIQUE,
-    keeper_gmv      REAL DEFAULT 0,
-    keeper_gmv30    REAL DEFAULT 0,
-    keeper_orders   INTEGER DEFAULT 0,
-    keeper_videos   INTEGER DEFAULT 0,
-    keeper_videos_posted INTEGER DEFAULT 0,
-    keeper_videos_sold   INTEGER DEFAULT 0,
-    keeper_card_rate     TEXT,
-    keeper_order_rate    TEXT,
-
-    keeper_reg_time      INTEGER,
-    keeper_activate_time INTEGER,
-
-    last_synced     DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_keeper_creator ON keeper_link(creator_id);
-CREATE INDEX IF NOT EXISTS idx_keeper_username ON keeper_link(keeper_username);
+CREATE INDEX idx_keeper_creator ON keeper_link(creator_id);
+CREATE INDEX idx_keeper_username ON keeper_link(keeper_username);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 -- JoinBrands 系统关联
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS joinbrands_link (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    creator_id      INTEGER UNIQUE REFERENCES creators(id) ON DELETE CASCADE,
-
-    creator_name_jb TEXT,
-    jb_gmv          REAL DEFAULT 0,
-    jb_status       TEXT DEFAULT 'unknown',
-    jb_priority     TEXT,
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id      INT NOT NULL UNIQUE,
+    creator_name_jb VARCHAR(128),
+    jb_gmv          DOUBLE DEFAULT 0,
+    jb_status       VARCHAR(32) DEFAULT 'unknown',
+    jb_priority     VARCHAR(32),
     jb_next_action  TEXT,
-    last_message    INTEGER,
-    days_since_msg  INTEGER DEFAULT 999,
-    invite_code_jb  TEXT,
+    last_message    BIGINT,
+    days_since_msg  INT DEFAULT 999,
+    invite_code_jb  VARCHAR(64),
+    ev_joined       TINYINT(1) DEFAULT 0,
+    ev_ready_sent   TINYINT(1) DEFAULT 0,
+    ev_trial_7day   TINYINT(1) DEFAULT 0 COMMENT '旧字段，兼容',
+    ev_trial_active TINYINT(1) DEFAULT 0,
+    ev_monthly_started TINYINT(1) DEFAULT 0,
+    ev_monthly_invited TINYINT(1) DEFAULT 0,
+    ev_monthly_joined  TINYINT(1) DEFAULT 0,
+    ev_whatsapp_shared TINYINT(1) DEFAULT 0,
+    ev_gmv_1k       TINYINT(1) DEFAULT 0,
+    ev_gmv_2k       TINYINT(1) DEFAULT 0,
+    ev_gmv_5k       TINYINT(1) DEFAULT 0,
+    ev_gmv_10k      TINYINT(1) DEFAULT 0,
+    ev_agency_bound TINYINT(1) DEFAULT 0,
+    ev_churned      TINYINT(1) DEFAULT 0,
+    last_synced     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-    -- 事件状态
-    ev_joined          INTEGER DEFAULT 0,
-    ev_ready_sent      INTEGER DEFAULT 0,
-    ev_trial_7day      INTEGER DEFAULT 0,
-    ev_monthly_invited INTEGER DEFAULT 0,
-    ev_monthly_joined  INTEGER DEFAULT 0,
-    ev_whatsapp_shared INTEGER DEFAULT 0,
-    ev_gmv_1k          INTEGER DEFAULT 0,
-    ev_gmv_3k          INTEGER DEFAULT 0,
-    ev_gmv_10k         INTEGER DEFAULT 0,
-    ev_agency_bound    INTEGER DEFAULT 0,
-    ev_churned         INTEGER DEFAULT 0,
-
-    last_synced     DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_jb_creator ON joinbrands_link(creator_id);
+CREATE INDEX idx_jb_creator ON joinbrands_link(creator_id);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- 手工匹配记录（优先级最高）
+-- 手工匹配记录
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS manual_match (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    creator_id      INTEGER REFERENCES creators(id) ON DELETE CASCADE,
-
-    keeper_username TEXT,
-    joinbrands_name TEXT,
-    wa_phone        TEXT,
-
-    matched_by      TEXT DEFAULT 'manual',
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id      INT,
+    keeper_username VARCHAR(64),
+    joinbrands_name VARCHAR(128),
+    wa_phone        VARCHAR(32),
+    matched_by      VARCHAR(32) DEFAULT 'manual',
     matched_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-
-    UNIQUE(keeper_username, joinbrands_name, wa_phone)
-);
+    UNIQUE KEY uk_match (keeper_username, joinbrands_name, wa_phone),
+    FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- SFT Memory — 后置强化训练语料
+-- SFT Memory — SFT 训练语料
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS sft_memory (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
     model_opt1          TEXT,
     model_opt2          TEXT,
-    human_selected      TEXT NOT NULL,
+    human_selected      VARCHAR(16) NOT NULL COMMENT "'opt1'|'opt2'|'custom'",
     human_output        TEXT NOT NULL,
-    model_predicted     TEXT,
-    model_rejected      TEXT,
-    is_custom_input     INTEGER DEFAULT 0,
+    model_predicted     VARCHAR(16),
+    model_rejected      VARCHAR(16),
+    is_custom_input     TINYINT(1) DEFAULT 0,
     human_reason        TEXT,
-    context_json        TEXT,
-    status              TEXT DEFAULT 'approved',
-    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-    reviewed_by         TEXT
-);
+    context_json        JSON,
+    status              VARCHAR(32) DEFAULT 'approved',
+    reviewed_by         VARCHAR(64),
+    similarity          INT,
+    scene               VARCHAR(64),
+    message_history     JSON COMMENT '前10轮对话历史',
+    system_prompt_version VARCHAR(16) DEFAULT 'v1',
+    client_id_hash      VARCHAR(64) COMMENT 'SHA256(client_id)',
+    input_text_hash     VARCHAR(64) COMMENT 'SHA256(input_text)',
+    human_output_hash   VARCHAR(64) COMMENT 'SHA256(human_output)',
+    created_date        DATE COMMENT 'YYYY-MM-DD',
+    chosen_output       TEXT COMMENT '被选中的回复（RLHF Preference Pair）',
+    rejected_output     TEXT COMMENT '被拒绝的回复（RLHF Preference Pair）',
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_sft_created ON sft_memory(created_at);
-CREATE INDEX IF NOT EXISTS idx_sft_status ON sft_memory(status);
-
--- SFT 去重字段（由应用层计算写入）
-ALTER TABLE sft_memory ADD COLUMN input_text_hash TEXT;
-ALTER TABLE sft_memory ADD COLUMN human_output_hash TEXT;
-ALTER TABLE sft_memory ADD COLUMN created_date TEXT;  -- DATE(created_at)，存储为 YYYY-MM-DD 字符串
-
--- SFT 新增字段
-ALTER TABLE sft_memory ADD COLUMN similarity INTEGER;
-ALTER TABLE sft_memory ADD COLUMN scene TEXT;
-ALTER TABLE sft_memory ADD COLUMN message_history TEXT;  -- JSON，前10轮对话
-ALTER TABLE sft_memory ADD COLUMN system_prompt_version TEXT DEFAULT 'v1';
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_sft_dedup ON sft_memory(
-    client_id_hash,
-    input_text_hash,
-    human_output_hash,
-    created_date
-);
+CREATE INDEX idx_sft_created ON sft_memory(created_at);
+CREATE INDEX idx_sft_status ON sft_memory(status);
+CREATE UNIQUE INDEX idx_sft_dedup ON sft_memory(client_id_hash, input_text_hash, human_output_hash, created_date);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 -- SFT Feedback — Skip/Reject/Edit 反馈记录
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS sft_feedback (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id      TEXT NOT NULL,
-    feedback_type   TEXT NOT NULL,   -- 'skip' | 'reject' | 'edit'
-    input_text     TEXT,
-    opt1           TEXT,
-    opt2           TEXT,
-    final_output   TEXT,
-    scene          TEXT,
-    detail         TEXT,
-    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    client_id       VARCHAR(64) NOT NULL,
+    feedback_type   VARCHAR(16) NOT NULL COMMENT "'skip'|'reject'|'edit'",
+    input_text      TEXT,
+    opt1            TEXT,
+    opt2            TEXT,
+    final_output    TEXT,
+    scene           VARCHAR(64),
+    detail          TEXT,
+    reject_reason   TEXT COMMENT 'skip/reject 时：为什么两个候选都不够好',
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_feedback_type_scene ON sft_feedback(feedback_type, scene);
-CREATE INDEX IF NOT EXISTS idx_feedback_client ON sft_feedback(client_id);
+CREATE INDEX idx_feedback_type_scene ON sft_feedback(feedback_type, scene);
+CREATE INDEX idx_feedback_client ON sft_feedback(client_id);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- Client Memory — 客户单独记忆管理
+-- Client Memory — 客户单独记忆
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS client_memory (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id           TEXT NOT NULL,
-    memory_type         TEXT NOT NULL,
-    memory_key          TEXT,
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    client_id           VARCHAR(64) NOT NULL,
+    memory_type         VARCHAR(32) NOT NULL COMMENT "'preference'|'decision'|'style'|'policy'",
+    memory_key          VARCHAR(64),
     memory_value        TEXT,
-    source_record_id    INTEGER,
-    confidence          INTEGER DEFAULT 1,
+    source_record_id    INT,
+    confidence          INT DEFAULT 1,
     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(client_id, memory_type, memory_key)
-);
+    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_client_mem (client_id, memory_type, memory_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_cm_client ON client_memory(client_id);
+CREATE INDEX idx_cm_client ON client_memory(client_id);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- Policy Documents — 政策文档与输出底线
+-- Policy Documents — 政策文档
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS policy_documents (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    policy_key          TEXT UNIQUE NOT NULL,
-    policy_version      TEXT NOT NULL,
-    policy_content      TEXT NOT NULL,
-    applicable_scenarios TEXT,
-    is_active           INTEGER DEFAULT 1,
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    policy_key          VARCHAR(128) NOT NULL UNIQUE,
+    policy_version      VARCHAR(32) NOT NULL,
+    policy_content      JSON NOT NULL,
+    applicable_scenarios JSON COMMENT 'JSON array',
+    is_active           TINYINT(1) DEFAULT 1,
     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- 同步日志
+-- Sync Log — 同步日志
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS sync_log (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    bot_name        TEXT NOT NULL,
-    record_count    INTEGER,
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    bot_name        VARCHAR(32) NOT NULL,
+    record_count    INT,
     synced_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-    status          TEXT DEFAULT 'success',
+    status          VARCHAR(16) DEFAULT 'success',
     note            TEXT
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- 审计日志
+-- Audit Log — 审计日志
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS audit_log (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    action          TEXT NOT NULL,              -- sft_create | policy_create | client_memory_update | etc.
-    table_name      TEXT,
-    record_id       INTEGER,
-    operator        TEXT DEFAULT 'system',
-    before_value    TEXT,
-    after_value     TEXT,
-    ip_address      TEXT,
-    user_agent       TEXT,
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    action          VARCHAR(64) NOT NULL,
+    table_name      VARCHAR(64),
+    record_id       INT,
+    operator        VARCHAR(64) DEFAULT 'system',
+    before_value    JSON,
+    after_value     JSON,
+    ip_address      VARCHAR(45),
+    user_agent      TEXT,
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
-CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+CREATE INDEX idx_audit_action ON audit_log(action);
+CREATE INDEX idx_audit_created ON audit_log(created_at);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- Client Profiles — 客户独立画像（AI 调用时使用）
+-- Client Profiles — 客户独立画像
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS client_profiles (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id           TEXT UNIQUE NOT NULL,   -- wa_phone（隔离标识）
-    summary             TEXT,                    -- AI 生成的画像简介
-    tags                TEXT,                    -- JSON array: ["美妆", "高价值", "视频偏好"]
-    tiktok_data        TEXT,                    -- JSON: {followers, avg_views, gmv}
-    stage              TEXT,                    -- 当前阶段
-    last_interaction   DATETIME,
-    last_updated       DATETIME DEFAULT CURRENT_TIMESTAMP,
-    created_at         DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    client_id           VARCHAR(64) NOT NULL UNIQUE,
+    summary             TEXT,
+    tags                JSON COMMENT 'JSON array',
+    tiktok_data         JSON COMMENT '{followers, avg_views, gmv}',
+    stage               VARCHAR(32),
+    last_interaction    DATETIME,
+    last_updated        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_cp_client ON client_profiles(client_id);
+CREATE INDEX idx_cp_client ON client_profiles(client_id);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- Client Tags — 动态标签（多源标注）
+-- Client Tags — 动态标签
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS client_tags (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id       TEXT NOT NULL,             -- wa_phone（隔离标识）
-    tag             TEXT NOT NULL,             -- 标签名，如 "tone:formal"
-    source          TEXT NOT NULL,             -- ai_extracted | sft_feedback | keeper_update | manual
-    confidence      INTEGER DEFAULT 1,          -- 1-3 置信度
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    client_id       VARCHAR(64) NOT NULL,
+    tag             VARCHAR(64) NOT NULL COMMENT '如 "tone:formal"',
+    source          VARCHAR(32) NOT NULL COMMENT "'ai_extracted'|'sft_feedback'|'keeper_update'|'manual'",
+    confidence      INT DEFAULT 1 COMMENT '1-3 置信度',
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(client_id, tag, source)
-);
+    UNIQUE KEY uk_tag (client_id, tag, source)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_ct_client ON client_tags(client_id);
-CREATE INDEX IF NOT EXISTS idx_ct_tag ON client_tags(tag);
+CREATE INDEX idx_ct_client ON client_tags(client_id);
+CREATE INDEX idx_ct_tag ON client_tags(tag);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- Operator Experiences — 不同 operator 的 AI 体验配置
+-- Operator Experiences — AI 体验配置
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS operator_experiences (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    operator            TEXT UNIQUE NOT NULL,   -- 'Beau' | 'Yiyun' | 'WangYouKe'
-    display_name        TEXT NOT NULL,
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    operator            VARCHAR(32) NOT NULL UNIQUE,
+    display_name        VARCHAR(64) NOT NULL,
     description         TEXT,
-    system_prompt_base  TEXT NOT NULL,           -- 基础 system prompt 模板
-    scene_config        TEXT,                    -- JSON: scene → prompt fragment 映射
-    forbidden_rules     TEXT,                    -- JSON array: 额外禁止规则
-    is_active           INTEGER DEFAULT 1,
-    priority            INTEGER DEFAULT 0,       -- 路由优先级
+    system_prompt_base  TEXT NOT NULL,
+    scene_config        JSON COMMENT 'scene → prompt fragment',
+    forbidden_rules     JSON COMMENT 'JSON array',
+    is_active           TINYINT(1) DEFAULT 1,
+    priority            INT DEFAULT 0,
     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_oe_operator ON operator_experiences(operator);
+CREATE INDEX idx_oe_operator ON operator_experiences(operator);
 
--- 预置 Beau/Yiyun 体验记录
-INSERT OR IGNORE INTO operator_experiences (operator, display_name, description, system_prompt_base, scene_config, forbidden_rules, priority) VALUES
+INSERT IGNORE INTO operator_experiences (operator, display_name, description, system_prompt_base, scene_config, forbidden_rules, priority) VALUES
 ('Beau', 'Beau 的运营体验', 'Beau 专属话术体系，20天Beta计划，$200激励，DRIFTO MCN',
  '[BASE_PROMPT]
 
@@ -360,7 +344,7 @@ INSERT OR IGNORE INTO operator_experiences (operator, display_name, description,
  '["不提Yiyun的话术","不承诺Beta永久持续(around May正式发布)","不在MCN犹豫时给压力"]',
  1);
 
-INSERT OR IGNORE INTO operator_experiences (operator, display_name, description, system_prompt_base, scene_config, forbidden_rules, priority) VALUES
+INSERT IGNORE INTO operator_experiences (operator, display_name, description, system_prompt_base, scene_config, forbidden_rules, priority) VALUES
 ('Yiyun', 'Yiyun 的运营体验', 'Yiyun 专属话术体系，7天试用，$20月费，保守回复策略',
  '[BASE_PROMPT]
 
@@ -375,45 +359,58 @@ INSERT OR IGNORE INTO operator_experiences (operator, display_name, description,
  2);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
--- 视图: 达人完整信息
+-- Events — 事件表
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
-CREATE VIEW IF NOT EXISTS v_creator_full AS
-SELECT
-    c.id,
-    c.primary_name,
-    c.wa_phone,
-    c.keeper_username,
-    c.wa_owner,
-    c.source,
-    c.is_active,
-    c.created_at,
+CREATE TABLE IF NOT EXISTS events (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id      INT NOT NULL,
+    event_key       VARCHAR(64) NOT NULL COMMENT "'trial_7day'|'monthly_challenge'|'agency_bound'",
+    event_type      VARCHAR(32) NOT NULL COMMENT "'challenge'|'gmv'|'referral'|'incentive_task'|'agency'",
+    owner           VARCHAR(32) NOT NULL COMMENT "'Beau'|'Yiyun'",
+    status          VARCHAR(16) DEFAULT 'active' COMMENT "'pending'|'active'|'completed'|'cancelled'",
+    trigger_source  VARCHAR(32) DEFAULT 'semantic_auto' COMMENT "'semantic_auto'|'manual'|'gmv_crosscheck'",
+    trigger_text    TEXT,
+    start_at        DATETIME,
+    end_at          DATETIME,
+    meta            JSON COMMENT '事件特定数据',
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-    w.msg_count,
-    w.last_active,
-    w.last_message_text,
+CREATE INDEX idx_events_creator ON events(creator_id);
+CREATE INDEX idx_events_status ON events(status);
+CREATE INDEX idx_events_owner ON events(owner);
+CREATE UNIQUE INDEX idx_events_unique_active ON events(creator_id, event_key, status, (IF(status='active',0,1)));
 
-    k.keeper_gmv,
-    k.keeper_gmv30,
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- Event Periods — 事件周期记录
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+CREATE TABLE IF NOT EXISTS event_periods (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    event_id        INT NOT NULL,
+    period_start    DATETIME NOT NULL,
+    period_end      DATETIME NOT NULL,
+    video_count     INT DEFAULT 0,
+    bonus_earned    DOUBLE DEFAULT 0,
+    status          VARCHAR(16) DEFAULT 'pending' COMMENT "'pending'|'settled'",
+    meta            JSON,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-    j.jb_status,
-    j.jb_gmv,
+CREATE INDEX idx_periods_event ON event_periods(event_id);
 
-    wc.priority,
-    wc.next_action,
-    wc.event_score,
-    wc.urgency_level,
-    wc.beta_status,
-    wc.agency_bound
-
-FROM creators c
-LEFT JOIN (
-    SELECT creator_id,
-           COUNT(*) as msg_count,
-           MAX(timestamp) as last_active,
-           MAX(CASE WHEN role = 'user' THEN text END) as last_message_text
-    FROM wa_messages
-    GROUP BY creator_id
-) w ON w.creator_id = c.id
-LEFT JOIN keeper_link k ON k.creator_id = c.id
-LEFT JOIN joinbrands_link j ON j.creator_id = c.id
-LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id;
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- Events Policy — 事件策略配置
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+CREATE TABLE IF NOT EXISTS events_policy (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    owner           VARCHAR(32) NOT NULL,
+    event_key       VARCHAR(64) NOT NULL,
+    policy_json     JSON NOT NULL,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_policy (owner, event_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

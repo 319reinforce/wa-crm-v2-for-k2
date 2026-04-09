@@ -152,6 +152,15 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
     // 移动端标签 bar 显示状态
     const [tagsVisible, setTagsVisible] = useState(true);
 
+    // 话题下拉菜单
+    const [topicDropdownOpen, setTopicDropdownOpen] = useState(false);
+
+    // 当前话题状态
+    const [currentTopic, setCurrentTopic] = useState(null); // { topic_key, trigger, detected_at, keywords }
+
+    // 自动检测到的话题（每次 messages 变化时刷新）
+    const [autoDetectedTopic, setAutoDetectedTopic] = useState(null); // { topic_key, label, confidence }
+
     // 键盘弹出时 visualViewport 偏移量
     const [viewportOffset, setViewportOffset] = useState(0);
 
@@ -187,39 +196,565 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
         }
     }, []);
 
-    // 构建对话历史
+    // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+    // 事件推进 Prompt 生成
+    // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+
+    // 事件阶段判断
+    function getEventPhase(startAt, endAt, policy) {
+        if (!startAt) return 'unknown';
+        const start = new Date(startAt).getTime();
+        const end = endAt ? new Date(endAt).getTime() : start + 7 * 24 * 3600 * 1000;
+        const now = Date.now();
+        const total = end - start;
+        const elapsed = now - start;
+        const daysLeft = Math.ceil((end - now) / (24 * 3600 * 1000));
+
+        if (elapsed < total * 0.3) return 'phase1';   // 前30%: 刚加入
+        if (daysLeft <= 3) return 'phase3';              // 剩余≤3天: 即将结束
+        return 'phase2';                                // 进行中
+    }
+
+    // 根据事件类型和阶段生成推进指令
+    function buildEventPushText(event, policy, phase) {
+        const target = policy?.weekly_target || 35;
+        const bonus = policy?.bonus_per_video || 5;
+        const eventLabel = {
+            trial_7day: '7天挑战',
+            monthly_challenge: '月度挑战',
+            agency_bound: 'Agency绑定',
+            gmv_milestone: 'GMV里程碑',
+            referral: '推荐新用户',
+        }[event.event_key] || event.event_key;
+
+        if (event.event_key ***REMOVED***= 'trial_7day' || event.event_key ***REMOVED***= 'monthly_challenge') {
+            const latestPeriod = event.periods?.[0];
+            const currentCount = latestPeriod?.video_count || 0;
+
+            if (phase ***REMOVED***= 'phase1') {
+                return `你现在已经成功加入【${eventLabel}】！本周目标${target}条视频，完成后可得 $${bonus}/条 Bonus，加油💪`;
+            } else if (phase ***REMOVED***= 'phase3') {
+                const needed = Math.max(0, target - currentCount);
+                return `${eventLabel}即将结束！本周你已发布${currentCount}条，差${needed}条达成目标，加油冲刺！`;
+            } else {
+                return `本周你已发布${currentCount}条，目标${target}条。继续加油，有问题随时告诉我～`;
+            }
+        }
+
+        if (event.event_key ***REMOVED***= 'agency_bound') {
+            return `你已经完成Agency签约！接下来可以解锁GMV激励任务和推荐奖励，有什么想了解的吗？`;
+        }
+
+        if (event.event_key ***REMOVED***= 'gmv_milestone') {
+            const gmv = event.meta ? JSON.parse(event.meta).gmv_current : null;
+            return `恭喜你的GMV达到${gmv ? '$' + gmv.toLocaleString() : '里程碑'}！相关奖励会尽快发放，继续保持💪`;
+        }
+
+        if (event.event_key ***REMOVED***= 'referral') {
+            return `每推荐一位新达人加入，可获得$10-$15奖励。推荐成功后会额外通知你，记得来告诉我哦～`;
+        }
+
+        return '';
+    }
+
+    // 构建事件推进段落（用于 system prompt 的末尾）
+    function buildEventPushSection(activeEvents, owner) {
+        if (!activeEvents || activeEvents.length ***REMOVED***= 0) {
+            return `
+【当前无进行中事件】
+如达人有加入意向，可介绍7天试用任务（目标35条/周，完成后$5/条）或月度挑战。`;
+        }
+
+        const lines = ['【当前进行中事件】'];
+        for (const evt of activeEvents) {
+            const policyMap = {
+                trial_7day: { weekly_target: 35, bonus_per_video: 5, max_periods: 4 },
+                monthly_challenge: { weekly_target: 35, bonus_per_video: 5, max_periods: 12 },
+                agency_bound: {},
+                gmv_milestone: {},
+                referral: {},
+            };
+            const policy = policyMap[evt.event_key] || {};
+
+            // 解析 meta
+            let meta = {};
+            try { meta = evt.meta ? JSON.parse(evt.meta) : {}; } catch (_) {}
+
+            const phase = getEventPhase(evt.start_at, evt.end_at, policy);
+            const phaseLabel = { phase1: '刚加入', phase2: '进行中', phase3: '即将结束', unknown: '未知' }[phase];
+            const pushText = buildEventPushText(evt, policy, phase);
+
+            lines.push(`- 事件: ${evt.event_key} | 负责人: ${evt.owner} | 阶段: ${phaseLabel}`);
+            lines.push(`  目标: ${policy.weekly_target ? policy.weekly_target + '条/周' : 'N/A'} | Bonus: ${policy.bonus_per_video ? '$' + policy.bonus_per_video + '/条' : 'N/A'}`);
+            lines.push(`  推进提示: "${pushText}"`);
+        }
+
+        lines.push('');
+        lines.push('【推进规则】');
+        lines.push('当运营人员刚回复过时（上一条是"assistant"角色），需在回复末尾根据当前事件状态加一句推进语句。');
+        lines.push('从上述【当前进行中事件】中找对应事件的"推进提示"，直接拼接到你的回复末尾即可。');
+        lines.push('如果达人在消息中已表达明确意向（如"好的"、"OK"、"知道了"），应优先回答其问题，再适当推进。');
+
+        return lines.join('\n');
+    }
+
+    // 构建 System Prompt（双模式：响应模式 vs 推进模式）
+    const buildSystemPrompt = ({ lastMsgRole, activeEvents }) => {
+        const clientName = client?.name || creator?.primary_name || '未知';
+        const owner = client?.wa_owner || creator?.wa_owner || '未知';
+        const stage = client?.conversion_stage || creator?._full?.wacrm?.beta_status || '未知';
+        const isPushMode = lastMsgRole ***REMOVED***= 'assistant'; // 上一条是运营发的 → 推进模式
+
+        const base = `你是一个专业的达人运营助手，帮助运营人员与 WhatsApp 达人沟通。
+
+【重要】你只能看到当前这一个客户的对话和档案，禁止推测或提及其他客户信息。
+
+当前客户档案：
+- 姓名: ${clientName}
+- 负责人: ${owner}
+- 建联阶段: ${stage}
+
+【输出禁止规则 — 严格遵守】
+你的回复中禁止出现以下内容：
+1. 具体 GMV 数字、收入数据（如 "$3,000"、"|GMV $5,000"）
+2. 其他达人的姓名、状态、优先级等信息
+3. 公司内部运营备注、合同条款、机构协议内容
+4. 将客户与其他人做对比（如 "比起XX客户..."）`;
+
+        const replyStyle = `【回复风格 — 严格遵守】
+- 语气自然亲切，像朋友间发消息，不要生硬刻板
+- 句子要短，每条不超过 80 字
+- 用换行分隔要点，避免一大段文字
+- 主动推进下一步行动，不要只停留在当前问题
+- 称呼客户名字（如果有），显得更personal
+- 句尾可以有 "~" 或 "!" 体现热情
+
+【各场景 emoji 参考】
+- 试用/邀请：🎉 ✨ 🙌
+- 月卡/付费：💎 💳 📅
+- GMV/业绩：📈 💰 🔥
+- 视频/内容：📹 🎬 ✨
+- 付款问题：💳 ⚠️ 🔔
+- 申诉/违规：🔒 📋 🆘
+- 建联/开场：👋 😊 ✨
+- 推荐用户：🤝 🎁 🙌`;
+
+        const pushSection = buildEventPushSection(activeEvents, owner);
+
+        if (isPushMode) {
+            return `${base}
+${replyStyle}
+${pushSection}
+回复要求：简洁，专业、100字以内，直接回答客户问题，在回复末尾加一句推进下一步的行动。只输出你要发送给客户的回复内容，不要输出任何分析或解释。`;
+        } else {
+            return `${base}
+${replyStyle}
+回复要求：简洁，专业、100字以内，直接回答客户问题，必要时在末尾推进下一步。只输出你要发送给客户的回复内容，不要输出任何分析或解释。`;
+        }
+    };
+
+    // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+    // 话题检测与上下文构建
+    // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+
+    // 从消息文本推断话题类型
+    function inferTopicKey(text) {
+        const t = (text || '').toLowerCase();
+        if (/\b(trial|7[\s-]?day|7day|free\s*try|试用|加入挑战)\b/.test(t)) return 'trial_intro';
+        if (/\b(monthly|month|membership|月费|包月|每月挑战)\b/.test(t)) return 'monthly_inquiry';
+        if (/\b(gmv|sales|订单|销售|收入|earnings)\b/.test(t)) return 'gmv_inquiry';
+        if (/\b(mcn|agency|经纪|代理|绑定|contract|签约)\b/.test(t)) return 'mcn_binding';
+        if (/\b(commission|分成|提成|佣金|revenue)\b/.test(t)) return 'commission_query';
+        if (/\b(video|视频|内容|content|创作|post|发帖)\b/.test(t)) return 'content_request';
+        if (/\b(payment|paypal|付款|收款|转账|汇款|没收到)\b/.test(t)) return 'payment_issue';
+        if (/\b(violation|appeal|申诉|违规|flagged|strike|封号)\b/.test(t)) return 'violation_appeal';
+        if (/\b(refer|invite|推荐|介绍|新人)\b/.test(t)) return 'referral';
+        return 'general';
+    }
+
+    // 从文本提取关键词集合（用于Jaccard相似度计算）
+    function extractKeywords(text) {
+        if (!text) return new Set();
+        return new Set(
+            text.toLowerCase()
+                .split(/[\s,.!?;:，。！？；：]+/)
+                .filter(w => w.length > 2)
+        );
+    }
+
+    // 计算两个关键词集合的Jaccard相似度
+    function computeJaccardSimilarity(set1, set2) {
+        if (set1.size ***REMOVED***= 0 && set2.size ***REMOVED***= 0) return 1;
+        if (set1.size ***REMOVED***= 0 || set2.size ***REMOVED***= 0) return 0;
+        const intersection = new Set([...set1].filter(w => set2.has(w)));
+        const union = new Set([...set1, ...set2]);
+        return intersection.size / union.size;
+    }
+
+    // 话题标签中文映射
+    const TOPIC_LABELS = {
+        trial_intro: '7天挑战咨询',
+        monthly_inquiry: '月度挑战咨询',
+        gmv_inquiry: 'GMV/收入咨询',
+        mcn_binding: 'Agency签约咨询',
+        commission_query: '佣金分成咨询',
+        content_request: '内容/视频咨询',
+        payment_issue: '付款问题',
+        violation_appeal: '违规申诉',
+        referral: '推荐新用户',
+        general: '一般咨询',
+        follow_up: '跟进中',
+        first_contact: '首次接触',
+    };
+
+    // 基于 EVENT_SYSTEM.md 关键词 + 最新20条消息 + 活跃事件 → 自动推断话题
+    function inferAutoTopic({ messages, activeEvents }) {
+        const recentTexts = (messages || []).slice(-20).map(m => m.text || '').join(' ');
+        const lowerText = recentTexts.toLowerCase();
+
+        // 事件语义关键词（来自 EVENT_SYSTEM.md）
+        const eventKeywordMap = {
+            trial_intro: ['trial', '7day', '7-day', 'free challenge', '7天挑战', '试用挑战', '加入挑战', 'challenge', '七天'],
+            monthly_inquiry: ['monthly', 'monthly challenge', 'monthly challenge', '月度挑战', '包月', '每月挑战', 'month'],
+            gmv_inquiry: ['gmv', 'earning', 'revenue', '收入', '佣金', 'pay', 'payment', 'paid', 'milestone', 'commission', '佣金分成', 'cashout'],
+            mcn_binding: ['agency', 'mcn', 'bound', 'sign', 'contract', '绑定', '签约', 'signed', 'join agency'],
+            commission_query: ['commission', 'share', '分成', 'percentage', 'cut', 'reward', '奖励', 'bonus'],
+            content_request: ['video', 'content', 'post', 'publish', '视频', '发布', '链接', 'link', 'tiktok', 'share link', '视频链接'],
+            payment_issue: ['pay', 'payment', 'paid', '转账', '未付', '没收到', 'when', '多久', '一直没有', 'bank', 'account'],
+            violation_appeal: ['violation', 'ban', 'suspend', '违反', '违规', '封号', '被禁', 'account disabled', 'frozen'],
+            referral: ['refer', 'invite', 'recommend', '推荐', '介绍', '新人', 'creator join', 'new creator', '其他人'],
+            first_contact: ['hi', 'hello', 'hey', '你好', '嗨', 'who are you', 'what is', '怎么', 'who is', 'first time'],
+        };
+
+        const scores = {};
+        for (const [topic, keywords] of Object.entries(eventKeywordMap)) {
+            const matchCount = keywords.filter(kw => lowerText.includes(kw)).length;
+            scores[topic] = matchCount;
+        }
+
+        // 活跃事件加权（事件存在说明这个话题正在进行中，加3分）
+        for (const evt of (activeEvents || [])) {
+            const key = evt.event_key; // e.g. 'trial_7day', 'monthly_challenge', 'referral'
+            // 映射 event_key → topic_key
+            const keyMap = {
+                trial_7day: 'trial_intro',
+                monthly_challenge: 'monthly_inquiry',
+                agency_bound: 'mcn_binding',
+                gmv_milestone: 'gmv_inquiry',
+                referral: 'referral',
+            };
+            const mapped = keyMap[key] || key;
+            if (scores[mapped] !***REMOVED*** undefined) scores[mapped] += 3;
+        }
+
+        // 找最高分
+        const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+        const [topKey, topScore] = sorted[0] || [null, 0];
+
+        // 低于1分的默认为 general
+        if (!topKey || topScore < 1) return { topic_key: 'general', label: '一般咨询', confidence: 'low' };
+
+        const confidence = topScore >= 4 ? 'high' : topScore >= 2 ? 'medium' : 'low';
+        return {
+            topic_key: topKey,
+            label: TOPIC_LABELS[topKey] || TOPIC_LABELS.general,
+            confidence,
+            score: topScore,
+        };
+    }
+
+    // 判断是否应该切换新话题
+    function shouldSwitchTopic({ currentTopic, newText, messages, lastMsgTimestamp }) {
+        const newKeywords = extractKeywords(newText);
+
+        // 触发A：48小时无互动
+        const HOUR48 = 48 * 3600 * 1000;
+        if (lastMsgTimestamp && (Date.now() - lastMsgTimestamp) > HOUR48) {
+            return { shouldSwitch: true, trigger: 'time', reason: '超过48小时无互动' };
+        }
+
+        // 触发B：关键词Jaccard相似度 < 0.3（话题明显变化）
+        if (currentTopic?.keywords && newKeywords.size > 0) {
+            const similarity = computeJaccardSimilarity(currentTopic.keywords, newKeywords);
+            if (similarity < 0.3) {
+                return { shouldSwitch: true, trigger: 'keyword', reason: `关键词变化（相似度${Math.round(similarity*100)}%）` };
+            }
+        }
+
+        // 触发C：话题类型本身发生了变化
+        if (currentTopic?.topic_key) {
+            const prevKey = currentTopic.topic_key;
+            const newKey = inferTopicKey(newText);
+            if (prevKey !***REMOVED*** newKey && newKey !***REMOVED*** 'general') {
+                return { shouldSwitch: true, trigger: 'keyword', reason: `话题从${TOPIC_LABELS[prevKey]||prevKey}切换到${TOPIC_LABELS[newKey]||newKey}` };
+            }
+        }
+
+        return { shouldSwitch: false };
+    }
+
+    // 构建话题上下文段落（注入System Prompt）
+    function buildTopicContext({ topic, creator, activeEvents, mode = 'new_topic' }) {
+        const wacrm = creator?._full?.wacrm || {};
+        const owner = creator?.wa_owner || '未知';
+        const stage = wacrm.beta_status || '未知';
+
+        const topicLabel = TOPIC_LABELS[topic?.topic_key] || TOPIC_LABELS.general;
+        const triggerLabel = { manual: '运营手动标记', time: '48小时无互动', keyword: '关键词变化', auto: '自动检测', new: '新对话' }[topic?.trigger] || '新对话';
+
+        // 事件阶段压缩
+        const eventLines = (activeEvents || []).map(evt => {
+            let meta = {};
+            try { meta = JSON.parse(evt.meta || '{}'); } catch (_) {}
+            const daysLeft = evt.end_at
+                ? Math.ceil((new Date(evt.end_at) - Date.now()) / 86400000)
+                : null;
+            const phase = daysLeft ***REMOVED***= null ? '进行中'
+                : daysLeft <= 0 ? '已结束'
+                : daysLeft <= 3 ? '即将结束'
+                : '进行中';
+            return `${TOPIC_LABELS[evt.event_key] || evt.event_key}·${phase}${daysLeft !***REMOVED*** null && daysLeft > 0 ? `·剩${daysLeft}天` : ''}`;
+        });
+
+        // ***REMOVED***= 同一话题模式（manual/auto）：简短版 ***REMOVED***=
+        if (mode ***REMOVED***= 'same_topic') {
+            const eventSummary = eventLines.length > 0 ? eventLines.join(' | ') : '暂无进行中事件';
+            return `【当前话题】${topicLabel}（${triggerLabel}）| ${eventSummary}`;
+        }
+
+        // ***REMOVED***= 新话题模式（keyword/time）：完整版 ***REMOVED***=
+        const detectedAt = topic?.detected_at
+            ? new Date(topic.detected_at).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+            : '未知';
+
+        let fullEventSummary = '暂无进行中事件';
+        if (activeEvents?.length > 0) {
+            const lines = activeEvents.map(evt => {
+                let meta = {};
+                try { meta = JSON.parse(evt.meta || '{}'); } catch (_) {}
+                const daysLeft = evt.end_at
+                    ? Math.ceil((new Date(evt.end_at) - Date.now()) / 86400000)
+                    : null;
+                const phase = daysLeft ***REMOVED***= null ? '进行中'
+                    : daysLeft <= 0 ? '已结束'
+                    : daysLeft <= 3 ? '即将结束'
+                    : '进行中';
+                return `[${TOPIC_LABELS[evt.event_key] || evt.event_key}]`
+                    + `（${evt.owner}负责）`
+                    + `目标${meta.weekly_target || 35}条/周`
+                    + `·${phase}`
+                    + (daysLeft !***REMOVED*** null && daysLeft > 0 ? `·剩余${daysLeft}天` : '');
+            });
+            fullEventSummary = lines.join('\n');
+        }
+
+        return `【当前话题】
+- 话题: ${topicLabel}
+- 开始: ${detectedAt}（${triggerLabel}）
+- 用户阶段: ${stage}（${owner}负责）
+
+【进行中事件】
+${fullEventSummary}
+
+【回复策略提示】
+- 有进行中事件 → 优先推进事件进展，末尾加推进语句
+- 首次接触新客户 → 友好问候+介绍支持
+- 问题咨询 → 直接清晰回答
+- 严禁在回复中提及具体GMV数字和其他达人信息`;
+    }
+
+    // 把废弃的 richCtx 注入为结构化段落
+    function buildConversationSummary(messages) {
+        if (!messages || messages.length <= 10) return null;
+        const older = messages.slice(0, -10); // 最早的部分
+        const recentCount = messages.length - older.length;
+        const lines = older.map(m => {
+            // allMsgs 的 role: 'me'（运营发出）| 'user'（达人发出）
+            const role = m.role ***REMOVED***= 'me' ? '运营' : '达人';
+            const text = (m.text || '').slice(0, 80);
+            return `[${role}]: ${text}`;
+        });
+        return {
+            summary: `【更早对话摘要（共${older.length}条）】\n${lines.join('\n')}`,
+            recentCount,
+        };
+    }
+
+    function buildRichContextParagraph(richCtx) {
+        if (!richCtx) return '';
+
+        const { scene, client_tone, language, days_since_last_msg, memory_summary, policy_tags, total_messages, hour_of_day, day_of_week } = richCtx;
+
+        const toneLabel = { friendly: '友好', formal: '正式', casual: '随意', neutral: '中性' }[client_tone] || '未知';
+        const langLabel = language ***REMOVED***= 'zh' ? '中文' : '英文';
+        const timeHint = days_since_last_msg !***REMOVED*** null
+            ? days_since_last_msg ***REMOVED***= 0 ? '今天'
+                : days_since_last_msg ***REMOVED***= 1 ? '昨天'
+                    : `${days_since_last_msg}天前`
+            : '未知';
+
+        const sceneLabel = {
+            trial_intro: '7天挑战咨询', monthly_inquiry: '月度挑战咨询', commission_query: '佣金分成咨询',
+            mcn_binding: 'Agency/MCN绑定', video_not_loading: '视频加载异常', content_request: '内容/视频请求',
+            gmv_inquiry: 'GMV收入咨询', payment_issue: '付款问题', violation_appeal: '违规申诉',
+            follow_up: '跟进中', first_contact: '首次接触', general: '一般咨询'
+        }[scene] || scene || '未知';
+
+        let memoryBlock = '';
+        if (memory_summary && Object.keys(memory_summary).length > 0) {
+            const prefs = [];
+            if (memory_summary.preference) {
+                for (const [k, v] of Object.entries(memory_summary.preference)) {
+                    prefs.push(`${k}: ${v}`);
+                }
+            }
+            if (prefs.length > 0) memoryBlock = `\n- 客户偏好: ${prefs.join(' | ')}`;
+        }
+
+        let policyBlock = '';
+        if (policy_tags && policy_tags.length > 0) {
+            policyBlock = `\n- 匹配策略: ${policy_tags.join(', ')}`;
+        }
+
+        return `【当前对话上下文】
+- 场景: ${sceneLabel}
+- 客户语气: ${toneLabel} | 语言: ${langLabel} | 总消息: ${total_messages}条 | 上次互动: ${timeHint}
+- 时间: 周${day_of_week}${hour_of_day >= 9 && hour_of_day <= 21 ? '（工作时间）' : '（非工作时间）'}${memoryBlock}${policyBlock}`;
+    }
+
+    // 开启新话题
+    function startNewTopic({ trigger = 'new', newText, messages }) {
+        const keywords = extractKeywords(newText);
+        const topic_key = inferTopicKey(newText);
+        return {
+            topic_key,
+            trigger,
+            detected_at: Date.now(),
+            keywords,
+        };
+    }
+
     const buildConversation = (messages) => ({
-        messages: (messages || []).slice(-10).map(m => ({
+        messages: (messages || []).slice(-20).map(m => ({
             role: m.role ***REMOVED***= 'me' ? 'me' : 'user',
             text: m.text
         }))
     });
 
     // 通过 Experience Router 生成候选回复
-    const generateViaExperienceRouter = async ({ conversation, scene, client_id, forcedInput }) => {
-        const msgs = conversation.messages.map(m => ({
+    const generateViaExperienceRouter = async ({ conversation, scene, client_id, forcedInput, richCtx }) => {
+        const allMsgs = conversation.messages;
+        const lastMsgRole = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1].role : null;
+        const lastIncomingText = [...allMsgs].reverse().find(m => m.role ***REMOVED***= 'user')?.text || '';
+        const lastMsgTimestamp = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1].timestamp : null;
+
+        // 尝试获取该达人的 active 事件
+        let activeEvents = [];
+        try {
+            const creatorId = client?.id || creator?.id;
+            if (creatorId) {
+                const res = await fetch(`/api/events/summary/${creatorId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    activeEvents = (data.events || []).filter(e => e.status ***REMOVED***= 'active');
+                }
+            }
+        } catch (_) {}
+
+        // ***REMOVED***= 话题检测：判断是否需要开启新话题 ***REMOVED***=
+        let effectiveTopic = currentTopic;
+        // 方案B（保守）：无手动话题时，用自动检测结果作为 fallback
+        if (!effectiveTopic && autoDetectedTopic) {
+            effectiveTopic = { ...autoDetectedTopic, trigger: 'auto' };
+        }
+        if (lastIncomingText) {
+            const switchDecision = shouldSwitchTopic({
+                currentTopic: effectiveTopic,
+                newText: lastIncomingText,
+                messages: allMsgs,
+                lastMsgTimestamp,
+            });
+            if (switchDecision.shouldSwitch) {
+                effectiveTopic = startNewTopic({
+                    trigger: switchDecision.trigger,
+                    newText: lastIncomingText,
+                    messages: allMsgs,
+                });
+                // 异步更新话题状态（不阻塞生成）
+                setCurrentTopic(effectiveTopic);
+            }
+        }
+
+        // 构建 system prompt（含话题上下文 + 丰富上下文 + 双模式）
+        // 方向三：差异化 Prompt — 同一话题用简短版，新话题用完整版
+        const topicContext = effectiveTopic
+            ? buildTopicContext({ topic: effectiveTopic, creator, activeEvents, mode: isSameTopic ? 'same_topic' : 'new_topic' })
+            : '';
+        const richContextParagraph = buildRichContextParagraph(richCtx);
+        const basePrompt = buildSystemPrompt({ lastMsgRole, activeEvents });
+
+        // 方向二：最近优先机制
+        // - 同一话题（manual/auto）：最近10条直接传，更早消息摘要注入Prompt
+        // - 新话题（keyword/time）：全部消息，不做摘要
+        const isSameTopic = effectiveTopic && ['manual', 'auto'].includes(effectiveTopic.trigger);
+        const convSummary = isSameTopic ? buildConversationSummary(allMsgs) : null;
+
+        // 对话消息：按场景截取
+        const msgsToUse = convSummary ? allMsgs.slice(-convSummary.recentCount) : allMsgs;
+        const conversationMsgs = msgsToUse.map(m => ({
             role: m.role ***REMOVED***= 'me' ? 'assistant' : 'user',
             content: m.text,
         }));
         if (forcedInput) {
-            msgs.push({ role: 'user', content: forcedInput });
-        } else if (msgs.length > 0 && msgs[msgs.length - 1].role ***REMOVED***= 'assistant') {
-            msgs.push({ role: 'user', content: '[请回复这位达人]' });
+            conversationMsgs.push({ role: 'user', content: forcedInput });
+        } else if (conversationMsgs.length > 0 && conversationMsgs[conversationMsgs.length - 1].role ***REMOVED***= 'assistant') {
+            conversationMsgs.push({ role: 'user', content: '[请回复这位达人]' });
         }
-        const [r1, r2] = await Promise.all([
-            fetch(`${API_BASE}/minimax`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ client_id, model: 'mini-max-typing', messages: msgs, max_tokens: 500, temperature: 0.8 }),
-            }).then(r => r.json()),
-            fetch(`${API_BASE}/minimax`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ client_id, model: 'mini-max-typing', messages: msgs, max_tokens: 500, temperature: 0.4 }),
-            }).then(r => r.json()),
-        ]);
-        const extract = (d) => d.content?.find(i => i.type ***REMOVED***= 'text')?.text || '';
-        return { opt1: extract(r1), opt2: extract(r2) };
+
+        // 组装顺序：话题上下文 → 丰富上下文 → 更早摘要（如果有）→ 基础规则
+        const systemPromptParts = [
+            topicContext,
+            richContextParagraph,
+            convSummary ? convSummary.summary : null,
+            basePrompt,
+        ].filter(Boolean);
+        const systemPrompt = systemPromptParts.join('\n\n');
+
+        // 最前面插入 system prompt
+        const allMessages = [
+            { role: 'system', content: systemPrompt },
+            ...conversationMsgs,
+        ];
+
+        // 单请求：同时获取 opt1（temp=0.8）和 opt2（temp=0.4）
+        // 后端 /api/minimax 根据 USE_OPENAI 自动路由
+        // - MiniMax: 并发两路请求（temp 0.8 vs 0.4），返回 {content_opt1, content_opt2}
+        // - OpenAI: generateCandidates 并发生成两个候选，返回 {content_opt1, content_opt2}
+        const res = await fetch(`${API_BASE}/minimax`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                client_id,
+                model: 'MiniMax/Abab6.5s-Chat',
+                messages: allMessages,
+                max_tokens: 500,
+                temperature: [0.8, 0.4],
+            }),
+        });
+        const data = await res.json();
+
+        // 提取 opt1 / opt2（统一从 content_opt1 / content_opt2 拿）
+        // MiniMax 返回: { content: [{type:"text", text:opt1}], content_opt2: [{type:"text", text:opt2}] }
+        // OpenAI 返回:   { content: [{type:"text", text:opt1}], content_opt2: [{type:"text", text:opt2}] }
+        const extractText = (d) => {
+            if (!d || !d.content || !Array.isArray(d.content)) return '';
+            return d.content.find(c => c.type ***REMOVED***= 'text')?.text || '';
+        };
+        const extractOpt2 = (d) => {
+            if (!d || !d.content_opt2 || !Array.isArray(d.content_opt2)) return '';
+            return d.content_opt2.find(c => c.type ***REMOVED***= 'text')?.text || '';
+        };
+        return { opt1: extractText(data), opt2: extractOpt2(data) };
     };
 
     const fetchPolicyDocs = async () => {
@@ -245,19 +780,33 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
         load();
     }, [client?.phone]);
 
+    // 切换达人时清除旧状态，触发新一轮 AI 生成
+    useEffect(() => {
+        if (!client?.id) return;
+        setActivePicker(null);
+        setPendingCandidates([]);
+        setMessages([]);
+        setInputText('');
+    }, [client?.id]);
+
     // 为一条 incoming 消息生成候选
     const generateForIncoming = async (incomingMsg) => {
         setPickerLoading(true);
         try {
-            const conversation = buildConversation(messages);
+            // 重新 fetch 最新消息，避免闭包 stale 问题
+            const msgsRes = await fetch(`${API_BASE}/creators/${client.id}/messages`);
+            const msgsData = msgsRes.ok ? (await msgsRes.json()) : [];
+            const msgs = Array.isArray(msgsData) ? msgsData : (msgsData.messages || []);
+            const conversation = buildConversation(msgs);
             conversation.messages.push({ role: 'user', text: incomingMsg.text });
 
-            const richCtx = buildRichContext({ incomingMsg, client, creator, policyDocs, clientMemory, messages });
+            const richCtx = buildRichContext({ incomingMsg, client, creator, policyDocs, clientMemory, messages: msgs });
 
             const result = await generateViaExperienceRouter({
                 conversation,
                 scene: richCtx.scene,
                 client_id: client.phone,
+                richCtx,
             });
 
             return {
@@ -288,6 +837,41 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
         });
     }, []);
 
+    // 切换达人时清除旧状态，触发新一轮 AI 生成
+    useEffect(() => {
+        if (!client?.id) return;
+        setActivePicker(null);
+        setPendingCandidates([]);
+        setMessages([]);
+        setInputText('');
+        lastActivityRef.current = null;
+    }, [client?.id]);
+
+    // 追踪最近一次互动时间（用于48小时话题切换）
+    const lastActivityRef = useRef(null);
+
+    // pendingCandidates ref：避免 cleanup 时的 stale closure 问题
+    const pendingCandidatesRef = useRef(pendingCandidates);
+    // 同步更新 ref（setState 之后）
+    pendingCandidatesRef.current = pendingCandidates;
+
+    // 每5分钟检查一次48小时无互动（即使没有新消息）
+    useEffect(() => {
+        const check48h = () => {
+            if (!client?.id || !lastActivityRef.current) return;
+            const gap = Date.now() - lastActivityRef.current;
+            const HOUR48 = 48 * 3600 * 1000;
+            if (gap > HOUR48) {
+                console.log('[48h check] 无互动超过48小时，开启新话题');
+                const newTopic = startNewTopic({ trigger: 'time', newText: '', messages: [] });
+                setCurrentTopic(newTopic);
+                lastActivityRef.current = Date.now();
+            }
+        };
+        const interval = setInterval(check48h, 5 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, [client?.id]);
+
     // 轮询新消息
     const checkNewMessages = useCallback(async () => {
         if (!client?.id) {
@@ -301,12 +885,18 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
             const res = await fetch(url);
             console.log('[checkNewMessages] status:', res.status);
             if (!res.ok) return;
-            const msgs = await res.json();
+            const data = await res.json();
+            const msgs = Array.isArray(data) ? data : (data.messages || []);
             console.log('[checkNewMessages] msgs count:', msgs?.length);
             if (!msgs || msgs.length ***REMOVED***= 0) return;
 
             // 更新消息历史（用于渲染）
             setMessages(msgs);
+
+            // 重置48小时计时器（有新消息到达）
+            if (msgs.length > 0) {
+                lastActivityRef.current = Date.now();
+            }
 
             // 找最新一条 incoming 消息（role ***REMOVED***= 'user'）
             const incomingMsgs = msgs.filter(m => m.role ***REMOVED***= 'user');
@@ -314,9 +904,10 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
             console.log('[checkNewMessages] latestMsg role:', latestMsg?.role, 'text:', latestMsg?.text?.slice(0, 50));
             if (!latestMsg) return;
 
-            // 检查这条消息是否已经在队列中
+            // 使用 ref 避免 stale closure（pendingCandidates 在 cleanup 时可能还未 flush）
+            const currentPending = pendingCandidatesRef.current;
             const alreadyQueued = (activePicker?.incomingMsg?.timestamp ***REMOVED***= latestMsg.timestamp) ||
-                pendingCandidates.some(p => p.incomingMsg.timestamp ***REMOVED***= latestMsg.timestamp);
+                currentPending.some(p => p.incomingMsg.timestamp ***REMOVED***= latestMsg.timestamp);
             console.log('[checkNewMessages] alreadyQueued:', alreadyQueued);
             if (alreadyQueued) return;
 
@@ -335,14 +926,26 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
         } catch (e) {
             console.error('[checkNewMessages] error:', e);
         }
-    }, [client?.id, activePicker, pendingCandidates, pushPicker]);
+    }, [client?.id, activePicker, pushPicker]);
 
     useEffect(() => {
+        // 启动轮询前，初始化 lastActivityRef（用当前消息的最新时间戳）
+        if (!lastActivityRef.current && messages.length > 0) {
+            const latestTs = Math.max(...messages.map(m => m.timestamp || 0));
+            if (latestTs > 0) lastActivityRef.current = latestTs;
+        }
         pollingRef.current = setInterval(checkNewMessages, 5000);
         // 启动时立即检查一次
         checkNewMessages();
         return () => clearInterval(pollingRef.current);
-    }, [checkNewMessages]);
+    }, [client?.id, checkNewMessages]);
+
+    // 自动话题检测：messages 变化时重新推断（仅在无手动话题时更新显示）
+    useEffect(() => {
+        if (messages.length ***REMOVED***= 0) return;
+        const detected = inferAutoTopic({ messages, activeEvents: [] });
+        setAutoDetectedTopic(detected);
+    }, [messages]);
 
     // 从对话中提取并保存客户偏好
     const extractAndSaveMemory = async (incomingMsg, sentText) => {
@@ -415,7 +1018,12 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
 
     // 点了 bot 图标 → 强制为最新 incoming 消息重新生成候选
     const handleBotIconClick = async () => {
-        const incomingMsgs = messages.filter(m => m.role ***REMOVED***= 'user');
+        // 重新 fetch 最新消息，避免切换达人后闭包 stale 问题
+        const msgsRes = await fetch(`${API_BASE}/creators/${client.id}/messages`);
+        const msgsData = msgsRes.ok ? (await msgsRes.json()) : [];
+        const freshMsgs = Array.isArray(msgsData) ? msgsData : (msgsData.messages || []);
+
+        const incomingMsgs = freshMsgs.filter(m => m.role ***REMOVED***= 'user');
         const latestMsg = incomingMsgs[incomingMsgs.length - 1];
         if (!latestMsg) return;
 
@@ -425,13 +1033,14 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
         setPickerLoading(true);
 
         try {
-            const conversation = buildConversation(messages);
+            const conversation = buildConversation(freshMsgs);
             conversation.messages.push({ role: 'user', text: latestMsg.text });
-            const richCtx = buildRichContext({ incomingMsg: latestMsg, client, creator, policyDocs, clientMemory, messages });
+            const richCtx = buildRichContext({ incomingMsg: latestMsg, client, creator, policyDocs, clientMemory, messages: freshMsgs });
             const result = await generateViaExperienceRouter({
                 conversation,
                 scene: richCtx.scene,
                 client_id: client.phone,
+                richCtx,
             });
             setActivePicker({ incomingMsg: latestMsg, candidates: result, generated_at: Date.now(), policyDocs });
         } catch (e) {
@@ -441,7 +1050,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
         }
     };
 
-    // 翻译最近20条消息（逐条进行），翻译结果显示在对应气泡下方
+    // 翻译最近20条消息（一次批量请求），翻译结果显示在对应气泡下方
     const handleTranslate = async () => {
         const last20 = messages.slice(-20);
         if (last20.length ***REMOVED***= 0) return;
@@ -452,33 +1061,40 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
             return;
         }
         setTranslating(true);
-        const newMap = {};
-        const total = last20.length;
-        for (let i = total - 1; i >= 0; i--) {
-            const msg = last20[i];
-            setTranslateProgress(`${total - i}/${total}`);
-            try {
-                const response = await fetch(`${API_BASE}/translate`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: msg.text, role: msg.role, timestamp: msg.timestamp }),
-                });
-                const data = await response.json();
-                if (data.translation) {
-                    newMap[msg.timestamp] = data.translation;
-                    setTranslationMap({ ...newMap });
+        setTranslateProgress('0/' + last20.length);
+        try {
+            const response = await fetch(`${API_BASE}/translate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    texts: last20.map(m => ({ text: m.text, role: m.role }))
+                }),
+            });
+            const data = await response.json();
+            const newMap = {};
+            if (data.translations && Array.isArray(data.translations)) {
+                for (const t of data.translations) {
+                    const idx = t.idx - 1; // idx 是 1-based
+                    if (idx >= 0 && idx < last20.length) {
+                        newMap[last20[idx].timestamp] = t.translation || last20[idx].text;
+                    }
                 }
-            } catch (e) {
-                console.error('[Translate] error for msg:', msg.timestamp, e);
-                // 失败时用原文
-                newMap[msg.timestamp] = msg.text;
-                setTranslationMap({ ...newMap });
             }
-            // 避免请求过快，稍作延迟
-            if (i > 0) await new Promise(r => setTimeout(r, 300));
+            // 兜底：未翻译到的用原文
+            for (const msg of last20) {
+                if (!newMap[msg.timestamp]) {
+                    newMap[msg.timestamp] = msg.text;
+                }
+            }
+            setTranslationMap(newMap);
+            setTranslateProgress(true);
+        } catch (e) {
+            console.error('[Translate] batch error:', e);
+            setTranslationMap({});
+            setTranslateProgress(null);
+        } finally {
+            setTranslating(false);
         }
-        setTranslating(false);
-        setTranslateProgress(true);
     };
 
     // 重新生成（picker 内部的刷新按钮）
@@ -498,6 +1114,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
                 conversation,
                 scene: richCtx.scene,
                 client_id: client.phone,
+                richCtx,
             });
             setActivePicker(prev => ({
                 ...prev,
@@ -650,6 +1267,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
                 conversation,
                 scene: richCtx.scene,
                 client_id: client.phone,
+                richCtx,
             });
 
             setActivePicker({
@@ -812,8 +1430,44 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="font-semibold text-base text-white">{client.name || client.phone}</div>
-                        <div className="text-xs text-white/50">
-                            {client.conversion_stage || '未知阶段'} · {messages.length} 条消息
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs text-white/50">
+                                {client.conversion_stage || '未知阶段'} · {messages.length} 条消息
+                            </span>
+                            {/* 自动检测话题 — 右侧联系人信息区，显示在二级信息行 */}
+                            {autoDetectedTopic && !currentTopic && (
+                                <span
+                                    className="text-xs px-2 py-0.5 rounded-full shrink-0"
+                                    style={{
+                                        background: autoDetectedTopic.confidence ***REMOVED***= 'high'
+                                            ? 'rgba(16,185,129,0.2)'
+                                            : autoDetectedTopic.confidence ***REMOVED***= 'medium'
+                                                ? 'rgba(245,158,11,0.2)'
+                                                : 'rgba(255,255,255,0.08)',
+                                        color: autoDetectedTopic.confidence ***REMOVED***= 'high'
+                                            ? '#6ee7b7'
+                                            : autoDetectedTopic.confidence ***REMOVED***= 'medium'
+                                                ? '#fcd34d'
+                                                : 'rgba(255,255,255,0.45)',
+                                    }}
+                                    title={`自动检测 · 置信度: ${autoDetectedTopic.confidence} · 根据最新 ${Math.min(messages.length, 20)} 条消息`}
+                                >
+                                    🔍 {autoDetectedTopic.label}
+                                </span>
+                            )}
+                            {/* 手动设置的话题（优先于自动检测显示） */}
+                            {currentTopic && (
+                                <span
+                                    className="text-xs px-2 py-0.5 rounded-full shrink-0"
+                                    style={{
+                                        background: 'rgba(59,130,246,0.25)',
+                                        color: '#93c5fd',
+                                    }}
+                                    title={`手动标记 · ${currentTopic.detected_at ? new Date(currentTopic.detected_at).toLocaleString('zh-CN') : ''}`}
+                                >
+                                    📌 {TOPIC_LABELS[currentTopic.topic_key] || '新话题'}
+                                </span>
+                            )}
                         </div>
                     </div>
                     {pendingCandidates.length > 0 && (
@@ -845,7 +1499,36 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
                             </div>
                             <div className="flex-1 min-w-0">
                                 <div className="text-sm font-semibold text-white truncate">{client.name || client.phone}</div>
-                                <div className="text-xs text-white/50">{messages.length} 条消息</div>
+                                {/* 自动检测话题（移动端） */}
+                                {autoDetectedTopic && !currentTopic && (
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                        <span
+                                            className="text-xs px-1.5 py-0.5 rounded-full"
+                                            style={{
+                                                background: autoDetectedTopic.confidence ***REMOVED***= 'high'
+                                                    ? 'rgba(16,185,129,0.2)'
+                                                    : autoDetectedTopic.confidence ***REMOVED***= 'medium'
+                                                        ? 'rgba(245,158,11,0.2)'
+                                                        : 'rgba(255,255,255,0.08)',
+                                                color: autoDetectedTopic.confidence ***REMOVED***= 'high'
+                                                    ? '#6ee7b7'
+                                                    : autoDetectedTopic.confidence ***REMOVED***= 'medium'
+                                                        ? '#fcd34d'
+                                                        : 'rgba(255,255,255,0.45)',
+                                            }}
+                                        >
+                                            🔍 {autoDetectedTopic.label}
+                                        </span>
+                                    </div>
+                                )}
+                                {/* 手动话题（移动端） */}
+                                {currentTopic && (
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                        <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.25)', color: '#93c5fd' }}>
+                                            📌 {TOPIC_LABELS[currentTopic.topic_key] || '新话题'}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                             <button
                                 onClick={() => setTagsVisible(v => !v)}
@@ -981,6 +1664,82 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
                     >
                         😊
                     </button>
+
+                    {/* 📌 手动开启新话题按钮 + 下拉菜单 */}
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            onClick={() => setTopicDropdownOpen(v => !v)}
+                            className="h-9 md:h-11 px-3 rounded-full flex items-center gap-1.5 text-xs font-medium shrink-0 transition-all"
+                            style={{
+                                background: topicDropdownOpen
+                                    ? 'rgba(59,130,246,0.4)'
+                                    : currentTopic
+                                        ? 'rgba(59,130,246,0.25)'
+                                        : 'rgba(255,255,255,0.08)',
+                                color: topicDropdownOpen || currentTopic ? '#93c5fd' : 'rgba(255,255,255,0.5)',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                            }}
+                            title="选择话题类型，开启新话题上下文"
+                        >
+                            📌
+                            <span className="hidden sm:inline">新话题</span>
+                            <span className="text-xs opacity-60">▼</span>
+                        </button>
+
+                        {/* 话题下拉菜单 */}
+                        {topicDropdownOpen && (
+                            <div
+                                className="rounded-xl py-2 shadow-2xl overflow-y-auto"
+                                style={{
+                                    position: 'absolute',
+                                    bottom: '52px',
+                                    left: '0',
+                                    width: '200px',
+                                    maxHeight: '320px',
+                                    background: '#1e293b',
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    zIndex: 1001,
+                                }}
+                            >
+                                <div className="px-3 py-1.5 text-xs font-semibold text-white/40 border-b border-white/10 mb-1">
+                                    选择话题类型
+                                </div>
+                                {Object.entries(TOPIC_LABELS).map(([key, label]) => (
+                                    <button
+                                        key={key}
+                                        onClick={() => {
+                                            const newTopic = startNewTopic({
+                                                trigger: 'manual',
+                                                newText: inputText || label,
+                                                messages,
+                                            });
+                                            newTopic.topic_key = key;
+                                            setCurrentTopic(newTopic);
+                                            setTopicDropdownOpen(false);
+                                        }}
+                                        className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2"
+                                        style={{
+                                            color: currentTopic?.topic_key ***REMOVED***= key ? '#93c5fd' : 'rgba(255,255,255,0.75)',
+                                            background: currentTopic?.topic_key ***REMOVED***= key ? 'rgba(59,130,246,0.2)' : 'transparent',
+                                        }}
+                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                                        onMouseLeave={e => e.currentTarget.style.background = currentTopic?.topic_key ***REMOVED***= key ? 'rgba(59,130,246,0.2)' : 'transparent'}
+                                    >
+                                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: currentTopic?.topic_key ***REMOVED***= key ? '#60a5fa' : 'rgba(255,255,255,0.3)' }} />
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 点击空白关闭下拉菜单 */}
+                    {topicDropdownOpen && (
+                        <div
+                            style={{ position: 'fixed', inset: 0, zIndex: 1000 }}
+                            onClick={() => setTopicDropdownOpen(false)}
+                        />
+                    )}
 
                     {/* Emoji picker — always mounted, controlled via open prop */}
                     <div
@@ -1128,12 +1887,12 @@ function AIReplyPicker({ incomingMsg, candidates, customText, onCustomChange, on
                 <div className="p-3 md:p-4 space-y-2 md:space-y-3">
                     {/* opt1 */}
                     <div className="flex flex-col sm:flex-row gap-2">
-                        <div className="flex-1 rounded-2xl px-4 py-3 text-sm leading-relaxed" style={{ background: WA.bubbleOut, color: WA.textDark, boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
-                            <div className="flex items-center gap-2 mb-2">
+                        <div className="flex-1 rounded-2xl px-4 py-3 text-sm leading-relaxed" style={{ background: WA.bubbleOut, color: WA.textDark, boxShadow: '0 1px 2px rgba(0,0,0,0.1)', maxHeight: '180px', display: 'flex', flexDirection: 'column' }}>
+                            <div className="flex items-center gap-2 mb-2 shrink-0">
                                 <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: '#3b82f620', color: '#3b82f6' }}>A</span>
                                 <span className="text-xs" style={{ color: WA.textMuted }}>方案一</span>
                             </div>
-                            <div className="whitespace-pre-wrap">{candidates?.opt1 || '(空)'}</div>
+                            <div className="whitespace-pre-wrap break-words overflow-y-auto flex-1" style={{ maxHeight: '120px' }}>{candidates?.opt1 || '(空)'}</div>
                         </div>
                         <div className="flex sm:flex-col gap-2 shrink-0">
                             <button
@@ -1155,12 +1914,12 @@ function AIReplyPicker({ incomingMsg, candidates, customText, onCustomChange, on
 
                     {/* opt2 */}
                     <div className="flex flex-col sm:flex-row gap-2">
-                        <div className="flex-1 rounded-2xl px-4 py-3 text-sm leading-relaxed" style={{ background: WA.bubbleOut, color: WA.textDark, boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
-                            <div className="flex items-center gap-2 mb-2">
+                        <div className="flex-1 rounded-2xl px-4 py-3 text-sm leading-relaxed" style={{ background: WA.bubbleOut, color: WA.textDark, boxShadow: '0 1px 2px rgba(0,0,0,0.1)', maxHeight: '180px', display: 'flex', flexDirection: 'column' }}>
+                            <div className="flex items-center gap-2 mb-2 shrink-0">
                                 <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: '#10b98120', color: '#10b981' }}>B</span>
                                 <span className="text-xs" style={{ color: WA.textMuted }}>方案二</span>
                             </div>
-                            <div className="whitespace-pre-wrap">{candidates?.opt2 || '(空)'}</div>
+                            <div className="whitespace-pre-wrap break-words overflow-y-auto flex-1" style={{ maxHeight: '120px' }}>{candidates?.opt2 || '(空)'}</div>
                         </div>
                         <div className="flex sm:flex-col gap-2 shrink-0">
                             <button

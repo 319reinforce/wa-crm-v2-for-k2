@@ -178,12 +178,26 @@ export async function generateCandidateResponses({ conversation, clientInfo, pol
         messages.push({ role: 'user', content: '[请回复这位达人]' })
     }
 
-    const systemMsg = { role: 'system', content: systemPrompt }
+    // USE_OPENAI=true 时走 OpenAI（通过后端代理 /api/ai/generate）
+    if (import.meta.env.VITE_USE_OPENAI ***REMOVED***= 'true' || import.meta.env.VITE_USE_OPENAI ***REMOVED***= true) {
+        const response = await fetch(`${API_BASE}/ai/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages, systemPrompt, temperatures: [0.8, 0.4] }),
+        });
+        if (!response.ok) {
+            throw new Error(`AI generate error: ${response.status} - ${await response.text()}`);
+        }
+        const data = await response.json();
+        return data.candidates; // { opt1, opt2 }
+    }
 
+    // 原有 MiniMax 路径（通过后端代理 /api/minimax）
+    const systemMsg = { role: 'system', content: systemPrompt };
     const [opt1, opt2] = await Promise.all([
         generateResponse({ messages: [systemMsg, ...messages], client_id, temperature: 0.8, max_tokens: 500 }),
         generateResponse({ messages: [systemMsg, ...messages], client_id, temperature: 0.4, max_tokens: 500 }),
-    ])
+    ]);
 
     return { opt1, opt2 }
 }

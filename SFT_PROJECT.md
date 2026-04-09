@@ -1,7 +1,8 @@
 # WA CRM v2 — SFT 语料训练项目
 
 > 本文档供其他 AI Agent 阅读学习使用
-> 更新时间：2026-04-08
+> 更新时间：2026-04-09（文档修订：schema 修复、Scene 检测纠正、阈值统一）
+> 前置文档：`CLAUDE.md`（项目入口）、`BOT_INTEGRATION.md`（API 速查）
 
 ---
 
@@ -20,6 +21,30 @@ WA CRM v2 是一个面向 WhatsApp 达人（influencer）的 CRM 系统，同时
 ---
 
 ## 版本历史
+
+### v4 — 2026-04-09 RLHF 链路修复
+
+本次修复打通了 RLHF 训练所需的数据闭环：
+
+| 修复项 | 说明 |
+|--------|------|
+| Preference Pair | `sft_memory` 新增 `chosen_output`/`rejected_output` 字段，记录被选中/拒绝的回复内容 |
+| 训练/推理 prompt 对齐 | 新增 `systemPromptBuilder.cjs`（CJS 共享模块），`experience.js` 推理和 `server.js` 导出使用同一套 prompt 构建逻辑 |
+| sft_feedback 增强 | `sft_feedback` 新增 `reject_reason` 字段，skip 时可记录拒绝原因 |
+| 英文数据过滤 | `GET /api/sft-export` 新增 `?lang=en` 参数，只导出纯英文数据 |
+
+**新增文件**：
+- `systemPromptBuilder.cjs` — CJS 共享 prompt 构建器，experience.js 和 server.js 共用
+
+### v3 — 2026-04-09 文档修订
+
+本次更新修正了与实际代码不符的内容：
+
+| 修复项 | 说明 |
+|--------|------|
+| schema.sql | 补加 `client_id_hash` 列（ALTER TABLE），此前唯一索引 `idx_sft_dedup` 引用了未创建的列 |
+| similarity 阈值 | 文档原写 50，纠正为 **85**，与 server.js 后端逻辑一致 |
+| Scene 检测表格 | 完全重写，对齐 `WAMessageComposer.jsx` 实际 11 类场景（移除不存在的 `mcn_inquiry`、`unknown`，新增 `gmv_inquiry`、`follow_up`） |
 
 ### v2 — 2026-04-07 优化版本
 
@@ -200,6 +225,16 @@ CREATE TABLE policy_documents (
 | `GET` | `/api/ab-evaluation` | A/B 评估数据（按场景 + 负责人分布） |
 | `GET` | `/api/client-memory/:clientId` | 查询某客户的记忆 |
 | `POST` | `/api/client-memory` | 更新客户记忆 |
+
+### Experience Router（按 operator 路由 AI 体验）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/experience/operators` | 列出所有 operator 体验配置 |
+| `GET` | `/api/experience/:operator` | 获取单个 operator 完整体验 |
+| `GET` | `/api/experience/:operator/clients` | 获取该 operator 下的所有客户 |
+| `POST` | `/api/experience/route` | **核心路由**：生成 AI 候选回复（自动选择 operator 体验）|
+| `GET` | `/api/experience/:operator/system-prompt` | 编译后的完整 system prompt（调试用） |
 
 ### Policy 相关
 
@@ -628,3 +663,495 @@ PUT  /api/client-profiles/:id/tags — 手工标签管理
 - 所有标签按 `client_id` 隔离
 - AI 调用 `/api/client-profile/:id` 时只能拿到当前客户的画像
 - Summary 生成后异步更新，不阻塞响应
+
+### Debounce 防重复刷新
+
+`scheduleProfileRefresh(clientId)` 通过 Map 实现 5 秒内同一 client 的去重刷新：
+
+```javascript
+// 同一 client 5 秒内的重复调用会被忽略
+const _pendingRefresh = new Map();
+function scheduleProfileRefresh(clientId) {
+    if (_pendingRefresh.has(clientId)) return;
+    const handle = setImmediate(async () => {
+        _pendingRefresh.delete(clientId);
+        await refreshProfileSummary(clientId);
+    });
+    _pendingRefresh.set(clientId, handle);
+    setTimeout(() => _pendingRefresh.delete(clientId), 5000);
+}
+```
+
+---
+
+## Experience Router（按负责人路由 AI 体验）
+
+> **核心原则**：同一事件类型 + 不同负责人 = 不同判定逻辑 + 不同奖励规则
+> 不同 operator（Beau / Yiyun）使用不同的 AI 体验（话术体系、政策约束、场景处理）
+
+### operator_experiences 表
+
+```sql
+CREATE TABLE operator_experiences (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  operator            TEXT UNIQUE NOT NULL,   -- 'Beau' | 'Yiyun' | 'WangYouKe'
+  display_name        TEXT NOT NULL,
+  description        TEXT,
+  system_prompt_base  TEXT NOT NULL,           -- 基础 system prompt 模板
+  scene_config        TEXT,                    -- JSON: scene → prompt fragment 映射
+  forbidden_rules     TEXT,                    -- JSON array: 额外禁止规则
+  is_active           INTEGER DEFAULT 1,
+  priority            INTEGER DEFAULT 0,       -- 路由优先级
+  created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**预置数据：**
+
+| operator | display_name | 核心差异 |
+|----------|-------------|---------|
+| Beau | Beau 的运营体验 | 20天Beta计划，$200激励，DRIFTO MCN，$10/天 |
+| Yiyun | Yiyun 的运营体验 | 7天试用，$20月费，一问一答，保守回复 |
+
+### scene_config 结构示例（Beau）
+
+```json
+{
+  "trial_intro": "重点介绍20天Beta计划，$200激励",
+  "beta_cycle": "结算时明确起始日期+激励金额",
+  "violation": "提供申诉模板，承诺$10补偿",
+  "mcn_binding": "解释DRIFTO结构，透明佣金流程",
+  "gmv_milestone": "祝贺+$5k/$10k数据刺激",
+  "content_request": "5个/天最佳，超6个TikTok降权"
+}
+```
+
+### forbidden_rules 示例（Yiyun）
+
+```json
+[
+  "不提Beta program",
+  "不说guarantee/definitely",
+  "不攻击其他MCN",
+  "不发超过3条连续消息",
+  "不在北京时间23:00后主动联系"
+]
+```
+
+### Experience Router API Endpoints
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/experience/operators` | 列出所有 operator 体验配置 |
+| `GET` | `/api/experience/:operator` | 获取单个 operator 完整体验（含 scene_config / forbidden_rules） |
+| `GET` | `/api/experience/:operator/clients` | 获取该 operator 下的所有客户 |
+| `POST` | `/api/experience/route` | **核心路由**：输入 client_id/message，返回 AI 候选回复 |
+| `GET` | `/api/experience/:operator/system-prompt` | 编译后的完整 system prompt（调试用） |
+
+### POST /api/experience/route
+
+**请求体：**
+
+```javascript
+{
+  "client_id": "18459534090",          // 二选一：优先用 client_id 查 wa_owner
+  "operator": "Beau",                  // 或直接指定 operator
+  "messages": [{"role": "user", "text": "Hi"}],  // 最近10轮对话
+  "scene": "first_contact"             // 当前场景
+}
+```
+
+**响应：**
+
+```javascript
+{
+  "success": true,
+  "operator": "Beau",
+  "experience_config": {
+    "display_name": "Beau 的运营体验",
+    "description": "Beau 专属话术体系，20天Beta计划，$200激励，DRIFTO MCN",
+    "scene_config": { ... }
+  },
+  "system_prompt": "你是一个专业的达人运营助手...",  // 编译后的完整 prompt
+  "candidates": {
+    "opt1": "Hi Beau! ...",    // temperature=0.8
+    "opt2": "Hey! ..."         // temperature=0.4
+  }
+}
+```
+
+### 路由匹配逻辑
+
+```
+route(client_id, messages, scene)
+  ├─ 根据 client_id 查 wa_owner
+  ├─ 若无 client_id：根据 messages/operator 直接匹配
+  ├─ 加载对应 operator_experiences 配置
+  ├─ 合并 [BASE_PROMPT] + operator_base + scene_fragment
+  ├─ 过滤适用政策（按 scene + operator）
+  ├─ 生成 2 个候选回复（不同 temperature）
+  └─ 返回 { operator, experience_config, candidates }
+```
+
+### compileSystemPrompt 组装顺序
+
+```
+1. system_prompt_base（替换 [BASE_PROMPT] 标记）
+      ↓
+2. 客户档案（姓名、负责人、建联阶段）
+      ↓
+3. 场景适配片段（scene_config[scene]）
+      ↓
+4. 客户历史偏好（client_memory）
+      ↓
+5. 场景适用政策（policy_documents.applicable_scenarios 匹配）
+      ↓
+6. 禁止规则（base 规则 + operator 特有规则）
+      ↓
+7. 回复要求：简洁专业、100字以内、推动下一步
+```
+
+### 路由模块位置
+
+| 文件 | 说明 |
+|------|------|
+| `routes/experience.js` | Experience Router 核心逻辑 |
+| `server.js` | 注册路由 `require('./routes/experience')` at `/api/experience` |
+| `migrate-experience.js` | 初始化 operator 体验数据 |
+| `src/components/WAMessageComposer.jsx` | 前端调用 `generateViaExperienceRouter()` |
+
+---
+
+## Scene 检测系统（11 类）
+
+`inferScene(text, wacrm, messageCount)` 根据消息内容 + 客户档案判断当前场景（按代码中 if-else 顺序排列，即优先级从高到低）：
+
+| scene 键 | 中文名称 | 英文关键词 | 中文关键词 | 判定条件 |
+|----------|---------|-----------|-----------|---------|
+| `trial_intro` | 试用介绍 | trial, 7day, 7-day, free challenge, 7天挑战, 试用挑战, 加入挑战 | trial, 7day, 7天, 免费挑战 | 含 trial/7day |
+| `monthly_inquiry` | 月卡咨询 | monthly, month, membership, 月费, 包月 | monthly, 会员, 月卡 | 含 monthly/membership |
+| `commission_query` | 分成询问 | commission, 分成, 提成, revenue, 佣金, income, earnings | commission | 含 commission/revenue |
+| `mcn_binding` | MCN 绑定/签约 | mcn, agency, 经经, 代理, 绑定, contract, 签约 | agency | 含 mcn/agency/签约/绑定 |
+| `video_not_loading` | 视频问题 | video not loading, can't upload, 上传不了, 视频不行, video 生成/加载/显示不了 | video | 含 video + loading 相关 |
+| `content_request` | 内容请求 | video, 内容, content, 创作, post, 发帖, 发布 | — | 含 video/content/post 且不是 video_not_loading |
+| `gmv_inquiry` | GMV 询问 | gmv, sales, 订单, 销售, earnings | — | 含 gmv/sales/earnings |
+| `payment_issue` | 付款问题 | payment, paypal, 付款, 收款, 转账, 没收到, 没到账 | — | 含 payment/paypal/付款相关 |
+| `violation_appeal` | 违规申诉 | violation, appeal, 申诉, 违规, flagged, strike, 封号, banned, suspended | — | 含 violation/appeal/封号 |
+| `follow_up` | 跟进 | — | — | beta_status='introduced' 且 messageCount > 3 |
+| `first_contact` | 首次建联 | — | — | messageCount ≤ 1（兜底） |
+
+**优先级规则（代码 if-else 顺序）：**
+1. 越靠上优先级越高：trial_intro > monthly_inquiry > commission_query > mcn_binding > video_not_loading > content_request > gmv_inquiry > payment_issue > violation_appeal
+2. `follow_up`：beta 已引入且有多轮对话（messageCount > 3）
+3. `first_contact`：兜底，新客户或刚建联（messageCount ≤ 1）
+
+---
+
+## 候选回复相似度评分（Jaccard）
+
+### Word-Level Jaccard Similarity
+
+替代原来的字符位置比较，使用 word-level Jaccard 系数：
+
+```javascript
+function computeSimilarity(text1, text2) {
+    if (!text1 || !text2) return 0;
+    const words1 = new Set(text1.toLowerCase().split(/\s+/));
+    const words2 = new Set(text2.toLowerCase().split(/\s+/));
+    const intersection = new Set([...words1].filter(w => words2.has(w)));
+    const union = new Set([...words1, ...words2]);
+    return union.size > 0 ? (intersection.size / union.size) * 100 : 0;
+}
+```
+
+**判定规则（server.js 后端）：**
+
+| 条件 | 结果 |
+|------|------|
+| similarity < 85 | 触发人工审核（pending_review） |
+| similarity ≥ 85 + 选 opt1/opt2 | 自动 approved |
+| similarity ≥ 85 + 选 custom | pending_review（需人工审核 custom 内容）|
+
+> 前端 WAMessageComposer 也使用同样逻辑，similarity < 85 时展示黄色警告标签
+
+---
+
+## RLHF 闭环（待实现 — 2026-04-09 方案设计）
+
+> **当前状态**：SFT 数据已收集，但模型未被微调，RLHF 后半段完全缺失。
+> **目标**：将 `sft_memory` 中 approved 数据真正用于模型优化，形成"收集→训练→上线→效果追踪"的完整闭环。
+
+### 完整 RLHF 闭环流程
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  第1阶段：数据准备                                               │
+│  sft_memory (status=approved) ──→ 导出格式化 ──→ 训练数据集    │
+│                                         ↓                        │
+│  第2阶段：模型微调                                               │
+│  训练数据集 ──→ SFT/LoRA 微调 ──→ 新模型权重                   │
+│                                         ↓                        │
+│  第3阶段：灰度上线                                               │
+│  新模型权重 ──→ 10% 流量 AB测 ──→ 验证提升率                   │
+│                         ↓                                       │
+│  第4阶段：全量切换 + 效果追踪                                   │
+│  全量上线 ──→ 监控 opt1/opt2 采用率 ──→ 对比基线              │
+│                         ↓                                       │
+│  第5阶段：持续迭代                                              │
+│  新数据积累 ──→ 下一轮微调（月粒度）                          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 第1阶段：数据导出与格式化
+
+**目标**：将 `sft_memory` 中的 approved 记录转换为模型可训练的格式。
+
+**API 已就绪**：`GET /api/sft-export?status=approved&limit=500`
+
+导出的每条记录格式：
+```json
+{
+  "messages": [
+    { "role": "system", "content": "<完整system prompt>" },
+    { "role": "user", "content": "<input_text 或前10轮对话拼接>" },
+    { "role": "assistant", "content": "<human_output>" }
+  ],
+  "metadata": {
+    "scene": "trial_intro",
+    "similarity": 92,
+    "human_selected": "opt1",
+    "is_custom_input": 0,
+    "created_date": "2026-04-07"
+  }
+}
+```
+
+**质量过滤**（训练前）：
+```sql
+-- 优先使用高相似度 + custom 覆盖的数据
+SELECT * FROM sft_memory
+WHERE status = 'approved'
+  AND scene IS NOT NULL
+  AND similarity >= 70        -- 去除相似度极低的异常记录
+  AND human_selected = 'custom'  -- 人工手写最有价值
+ORDER BY similarity DESC;
+
+-- 次选：opt1/opt2 高采纳率数据
+SELECT * FROM sft_memory
+WHERE status = 'approved'
+  AND scene IS NOT NULL
+  AND human_selected IN ('opt1', 'opt2')
+  AND similarity >= 85;
+```
+
+---
+
+### 第2阶段：模型微调
+
+**推荐方案：LoRA 微调**（成本低、速度快，适合小规模数据）
+
+**基础模型选择**：
+| 模型 | 规格 | 适用场景 |
+|------|------|---------|
+| `Qwen2.5-7B-Instruct` | 7B 参数 | 推荐首选，部署成本低，效果好 |
+| `Qwen2.5-14B-Instruct` | 14B 参数 | 效果更好，需 24GB+ 显存 |
+| `MiniMax-Text-01` | 专家混合 | 需确认供应商是否支持微调 |
+
+**工具链**：
+```bash
+# 使用 Axolotl（推荐）或 LLaMA-Factory
+pip install axolotl
+
+# 训练配置示例（axolotl / qwen2_5_lora.yaml）
+base_model: Qwen/Qwen2.5-7B-Instruct
+model_type: Qwen2ForCausalLM
+
+dataset:
+  path: /path/to/exported/sft_data.jsonl
+  type: chatml.interactive
+
+lora:
+  r: 8
+  lora_alpha: 16
+  target_modules: [q_proj, k_proj, v_proj, o_proj]
+
+trainer:
+  steps: 1000          # 小数据集 500-1000 步即可
+  batch_size: 4
+  learning_rate: 0.0002
+  scheduler: cosine
+  warmup_steps: 50
+```
+
+**分场景微调策略**（可选进阶）：
+- `trial_intro` / `monthly_inquiry` → 高质量数据单独训练一个 adapter
+- `commission_query` / `payment_issue` → 高安全要求，单独训练
+- 每类场景 ≥ 50 条 approved 记录才单独训练
+
+---
+
+### 第3阶段：模型服务部署
+
+**自部署（推荐）**：
+```bash
+# 使用 vLLM 部署 LoRA adapter
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen2.5-7B-Instruct \
+  --lora-prefix ./lora_weights/wacrm_v1 \
+  --host 0.0.0.0 --port 8000
+
+# 替换 server.js 中的 MiniMax 调用
+# 旧：https://api.minimaxi.com/anthropic
+# 新：http://localhost:8000/v1/messages
+```
+
+**MiniMax 托管微调**（如果支持）：
+- 部分 LLM as Service 平台支持上传 SFT 数据直接微调
+- 需确认 MiniMax 是否提供 fine-tuning API
+
+**API 兼容层**（server.js 改动）：
+```javascript
+// server.js 或 routes/experience.js
+const USE_FINETUNED = process.env.USE_FINETUNED ***REMOVED***= 'true';
+const FINETUNED_BASE = process.env.FINETUNED_BASE || 'http://localhost:8000/v1/messages';
+
+async function generateResponse(messages, temperature) {
+    const body = JSON.stringify({
+        model: USE_FINETUNED ? 'qwen-7b-wacrm' : 'mini-max-typing',
+        messages,
+        max_tokens: 500,
+        temperature,
+    });
+
+    const response = await fetch(USE_FINETUNED ? FINETUNED_BASE : `${API_BASE}/v1/messages`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${USE_FINETUNED ? 'EMPTY' : API_KEY}`,
+        },
+        body,
+    });
+    // ... parse response
+}
+```
+
+---
+
+### 第4阶段：灰度 AB 测
+
+**灰度策略**：
+```
+10% 流量：新模型（finetuned）
+50% 流量：新模型
+40% 流量：原 MiniMax（基线）
+```
+
+**效果验证指标**：
+| 指标 | 定义 | 目标 |
+|------|------|------|
+| `opt1_rate` | 用户选择 opt1 的比例 | 提升 ≥ 5% |
+| `custom_rate` | 用户自写的比例 | 下降（说明 AI 变强）|
+| `skip_rate` | 跳过候选的比例 | 下降 ≥ 10% |
+| `p99_latency` | 响应延迟 | < 3s |
+
+**AB 测配置**（server.js）：
+```javascript
+const AB_CONFIG = {
+    finetuned_ratio: 0.1,           // 10% 流量走新模型
+    min_samples_for_eval: 100,       // 至少 100 条才做评估
+    eval_window_days: 7,             // 评估周期 7 天
+};
+
+// 路由时根据随机数决定走哪个模型
+function shouldUseFinetuned() {
+    return Math.random() < AB_CONFIG.finetuned_ratio;
+}
+```
+
+---
+
+### 第5阶段：持续迭代
+
+**月度微调节奏**：
+```
+每月1日：
+1. 汇总上月 approved 语料（≥ 200 条才触发微调）
+2. 执行新轮 SFT/LoRA 训练
+3. 灰度 10% → 全量
+4. 记录本月 opt1_rate 相对基线的提升
+```
+
+**数据质量门控**：
+```sql
+-- 触发新训练的数据量门控
+SELECT
+    COUNT(*) as total_approved,
+    SUM(CASE WHEN human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count,
+    COUNT(DISTINCT scene) as scene_count
+FROM sft_memory
+WHERE status = 'approved'
+  AND created_at >= DATE('now', '-30 days');
+
+-- 触发条件：total_approved >= 200 AND custom_count >= 20
+```
+
+---
+
+### 关键文件清单
+
+| 文件 | 改动 |
+|------|------|
+| `scripts/export-for-training.js` | 新增：将 approved 记录导出为训练格式 |
+| `scripts/train-lora.sh` | 新增：LoRA 训练脚本（axolotl） |
+| `scripts/deploy-finetuned.sh` | 新增：vLLM 部署 + 健康检查 |
+| `server.js` | 新增 `USE_FINETUNED` 环境变量路由 + AB 测逻辑 |
+| `.env.example` | 新增 `USE_FINETUNED`, `FINETUNED_BASE`, `AB_RATIO` 配置 |
+
+---
+
+## 事件系统（EVENT_SYSTEM）
+
+> **状态**：需求文档已编写，代码未实现
+>
+> **详细文档**：[`docs/EVENT_SYSTEM.md`](docs/EVENT_SYSTEM.md)（含事件类型、触发条件、奖励规则、路由逻辑）
+
+### events 表（待建）
+
+```sql
+CREATE TABLE events (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  creator_id      INTEGER REFERENCES creators(id),
+  event_key       TEXT NOT NULL,            -- 'trial_7day', 'monthly_challenge', 'agency_bound'
+  event_type      TEXT NOT NULL,             -- 'challenge', 'gmv', 'referral', 'incentive_task'
+  owner           TEXT NOT NULL,             -- 'Beau' | 'Yiyun'
+  status          TEXT DEFAULT 'active',     -- 'active' | 'completed' | 'cancelled'
+  trigger_source  TEXT,                      -- 'semantic_auto' | 'manual' | 'gmv_crosscheck'
+  trigger_text    TEXT,                      -- 触发时的原始语义文本
+  start_at        DATETIME,
+  end_at          DATETIME,
+  meta            JSON,                      -- 事件特定数据
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### 事件类型枚举
+
+| event_type | 说明 | 触发方式 |
+|------------|------|---------|
+| `challenge` | 挑战类（7日、月度） | 语义识别 + 手动确认 |
+| `gmv` | GMV 里程碑 | keeper_link 数据交叉核对 |
+| `referral` | 推荐新用户 | 语义识别 + 手动确认 |
+| `incentive_task` | 单次激励任务 | GMV 达标后解锁 |
+| `agency` | Agency 绑定 | 语义识别 + 手动确认 |
+
+### Beau GMV 阶梯奖励
+
+| GMV 里程碑 | 奖励 |
+|------------|------|
+| ≥ $1,000 | 解锁额外 50% 佣金（需满足 35 video/week 条件）|
+| ≥ $5,000 | $100 现金 |
+| ≥ $10,000 | $120 现金 |
+| ≥ $20,000 | $200 现金 |
+
+> **完整规则、路由逻辑、7日/月度挑战判定、推荐激励规则**：见 [`docs/EVENT_SYSTEM.md`](docs/EVENT_SYSTEM.md)

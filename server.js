@@ -1,6 +1,6 @@
 /**
  * WA CRM v2 Server
- * SQLite 数据存储，端口 3000
+ * MySQL 数据存储（迁移自 SQLite），端口 3000
  */
 
 require('dotenv').config();
@@ -58,14 +58,23 @@ app.get('/api/creators', (req, res) => {
                 wc.video_target,
                 j.ev_joined,
                 j.ev_ready_sent,
-                j.ev_trial_7day,
-                j.ev_monthly_invited,
+                j.ev_trial_active,
+                j.ev_monthly_started,
                 j.ev_monthly_joined,
                 j.ev_whatsapp_shared,
                 j.ev_gmv_1k,
-                j.ev_gmv_3k,
+                j.ev_gmv_2k,
+                j.ev_gmv_5k,
                 j.ev_gmv_10k,
                 j.ev_churned,
+                (
+                    SELECT CASE
+                        WHEN MAX(CASE WHEN role='user' THEN timestamp END) IS NULL THEN 1
+                        WHEN MAX(CASE WHEN role='me' THEN timestamp END) >= MAX(CASE WHEN role='user' THEN timestamp END) THEN 1
+                        ELSE 0
+                    END
+                    FROM wa_messages WHERE creator_id = c.id
+                ) AS ev_replied,
                 j.days_since_msg
             FROM creators c
             LEFT JOIN wa_messages wm ON wm.creator_id = c.id
@@ -104,7 +113,9 @@ app.get('/api/creators', (req, res) => {
         }
         if (event) {
             const VALID_EVENTS = ['joined','ready_sent','trial_7day','monthly_invited','monthly_joined','whatsapp_shared','gmv_1k','gmv_3k','gmv_10k','agency_bound','churned'];
-            if (VALID_EVENTS.includes(event)) {
+            if (event ***REMOVED***= 'replied') {
+                sql += ` AND EXISTS (SELECT 1 FROM wa_messages WHERE creator_id = c.id AND role = 'me' AND timestamp >= (SELECT MAX(timestamp) FROM wa_messages WHERE creator_id = c.id AND role = 'user'))`;
+            } else if (VALID_EVENTS.includes(event)) {
                 sql += ` AND j.ev_${event} = 1`;
             }
         }
@@ -168,6 +179,13 @@ app.post('/api/creators/:id/messages', (req, res) => {
             'INSERT INTO wa_messages (creator_id, role, text, timestamp) VALUES (?, ?, ?, ?)'
         ).run(creatorId, role, text, ts);
 
+        // 发送消息后标记为已回复（消除红点）
+        if (role ***REMOVED***= 'me') {
+            db.getDb().prepare(
+                'UPDATE joinbrands_link SET ev_replied = 1 WHERE creator_id = ?'
+            ).run(creatorId);
+        }
+
         res.json({ ok: true, id: creatorId, timestamp: ts });
     } catch (err) {
         console.error('Error inserting message:', err);
@@ -208,11 +226,12 @@ app.get('/api/stats', (req, res) => {
                 SUM(ev_joined) as ev_joined,
                 SUM(ev_ready_sent) as ev_ready_sent,
                 SUM(ev_trial_7day) as ev_trial_7day,
-                SUM(ev_monthly_invited) as ev_monthly_invited,
+                SUM(ev_monthly_started) as ev_monthly_started,
                 SUM(ev_monthly_joined) as ev_monthly_joined,
                 SUM(ev_whatsapp_shared) as ev_whatsapp_shared,
                 SUM(ev_gmv_1k) as ev_gmv_1k,
-                SUM(ev_gmv_3k) as ev_gmv_3k,
+                SUM(ev_gmv_2k) as ev_gmv_2k,
+                SUM(ev_gmv_5k) as ev_gmv_5k,
                 SUM(ev_gmv_10k) as ev_gmv_10k,
                 SUM(ev_agency_bound) as ev_agency_bound,
                 SUM(ev_churned) as ev_churned
@@ -240,6 +259,7 @@ app.get('/api/health', (req, res) => {
 
 // MiniMax API 代理（绕过浏览器 CORS）
 // 隔离机制：验证 client_id 必须属于数据库中的某个 creator，防止跨客户数据注入
+// 支持 USE_OPENAI=true 环境变量切换到 OpenAI
 app.post('/api/minimax', async (req, res) => {
     try {
         const { messages, model, max_tokens, temperature, client_id } = req.body;
@@ -253,23 +273,66 @@ app.post('/api/minimax', async (req, res) => {
             }
         }
 
-        const response = await fetch('https://api.minimaxi.com/anthropic/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': process.env.MINIMAX_API_KEY || '***REMOVED***',
-                'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({
-                model: model || 'mini-max-typing',
-                messages,
-                max_tokens: max_tokens || 500,
-                temperature: temperature || 0.7,
-            }),
-        });
+        if (process.env.USE_OPENAI ***REMOVED***= 'true') {
+            // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** OpenAI 路由 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+            const { generateCandidates } = require('./src/utils/openai');
+            const systemPrompt = messages.find(m => m.role ***REMOVED***= 'system')?.content || '';
+            const userMsgs = messages.filter(m => m.role !***REMOVED*** 'system');
+            const temps = Array.isArray(temperature) ? temperature : [0.8, 0.4];
+            // generateCandidates 内部并发两个请求，分别用 temps[0] 和 temps[1]
+            const { opt1, opt2 } = await generateCandidates(systemPrompt, userMsgs, temps);
+            return res.json({
+                id: 'openai-' + Date.now(),
+                type: 'message',
+                role: 'assistant',
+                model: process.env.OPENAI_MODEL || 'gpt-4o',
+                content: [{ type: 'text', text: opt1 }],
+                content_opt2: [{ type: 'text', text: opt2 }],
+            });
+        }
 
-        const data = await response.json();
-        res.json(data);
+        // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** MiniMax 路由（默认）：内部并发两个温度 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+        const tempsMM = Array.isArray(temperature) ? temperature : [0.8, 0.4];
+        const [raw1, raw2] = await Promise.all([
+            fetch('https://api.minimaxi.com/anthropic/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': process.env.MINIMAX_API_KEY || '***REMOVED***',
+                    'anthropic-version': '2023-06-01',
+                },
+                body: JSON.stringify({
+                    model: model || 'mini-max-typing',
+                    messages,
+                    max_tokens: max_tokens || 500,
+                    temperature: tempsMM[0],
+                }),
+            }),
+            fetch('https://api.minimaxi.com/anthropic/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': process.env.MINIMAX_API_KEY || '***REMOVED***',
+                    'anthropic-version': '2023-06-01',
+                },
+                body: JSON.stringify({
+                    model: model || 'mini-max-typing',
+                    messages,
+                    max_tokens: max_tokens || 500,
+                    temperature: tempsMM[1],
+                }),
+            }),
+        ]);
+        const [data1, data2] = await Promise.all([raw1.json(), raw2.json()]);
+        const extractText = (d) => d?.content?.find(c => c.type ***REMOVED***= 'text')?.text || '';
+        return res.json({
+            id: data1?.id || 'minimax-' + Date.now(),
+            type: 'message',
+            role: 'assistant',
+            model: data1?.model || 'mini-max',
+            content: [{ type: 'text', text: extractText(data1) }],
+            content_opt2: [{ type: 'text', text: extractText(data2) }],
+        });
     } catch (err) {
         console.error('MiniMax proxy error:', err);
         res.status(500).json({ error: err.message });
@@ -295,7 +358,7 @@ app.post('/api/translate', async (req, res) => {
                     'anthropic-version': '2023-06-01',
                 },
                 body: JSON.stringify({
-                    model: 'mini-max',
+                    model: 'mini-max-typing',
                     max_tokens: 1000,
                     temperature: 0.3,
                     messages: [{
@@ -336,7 +399,7 @@ app.post('/api/translate', async (req, res) => {
                 'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-                model: 'mini-max',
+                model: 'mini-max-typing',
                 max_tokens: 1000,
                 temperature: 0.3,
                 messages: [{
@@ -367,6 +430,35 @@ app.post('/api/translate', async (req, res) => {
     } catch (err) {
         console.error('Translate error:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// OpenAI AI 生成接口（切换时启用，目前保留未启用）
+// 通过 USE_OPENAI=true 环境变量开启
+// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+app.post('/api/ai/generate', async (req, res) => {
+    try {
+        const { messages, systemPrompt, temperatures = [0.8, 0.4] } = req.body;
+
+        if (!messages || !Array.isArray(messages)) {
+            return res.status(400).json({ success: false, error: 'messages is required and must be an array' });
+        }
+
+        if (process.env.USE_OPENAI !***REMOVED*** 'true') {
+            return res.status(503).json({
+                success: false,
+                error: 'OpenAI not enabled. Set USE_OPENAI=true in .env to enable.',
+                provider: 'minimax',
+            });
+        }
+
+        const { generateCandidates } = require('./src/utils/openai');
+        const candidates = await generateCandidates(systemPrompt || '', messages, temperatures);
+        res.json({ success: true, candidates });
+    } catch (err) {
+        console.error('AI generate error:', err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
@@ -461,6 +553,22 @@ app.post('/api/sft-memory', (req, res) => {
             ? JSON.stringify(messages.slice(-10))
             : null;
 
+        // Preference Pair：记录 chosen 和 rejected 的实际内容（用于 RLHF 奖励模型）
+        const opt1 = model_candidates?.opt1 || null;
+        const opt2 = model_candidates?.opt2 || null;
+        let chosen_output = null;
+        let rejected_output = null;
+        if (human_selected ***REMOVED***= 'opt1') {
+            chosen_output = opt1;
+            rejected_output = opt2;
+        } else if (human_selected ***REMOVED***= 'opt2') {
+            chosen_output = opt2;
+            rejected_output = opt1;
+        } else if (human_selected ***REMOVED***= 'custom') {
+            chosen_output = human_output;
+            rejected_output = opt1; // custom 时 opt1 作为参考被拒绝
+        }
+
         // 去重检查
         const existing = db2.prepare(`
             SELECT id FROM sft_memory
@@ -474,9 +582,11 @@ app.post('/api/sft-memory', (req, res) => {
                 UPDATE sft_memory SET
                     human_output = excluded.human_output,
                     status = CASE WHEN excluded.status = 'approved' THEN status ELSE excluded.status END,
-                    similarity = excluded.similarity
+                    similarity = excluded.similarity,
+                    chosen_output = excluded.chosen_output,
+                    rejected_output = excluded.rejected_output
                 WHERE id = ?
-            `).run(human_output, newStatus, similarity, existing.id);
+            `).run(human_output, newStatus, similarity, chosen_output, rejected_output, existing.id);
             return res.json({ ok: true, id: existing.id, updated: true });
         }
 
@@ -486,8 +596,9 @@ app.post('/api/sft-memory', (req, res) => {
              model_predicted, model_rejected, is_custom_input, human_reason,
              context_json, status, reviewed_by,
              similarity, scene, message_history,
-             client_id_hash, input_text_hash, human_output_hash, created_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             client_id_hash, input_text_hash, human_output_hash, created_date,
+             chosen_output, rejected_output)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             model_candidates?.opt1 || null,
             model_candidates?.opt2 || null,
@@ -506,13 +617,15 @@ app.post('/api/sft-memory', (req, res) => {
             client_id_hash,
             input_text_hash,
             human_output_hash,
-            created_date
+            created_date,
+            chosen_output,
+            rejected_output
         );
 
-        writeAudit('sft_create', 'sft_memory', result.lastInsertRowid, null, {
+        writeAudit('sft_create', 'sft_memory', result.insertId, null, {
             human_selected, human_output, status, reviewed_by
         }, req);
-        res.json({ ok: true, id: result.lastInsertRowid });
+        res.json({ ok: true, id: result.insertId });
     } catch (err) {
         console.error('POST /api/sft-memory error:', err);
         res.status(500).json({ error: err.message });
@@ -576,7 +689,7 @@ app.patch('/api/sft-memory/:id/review', (req, res) => {
             UPDATE sft_memory SET status = ?, reviewed_by = ?, human_reason = COALESCE(?, human_reason)
             WHERE id = ?
         `).run(newStatus, 'human_review', comment || null, parseInt(req.params.id));
-        if (result.changes ***REMOVED***= 0) {
+        if (result.affectedRows ***REMOVED***= 0) {
             return res.status(404).json({ error: 'Record not found' });
         }
         res.json({ ok: true, status: newStatus });
@@ -659,16 +772,16 @@ app.get('/api/sft-memory/trends', (req, res) => {
 // POST /api/sft-feedback — 写入 Skip/Reject/Edit 反馈
 app.post('/api/sft-feedback', (req, res) => {
     try {
-        const { client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail } = req.body;
+        const { client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail, reject_reason } = req.body;
         if (!feedback_type || !['skip', 'reject', 'edit'].includes(feedback_type)) {
             return res.status(400).json({ error: 'feedback_type must be skip, reject, or edit' });
         }
         const db2 = db.getDb();
         const result = db2.prepare(`
-            INSERT INTO sft_feedback (client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(client_id || null, feedback_type, input_text || null, opt1 || null, opt2 || null, final_output || null, scene || null, detail || null);
-        res.json({ ok: true, id: result.lastInsertRowid });
+            INSERT INTO sft_feedback (client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail, reject_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(client_id || null, feedback_type, input_text || null, opt1 || null, opt2 || null, final_output || null, scene || null, detail || null, reject_reason || null);
+        res.json({ ok: true, id: result.insertId });
     } catch (err) {
         console.error('POST /api/sft-feedback error:', err);
         res.status(500).json({ error: err.message });
@@ -794,9 +907,10 @@ app.post('/api/client-memory', (req, res) => {
         }
         const db2 = db.getDb();
         db2.prepare(`
-            INSERT OR REPLACE INTO client_memory
+            INSERT INTO client_memory
             (client_id, memory_type, memory_key, memory_value, confidence, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE memory_value = VALUES(memory_value), confidence = VALUES(confidence), updated_at = NOW()
         `).run(client_id, memory_type, memory_key, memory_value, confidence);
 
         writeAudit('client_memory_update', 'client_memory', null, null, {
@@ -855,7 +969,7 @@ app.get('/api/ab-evaluation', (req, res) => {
         // 按 owner 过滤需要 join creators 表
         let joinCreators = '';
         if (owner) {
-            joinCreators = ' LEFT JOIN creators c ON c.wa_phone = json_extract(sm.context_json, "$.client_id")';
+            joinCreators = ' LEFT JOIN creators c ON c.wa_phone = JSON_EXTRACT(sm.context_json, "$.client_id")';
             where += ' AND c.wa_owner = ?';
             params.push(owner);
         }
@@ -869,7 +983,7 @@ app.get('/api/ab-evaluation', (req, res) => {
         // 按场景统计（从 context_json 提取 scene）
         const bySceneRows = db2.prepare(`
             SELECT
-                json_extract(context_json, '$.scene') as scene,
+                JSON_EXTRACT(context_json, '$.scene') as scene,
                 COUNT(*) as total,
                 SUM(CASE WHEN human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
             FROM sft_memory sm
@@ -896,7 +1010,7 @@ app.get('/api/ab-evaluation', (req, res) => {
                 COUNT(*) as total,
                 SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
             FROM sft_memory sm
-            LEFT JOIN creators c ON c.wa_phone = json_extract(sm.context_json, '$.client_id')
+            LEFT JOIN creators c ON c.wa_phone = JSON_EXTRACT(sm.context_json, '$.client_id')
             GROUP BY c.wa_owner
             ORDER BY total DESC
         `).all();
@@ -952,11 +1066,11 @@ app.get('/api/ab-evaluation', (req, res) => {
 // GET /api/sft-export — 导出 SFT 训练数据
 app.get('/api/sft-export', async (req, res) => {
     try {
-        // 动态导入共享 system prompt 模板（与前端 minimax.js 共用同一份）
-        const { buildSystemPromptTemplate } = await import('./src/utils/systemPrompt.js');
+        // 使用共享 system prompt 构建器（与 experience.js 推理逻辑完全一致）
+        const { buildFullSystemPrompt } = require('./systemPromptBuilder.cjs');
 
         const db2 = db.getDb();
-        const { format = 'json', limit = 1000, status = 'approved' } = req.query;
+        const { format = 'json', limit = 1000, status = 'approved', lang = 'all' } = req.query;
 
         const rows = db2.prepare(`
             SELECT * FROM sft_memory
@@ -965,9 +1079,11 @@ app.get('/api/sft-export', async (req, res) => {
             LIMIT ? OFFSET ?
         `).all(status, parseInt(limit), 0);
 
+        // 英文检测（用于 lang='en' 过滤）
+        const isEnglish = (text) => /^[a-zA-Z\s.,!?]+$/.test((text || '').slice(0, 100));
+
         function buildConversationMessages(history, inputText) {
             const msgs = [];
-            // 加载前10轮历史
             if (history && history.length > 0) {
                 for (const m of history) {
                     msgs.push({
@@ -976,7 +1092,6 @@ app.get('/api/sft-export', async (req, res) => {
                     });
                 }
             }
-            // 当前输入
             msgs.push({ role: 'user', content: inputText || '' });
             return msgs;
         }
@@ -987,7 +1102,14 @@ app.get('/api/sft-export', async (req, res) => {
             try { if (r.context_json) ctx = JSON.parse(r.context_json); } catch (_) {}
             try { if (r.message_history) history = JSON.parse(r.message_history); } catch (_) {}
             const inputText = ctx.input_text || '';
-            const systemPrompt = buildSystemPromptTemplate(ctx);
+
+            // 语言过滤：非英文数据跳过（lang='en' 时）
+            if (lang ***REMOVED***= 'en' && !isEnglish(inputText) && !isEnglish(r.human_output || '')) {
+                return null;
+            }
+
+            // 使用与推理完全一致的完整 prompt
+            const systemPrompt = buildFullSystemPrompt(ctx.client_id, r.scene || ctx.scene || 'unknown', history);
             const conversationMsgs = buildConversationMessages(history, inputText);
 
             return {
@@ -1006,17 +1128,20 @@ app.get('/api/sft-export', async (req, res) => {
                     reviewed_by: r.reviewed_by,
                     created_at: r.created_at,
                     system_prompt_version: r.system_prompt_version || 'v1',
+                    // Preference Pair（RLHF 奖励模型必需）
+                    chosen_output: r.chosen_output,
+                    rejected_output: r.rejected_output,
                 }
             };
         };
 
         if (format ***REMOVED***= 'jsonl') {
             res.setHeader('Content-Type', 'application/x-ndjson');
-            const lines = rows.map(r => JSON.stringify(exportRecord(r)));
-            res.end(lines.join('\n'));
+            const exported = rows.map(r => exportRecord(r)).filter(Boolean);
+            res.end(exported.map(r => JSON.stringify(r)).join('\n'));
         } else {
             res.setHeader('Content-Type', 'application/json');
-            res.json(rows.map(exportRecord));
+            res.json(rows.map(r => exportRecord(r)).filter(Boolean));
         }
     } catch (err) {
         console.error('GET /api/sft-export error:', err);
@@ -1052,34 +1177,120 @@ app.put('/api/creators/:id', (req, res) => {
     }
 });
 
-// PUT /api/creators/:id/wacrm — 更新 WA CRM 数据
+// PUT /api/creators/:id/wacrm — 更新 WA CRM 数据（含 joinbrands_link 事件标签 & keeper_link）
 app.put('/api/creators/:id/wacrm', (req, res) => {
     try {
         const db2 = db.getDb();
-        const { beta_status, priority, agency_bound, video_count } = req.body;
+        const {
+            // wa_crm_data 字段
+            beta_status, priority, agency_bound, video_count, video_target,
+            monthly_fee_status, monthly_fee_amount, next_action,
+            // joinbrands_link 事件字段
+            ev_trial_active, ev_monthly_started,
+            ev_gmv_1k, ev_gmv_2k, ev_gmv_5k, ev_gmv_10k,
+            ev_agency_bound, ev_churned,
+            // keeper_link 字段
+            keeper_gmv, keeper_gmv30, keeper_orders,
+            keeper_videos, keeper_videos_posted, keeper_videos_sold,
+            keeper_card_rate, keeper_order_rate,
+            keeper_reg_time, keeper_activate_time,
+        } = req.body;
         const creatorId = parseInt(req.params.id);
+        const updatedFields = [];
 
-        // 确保 wacrm 记录存在
-        const existing = db2.prepare('SELECT id FROM wa_crm_data WHERE creator_id = ?').get(creatorId);
-        if (!existing) {
-            db2.prepare('INSERT INTO wa_crm_data (creator_id) VALUES (?)').run(creatorId);
+        // ---- wa_crm_data ----
+        const wacrmFields = [];
+        const wacrmValues = [];
+        if (beta_status !***REMOVED*** undefined) { wacrmFields.push('beta_status = ?'); wacrmValues.push(beta_status); }
+        if (priority !***REMOVED*** undefined) { wacrmFields.push('priority = ?'); wacrmValues.push(priority); }
+        if (agency_bound !***REMOVED*** undefined) { wacrmFields.push('agency_bound = ?'); wacrmValues.push(agency_bound); }
+        if (video_count !***REMOVED*** undefined) { wacrmFields.push('video_count = ?'); wacrmValues.push(video_count); }
+        if (video_target !***REMOVED*** undefined) { wacrmFields.push('video_target = ?'); wacrmValues.push(video_target); }
+        if (monthly_fee_status !***REMOVED*** undefined) { wacrmFields.push('monthly_fee_status = ?'); wacrmValues.push(monthly_fee_status); }
+        if (monthly_fee_amount !***REMOVED*** undefined) { wacrmFields.push('monthly_fee_amount = ?'); wacrmValues.push(monthly_fee_amount); }
+        if (next_action !***REMOVED*** undefined) { wacrmFields.push('next_action = ?'); wacrmValues.push(next_action); }
+
+        if (wacrmFields.length > 0) {
+            wacrmFields.push('updated_at = CURRENT_TIMESTAMP');
+            wacrmValues.push(creatorId);
+            const existing = db2.prepare('SELECT id FROM wa_crm_data WHERE creator_id = ?').get(creatorId);
+            if (!existing) {
+                db2.prepare('INSERT INTO wa_crm_data (creator_id) VALUES (?)').run(creatorId);
+            }
+            db2.prepare(`UPDATE wa_crm_data SET ${wacrmFields.join(', ')} WHERE creator_id = ?`).run(...wacrmValues);
+            updatedFields.push(...wacrmFields.map(f => 'wacrm.' + f.split(' = ')[0]));
         }
 
-        const fields = [];
-        const values = [];
-        if (beta_status !***REMOVED*** undefined) { fields.push('beta_status = ?'); values.push(beta_status); }
-        if (priority !***REMOVED*** undefined) { fields.push('priority = ?'); values.push(priority); }
-        if (agency_bound !***REMOVED*** undefined) { fields.push('agency_bound = ?'); values.push(agency_bound); }
-        if (video_count !***REMOVED*** undefined) { fields.push('video_count = ?'); values.push(video_count); }
+        // ---- joinbrands_link 事件标签 ----
+        const jbFields = [];
+        const jbValues = [];
+        if (ev_trial_active !***REMOVED*** undefined) { jbFields.push('ev_trial_7day = ?'); jbValues.push(ev_trial_active ? 1 : 0); }
+        if (ev_monthly_started !***REMOVED*** undefined) { jbFields.push('ev_monthly_started = ?'); jbValues.push(ev_monthly_started ? 1 : 0); }
+        if (ev_gmv_1k !***REMOVED*** undefined) { jbFields.push('ev_gmv_1k = ?'); jbValues.push(ev_gmv_1k ? 1 : 0); }
+        if (ev_gmv_2k !***REMOVED*** undefined) { jbFields.push('ev_gmv_2k = ?'); jbValues.push(ev_gmv_2k ? 1 : 0); }
+        if (ev_gmv_5k !***REMOVED*** undefined) { jbFields.push('ev_gmv_5k = ?'); jbValues.push(ev_gmv_5k ? 1 : 0); }
+        if (ev_gmv_10k !***REMOVED*** undefined) { jbFields.push('ev_gmv_10k = ?'); jbValues.push(ev_gmv_10k ? 1 : 0); }
+        if (ev_agency_bound !***REMOVED*** undefined) { jbFields.push('ev_agency_bound = ?'); jbValues.push(ev_agency_bound ? 1 : 0); }
+        if (ev_churned !***REMOVED*** undefined) { jbFields.push('ev_churned = ?'); jbValues.push(ev_churned ? 1 : 0); }
 
-        if (fields.length ***REMOVED***= 0) return res.status(400).json({ error: 'No fields to update' });
+        if (jbFields.length > 0) {
+            jbValues.push(creatorId);
+            db2.prepare(`INSERT INTO joinbrands_link (creator_id, ${jbFields.map(f => f.split(' = ')[0]).join(', ')}) VALUES (?, ${jbFields.map(() => '?').join(', ')}) ON DUPLICATE KEY UPDATE ${jbFields.join(', ')}`).run(creatorId, ...jbValues);
+            updatedFields.push(...jbFields.map(f => 'jb.' + f.split(' = ')[0]));
+        }
 
-        fields.push('updated_at = CURRENT_TIMESTAMP');
-        values.push(creatorId);
-        db2.prepare(`UPDATE wa_crm_data SET ${fields.join(', ')} WHERE creator_id = ?`).run(...values);
+        // ---- keeper_link ----
+        const kFields = [];
+        const kValues = [];
+        if (keeper_gmv !***REMOVED*** undefined) { kFields.push('keeper_gmv = ?'); kValues.push(keeper_gmv); }
+        if (keeper_gmv30 !***REMOVED*** undefined) { kFields.push('keeper_gmv30 = ?'); kValues.push(keeper_gmv30); }
+        if (keeper_orders !***REMOVED*** undefined) { kFields.push('keeper_orders = ?'); kValues.push(keeper_orders); }
+        if (keeper_videos !***REMOVED*** undefined) { kFields.push('keeper_videos = ?'); kValues.push(keeper_videos); }
+        if (keeper_videos_posted !***REMOVED*** undefined) { kFields.push('keeper_videos_posted = ?'); kValues.push(keeper_videos_posted); }
+        if (keeper_videos_sold !***REMOVED*** undefined) { kFields.push('keeper_videos_sold = ?'); kValues.push(keeper_videos_sold); }
+        if (keeper_card_rate !***REMOVED*** undefined) { kFields.push('keeper_card_rate = ?'); kValues.push(keeper_card_rate); }
+        if (keeper_order_rate !***REMOVED*** undefined) { kFields.push('keeper_order_rate = ?'); kValues.push(keeper_order_rate); }
+        if (keeper_reg_time !***REMOVED*** undefined) { kFields.push('keeper_reg_time = ?'); kValues.push(keeper_reg_time); }
+        if (keeper_activate_time !***REMOVED*** undefined) { kFields.push('keeper_activate_time = ?'); kValues.push(keeper_activate_time); }
 
-        writeAudit('wacrm_update', 'wa_crm_data', creatorId, null, req.body, req);
-        res.json({ ok: true });
+        if (kFields.length > 0) {
+            kValues.push(creatorId);
+            db2.prepare(`INSERT INTO keeper_link (creator_id, ${kFields.map(f => f.split(' = ')[0]).join(', ')}) VALUES (?, ${kFields.map(() => '?').join(', ')}) ON DUPLICATE KEY UPDATE ${kFields.join(', ')}`).run(creatorId, ...kValues);
+            updatedFields.push(...kFields.map(f => 'k.' + f.split(' = ')[0]));
+        }
+
+        // ---- 级联逻辑 ----
+        if (ev_churned) {
+            db2.prepare(`UPDATE wa_crm_data SET beta_status = 'churned' WHERE creator_id = ?`).run(creatorId);
+            updatedFields.push('wacrm.beta_status→churned');
+        }
+
+        // ---- 事件标签 → client_tags 联动 ----
+        const creatorPhone = db2.prepare('SELECT wa_phone FROM creators WHERE id = ?').get(creatorId);
+        if (creatorPhone) {
+            if (ev_trial_active) {
+                db2.prepare(`INSERT OR IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'stage:trial', 'system', 3)`).run(creatorPhone.wa_phone);
+            }
+            if (ev_monthly_started) {
+                db2.prepare(`INSERT OR IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'stage:monthly', 'system', 3)`).run(creatorPhone.wa_phone);
+            }
+            if (ev_gmv_1k) {
+                db2.prepare(`INSERT OR IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:1k', 'system', 3)`).run(creatorPhone.wa_phone);
+            }
+            if (ev_gmv_5k) {
+                db2.prepare(`INSERT OR IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:5k', 'system', 3)`).run(creatorPhone.wa_phone);
+            }
+            if (ev_gmv_10k) {
+                db2.prepare(`INSERT OR IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:10k', 'system', 3)`).run(creatorPhone.wa_phone);
+            }
+        }
+
+        if (updatedFields.length ***REMOVED***= 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+
+        writeAudit('creator_profile_update', 'multi', creatorId, null, { ...req.body, updated: updatedFields }, req);
+        res.json({ ok: true, updated: updatedFields });
     } catch (err) {
         console.error('PUT /api/creators/:id/wacrm error:', err);
         res.status(500).json({ error: err.message });
@@ -1173,15 +1384,15 @@ app.post('/api/profile-agent/event', (req, res) => {
         // upsert tags
         for (const t of tags_added) {
             db2.prepare(`
-                INSERT OR REPLACE INTO client_tags (client_id, tag, source, confidence)
+                INSERT INTO client_tags (client_id, tag, source, confidence)
                 VALUES (?, ?, ?, 2)
+                ON DUPLICATE KEY UPDATE confidence = VALUES(confidence)
             `).run(client_id, t.tag, t.source);
         }
 
         // 异步刷新 summary（带 debounce，防止频繁重复触发）
-        if (tags_added.length > 0) {
-            scheduleProfileRefresh(client_id);
-        }
+        // 即使没有新标签，只要 profile 没有 summary 也触发一次生成
+        scheduleProfileRefresh(client_id);
 
         res.json({ ok: true, client_id, tags_added });
     } catch (err) {
@@ -1204,9 +1415,8 @@ app.get('/api/client-profile/:clientId', (req, res) => {
             'SELECT * FROM client_memory WHERE client_id = ? ORDER BY created_at DESC LIMIT 20'
         ).all(clientId);
 
-        if (!profile) {
-            return res.status(404).json({ error: 'profile not found' });
-        }
+        // profile 不存在时也返回空结构（tags 仍来自 client_tags 独立存储）
+        const profileData = profile || { summary: null, tiktok_data: null, stage: null, last_interaction: null, last_updated: null };
 
         // 获取 creator 基础信息
         const creator = db2.prepare(`
@@ -1226,16 +1436,42 @@ app.get('/api/client-profile/:clientId', (req, res) => {
             keeper_username: creator?.keeper_username || null,
             conversion_stage: creator?.conversion_stage || null,
             priority: creator?.priority || null,
-            summary: profile.summary || null,
+            summary: profileData.summary || null,
             tags: tags.map(t => ({ tag: t.tag, source: t.source, confidence: t.confidence })),
-            tiktok_data: profile.tiktok_data ? JSON.parse(profile.tiktok_data) : null,
-            stage: profile.stage || creator?.conversion_stage || null,
-            last_interaction: profile.last_interaction,
-            last_updated: profile.last_updated,
+            tiktok_data: profileData.tiktok_data ? JSON.parse(profileData.tiktok_data) : null,
+            stage: profileData.stage || creator?.conversion_stage || null,
+            last_interaction: profileData.last_interaction,
+            last_updated: profileData.last_updated,
             memory: memory.map(m => ({ type: m.memory_type, key: m.memory_key, value: m.memory_value })),
         });
     } catch (err) {
         console.error('GET /api/client-profile error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/client-profile/:clientId — 更新画像摘要
+app.put('/api/client-profile/:clientId', (req, res) => {
+    try {
+        const db2 = db.getDb();
+        const { clientId } = req.params;
+        const { summary } = req.body;
+
+        // 尝试更新已有记录
+        const updated = db2.prepare(`
+            UPDATE client_profiles SET summary = ?, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?
+        `).run(summary || '', clientId);
+
+        // 如果没有记录，则插入
+        if (updated.changes ***REMOVED***= 0) {
+            db2.prepare(`
+                INSERT INTO client_profiles (client_id, summary) VALUES (?, ?)
+            `).run(clientId, summary || '');
+        }
+
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('PUT /api/client-profile error:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -1249,20 +1485,67 @@ app.put('/api/client-profiles/:clientId/tags', (req, res) => {
 
         if (!tag) return res.status(400).json({ error: 'tag required' });
 
-        const fullTag = `${tag}:${value || 'true'}`;
-
         if (action ***REMOVED***= 'delete') {
-            db2.prepare('DELETE FROM client_tags WHERE client_id = ? AND tag = ?').run(clientId, fullTag);
+            // 删除时直接用 tag（不拼接后缀）
+            db2.prepare('DELETE FROM client_tags WHERE client_id = ? AND tag = ?').run(clientId, tag);
         } else {
+            // 添加/更新时，如果 tag 本身已包含冒号则直接使用，否则拼接后缀
+            const fullTag = tag.includes(':') ? tag : `${tag}:${value || 'true'}`;
             db2.prepare(`
-                INSERT OR REPLACE INTO client_tags (client_id, tag, source, confidence)
+                INSERT INTO client_tags (client_id, tag, source, confidence)
                 VALUES (?, ?, 'manual', ?)
+                ON DUPLICATE KEY UPDATE confidence = VALUES(confidence), tag = VALUES(tag)
             `).run(clientId, fullTag, confidence);
         }
 
         res.json({ ok: true });
     } catch (err) {
         console.error('PUT /api/client-profiles/tags error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/client-profiles/:clientId/memory — 添加客户记忆
+app.post('/api/client-profiles/:clientId/memory', (req, res) => {
+    try {
+        const db2 = db.getDb();
+        const { clientId } = req.params;
+        const { memory_type, memory_key, memory_value } = req.body;
+
+        if (!memory_type || !memory_key || memory_value ***REMOVED***= undefined) {
+            return res.status(400).json({ error: 'memory_type, memory_key and memory_value required' });
+        }
+
+        db2.prepare(`
+            INSERT INTO client_memory (client_id, memory_type, memory_key, memory_value)
+            VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE memory_value = VALUES(memory_value)
+        `).run(clientId, memory_type, memory_key, memory_value);
+
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('POST /api/client-profiles/memory error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /api/client-profiles/:clientId/memory — 删除客户记忆
+app.delete('/api/client-profiles/:clientId/memory', (req, res) => {
+    try {
+        const db2 = db.getDb();
+        const { clientId } = req.params;
+        const { memory_type, memory_key } = req.body;
+
+        if (!memory_type || !memory_key) {
+            return res.status(400).json({ error: 'memory_type and memory_key required' });
+        }
+
+        db2.prepare('DELETE FROM client_memory WHERE client_id = ? AND memory_type = ? AND memory_key = ?')
+            .run(clientId, memory_type, memory_key);
+
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('DELETE /api/client-profiles/memory error:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -1374,7 +1657,7 @@ app.post('/api/events', (req, res) => {
     `);
     const result = stmt.run(creator_id, event_key, event_type, owner, trigger_source, trigger_text, start_at || new Date().toISOString(), end_at, JSON.stringify(meta));
 
-    res.json({ id: result.lastInsertRowid, status: 'active' });
+    res.json({ id: result.insertId, status: 'active' });
   } catch (err) {
     console.error('POST /api/events error:', err);
     res.status(500).json({ error: err.message });
@@ -1540,7 +1823,7 @@ app.post('/api/events/:id/judge', (req, res) => {
         INSERT INTO event_periods (event_id, period_start, period_end, video_count, bonus_earned, status)
         VALUES (?, ?, ?, ?, ?, 'settled')
       `).run(req.params.id, period_start, period_end || period_start, video_count, bonus_earned);
-      periodId = result.lastInsertRowid;
+      periodId = result.insertId;
     }
 
     res.json({
@@ -1743,7 +2026,7 @@ async function refreshProfileSummary(clientId) {
         const tagLines = tags.map(t => t.tag).join(', ') || '暂无';
         const memLines = memory.map(m => m.memory_value).join('; ') || '暂无';
 
-        const prompt = `客户画像分析（50字以内）。姓名:${creator.name || '未知'} | 负责人:${creator.wa_owner || '未知'} | 阶段:${creator.conversion_stage || '未知'} | TikTok:${creator.keeper_username || '未知'} | 标签:${tagLines} | 对话:${memLines}。直接输出简介。`;
+        const prompt = `客户画像分析（100-150字）。姓名:${creator.name || '未知'} | 负责人:${creator.wa_owner || '未知'} | 阶段:${creator.conversion_stage || '未知'} | TikTok:${creator.keeper_username || '未知'} | 标签:${tagLines} | 记忆:${memLines}。请生成一段简洁的画像简介，包括用户特点、当前阶段、潜在需求。直接输出正文，不要前缀。`;
 
         const response = await fetch('https://api.minimaxi.com/anthropic/v1/messages', {
             method: 'POST',
@@ -1755,7 +2038,7 @@ async function refreshProfileSummary(clientId) {
             body: JSON.stringify({
                 model: 'mini-max-typing',
                 messages: [{ role: 'user', content: prompt }],
-                max_tokens: 150,
+                max_tokens: 400,
                 temperature: 0.5,
             }),
         });
@@ -1766,9 +2049,14 @@ async function refreshProfileSummary(clientId) {
         const summary = textItem?.text?.trim();
 
         if (summary) {
-            db2.prepare(
+            const updated = db2.prepare(
                 'UPDATE client_profiles SET summary = ?, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?'
             ).run(summary, clientId);
+            if (updated.changes ***REMOVED***= 0) {
+                db2.prepare(
+                    'INSERT INTO client_profiles (client_id, summary) VALUES (?, ?)'
+                ).run(clientId, summary);
+            }
         }
     } catch (err) {
         console.error('refreshProfileSummary error:', err.message);

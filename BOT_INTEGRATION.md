@@ -194,10 +194,12 @@ AI 生成回复前，必须：
 | `keeper_link` | Keeper 系统关联 |
 | `joinbrands_link` | JoinBrands 系统关联 |
 | `sft_memory` | SFT 训练语料 |
+| `sft_feedback` | Skip/Reject/Edit 反馈记录 |
 | `client_memory` | 客户单独记忆 |
 | `client_profiles` | 客户独立画像（AI 调用时使用） |
 | `client_tags` | 动态标签（多源标注） |
 | `policy_documents` | 政策文档 |
+| `operator_experiences` | **Experience Router**：operator 专属 AI 体验配置 |
 | `audit_log` | 操作审计日志 |
 
 ---
@@ -230,6 +232,39 @@ AI 生成回复前，必须：
 2. **禁止**在未调用 `GET /api/policy-documents` 的情况下输出涉及政策内容的回复
 3. **禁止**将 `wa_phone` 泄露到日志或外部系统
 4. **必须**使用参数化查询，禁止拼接 SQL
+
+---
+
+## Experience Router（按负责人路由 AI 体验）
+
+不同 operator（Beau / Yiyun）使用不同的 AI 体验：
+
+| operator | 核心差异 |
+|----------|---------|
+| Beau | 20天Beta计划，$200激励，DRIFTO MCN |
+| Yiyun | 7天试用，$20月费，保守回复策略 |
+
+**调用方式：**
+
+```javascript
+// 根据 client_id 自动路由到对应 operator 体验
+POST /api/experience/route
+{
+  "client_id": "16145639865",
+  "messages": [{"role": "user", "text": "Hi"}],
+  "scene": "first_contact"
+}
+
+// 直接指定 operator
+POST /api/experience/route
+{
+  "operator": "Beau",
+  "messages": [{"role": "user", "text": "When is my payment?"}],
+  "scene": "commission_query"
+}
+```
+
+响应包含 `operator`、`experience_config`、`system_prompt`（已编译）、`candidates`（两个候选回复）。
 
 ---
 
