@@ -1,100 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { generateCandidateResponses } from '../utils/minimax';
 import EmojiPicker from 'emoji-picker-react';
 import AIReplyPicker from './AIReplyPicker';
+import { buildRichContext, computeSimilarity } from './WAMessageComposer/ai/extractors';
+import { inferAutoTopic } from './WAMessageComposer/ai/topicDetector';
+import { TOPIC_LABELS } from './WAMessageComposer/constants/topicLabels';
 
 const API_BASE = '/api';
-
-// 推断消息语言（简单关键词检测）
-function detectLanguage(text) {
-  if (!text) return 'en';
-  const zhRegex = /[\u4e00-\u9fff]/;
-  if (zhRegex.test(text)) return 'zh';
-  return 'en';
-}
-
-// 推断客户语气（基于消息特征）
-function detectClientTone(messages) {
-  const recent = (messages || []).slice(-5);
-  const text = recent.map(m => m.text || '').join(' ');
-  if (!text) return 'neutral';
-  const formalCount = (text.match(/\b(please|would|could|kindly|appreciate)\b/gi) || []).length;
-  const casualCount = (text.match(/\b(hey|thanks?|great|awesome|cool|yeah)\b/gi) || []).length;
-  if (formalCount > casualCount) return 'formal';
-  if (casualCount > formalCount) return 'casual';
-  return 'friendly';
-}
-
-// 推断当前场景
-// 优先级：更具体的场景优先匹配（排序即优先级）
-function inferScene(text, wacrm, messageCount = 0) {
-  const t = (text || '').toLowerCase();
-  // 中英双语触发词
-  if (/\b(trial|7[\s-]?day|7day|free\s*try|试用)\b/.test(t)) return 'trial_intro';
-  if (/\b(monthly|month|membership|月费|包月)\b/.test(t)) return 'monthly_inquiry';
-  if (/\b(commission|分成|提成|revenue|佣金|收入)\b/.test(t)) return 'commission_query';
-  // mcn_binding 同时匹配 agency/经纪/绑定等词
-  if (/\b(mcn|agency|经纪|代理|绑定|contract|签约)\b/.test(t)) return 'mcn_binding';
-  // video 问题（生成失败/加载慢/质量差）
-  if (/\b(video\s*(not|doesn'?t|can'?t|didn)?t?\s*(load|generat|creat|show|appear)|视频\s*(生成|加载|显示|出现)?(不了|失败|慢|卡)|内容\s*(不符|不对|错误))\b/.test(t)) return 'video_not_loading';
-  // content_request（请求内容/创作相关）
-  if (/\b(video|内容|content|创作|post|发帖|发布)\b/.test(t) && !/\bnot\s*(load|generat|creat)\b/.test(t)) return 'content_request';
-  // gmv 询问
-  if (/\b(gmv|sales|订单|销售|收入|earnings)\b/.test(t)) return 'gmv_inquiry';
-  // 付款/收款问题
-  if (/\b(payment|paypal|付款|收款|转账|汇款|转账|没收到|没到账)\b/.test(t)) return 'payment_issue';
-  // 违规/申诉
-  if (/\b(violation|appeal|申诉|违规|flagged|strike|封号|banned|suspended)\b/.test(t)) return 'violation_appeal';
-  // follow_up: beta已引入 且 有过对话
-  if (wacrm?.beta_status ***REMOVED***= 'introduced' && messageCount > 3) return 'follow_up';
-  // first_contact: 新客户或对话很少
-  return messageCount <= 1 ? 'first_contact' : 'follow_up';
-}
-
-// 构建丰富的 context 对象
-function buildRichContext({ incomingMsg, client, creator, policyDocs, clientMemory, messages }) {
-  const msgs = messages || [];
-  const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
-  const daysSinceLast = lastMsg
-    ? Math.floor((Date.now() - lastMsg.timestamp) / 86400000)
-    : null;
-  const now = new Date();
-  const tone = detectClientTone(msgs);
-  const lang = detectLanguage(incomingMsg?.text || '');
-  const wacrm = creator?.wacrm || client?.wacrm || {};
-  const scene = inferScene(incomingMsg?.text || '', wacrm, msgs.length);
-
-  const policyTags = (policyDocs || [])
-    .filter(p => (p.applicable_scenarios || []).includes(scene))
-    .map(p => p.policy_key);
-
-  const memorySummary = {};
-  for (const m of (clientMemory || [])) {
-    if (!memorySummary[m.memory_type]) memorySummary[m.memory_type] = {};
-    memorySummary[m.memory_type][m.memory_key] = m.memory_value;
-  }
-
-  return {
-    client_id: client.phone,
-    client_name: client.name,
-    wa_owner: client.wa_owner,
-    keeper_username: wacrm?.keeper_username || creator?.keeper_username || null,
-    beta_status: wacrm?.beta_status || 'unknown',
-    priority: wacrm?.priority || 'normal',
-    agency_bound: !!wacrm?.agency_bound,
-    conversion_stage: client.conversion_stage || 'unknown',
-    days_since_last_msg: daysSinceLast,
-    total_messages: msgs.length,
-    input_text: incomingMsg?.text || '',
-    scene,
-    hour_of_day: now.getHours(),
-    day_of_week: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][now.getDay()],
-    language: lang,
-    client_tone: tone,
-    memory_summary: Object.keys(memorySummary).length > 0 ? memorySummary : null,
-    policy_tags: policyTags.length > 0 ? policyTags : null,
-  };
-}
 
 const WA = {
   darkHeader: '#111b21',
@@ -116,21 +27,6 @@ const WA = {
   inputBg: '#f0f2f5',
 }
 
-// 相似度计算（Word-level Jaccard similarity）
-function computeSimilarity(text1, text2) {
-  if (!text1 || !text2) return 0;
-  const s1 = text1.trim(), s2 = text2.trim();
-  if (s1 ***REMOVED***= s2) return 100;
-  // 分词：按空格/标点拆分为单词集合
-  const words1 = new Set(s1.toLowerCase().split(/[\s,.!?;:，。！？；：]+/).filter(w => w.length > 0));
-  const words2 = new Set(s2.toLowerCase().split(/[\s,.!?;:，。！？；：]+/).filter(w => w.length > 0));
-  if (words1.size ***REMOVED***= 0 && words2.size ***REMOVED***= 0) return 100;
-  if (words1.size ***REMOVED***= 0 || words2.size ***REMOVED***= 0) return 0;
-  // Jaccard: |intersection| / |union|
-  const intersection = new Set([...words1].filter(w => words2.has(w)));
-  const union = new Set([...words1, ...words2]);
-  return Math.round((intersection.size / union.size) * 100);
-}
 
 export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPanel }) {
     const [inputText, setInputText] = useState('');
@@ -302,7 +198,8 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
         return lines.join('\n');
     }
 
-    // 构建 System Prompt（双模式：同一话题 vs 新话题）
+    /* DEAD CODE — 已迁移到后端 /api/ai/system-prompt
+        // 构建 System Prompt（双模式：同一话题 vs 新话题）
     // mode: 'same_topic'（manual/auto）| 'new_topic'（keyword/time）
     const buildSystemPrompt = ({ mode = 'new_topic', activeEvents }) => {
         const clientName = client?.name || creator?.primary_name || '未知';
@@ -370,7 +267,11 @@ ${replyStyle}
 - 回复不超过 100 字，只输出发送给客户的文字，不要分析或解释`;
     };
 
+
+    */
+
     // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+    // 话题检测与上下文构建    // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
     // 话题检测与上下文构建
     // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
@@ -406,78 +307,6 @@ ${replyStyle}
         const intersection = new Set([...set1].filter(w => set2.has(w)));
         const union = new Set([...set1, ...set2]);
         return intersection.size / union.size;
-    }
-
-    // 话题标签中文映射
-    const TOPIC_LABELS = {
-        trial_intro: '7天挑战咨询',
-        monthly_inquiry: '月度挑战咨询',
-        gmv_inquiry: 'GMV/收入咨询',
-        mcn_binding: 'Agency签约咨询',
-        commission_query: '佣金分成咨询',
-        content_request: '内容/视频咨询',
-        payment_issue: '付款问题',
-        violation_appeal: '违规申诉',
-        referral: '推荐新用户',
-        general: '一般咨询',
-        follow_up: '跟进中',
-        first_contact: '首次接触',
-    };
-
-    // 基于 EVENT_SYSTEM.md 关键词 + 最新20条消息 + 活跃事件 → 自动推断话题
-    function inferAutoTopic({ messages, activeEvents }) {
-        const recentTexts = (messages || []).slice(-20).map(m => m.text || '').join(' ');
-        const lowerText = recentTexts.toLowerCase();
-
-        // 事件语义关键词（来自 EVENT_SYSTEM.md）
-        const eventKeywordMap = {
-            trial_intro: ['trial', '7day', '7-day', 'free challenge', '7天挑战', '试用挑战', '加入挑战', 'challenge', '七天'],
-            monthly_inquiry: ['monthly', 'monthly challenge', 'monthly challenge', '月度挑战', '包月', '每月挑战', 'month'],
-            gmv_inquiry: ['gmv', 'earning', 'revenue', '收入', '佣金', 'pay', 'payment', 'paid', 'milestone', 'commission', '佣金分成', 'cashout'],
-            mcn_binding: ['agency', 'mcn', 'bound', 'sign', 'contract', '绑定', '签约', 'signed', 'join agency'],
-            commission_query: ['commission', 'share', '分成', 'percentage', 'cut', 'reward', '奖励', 'bonus'],
-            content_request: ['video', 'content', 'post', 'publish', '视频', '发布', '链接', 'link', 'tiktok', 'share link', '视频链接'],
-            payment_issue: ['pay', 'payment', 'paid', '转账', '未付', '没收到', 'when', '多久', '一直没有', 'bank', 'account'],
-            violation_appeal: ['violation', 'ban', 'suspend', '违反', '违规', '封号', '被禁', 'account disabled', 'frozen'],
-            referral: ['refer', 'invite', 'recommend', '推荐', '介绍', '新人', 'creator join', 'new creator', '其他人'],
-            first_contact: ['hi', 'hello', 'hey', '你好', '嗨', 'who are you', 'what is', '怎么', 'who is', 'first time'],
-        };
-
-        const scores = {};
-        for (const [topic, keywords] of Object.entries(eventKeywordMap)) {
-            const matchCount = keywords.filter(kw => lowerText.includes(kw)).length;
-            scores[topic] = matchCount;
-        }
-
-        // 活跃事件加权（事件存在说明这个话题正在进行中，加3分）
-        for (const evt of (activeEvents || [])) {
-            const key = evt.event_key; // e.g. 'trial_7day', 'monthly_challenge', 'referral'
-            // 映射 event_key → topic_key
-            const keyMap = {
-                trial_7day: 'trial_intro',
-                monthly_challenge: 'monthly_inquiry',
-                agency_bound: 'mcn_binding',
-                gmv_milestone: 'gmv_inquiry',
-                referral: 'referral',
-            };
-            const mapped = keyMap[key] || key;
-            if (scores[mapped] !***REMOVED*** undefined) scores[mapped] += 3;
-        }
-
-        // 找最高分
-        const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
-        const [topKey, topScore] = sorted[0] || [null, 0];
-
-        // 低于1分的默认为 general
-        if (!topKey || topScore < 1) return { topic_key: 'general', label: '一般咨询', confidence: 'low' };
-
-        const confidence = topScore >= 4 ? 'high' : topScore >= 2 ? 'medium' : 'low';
-        return {
-            topic_key: topKey,
-            label: TOPIC_LABELS[topKey] || TOPIC_LABELS.general,
-            confidence,
-            score: topScore,
-        };
     }
 
     // 判断是否应该切换新话题
@@ -659,7 +488,7 @@ ${fullEventSummary}
     });
 
     // 通过 Experience Router 生成候选回复
-    const generateViaExperienceRouter = async ({ conversation, scene, client_id, forcedInput, richCtx }) => {
+    const generateViaExperienceRouter = async ({ conversation, scene, client_id, forcedInput }) => {
         const allMsgs = conversation.messages;
         const lastIncomingText = [...allMsgs].reverse().find(m => m.role ***REMOVED***= 'user')?.text || '';
         const lastMsgTimestamp = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1].timestamp : null;
@@ -707,6 +536,12 @@ ${fullEventSummary}
         const topicContext = effectiveTopic
             ? buildTopicContext({ topic: effectiveTopic, creator, activeEvents, mode: isSameTopic ? 'same_topic' : 'new_topic' })
             : '';
+
+        // richContextParagraph 需要 scene，从传入的 scene 参数或推断获取
+        const effectiveScene = scene || 'unknown';
+        // 构建完整的 richCtx（buildRichContextParagraph 依赖多个字段）
+        const lastIncoming = allMsgs.length > 0 ? { text: [...allMsgs].reverse().find(m => m.role ***REMOVED***= 'user')?.text || '', timestamp: lastMsgTimestamp } : null;
+        const richCtx = buildRichContext({ incomingMsg: lastIncoming, client, creator, policyDocs, clientMemory, messages: allMsgs });
         const richContextParagraph = buildRichContextParagraph(richCtx);
 
         // 方向二：最近优先机制
@@ -729,18 +564,28 @@ ${fullEventSummary}
         // 通过后端 /api/ai/system-prompt 构建完整 system prompt（与 sft-export 对齐）
         // 前端提供：topicContext + richContext + conversationSummary + operator + scene
         // 后端补充：operator experience、client_memory、policy_documents、REPLY_STYLE
-        const { prompt: systemPrompt, version: systemPromptVersion } = await fetch(`${API_BASE}/ai/system-prompt`, {
+        const promptRes = await fetch(`${API_BASE}/ai/system-prompt`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 client_id,
-                scene: richCtx?.scene || 'unknown',
+                scene: effectiveScene,
                 topicContext,
                 richContext: richContextParagraph,
                 conversationSummary: convSummary ? convSummary.summary : '',
             }),
             signal: AbortSignal.timeout(30000),
-        }).then(r => r.json());
+        });
+        const {
+            systemPrompt,
+            version: systemPromptVersion,
+            operator,
+            operatorDisplayName,
+            operatorConfigured,
+        } = await promptRes.json();
+        if (!promptRes.ok || !systemPrompt) {
+            throw new Error('system prompt 构建失败');
+        }
 
         // 将 system prompt 注入消息列表
         const allMessages = [
@@ -761,7 +606,6 @@ ${fullEventSummary}
             signal: AbortSignal.timeout(60000),
         });
         const data = await res.json();
-        console.log('[generateViaExperienceRouter] raw data:', JSON.stringify(data).slice(0, 200));
 
         // 检查 API 错误
         if (!res.ok || data.error) {
@@ -785,7 +629,16 @@ ${fullEventSummary}
         if (!opt1 && !opt2) {
             throw new Error('AI 返回空候选，请重试');
         }
-        return { opt1, opt2, systemPrompt, systemPromptVersion };
+        return {
+            opt1,
+            opt2,
+            systemPrompt,
+            systemPromptVersion,
+            operator,
+            operatorDisplayName,
+            operatorConfigured,
+            scene: effectiveScene,
+        };
     };
 
     const fetchPolicyDocs = async () => {
@@ -878,10 +731,6 @@ ${fullEventSummary}
             const msgsData = await msgsRes.json();
             const msgs = Array.isArray(msgsData) ? msgsData : (msgsData.messages || []);
             const conversation = buildConversation(msgs);
-            // 只有真实的 user 消息才追加；me 消息已在 buildConversation 中作为 assistant 包含
-            if (incomingMsg.role ***REMOVED***= 'user') {
-                conversation.messages.push({ role: 'user', text: incomingMsg.text });
-            }
 
             const richCtx = buildRichContext({ incomingMsg, client, creator, policyDocs, clientMemory, messages: msgs });
 
@@ -889,15 +738,17 @@ ${fullEventSummary}
                 conversation,
                 scene: richCtx.scene,
                 client_id: client.phone,
-                richCtx,
             });
-            console.log('[generateForIncoming] result candidates:', result ? JSON.stringify({opt1: result.opt1?.slice(0,50), opt2: result.opt2?.slice(0,50)}) : 'NULL');
 
             return {
                 incomingMsg,
                 candidates: result,
                 systemPrompt: result.systemPrompt,
                 systemPromptVersion: result.systemPromptVersion,
+                operator: result.operator,
+                operatorDisplayName: result.operatorDisplayName,
+                operatorConfigured: result.operatorConfigured,
+                scene: result.scene,
                 generated_at: Date.now(),
                 policyDocs,
             };
@@ -912,10 +763,8 @@ ${fullEventSummary}
 
     // 弹出候选 picker（处理新候选）
     const pushPicker = useCallback((result) => {
-        console.log('[pushPicker] called with result:', result ? 'OK' : 'NULL');
         if (!result) return;
         setActivePicker(prev => {
-            console.log('[pushPicker] setActivePicker callback, prev:', prev ? 'exists' : 'null');
             if (prev) {
                 setPendingCandidates(p => [...p, result]);
                 return prev;
@@ -931,7 +780,6 @@ ${fullEventSummary}
             const gap = Date.now() - lastActivityRef.current;
             const HOUR48 = 48 * 3600 * 1000;
             if (gap > HOUR48) {
-                console.log('[48h check] 无互动超过48小时，开启新话题');
                 const newTopic = startNewTopic({ trigger: 'time', newText: '', messages: [] });
                 setCurrentTopic(newTopic);
                 lastActivityRef.current = Date.now();
@@ -943,20 +791,14 @@ ${fullEventSummary}
 
     // 轮询新消息
     const checkNewMessages = useCallback(async () => {
-        if (!client?.id) {
-            console.log('[checkNewMessages] early return: no client.id');
-            return;
-        }
+        if (!client?.id) return;
 
         try {
             const url = `${API_BASE}/creators/${client.id}/messages`;
-            console.log('[checkNewMessages] fetching:', url);
             const res = await fetch(url);
-            console.log('[checkNewMessages] status:', res.status);
             if (!res.ok) return;
             const data = await res.json();
             const msgs = Array.isArray(data) ? data : (data.messages || []);
-            console.log('[checkNewMessages] msgs count:', msgs?.length);
             if (!msgs || msgs.length ***REMOVED***= 0) return;
 
             // 更新消息历史（用于渲染）
@@ -970,26 +812,19 @@ ${fullEventSummary}
             // 找最新一条 incoming 消息（role ***REMOVED***= 'user'）
             const incomingMsgs = msgs.filter(m => m.role ***REMOVED***= 'user');
             const latestMsg = incomingMsgs[incomingMsgs.length - 1];
-            console.log('[checkNewMessages] latestMsg role:', latestMsg?.role, 'text:', latestMsg?.text?.slice(0, 50));
             if (!latestMsg) return;
 
             // 使用 ref 避免 stale closure（pendingCandidates 在 cleanup 时可能还未 flush）
             const currentPending = pendingCandidatesRef.current;
             const alreadyQueued = (activePicker?.incomingMsg?.timestamp ***REMOVED***= latestMsg.timestamp) ||
                 currentPending.some(p => p.incomingMsg.timestamp ***REMOVED***= latestMsg.timestamp);
-            console.log('[checkNewMessages] alreadyQueued:', alreadyQueued);
             if (alreadyQueued) return;
 
             // 如果已有待回复的 picker，不再自动生成新候选（等用户处理完当前候选再说）
-            if (activePicker) {
-                console.log('[checkNewMessages] activePicker exists, skipping auto-generate');
-                return;
-            }
+            if (activePicker) return;
 
             const result = await generateForIncoming(latestMsg);
-            console.log('[checkNewMessages] generateForIncoming result:', result ? 'OK' : 'NULL');
             if (result) {
-                console.log('[checkNewMessages] calling pushPicker, candidates:', result.candidates);
                 pushPicker(result);
             }
         } catch (e) {
@@ -1103,19 +938,21 @@ ${fullEventSummary}
 
         try {
             const conversation = buildConversation(freshMsgs);
-            conversation.messages.push({ role: 'user', text: latestMsg.text });
             const richCtx = buildRichContext({ incomingMsg: latestMsg, client, creator, policyDocs, clientMemory, messages: freshMsgs });
             const result = await generateViaExperienceRouter({
                 conversation,
                 scene: richCtx.scene,
                 client_id: client.phone,
-                richCtx,
             });
             setActivePicker({
                 incomingMsg: latestMsg,
                 candidates: result,
                 systemPrompt: result.systemPrompt,
                 systemPromptVersion: result.systemPromptVersion,
+                operator: result.operator,
+                operatorDisplayName: result.operatorDisplayName,
+                operatorConfigured: result.operatorConfigured,
+                scene: result.scene,
                 generated_at: Date.now(),
                 policyDocs,
             });
@@ -1186,13 +1023,11 @@ ${fullEventSummary}
         setPickerError(null);
         try {
             const conversation = buildConversation(messages);
-            conversation.messages.push({ role: 'user', text: incomingMsg.text });
             const richCtx = buildRichContext({ incomingMsg, client, creator, policyDocs, clientMemory, messages });
             const result = await generateViaExperienceRouter({
                 conversation,
                 scene: richCtx.scene,
                 client_id: client.phone,
-                richCtx,
             });
             setActivePicker(prev => ({
                 ...prev,
@@ -1200,6 +1035,10 @@ ${fullEventSummary}
                 candidates: result,
                 systemPrompt: result.systemPrompt,
                 systemPromptVersion: result.systemPromptVersion,
+                operator: result.operator,
+                operatorDisplayName: result.operatorDisplayName,
+                operatorConfigured: result.operatorConfigured,
+                scene: result.scene,
                 generated_at: Date.now(),
                 policyDocs,
             }));
@@ -1208,6 +1047,84 @@ ${fullEventSummary}
             setPickerError(e.message || '生成失败，请重试');
         } finally {
             setPickerLoading(false);
+        }
+    };
+
+    const persistCrmSentMessage = async (sentText) => {
+        try {
+            await fetch(`${API_BASE}/creators/${client.id}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    role: 'me',
+                    text: sentText,
+                    timestamp: Date.now()
+                })
+            });
+        } catch (e) {
+            console.error('[CRM DB] 保存失败:', e);
+        }
+    };
+
+    const sendOutboundMessage = async (sentText, { onError } = {}) => {
+        const reportError = onError || ((message) => alert(`发送失败: ${message}`));
+
+        try {
+            const res = await fetch(`${API_BASE}/wa/send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: client.phone, text: sentText })
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                reportError(data.error || '未知错误');
+                return false;
+            }
+        } catch (e) {
+            console.error('[WA Send] 发送失败:', e);
+            reportError(e.message || '请求失败');
+            return false;
+        }
+
+        await persistCrmSentMessage(sentText);
+        return true;
+    };
+
+    const persistSftRecord = async ({
+        sentText,
+        incomingMsg = null,
+        modelCandidates,
+        humanSelected,
+        diffAnalysis,
+        promptUsed = null,
+        promptVersion = 'v2',
+    }) => {
+        try {
+            const richContext = buildRichContext({
+                incomingMsg,
+                client,
+                creator,
+                policyDocs: activePicker?.policyDocs || policyDocs,
+                clientMemory,
+                messages,
+            });
+
+            await fetch(`${API_BASE}/sft-memory`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model_candidates: modelCandidates,
+                    human_selected: humanSelected,
+                    human_output: sentText,
+                    diff_analysis: diffAnalysis,
+                    context: richContext,
+                    messages,
+                    system_prompt_used: promptUsed,
+                    system_prompt_version: promptVersion,
+                })
+            });
+        } catch (e) {
+            console.error('[SFT] record failed:', e);
         }
     };
 
@@ -1222,6 +1139,13 @@ ${fullEventSummary}
                 : pickerCustom.trim();
 
         if (!sentText) return;
+
+        setPickerError(null);
+
+        const sendOk = await sendOutboundMessage(sentText, {
+            onError: (message) => setPickerError(message),
+        });
+        if (!sendOk) return;
 
         const sim1 = computeSimilarity(activePicker.candidates.opt1, sentText);
         const sim2 = computeSimilarity(activePicker.candidates.opt2, sentText);
@@ -1238,62 +1162,17 @@ ${fullEventSummary}
             similarity: bestSim
         };
 
-        try {
-            const richContext = buildRichContext({
-                incomingMsg: activePicker.incomingMsg,
-                client,
-                creator,
-                policyDocs: activePicker.policyDocs || policyDocs,
-                clientMemory,
-                messages,
-            });
+        await persistSftRecord({
+            sentText,
+            incomingMsg: activePicker.incomingMsg,
+            modelCandidates: { opt1: activePicker.candidates.opt1, opt2: activePicker.candidates.opt2 },
+            humanSelected: selectedOpt ***REMOVED***= 'custom' ? 'custom' : bestOpt,
+            diffAnalysis,
+            promptUsed: activePicker.systemPrompt || null,
+            promptVersion: activePicker.systemPromptVersion || 'v2',
+        });
 
-            await fetch(`${API_BASE}/sft-memory`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model_candidates: { opt1: activePicker.candidates.opt1, opt2: activePicker.candidates.opt2 },
-                    human_selected: selectedOpt ***REMOVED***= 'custom' ? 'custom' : bestOpt,
-                    human_output: sentText,
-                    diff_analysis,
-                    context: richContext,
-                    messages,
-                    system_prompt_used: activePicker.systemPrompt || null,
-                    system_prompt_version: activePicker.systemPromptVersion || 'v2',
-                })
-            });
-
-            // 提取并保存客户偏好
-            await extractAndSaveMemory(activePicker.incomingMsg, sentText);
-        } catch (e) {
-            console.error('SFT record failed:', e);
-        }
-
-        // 1. 通过 wabot API 发送真实 WhatsApp 消息（暂时禁用）
-        // try {
-        //     await fetch('http://127.0.0.1:3001/wa-send', {
-        //         method: 'POST',
-        //         headers: { 'Content-Type': 'application/json' },
-        //         body: JSON.stringify({ phone: client.phone, text: sentText })
-        //     });
-        // } catch (e) {
-        //     console.error('[WA Send] 发送失败:', e);
-        // }
-
-        // 2. 保存到 CRM SQLite（role=me 表示我发送）
-        try {
-            await fetch(`${API_BASE}/creators/${client.id}/messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    role: 'me',
-                    text: sentText,
-                    timestamp: Date.now()
-                })
-            });
-        } catch (e) {
-            console.error('[CRM DB] 保存失败:', e);
-        }
+        await extractAndSaveMemory(activePicker.incomingMsg, sentText);
 
         setPickerCustom('');
         const [next, ...rest] = pendingCandidates;
@@ -1353,7 +1232,6 @@ ${fullEventSummary}
                 conversation,
                 scene: richCtx.scene,
                 client_id: client.phone,
-                richCtx,
             });
 
             setActivePicker({
@@ -1361,6 +1239,10 @@ ${fullEventSummary}
                 candidates: result,
                 systemPrompt: result.systemPrompt,
                 systemPromptVersion: result.systemPromptVersion,
+                operator: result.operator,
+                operatorDisplayName: result.operatorDisplayName,
+                operatorConfigured: result.operatorConfigured,
+                scene: result.scene,
                 generated_at: Date.now(),
                 policyDocs,
             });
@@ -1378,67 +1260,18 @@ ${fullEventSummary}
         if (!text?.trim() || !client?.id) return;
         const sentText = text.trim();
 
-        try {
-            // 写入 SFT 记录（人工输入 custom）
-            const richContext = buildRichContext({
-                incomingMsg: null,
-                client,
-                creator,
-                policyDocs,
-                clientMemory,
-                messages,
-            });
-            await fetch(`${API_BASE}/sft-memory`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model_candidates: { opt1: sentText, opt2: '' },
-                    human_selected: 'custom',
-                    human_output: sentText,
-                    diff_analysis: { is_custom: true, human_reason: '人工直接发送', similarity: 100 },
-                    context: richContext,
-                    messages,
-                })
-            });
-        } catch (e) {
-            console.error('[SFT] record failed:', e);
-        }
+        const sendOk = await sendOutboundMessage(sentText);
+        if (!sendOk) return;
 
-        // 提取客户偏好
+        await persistSftRecord({
+            sentText,
+            incomingMsg: null,
+            modelCandidates: { opt1: sentText, opt2: '' },
+            humanSelected: 'custom',
+            diffAnalysis: { is_custom: true, human_reason: '人工直接发送', similarity: 100 },
+        });
+
         await extractAndSaveMemory(null, sentText);
-
-        // 发送 WhatsApp 消息（根据达人负责人选择 operator 账号）
-        let sendOk = false;
-        try {
-            const res = await fetch(`${API_BASE}/wa/send`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone: client.phone, text: sentText })
-            });
-            const data = await res.json();
-            if (!data.ok) {
-                console.error('[WA Send] 发送失败:', data.error);
-                alert(`发送失败: ${data.error}`);
-            } else {
-                sendOk = true;
-            }
-        } catch (e) {
-            console.error('[WA Send] 发送失败:', e);
-            alert(`发送失败: ${e.message}`);
-        }
-
-        // 仅在发送成功时才写入 CRM（避免虚假"已发送"记录）
-        if (sendOk) {
-            try {
-                await fetch(`${API_BASE}/creators/${client.id}/messages`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ role: 'me', text: sentText, timestamp: Date.now() })
-                });
-            } catch (e) {
-                console.error('[CRM DB] 保存失败:', e);
-            }
-        }
 
         setInputText('');
     };
@@ -1651,12 +1484,12 @@ ${fullEventSummary}
                         >
                             {creator && creator.joinbrands && (
                                 <>
-                                    {creator.joinbrands.ev_trial_7day && <EventPill label="7天试用" color="#3b82f6" />}
+                                    {(creator.joinbrands.ev_trial_active || creator.joinbrands.ev_trial_7day) && <EventPill label="7天试用" color="#3b82f6" />}
                                     {creator.joinbrands.ev_monthly_invited && <EventPill label="月卡邀请" color="#8b5cf6" />}
                                     {creator.joinbrands.ev_monthly_joined && <EventPill label="月卡加入" color="#10b981" />}
                                     {creator.joinbrands.ev_whatsapp_shared && <EventPill label="WA已发" color="#00a884" />}
                                     {creator.joinbrands.ev_gmv_1k && <EventPill label="GMV>1K" color="#f59e0b" />}
-                                    {creator.joinbrands.ev_gmv_3k && <EventPill label="GMV>3K" color="#f97316" />}
+                                    {creator.joinbrands.ev_gmv_2k && <EventPill label="GMV>2K" color="#f97316" />}
                                     {creator.joinbrands.ev_gmv_10k && <EventPill label="GMV>10K" color="#ef4444" />}
                                     {creator.joinbrands.ev_churned && <EventPill label="已流失" color="#ef4444" />}
                                 </>
@@ -1740,6 +1573,9 @@ ${fullEventSummary}
                     <AIReplyPicker
                         incomingMsg={activePicker.incomingMsg}
                         candidates={activePicker.candidates}
+                        operatorLabel={activePicker.operatorDisplayName || activePicker.operator || 'Base'}
+                        operatorConfigured={activePicker.operatorConfigured}
+                        promptVersion={activePicker.systemPromptVersion}
                         customText={pickerCustom}
                         onCustomChange={setPickerCustom}
                         onSelect={handleSelectCandidate}

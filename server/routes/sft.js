@@ -9,6 +9,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const { writeAudit } = require('../middleware/audit');
+const { extractAndSaveMemories } = require('../services/memoryExtractionService');
 const { sha256 } = require('../utils/crypto');
 const { parseJsonSafe, validateHumanOutput } = require('../services/sftService');
 
@@ -87,6 +88,21 @@ router.post('/sft-memory', async (req, res) => {
                     system_prompt_version = COALESCE(?, system_prompt_version)
                 WHERE id = ?
             `).run(human_output, status, newStatus, status, similarity, chosen_output, rejected_output, system_prompt_used, system_prompt_version, existing.id);
+            // ***REMOVED***= client_memory 自动积累：SFT 人工选择后异步提取记忆（UPDATE 路径）***REMOVED***=
+            if (client_id && messages && messages.length > 0) {
+                const owner = await db2.prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
+                if (owner) {
+                    setImmediate(() => {
+                        extractAndSaveMemories({
+                            client_id,
+                            owner: owner.wa_owner,
+                            messages: messages.slice(-10),
+                            trigger_type: 'sft_select',
+                            source_record_id: existing.id,
+                        }).catch(e => console.error('[memoryExtraction] sft.js hook error:', e.message));
+                    });
+                }
+            }
             return res.json({ ok: true, id: existing.id, updated: true });
         }
 
@@ -127,6 +143,23 @@ router.post('/sft-memory', async (req, res) => {
         await writeAudit('sft_create', 'sft_memory', result.lastInsertRowid, null, {
             human_selected, human_output, status, reviewed_by
         }, req);
+
+        // ***REMOVED***= client_memory 自动积累：SFT 人工选择后异步提取记忆 ***REMOVED***=
+        if (client_id && messages && messages.length > 0) {
+            const owner = await db2.prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
+            if (owner) {
+                setImmediate(() => {
+                    extractAndSaveMemories({
+                        client_id,
+                        owner: owner.wa_owner,
+                        messages: messages.slice(-10),
+                        trigger_type: 'sft_select',
+                        source_record_id: result.lastInsertRowid,
+                    }).catch(e => console.error('[memoryExtraction] sft.js hook error:', e.message));
+                });
+            }
+        }
+
         res.json({ ok: true, id: result.lastInsertRowid });
     } catch (err) {
         console.error('POST /api/sft-memory error:', err);
@@ -399,11 +432,17 @@ router.get('/sft-export', async (req, res) => {
                     msgs.push({ role: m.role ***REMOVED***= 'me' ? 'assistant' : 'user', content: m.text });
                 }
             }
-            msgs.push({ role: 'user', content: inputText || '' });
+            // Only append inputText as a new user message if history doesn't already end with a user message.
+            // This aligns with inference: '[请回复这位达人]' is only added when last msg is NOT from user.
+            const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+            const alreadyHasUserMessage = lastMsg && lastMsg.role ***REMOVED***= 'user';
+            if (!alreadyHasUserMessage) {
+                msgs.push({ role: 'user', content: inputText || '' });
+            }
             return msgs;
         }
 
-        const exportRecord = (r) => {
+        const exportRecord = async (r) => {
             let ctx = {};
             let history = [];
             try { if (r.context_json) ctx = JSON.parse(r.context_json); } catch (_) {}
@@ -421,10 +460,14 @@ router.get('/sft-export', async (req, res) => {
                 systemPrompt = r.system_prompt_used;
                 promptVersion = r.system_prompt_version || 'v2';
             } else {
-                const built = buildFullSystemPrompt(
+                // system_prompt_used 为 null 时用 buildFullSystemPrompt 重建
+                // 注意：topicContext/richContext/conversationSummary 未存入 context_json，
+                // 重建时传空占位；未来可扩展 context_json 字段实现完整重建
+                const built = await buildFullSystemPrompt(
                     ctx.client_id,
                     r.scene || ctx.scene || 'unknown',
-                    history
+                    history,
+                    { topicContext: '', richContext: '', conversationSummary: '', systemPromptVersion: 'v2' }
                 );
                 systemPrompt = built.prompt;
                 promptVersion = built.version || 'v2';
@@ -455,11 +498,11 @@ router.get('/sft-export', async (req, res) => {
 
         if (format ***REMOVED***= 'jsonl') {
             res.setHeader('Content-Type', 'application/x-ndjson');
-            const exported = rows.map(r => exportRecord(r)).filter(Boolean);
+            const exported = (await Promise.all(rows.map(r => exportRecord(r)))).filter(Boolean);
             res.end(exported.map(r => JSON.stringify(r)).join('\n'));
         } else {
             res.setHeader('Content-Type', 'application/json');
-            res.json(rows.map(r => exportRecord(r)).filter(Boolean));
+            res.json((await Promise.all(rows.map(r => exportRecord(r)))).filter(Boolean));
         }
     } catch (err) {
         console.error('GET /api/sft-export error:', err);

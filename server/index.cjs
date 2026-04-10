@@ -100,27 +100,18 @@ function isPortAvailable(port) {
  * @returns {Promise<http.Server>}
  */
 async function tryListenWithRetry(app, port, retries = 3) {
-    const lastError = await new Promise(async (resolve) => {
-        for (let attempt = 1; attempt <= retries; attempt++) {
-            const available = await isPortAvailable(port);
-            if (available) {
-                const server = app.listen(port, '0.0.0.0');
-                return resolve(null); // 成功，无错误
-            }
-
-            if (attempt < retries) {
-                console.log(`[Port ${port}] 被占用，${attempt}秒后重试... (${attempt}/${retries})`);
-                await new Promise(r => setTimeout(r, 1000));
-            } else {
-                const error = new Error(`端口 ${port} 已被占用，请使用 PORT 环境变量指定其他端口，例如: PORT=3001 node server/index.cjs`);
-                error.code = 'EADDRINUSE';
-                resolve(error);
-            }
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        const available = await isPortAvailable(port);
+        if (available) {
+            return app.listen(port, '0.0.0.0'); // 返回 HTTP Server
         }
-    });
-
-    if (lastError) throw lastError;
-    return app;
+        if (attempt < retries) {
+            console.log(`[Port ${port}] 被占用，${attempt}秒后重试... (${attempt}/${retries})`);
+            await new Promise(r => setTimeout(r, 1000));
+        } else {
+            throw new Error(`端口 ${port} 已被占用，请使用 PORT 环境变量指定其他端口，例如: PORT=3001 node server/index.cjs`);
+        }
+    }
 }
 
 // 中间件

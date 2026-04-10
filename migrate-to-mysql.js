@@ -352,6 +352,62 @@ async function main() {
             log(`  ✓ sync_log`);
         }
 
+        // 19. operator_experiences（无 SQLite 源，从 schema.sql 种子数据回填）
+        {
+            log('写入 operator_experiences 种子数据...');
+            const oeRows = [
+                {
+                    operator: 'Beau',
+                    display_name: 'Beau 的运营体验',
+                    description: 'Beau 专属话术体系，20天Beta计划，$200激励，DRIFTO MCN',
+                    system_prompt_base: `[BASE_PROMPT]\n\n【Beau 专属规则】\n- Monthly Beta Program：20天周期，$200激励，$10/天\n- GMV里程碑庆祝：$5k / $10k GMV\n- 违规$10补偿承诺\n- 透明成本：$3/视频，$2100/月/人\n- 多账号管理（Trial / Referral）\n- DRIFTO MCN 解释：100%佣金先到 agency 再 PayPal 返还\n- 签约期仅2个月，到期自动解除`,
+                    scene_config: JSON.stringify({
+                        "trial_intro": "重点介绍20天Beta计划，$200激励",
+                        "beta_cycle_start": "结算时明确起始日期+激励金额",
+                        "violation_appeal": "提供申诉模板，承诺$10补偿",
+                        "mcn_binding": "解释DRIFTO结构，透明佣金流程",
+                        "gmv_milestone": "祝贺+$5k/$10k数据刺激",
+                        "content_request": "5个/天最佳，超6个TikTok降权"
+                    }),
+                    forbidden_rules: JSON.stringify(["不提Yiyun的话术", "不承诺Beta永久持续(around May正式发布)", "不在MCN犹豫时给压力"]),
+                    priority: 1
+                },
+                {
+                    operator: 'Yiyun',
+                    display_name: 'Yiyun 的运营体验',
+                    description: 'Yiyun 专属话术体系，7天试用，$20月费，保守回复策略',
+                    system_prompt_base: `[BASE_PROMPT]\n\n【Yiyun 专属规则】\n- 7天试用任务包，20 AI generations/day\n- $20月费：从视频补贴扣除\n- 一问一答，不过度展开，不主动延伸\n- 保守回复，不承诺不确定内容\n- 不主动发超过3条连续消息\n- 不在非工作时间（北京时间23:00后）主动联系`,
+                    scene_config: JSON.stringify({
+                        "trial_intro": "介绍7天试用包，20 generations/day",
+                        "monthly_inquiry": "说明$20月费从视频补贴扣除",
+                        "content_request": "简短回复，不主动展开话题"
+                    }),
+                    forbidden_rules: JSON.stringify(["不提Beta program", "不说guarantee/definitely", "不攻击其他MCN", "不发超过3条连续消息", "不在北京时间23:00后主动联系"]),
+                    priority: 2
+                }
+            ];
+            for (const row of oeRows) {
+                await new Promise((resolve) => {
+                    mysqlConn.query(
+                        `INSERT INTO operator_experiences (operator, display_name, description, system_prompt_base, scene_config, forbidden_rules, priority) VALUES (?, ?, ?, ?, ?, ?, ?)
+                         ON DUPLICATE KEY UPDATE
+                            display_name = VALUES(display_name),
+                            description = VALUES(description),
+                            system_prompt_base = VALUES(system_prompt_base),
+                            scene_config = VALUES(scene_config),
+                            forbidden_rules = VALUES(forbidden_rules),
+                            priority = VALUES(priority)`,
+                        [row.operator, row.display_name, row.description, row.system_prompt_base, row.scene_config, row.forbidden_rules, row.priority],
+                        (err) => {
+                            if (err && err.code !***REMOVED*** 'ER_DUP_ENTRY') logError(`operator_experiences: ${err.message}`);
+                            else resolve();
+                        }
+                    );
+                });
+            }
+            log(`  ✓ operator_experiences (${oeRows.length} 条)`);
+        }
+
         // 验证
         const counts = await new Promise((resolve, reject) => {
             mysqlConn.query(`

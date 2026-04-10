@@ -13,6 +13,9 @@ const WA = {
 export default function AIReplyPicker({
     incomingMsg,
     candidates,
+    operatorLabel,
+    operatorConfigured,
+    promptVersion,
     customText,
     onCustomChange,
     onSelect,
@@ -30,9 +33,24 @@ export default function AIReplyPicker({
         <div style={{ background: PICKER_BG, borderTop: '2px solid ' + PICKER_BORDER }}>
             {/* 标题栏 */}
             <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid ' + PICKER_BORDER }}>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-base">🤖</span>
                     <span className="text-sm font-bold" style={{ color: PICKER_ACCENT }}>AI 推荐回复</span>
+                    {operatorLabel && (
+                        <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: 'rgba(59,130,246,0.12)', color: PICKER_ACCENT }}>
+                            Operator: {operatorLabel}
+                        </span>
+                    )}
+                    {promptVersion && (
+                        <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: 'rgba(15,23,42,0.06)', color: WA.textMuted }}>
+                            Prompt: {promptVersion}
+                        </span>
+                    )}
+                    {operatorConfigured ***REMOVED***= false && (
+                        <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: 'rgba(245,158,11,0.12)', color: '#b45309' }}>
+                            使用基础路由
+                        </span>
+                    )}
                 </div>
                 <div className="flex items-center gap-3">
                     {incomingMsg && (
@@ -128,6 +146,36 @@ export default function AIReplyPicker({
                         </div>
                     </div>
 
+                    {/* custom */}
+                    <div className="rounded-2xl px-4 py-3" style={{ background: 'rgba(15,23,42,0.03)', border: '1px dashed rgba(59,130,246,0.3)' }}>
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(245,158,11,0.15)', color: '#b45309' }}>Custom</span>
+                            <span className="text-xs" style={{ color: WA.textMuted }}>人工改写后直接发送</span>
+                        </div>
+                        <textarea
+                            value={customText}
+                            onChange={e => onCustomChange(e.target.value)}
+                            placeholder="在这里输入你的自定义回复..."
+                            rows={3}
+                            className="w-full text-sm rounded-xl px-3 py-2 focus:outline-none resize-y"
+                            style={{
+                                background: '#fff',
+                                color: WA.textDark,
+                                border: '1px solid rgba(0,0,0,0.08)',
+                                minHeight: '88px',
+                            }}
+                        />
+                        <div className="flex justify-end mt-2">
+                            <button
+                                onClick={() => onSelect('custom')}
+                                disabled={!customText?.trim()}
+                                className="px-4 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                                style={{ background: '#f59e0b' }}
+                            >
+                                发送自定义回复
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

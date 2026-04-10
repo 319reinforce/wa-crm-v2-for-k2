@@ -5,6 +5,8 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../db');
+const { extractAndSaveMemories } = require('../services/memoryExtractionService');
+const { normalizeOperatorName } = require('../utils/operator');
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 灰度路由辅助 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
@@ -14,10 +16,89 @@ function shouldUseFinetuned() {
     return Math.random() < ratio;
 }
 
+function normalizeMessagesForMemory(messages = []) {
+    return messages
+        .filter(m => m && m.role !***REMOVED*** 'system')
+        .map((m) => {
+            const normalizedRole = (m.role ***REMOVED***= 'assistant' || m.role ***REMOVED***= 'me') ? 'me' : 'user';
+            let text = '';
+            if (typeof m.text ***REMOVED***= 'string') {
+                text = m.text;
+            } else if (typeof m.content ***REMOVED***= 'string') {
+                text = m.content;
+            } else if (Array.isArray(m.content)) {
+                text = m.content
+                    .map((part) => typeof part ***REMOVED***= 'string' ? part : (part?.text || ''))
+                    .filter(Boolean)
+                    .join('\n');
+            }
+            return { role: normalizedRole, text };
+        })
+        .filter((m) => m.text);
+}
+
+function extractResponseText(payload) {
+    if (typeof payload?.choices?.[0]?.message?.content ***REMOVED***= 'string') {
+        return payload.choices[0].message.content.trim();
+    }
+
+    if (Array.isArray(payload?.choices?.[0]?.message?.content)) {
+        return payload.choices[0].message.content
+            .map((part) => typeof part ***REMOVED***= 'string' ? part : (part?.text || ''))
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+    }
+
+    if (Array.isArray(payload?.content)) {
+        return payload.content
+            .map((part) => typeof part ***REMOVED***= 'string' ? part : (part?.text || ''))
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+    }
+
+    if (payload?.content && typeof payload.content ***REMOVED***= 'object') {
+        return String(payload.content.text || '').trim();
+    }
+
+    if (typeof payload?.content ***REMOVED***= 'string') {
+        return payload.content.trim();
+    }
+
+    return '';
+}
+
+function toRequestError(label, response, payload) {
+    const detail = payload?.error?.message
+        || payload?.message
+        || (response ? `HTTP ${response.status}` : 'request failed');
+    return new Error(`${label}: ${detail}`);
+}
+
+async function settleCandidateRequests(requests) {
+    const settled = await Promise.allSettled(requests);
+    const successes = settled
+        .filter((item) => item.status ***REMOVED***= 'fulfilled' && item.value?.text)
+        .map((item) => item.value);
+
+    if (successes.length ***REMOVED***= 0) {
+        const failure = settled.find((item) => item.status ***REMOVED***= 'rejected');
+        throw failure?.reason || new Error('All candidate requests failed');
+    }
+
+    if (successes.length ***REMOVED***= 1) {
+        return [successes[0], successes[0]];
+    }
+
+    return [successes[0], successes[1]];
+}
+
 // POST /api/minimax — AI 生成路由（含 USE_FINETUNED 灰度）
 router.post('/minimax', async (req, res) => {
     try {
         const { messages, model, max_tokens, temperature, client_id } = req.body;
+        let finetunedHookFired = false;
 
         // 隔离校验：client_id 必须在 creators 表中存在
         if (client_id) {
@@ -36,8 +117,8 @@ router.post('/minimax', async (req, res) => {
 
             let finetunedFailed = false;
             try {
-                const [raw1, raw2] = await Promise.all([
-                    fetch(FINETUNED_BASE, {
+                const candidateRequests = temps.map((temp, index) => (async () => {
+                    const response = await fetch(FINETUNED_BASE, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -47,50 +128,59 @@ router.post('/minimax', async (req, res) => {
                             model: 'wa-crm-finetuned',
                             messages,
                             max_tokens: max_tokens || 500,
-                            temperature: temps[0],
+                            temperature: temp,
                         }),
                         signal: AbortSignal.timeout(15000),
-                    }),
-                    fetch(FINETUNED_BASE, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${FINETUNED_KEY}`,
-                        },
-                        body: JSON.stringify({
-                            model: 'wa-crm-finetuned',
-                            messages,
-                            max_tokens: max_tokens || 500,
-                            temperature: temps[1],
-                        }),
-                        signal: AbortSignal.timeout(15000),
-                    }),
-                ]);
+                    });
+                    const payload = await response.json();
+                    if (!response.ok) {
+                        throw toRequestError(`finetuned opt${index + 1}`, response, payload);
+                    }
+                    const text = extractResponseText(payload);
+                    if (!text) {
+                        throw new Error(`finetuned opt${index + 1}: empty response`);
+                    }
+                    return { payload, text };
+                })());
 
-                const [data1, data2] = await Promise.all([raw1.json(), raw2.json()]);
-                if (!raw1.ok || !raw2.ok) {
-                    finetunedFailed = true;
-                } else {
-                    const extractText = (d) => d?.choices?.[0]?.message?.content || '';
-                    return res.json({
+                const [opt1Candidate, opt2Candidate] = await settleCandidateRequests(candidateRequests);
+                if (opt1Candidate?.text) {
+                    const okResponse = {
                         id: 'finetuned-' + Date.now(),
                         type: 'message',
                         role: 'assistant',
                         model: 'wa-crm-finetuned',
-                        content: [{ type: 'text', text: extractText(data1) }],
-                        content_opt2: [{ type: 'text', text: extractText(data2) }],
-                    });
+                        content: [{ type: 'text', text: opt1Candidate.text }],
+                        content_opt2: [{ type: 'text', text: opt2Candidate.text }],
+                    };
+                    // ***REMOVED***= client_memory 自动积累：Finetuned 路由 AI 生成成功后 ***REMOVED***=
+                    if (client_id) {
+                        const msgs = normalizeMessagesForMemory(messages);
+                        const ownerRow = await db.getDb().prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
+                        if (ownerRow) {
+                            finetunedHookFired = true;
+                            setImmediate(() => {
+                                extractAndSaveMemories({
+                                    client_id,
+                                    owner: normalizeOperatorName(ownerRow.wa_owner, ownerRow.wa_owner),
+                                    messages: msgs,
+                                    trigger_type: 'ai_generate',
+                                }).catch(e => console.error('[memoryExtraction] minimax hook error:', e.message));
+                            });
+                        }
+                    }
+                    return res.json(okResponse);
                 }
             } catch (_) {
                 finetunedFailed = true;
             }
 
-            // Finetuned 失败时静默 fallback 到 OpenAI（不在错误路径停留）
-            if (finetunedFailed && process.env.USE_OPENAI !***REMOVED*** 'true') {
-                // USE_OPENAI 也不可用时再报 502
-                return res.status(502).json({ error: 'Finetuned model unavailable, OpenAI not enabled', detail: 'both finetuned and OpenAI unavailable' });
+            // 监控：记录 finetuned fallback 事件（用于 AB 测分析）
+            if (finetunedFailed) {
+                console.warn(`[minimax路由] FINETUNED FALLBACK client_id=${client_id || 'unknown'} USE_OPENAI=${process.env.USE_OPENAI} 时间=${new Date().toISOString()}`);
             }
-            // finetuned 失败但 USE_OPENAI=true → 继续走到下方 OpenAI 路由
+
+            // Finetuned 失败后继续走下方 OpenAI / MiniMax 默认链路
         }
 
         if (process.env.USE_OPENAI ***REMOVED***= 'true') {
@@ -100,6 +190,21 @@ router.post('/minimax', async (req, res) => {
             const userMsgs = messages.filter(m => m.role !***REMOVED*** 'system');
             const temps = Array.isArray(temperature) ? temperature : [0.8, 0.4];
             const { opt1, opt2 } = await generateCandidates(systemPrompt, userMsgs, temps);
+            // ***REMOVED***= client_memory 自动积累：仅在 Finetuned 未触发时执行 ***REMOVED***=
+            if (client_id && !finetunedHookFired) {
+                const msgs = normalizeMessagesForMemory(messages);
+                const ownerRow = await db.getDb().prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
+                if (ownerRow) {
+                    setImmediate(() => {
+                        extractAndSaveMemories({
+                            client_id,
+                            owner: normalizeOperatorName(ownerRow.wa_owner, ownerRow.wa_owner),
+                            messages: msgs,
+                            trigger_type: 'ai_generate',
+                        }).catch(e => console.error('[memoryExtraction] minimax hook error:', e.message));
+                    });
+                }
+            }
             return res.json({
                 id: 'openai-' + Date.now(),
                 type: 'message',
@@ -117,8 +222,8 @@ router.post('/minimax', async (req, res) => {
         }
 
         const tempsMM = Array.isArray(temperature) ? temperature : [0.8, 0.4];
-        const [raw1, raw2] = await Promise.all([
-            fetch('https://api.minimaxi.com/anthropic/v1/messages', {
+        const candidateRequests = tempsMM.map((temp, index) => (async () => {
+            const response = await fetch('https://api.minimaxi.com/anthropic/v1/messages', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -129,61 +234,53 @@ router.post('/minimax', async (req, res) => {
                     model: model || 'mini-max-typing',
                     messages,
                     max_tokens: max_tokens || 500,
-                    temperature: tempsMM[0],
+                    temperature: temp,
                 }),
                 signal: AbortSignal.timeout(60000),
-            }),
-            fetch('https://api.minimaxi.com/anthropic/v1/messages', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': API_KEY,
-                    'anthropic-version': '2023-06-01',
-                },
-                body: JSON.stringify({
-                    model: model || 'mini-max-typing',
-                    messages,
-                    max_tokens: max_tokens || 500,
-                    temperature: tempsMM[1],
-                }),
-                signal: AbortSignal.timeout(60000),
-            }),
-        ]);
-        const [data1, data2] = await Promise.all([raw1.json(), raw2.json()]);
+            });
+            const payload = await response.json();
+            if (!response.ok || payload?.error) {
+                throw toRequestError(`MiniMax opt${index + 1}`, response, payload);
+            }
+            const text = extractResponseText(payload);
+            if (!text) {
+                throw new Error(`MiniMax opt${index + 1}: empty response`);
+            }
+            return { payload, text };
+        })());
 
-        // 检查 API 错误
-        if (!raw1.ok || !raw2.ok || data1?.error || data2?.error) {
-            const err1 = data1?.error?.message || (raw1.ok ? '' : `HTTP ${raw1.status}`);
-            const err2 = data2?.error?.message || (raw2.ok ? '' : `HTTP ${raw2.status}`);
+        let opt1Candidate;
+        let opt2Candidate;
+        try {
+            [opt1Candidate, opt2Candidate] = await settleCandidateRequests(candidateRequests);
+        } catch (error) {
             return res.status(502).json({
                 error: 'MiniMax API error',
-                detail: raw1.ok && raw2.ok ? (data1?.error?.message || data2?.error?.message) : `${err1} / ${err2}`,
+                detail: error.message,
             });
         }
-
-        const extractText = (d) => {
-            // OpenAI format: { choices: [{ message: { content: "..." } }] }
-            if (d?.choices?.[0]?.message?.content) {
-                return d.choices[0].message.content;
+        // ***REMOVED***= client_memory 自动积累：MiniMax 路由 AI 生成成功后 ***REMOVED***=
+        if (client_id) {
+            const msgs = normalizeMessagesForMemory(messages);
+            const ownerRow = await db.getDb().prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
+            if (ownerRow) {
+                setImmediate(() => {
+                    extractAndSaveMemories({
+                        client_id,
+                        owner: normalizeOperatorName(ownerRow.wa_owner, ownerRow.wa_owner),
+                        messages: msgs,
+                        trigger_type: 'ai_generate',
+                    }).catch(e => console.error('[memoryExtraction] minimax hook error:', e.message));
+                });
             }
-            // MiniMax format: { content: { type: 'text', text: '...' } } 或 [{ type: 'text', text: '...' }]
-            if (d?.content) {
-                if (Array.isArray(d.content)) {
-                    return d.content.find(c => c.type ***REMOVED***= 'text')?.text || '';
-                }
-                if (typeof d.content ***REMOVED***= 'object' && d.content.type ***REMOVED***= 'text') {
-                    return d.content.text || '';
-                }
-            }
-            return '';
-        };
+        }
         return res.json({
-            id: data1?.id || 'minimax-' + Date.now(),
+            id: opt1Candidate?.payload?.id || 'minimax-' + Date.now(),
             type: 'message',
             role: 'assistant',
-            model: data1?.model || 'mini-max',
-            content: [{ type: 'text', text: extractText(data1) }],
-            content_opt2: [{ type: 'text', text: extractText(data2) }],
+            model: opt1Candidate?.payload?.model || 'mini-max',
+            content: [{ type: 'text', text: opt1Candidate.text }],
+            content_opt2: [{ type: 'text', text: opt2Candidate.text }],
         });
     } catch (err) {
         console.error('MiniMax proxy error:', err);
@@ -202,15 +299,54 @@ router.post('/ai/system-prompt', async (req, res) => {
         }
 
         const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
-        const { prompt, version } = buildFullSystemPrompt(client_id, scene, [], {
-            operator: operator || null,
+
+        // Determine operator (from client_id lookup or explicit override)
+        let resolvedOperator = normalizeOperatorName(operator, null);
+        if (!resolvedOperator && client_id) {
+            const row = await db.getDb().prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
+            if (row) resolvedOperator = normalizeOperatorName(row.wa_owner, null);
+        }
+
+        // Derive dynamic version from generation context (not hardcoded)
+        // Version = operator + flags for memory/policy presence
+        let version = 'v2_base';
+        if (resolvedOperator) {
+            let memFlag = '', polFlag = '';
+            // Check if client memory exists (these will be injected into prompt if present)
+            if (client_id) {
+                const memRows = await db.getDb().prepare('SELECT COUNT(*) as c FROM client_memory WHERE client_id = ?').get(client_id);
+                memFlag = memRows?.c > 0 ? '_mem' : '';
+                const polRows = await db.getDb().prepare("SELECT COUNT(*) as c FROM policy_documents WHERE is_active = 1 AND JSON_LENGTH(applicable_scenarios) > 0").get();
+                polFlag = polRows?.c > 0 ? '_pol' : '';
+            }
+            version = `v2_${resolvedOperator}${memFlag}${polFlag}`;
+        }
+
+        const { prompt, version: _ignored } = await buildFullSystemPrompt(client_id, scene, [], {
+            operator: resolvedOperator,
             topicContext: topicContext || '',
             richContext: richContext || '',
             conversationSummary: conversationSummary || '',
-            systemPromptVersion: 'v2',
+            systemPromptVersion: version,
         });
 
-        res.json({ systemPrompt: prompt, version });
+        let operatorDisplayName = resolvedOperator || null;
+        let operatorConfigured = false;
+        if (resolvedOperator) {
+            const exp = await db.getDb().prepare(
+                'SELECT display_name FROM operator_experiences WHERE operator = ? AND is_active = 1'
+            ).get(resolvedOperator);
+            operatorDisplayName = exp?.display_name || resolvedOperator;
+            operatorConfigured = !!exp;
+        }
+
+        res.json({
+            systemPrompt: prompt,
+            version,
+            operator: resolvedOperator,
+            operatorDisplayName,
+            operatorConfigured,
+        });
     } catch (err) {
         console.error('POST /api/ai/system-prompt error:', err);
         res.status(500).json({ error: err.message });

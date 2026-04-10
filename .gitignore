@@ -9,3 +9,4 @@ data/*.json
 .env
 *.log
 .DS_Store
+.agents/

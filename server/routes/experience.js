@@ -6,20 +6,29 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
+const { extractAndSaveMemories } = require('../services/memoryExtractionService');
+const { normalizeOperatorName } = require('../utils/operator');
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Helper Functions ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
-function getOperatorExperience(operator) {
+function tryParseJson(val, fallback) {
+    if (val ***REMOVED***= null || val ***REMOVED***= undefined) return fallback;
+    if (typeof val ***REMOVED***= 'object') return val;
+    try { return JSON.parse(val); } catch (_) { return fallback; }
+}
+
+async function getOperatorExperience(operator) {
     const dbInstance = db.getDb();
-    const exp = dbInstance.prepare(
+    const normalizedOperator = normalizeOperatorName(operator, operator);
+    const exp = await dbInstance.prepare(
         'SELECT * FROM operator_experiences WHERE operator = ? AND is_active = 1'
-    ).get(operator);
+    ).get(normalizedOperator);
     return exp;
 }
 
-function getAllOperatorExperiences() {
+async function getAllOperatorExperiences() {
     const dbInstance = db.getDb();
-    return dbInstance.prepare(
+    return await dbInstance.prepare(
         'SELECT operator, display_name, description, priority, is_active FROM operator_experiences WHERE is_active = 1 ORDER BY priority ASC'
     ).all();
 }
@@ -30,8 +39,8 @@ async function compileSystemPrompt(operator, scene, clientInfo, clientMemory, po
         throw new Error(`Operator ${operator} not found or inactive`);
     }
 
-    const sceneConfig = exp.scene_config ? JSON.parse(exp.scene_config) : {};
-    const forbiddenRules = exp.forbidden_rules ? JSON.parse(exp.forbidden_rules) : [];
+    const sceneConfig = tryParseJson(exp.scene_config, {});
+    const forbiddenRules = tryParseJson(exp.forbidden_rules, []);
 
     let prompt = exp.system_prompt_base.replace('[BASE_PROMPT]', `
 你是一个专业的达人运营助手，帮助运营人员与 WhatsApp 达人沟通。
@@ -117,19 +126,19 @@ function filterPoliciesByScene(policyDocs, scene) {
     );
 }
 
-function getOperatorByClientId(clientId) {
+async function getOperatorByClientId(clientId) {
     const dbInstance = db.getDb();
-    const creator = dbInstance.prepare(
+    const creator = await dbInstance.prepare(
         'SELECT wa_owner FROM creators WHERE wa_phone = ?'
     ).get(clientId);
-    return creator ? creator.wa_owner : null;
+    return creator ? normalizeOperatorName(creator.wa_owner, creator.wa_owner) : null;
 }
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Routes ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
 router.get('/operators', async (req, res) => {
     try {
-        const operators = getAllOperatorExperiences();
+        const operators = await getAllOperatorExperiences();
         res.json({ success: true, data: operators });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -139,14 +148,15 @@ router.get('/operators', async (req, res) => {
 router.get('/:operator', async (req, res) => {
     try {
         const { operator } = req.params;
-        const exp = getOperatorExperience(operator);
+        const normalizedOperator = normalizeOperatorName(operator, operator);
+        const exp = await getOperatorExperience(normalizedOperator);
         if (!exp) {
-            return res.status(404).json({ success: false, error: `Operator ${operator} not found` });
+            return res.status(404).json({ success: false, error: `Operator ${normalizedOperator} not found` });
         }
         const result = {
             ...exp,
-            scene_config: exp.scene_config ? JSON.parse(exp.scene_config) : {},
-            forbidden_rules: exp.forbidden_rules ? JSON.parse(exp.forbidden_rules) : [],
+            scene_config: tryParseJson(exp.scene_config, {}),
+            forbidden_rules: tryParseJson(exp.forbidden_rules, []),
         };
         res.json({ success: true, data: result });
     } catch (err) {
@@ -157,8 +167,9 @@ router.get('/:operator', async (req, res) => {
 router.get('/:operator/clients', async (req, res) => {
     try {
         const { operator } = req.params;
+        const normalizedOperator = normalizeOperatorName(operator, operator);
         const dbInstance = db.getDb();
-        const clients = dbInstance.prepare(`
+        const clients = await dbInstance.prepare(`
             SELECT
                 c.id, c.primary_name, c.wa_phone, c.wa_owner, c.is_active, c.created_at,
                 COUNT(wm.id) as msg_count, MAX(wm.timestamp) as last_active,
@@ -166,10 +177,10 @@ router.get('/:operator/clients', async (req, res) => {
             FROM creators c
             LEFT JOIN wa_messages wm ON wm.creator_id = c.id
             LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
-            WHERE c.wa_owner = ?
+            WHERE LOWER(c.wa_owner) = LOWER(?)
             GROUP BY c.id
             ORDER BY last_active DESC
-        `).all(operator);
+        `).all(normalizedOperator);
         res.json({ success: true, data: clients, count: clients.length });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -178,17 +189,18 @@ router.get('/:operator/clients', async (req, res) => {
 
 router.post('/route', async (req, res) => {
     try {
-        const { client_id, operator: directOperator, messages, scene = 'unknown' } = req.body;
+        const { client_id, operator: directOperator, messages, scene = 'unknown',
+            topicContext = '', richContext = '', conversationSummary = '' } = req.body;
 
-        let operator = directOperator;
+        let operator = normalizeOperatorName(directOperator, directOperator);
         if (!operator && client_id) {
-            operator = getOperatorByClientId(client_id);
+            operator = await getOperatorByClientId(client_id);
         }
         if (!operator) {
             return res.status(400).json({ success: false, error: 'Cannot determine operator: provide client_id or operator' });
         }
 
-        const exp = getOperatorExperience(operator);
+        const exp = await getOperatorExperience(operator);
         if (!exp) {
             return res.status(404).json({ success: false, error: `Operator ${operator} experience not found` });
         }
@@ -196,7 +208,7 @@ router.post('/route', async (req, res) => {
         const dbInstance = db.getDb();
         let clientInfo = { name: '未知', conversion_stage: '未知' };
         if (client_id) {
-            const creator = dbInstance.prepare(`
+            const creator = await dbInstance.prepare(`
                 SELECT c.primary_name as name, wc.beta_status as conversion_stage
                 FROM creators c LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
                 WHERE c.wa_phone = ?
@@ -208,17 +220,19 @@ router.post('/route', async (req, res) => {
 
         let clientMemory = [];
         if (client_id) {
-            clientMemory = dbInstance.prepare('SELECT * FROM client_memory WHERE client_id = ?').all(client_id);
+            clientMemory = await dbInstance.prepare('SELECT * FROM client_memory WHERE client_id = ?').all(client_id);
         }
 
-        const policyDocs = dbInstance.prepare(
+        const policyDocsRows = await dbInstance.prepare(
             'SELECT * FROM policy_documents WHERE is_active = 1'
-        ).all().map(p => ({
+        ).all();
+        const policyDocs = policyDocsRows.map(p => ({
             ...p,
-            applicable_scenarios: p.applicable_scenarios ? JSON.parse(p.applicable_scenarios) : []
+            applicable_scenarios: tryParseJson(p.applicable_scenarios, [])
         }));
 
-        const systemPrompt = buildFullSystemPrompt(client_id, scene, messages);
+        const { prompt: systemPrompt, version } = await buildFullSystemPrompt(client_id, scene, messages,
+            { topicContext, richContext, conversationSummary, systemPromptVersion: 'v2' });
 
         const recentMessages = (messages || []).slice(-10);
         const formattedMessages = recentMessages.map(msg => ({
@@ -251,7 +265,7 @@ router.post('/route', async (req, res) => {
                     'Content-Length': Buffer.byteLength(body),
                 },
                 body,
-                signal: AbortSignal.timeout(30000),
+                signal: AbortSignal.timeout(60000),
             });
 
             const respText = await response.text();
@@ -276,15 +290,28 @@ router.post('/route', async (req, res) => {
             console.error('[route] opt2 failed:', e.message);
         }
 
+        // ***REMOVED***= client_memory 自动积累：AI 回复生成成功后异步提取记忆 ***REMOVED***=
+        if (client_id && operator && recentMessages.length > 0) {
+            setImmediate(() => {
+                extractAndSaveMemories({
+                    client_id,
+                    owner: operator,
+                    messages: recentMessages,
+                    trigger_type: 'ai_generate',
+                }).catch(e => console.error('[memoryExtraction] experience.js hook error:', e.message));
+            });
+        }
+
         res.json({
             success: true,
             operator,
             experience_config: {
                 display_name: exp.display_name,
                 description: exp.description,
-                scene_config: exp.scene_config ? JSON.parse(exp.scene_config) : {},
+                scene_config: (exp.scene_config && typeof exp.scene_config ***REMOVED***= 'object') ? exp.scene_config : {},
             },
             system_prompt: systemPrompt,
+            version,
             candidates: { opt1, opt2 },
         });
     } catch (err) {
@@ -296,13 +323,14 @@ router.post('/route', async (req, res) => {
 router.get('/:operator/system-prompt', async (req, res) => {
     try {
         const { operator } = req.params;
+        const normalizedOperator = normalizeOperatorName(operator, operator);
         const { scene = 'unknown', client_id } = req.query;
 
         const dbInstance = db.getDb();
 
         let clientInfo = { name: '未知', conversion_stage: '未知' };
         if (client_id) {
-            const creator = dbInstance.prepare(`
+            const creator = await dbInstance.prepare(`
                 SELECT c.primary_name as name, wc.beta_status as conversion_stage
                 FROM creators c LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
                 WHERE c.wa_phone = ?
@@ -314,19 +342,21 @@ router.get('/:operator/system-prompt', async (req, res) => {
 
         let clientMemory = [];
         if (client_id) {
-            clientMemory = dbInstance.prepare('SELECT * FROM client_memory WHERE client_id = ?').all(client_id);
+            clientMemory = await dbInstance.prepare('SELECT * FROM client_memory WHERE client_id = ?').all(client_id);
         }
 
-        const policyDocs = dbInstance.prepare(
+        const policyDocsRows = await dbInstance.prepare(
             'SELECT * FROM policy_documents WHERE is_active = 1'
-        ).all().map(p => ({
+        ).all();
+        const policyDocs = policyDocsRows.map(p => ({
             ...p,
-            applicable_scenarios: p.applicable_scenarios ? JSON.parse(p.applicable_scenarios) : []
+            applicable_scenarios: tryParseJson(p.applicable_scenarios, [])
         }));
 
-        const systemPrompt = buildFullSystemPrompt(client_id, scene, null);
+        const { prompt: systemPrompt, version } = await buildFullSystemPrompt(client_id, scene, null,
+            { operator: normalizedOperator, topicContext: '', richContext: '', conversationSummary: '', systemPromptVersion: 'v2' });
 
-        res.json({ success: true, operator, scene, client_id, system_prompt: systemPrompt });
+        res.json({ success: true, operator: normalizedOperator, scene, client_id, system_prompt: systemPrompt, version });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }

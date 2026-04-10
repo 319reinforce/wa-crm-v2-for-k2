@@ -7,11 +7,12 @@ const router = express.Router();
 const db = require('../../db');
 const { getCreatorFull } = require('../../db');
 const { writeAudit } = require('../middleware/audit');
+const { normalizeOperatorName } = require('../utils/operator');
 
 // GET /api/creators — 获取所有达人
 router.get('/', async (req, res) => {
     try {
-        const { owner, search, is_active, beta_status, priority, agency, event } = req.query;
+        const { owner, search, is_active, include_inactive, beta_status, priority, agency, event } = req.query;
 
         let sql = `
             SELECT
@@ -89,6 +90,8 @@ router.get('/', async (req, res) => {
         if (is_active !***REMOVED*** undefined && is_active !***REMOVED*** '') {
             sql += ' AND c.is_active = ?';
             params.push(is_active ***REMOVED*** '1' ? 1 : 0);
+        } else if (include_inactive !***REMOVED*** '1') {
+            sql += ' AND c.is_active = 1';
         }
         if (event) {
             const VALID_EVENTS = ['joined','ready_sent','trial_7day','monthly_invited','monthly_joined','whatsapp_shared','gmv_1k','gmv_3k','gmv_10k','agency_bound','churned'];
@@ -134,7 +137,7 @@ router.put('/:id', async (req, res) => {
         const values = [];
         if (primary_name !***REMOVED*** undefined) { fields.push('primary_name = ?'); values.push(primary_name); }
         if (wa_phone !***REMOVED*** undefined) { fields.push('wa_phone = ?'); values.push(wa_phone); }
-        if (wa_owner !***REMOVED*** undefined) { fields.push('wa_owner = ?'); values.push(wa_owner); }
+        if (wa_owner !***REMOVED*** undefined) { fields.push('wa_owner = ?'); values.push(normalizeOperatorName(wa_owner, wa_owner)); }
         if (keeper_username !***REMOVED*** undefined) { fields.push('keeper_username = ?'); values.push(keeper_username); }
 
         if (fields.length ***REMOVED***= 0) return res.status(400).json({ error: 'No fields to update' });
@@ -194,7 +197,11 @@ router.put('/:id/wacrm', async (req, res) => {
         // joinbrands_link events
         const jbFields = [];
         const jbValues = [];
-        if (ev_trial_active !***REMOVED*** undefined) { jbFields.push('ev_trial_7day = ?'); jbValues.push(ev_trial_active ? 1 : 0); }
+        if (ev_trial_active !***REMOVED*** undefined) {
+            const activeValue = ev_trial_active ? 1 : 0;
+            jbFields.push('ev_trial_7day = ?', 'ev_trial_active = ?');
+            jbValues.push(activeValue, activeValue);
+        }
         if (ev_monthly_started !***REMOVED*** undefined) { jbFields.push('ev_monthly_started = ?'); jbValues.push(ev_monthly_started ? 1 : 0); }
         if (ev_gmv_1k !***REMOVED*** undefined) { jbFields.push('ev_gmv_1k = ?'); jbValues.push(ev_gmv_1k ? 1 : 0); }
         if (ev_gmv_2k !***REMOVED*** undefined) { jbFields.push('ev_gmv_2k = ?'); jbValues.push(ev_gmv_2k ? 1 : 0); }
@@ -204,8 +211,12 @@ router.put('/:id/wacrm', async (req, res) => {
         if (ev_churned !***REMOVED*** undefined) { jbFields.push('ev_churned = ?'); jbValues.push(ev_churned ? 1 : 0); }
 
         if (jbFields.length > 0) {
-            jbValues.push(creatorId);
-            await db2.prepare(`INSERT INTO joinbrands_link (creator_id, ${jbFields.map(f => f.split(' = ')[0]).join(', ')}) VALUES (?, ${jbFields.map(() => '?').join(', ')}) ON DUPLICATE KEY UPDATE ${jbFields.join(', ')}`).run(creatorId, ...jbValues);
+            const jbColumns = jbFields.map(f => f.split(' = ')[0]);
+            await db2.prepare(`INSERT INTO joinbrands_link (creator_id, ${jbColumns.join(', ')}) VALUES (?, ${jbFields.map(() => '?').join(', ')}) ON DUPLICATE KEY UPDATE ${jbFields.join(', ')}`).run(
+                creatorId,
+                ...jbValues,
+                ...jbValues,
+            );
             updatedFields.push(...jbFields.map(f => 'jb.' + f.split(' = ')[0]));
         }
 
@@ -224,8 +235,12 @@ router.put('/:id/wacrm', async (req, res) => {
         if (keeper_activate_time !***REMOVED*** undefined) { kFields.push('keeper_activate_time = ?'); kValues.push(keeper_activate_time); }
 
         if (kFields.length > 0) {
-            kValues.push(creatorId);
-            await db2.prepare(`INSERT INTO keeper_link (creator_id, ${kFields.map(f => f.split(' = ')[0]).join(', ')}) VALUES (?, ${kFields.map(() => '?').join(', ')}) ON DUPLICATE KEY UPDATE ${kFields.join(', ')}`).run(creatorId, ...kValues);
+            const kColumns = kFields.map(f => f.split(' = ')[0]);
+            await db2.prepare(`INSERT INTO keeper_link (creator_id, ${kColumns.join(', ')}) VALUES (?, ${kFields.map(() => '?').join(', ')}) ON DUPLICATE KEY UPDATE ${kFields.join(', ')}`).run(
+                creatorId,
+                ...kValues,
+                ...kValues,
+            );
             updatedFields.push(...kFields.map(f => 'k.' + f.split(' = ')[0]));
         }
 

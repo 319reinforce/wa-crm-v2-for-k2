@@ -9,6 +9,7 @@ export default defineConfig({
   build: {
     outDir: path.join(__dirname, 'public'),
     emptyOutDir: true,
+    minify: false,
     rollupOptions: {
       input: path.join(__dirname, 'src/index.html')
     }

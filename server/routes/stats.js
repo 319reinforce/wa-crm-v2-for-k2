@@ -14,27 +14,52 @@ router.get('/stats', async (req, res) => {
         const [totalsRow, byOwnerRows, byBetaRows, byPriorityRows, evRow] = await Promise.all([
             db2.prepare(`
                 SELECT COUNT(DISTINCT c.id) as total_creators,
-                       (SELECT COUNT(*) FROM wa_messages) as total_messages
+                       (
+                           SELECT COUNT(*)
+                           FROM wa_messages wm
+                           INNER JOIN creators c2 ON c2.id = wm.creator_id
+                           WHERE c2.is_active = 1
+                       ) as total_messages
                 FROM creators c
+                WHERE c.is_active = 1
             `).get(),
-            db2.prepare(`SELECT COALESCE(wa_owner, 'Unknown') as wa_owner, COUNT(*) as count FROM creators GROUP BY wa_owner`).all(),
-            db2.prepare(`SELECT COALESCE(beta_status, 'unknown') as beta_status, COUNT(*) as count FROM wa_crm_data GROUP BY beta_status`).all(),
-            db2.prepare(`SELECT COALESCE(priority, 'unknown') as priority, COUNT(*) as count FROM wa_crm_data GROUP BY priority`).all(),
+            db2.prepare(`
+                SELECT COALESCE(c.wa_owner, 'Unknown') as wa_owner, COUNT(*) as count
+                FROM creators c
+                WHERE c.is_active = 1
+                GROUP BY c.wa_owner
+            `).all(),
+            db2.prepare(`
+                SELECT COALESCE(wc.beta_status, 'unknown') as beta_status, COUNT(*) as count
+                FROM wa_crm_data wc
+                INNER JOIN creators c ON c.id = wc.creator_id
+                WHERE c.is_active = 1
+                GROUP BY wc.beta_status
+            `).all(),
+            db2.prepare(`
+                SELECT COALESCE(wc.priority, 'unknown') as priority, COUNT(*) as count
+                FROM wa_crm_data wc
+                INNER JOIN creators c ON c.id = wc.creator_id
+                WHERE c.is_active = 1
+                GROUP BY wc.priority
+            `).all(),
             db2.prepare(`
                 SELECT
-                    SUM(ev_joined) as ev_joined,
-                    SUM(ev_ready_sent) as ev_ready_sent,
-                    SUM(ev_trial_7day) as ev_trial_7day,
-                    SUM(ev_monthly_started) as ev_monthly_started,
-                    SUM(ev_monthly_joined) as ev_monthly_joined,
-                    SUM(ev_whatsapp_shared) as ev_whatsapp_shared,
-                    SUM(ev_gmv_1k) as ev_gmv_1k,
-                    SUM(ev_gmv_2k) as ev_gmv_2k,
-                    SUM(ev_gmv_5k) as ev_gmv_5k,
-                    SUM(ev_gmv_10k) as ev_gmv_10k,
-                    SUM(ev_agency_bound) as ev_agency_bound,
-                    SUM(ev_churned) as ev_churned
-                FROM joinbrands_link
+                    SUM(j.ev_joined) as ev_joined,
+                    SUM(j.ev_ready_sent) as ev_ready_sent,
+                    SUM(j.ev_trial_7day) as ev_trial_7day,
+                    SUM(j.ev_monthly_started) as ev_monthly_started,
+                    SUM(j.ev_monthly_joined) as ev_monthly_joined,
+                    SUM(j.ev_whatsapp_shared) as ev_whatsapp_shared,
+                    SUM(j.ev_gmv_1k) as ev_gmv_1k,
+                    SUM(j.ev_gmv_2k) as ev_gmv_2k,
+                    SUM(j.ev_gmv_5k) as ev_gmv_5k,
+                    SUM(j.ev_gmv_10k) as ev_gmv_10k,
+                    SUM(j.ev_agency_bound) as ev_agency_bound,
+                    SUM(j.ev_churned) as ev_churned
+                FROM joinbrands_link j
+                INNER JOIN creators c ON c.id = j.creator_id
+                WHERE c.is_active = 1
             `).get(),
         ]);
 

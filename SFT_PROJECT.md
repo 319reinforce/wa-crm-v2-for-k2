@@ -22,6 +22,22 @@ WA CRM v2 是一个面向 WhatsApp 达人（influencer）的 CRM 系统，同时
 
 ## 版本历史
 
+### v8 — 2026-04-10 client_memory 自动积累机制（方案设计）
+
+**背景**：`client_memory` 表当前为空（0 条记录），Profile Agent 和 Experience Router 均读取该表，但在 AI 回复生成、SFT 语料选择、事件创建等关键节点均未自动写入记忆。
+
+**目标**：在以下三个触发点自动提取对话内容写入 `client_memory`，形成客户画像积累：
+
+| 触发点 | 时机 | 可提取内容 |
+|--------|------|-----------|
+| AI 回复生成后 | `generateViaExperienceRouter()` 成功时 | 客户偏好（preference）、决策（decision） |
+| SFT 人工选择后 | 人工从 opt1/opt2/custom 中确认最终发送内容时 | 客户风格偏好（style）、回复偏好（preference） |
+| 事件创建时 | `scripts/generate-events-from-chat.cjs` 分析出事件时 | 政策理解（policy）、决策状态（decision） |
+
+**去重机制**：已有 `UNIQUE(client_id, memory_type, memory_key)` 唯一索引，同一客户的同类型同 key 记录不重复写入。
+
+**实现路径详见下方「client_memory 自动积累机制」章节。**
+
 ### v7 — 2026-04-10 画像标签提取升级：关键词 → MiniMax LLM
 
 **本次升级将客户画像标签提取从正则关键词替换为 MiniMax LLM 智能分类：**
@@ -1404,4 +1420,229 @@ AB_RATIO=0.1                          # 灰度比例（10% 流量）
 # AI 提供商
 USE_OPENAI=true                       # true = 使用 OpenAI（GPT-4o）
 MINIMAX_API_KEY=your-key             # MiniMax API key（默认）
+
+---
+
+## client_memory 自动积累机制（Implementation Plan）
+
+> 状态：方案设计阶段，待实现
+> 更新日期：2026-04-10
+
+### 1. 现状分析
+
+**问题**：`client_memory` 表（0 条）完全为空，以下读取方均无法获得记忆：
+
+| 读取方 | 文件 | 用途 |
+|--------|------|------|
+| Experience Router | `server/routes/experience.js` | 组装 system prompt 时注入客户偏好 |
+| Profile Agent | `agents/profile-agent.js` | 生成 summary 时参考历史偏好 |
+| Profile Service | `server/services/profileService.js` | 刷新画像时聚合偏好标签 |
+
+**现有写入 API**（均需手动调用）：
+- `POST /api/profile/memory` — 手动写入单条记忆
+- `PUT /api/profile/:id/memory` — 手动更新记忆
+
+**无任何自动写入机制**。
+
+---
+
+### 2. 触发点设计
+
+#### 触发点 A：AI 回复生成成功后（主触发点）
+
+**Hook 位置**：`server/routes/experience.js` — `generateViaExperienceRouter()` 函数内部，AI 回复成功返回后。
+
+**提取逻辑**：对刚生成的两个候选回复（opt1/opt2）和对话上下文做 LLM 分析，提取记忆条目。
+
+#### 触发点 B：SFT 人工选择确认后
+
+**Hook 位置**：前端 `WAMessageComposer.jsx` — 人工选择 `opt1`/`opt2`/`custom` 并发送后，调用 `POST /api/sft/export` 时。
+
+**或 Hook 位置**：`server/routes/sft.js` — `POST /api/sft/export` 写入 `sft_memory` 后立即触发。
+
+**提取逻辑**：基于最终选中内容（human_selected）和对话上下文，提取记忆。
+
+#### 触发点 C：事件语义分析完成后
+
+**Hook 位置**：`scripts/generate-events-from-chat.cjs` — `insertEvent()` 成功插入后。
+
+**提取逻辑**：从已检测的事件类型和 trigger_text 中提取 policy 相关记忆（如"已签约 DRIFTO MCN"）。
+
+---
+
+### 3. LLM 提取 Prompt 设计
+
+```javascript
+/**
+ * 从对话上下文和 AI 回复中提取客户记忆
+ * @param {object} params
+ * @param {Array}  params.messages   — 最近 10 条对话 {role, text, timestamp}
+ * @param {string} params.client_id  — wa_phone
+ * @param {string} params.owner      — 'Beau' | 'Yiyun'
+ * @param {string} params.trigger_type — 'ai_generate' | 'sft_select' | 'event_create'
+ * @returns {Array<{memory_type, memory_key, memory_value, confidence}>}
+ */
+async function extractMemoriesFromConversation({ messages, client_id, owner, trigger_type }) {
+  const systemPrompt = `You are a CRM memory extraction assistant. Your task is to analyze a WhatsApp conversation between a creator account manager (${owner}) and a creator (client), and extract notable facts, preferences, decisions, or style cues that should be remembered for future interactions.
+
+Memory Types:
+- preference: 客户表达的具体偏好（如：喜欢视频简短、不要发太多消息、喜欢中文回复）
+- decision: 客户做出的决定（如：决定参加 beta program、决定签约 MCN、决定购买月费）
+- style: 客户的沟通风格（如：喜欢问很多问题、回复简短、喜欢发语音）
+- policy: 客户对政策的态度/理解（如：理解 20 天 beta 规则、理解月费扣除方式）
+
+Rules:
+1. Only extract facts that are EXPLICITLY stated or clearly implied in the conversation
+2. Do NOT guess or infer beyond what is said
+3. Each memory should be a single, specific fact (max 50 chars for key, 200 chars for value)
+4. Confidence: 1 = 低置信（推测）, 2 = 中等置信（基本确认）, 3 = 高置信（明确表达）
+5. Return an empty array if nothing notable is found
+6. memory_key should be a short slug: "preference:reply_length", "decision:trial_signup", "style:uses_voice"
+
+Response Format (return ONLY valid JSON):
+{
+  "memories": [
+    {
+      "memory_type": "preference|decision|style|policy",
+      "memory_key": "short_slug_description",
+      "memory_value": "具体内容（中文，200字以内）",
+      "confidence": 1|2|3
+    }
+  ]
+}`;
+
+  const conversationText = messages.map(m => {
+    const role = m.role ***REMOVED***= 'me' ? `${owner}` : 'Creator';
+    return `[${role}]: ${m.text}`;
+  }).join('\n');
+
+  const userPrompt = `Extract CRM memories from this conversation (most recent last):
+
+${conversationText}
+
+Trigger type: ${trigger_type}`;
+
+  // 调用 LLM（复用 existing callLLM logic）
+  // ...
+}
+```
+
+---
+
+### 4. 去重与更新策略
+
+**唯一索引**：`UNIQUE(client_id, memory_type, memory_key)`
+
+| 场景 | 行为 |
+|------|------|
+| 同 client_id + memory_type + memory_key 已存在 | INSERT IGNORE（静默跳过）|
+| 同一 memory_key 新内容且 confidence 更高 | 允许人工 review 后手动更新，或按 confidence 自动覆盖（confidence 高优先）|
+
+**自动覆盖条件**（可选）：
+- confidence >= 2 的新记录覆盖 confidence = 1 的旧记录
+- decision 类型优先保留最新的（时间戳 newer 覆盖 older）
+
+---
+
+### 5. 代码改动清单
+
+#### 5.1 新建 `server/services/memoryExtractionService.js`
+
+```
+职责：
+- extractMemoriesFromConversation() LLM 提取函数
+- upsertMemory() 写入 client_memory（含 INSERT IGNORE + 可选覆盖逻辑）
+- 被 experience.js / sft routes / events script 调用
+```
+
+#### 5.2 修改 `server/routes/experience.js`
+
+在 `generateViaExperienceRouter()` 成功返回 AI 回复后：
+```javascript
+// 生成成功后，异步提取记忆（不阻塞主流程）
+if (!DRY_RUN && !error) {
+  setImmediate(() => {
+    extractMemoriesFromConversation({
+      messages: recentMessages,
+      client_id: creatorId,
+      owner: operator,
+      trigger_type: 'ai_generate'
+    }).then(memories => {
+      for (const mem of memories) {
+        upsertMemory(mem).catch(console.error);
+      }
+    });
+  });
+}
+```
+
+#### 5.3 修改 `server/routes/sft.js`
+
+在 `POST /api/sft/export` 写入 `sft_memory` 后：
+```javascript
+// 提取记忆（基于人工选择的内容和上下文）
+extractMemoriesFromConversation({
+  messages: recentMessages,
+  client_id: client_id,
+  owner: operator,
+  trigger_type: 'sft_select'
+}).then(memories => {
+  for (const mem of memories) {
+    upsertMemory(mem).catch(console.error);
+  }
+});
+```
+
+#### 5.4 修改 `scripts/generate-events-from-chat.cjs`
+
+在 `insertEvent()` 返回 `{inserted: true}` 后：
+```javascript
+// 从事件 trigger_text 提取 policy/decision 记忆
+if (result.inserted) {
+  const meta = evt.meta || {};
+  const memoryKey = `decision:${evt.event_key}`;
+  await upsertMemory({
+    memory_type: 'decision',
+    memory_key: memoryKey,
+    memory_value: evt.trigger_text,
+    confidence: 2,
+    source_record_id: null
+  }, conn, creatorId);
+}
+```
+
+#### 5.5 修改 `POST /api/profile/memory` 手动写入路径
+
+确保手动写入也经过 upsertMemory 统一处理（保持一致性）。
+
+---
+
+### 6. 记忆类型与 key 命名规范
+
+| memory_type | 用途 | key 命名规范 | 示例 |
+|-------------|------|-------------|------|
+| preference | 客户偏好 | `preference:<具体偏好>` | `preference:reply_length_short` |
+| decision | 客户决策 | `decision:<事件key>` | `decision:trial_signup` |
+| style | 沟通风格 | `style:<风格描述>` | `style:uses_voice_notes` |
+| policy | 政策理解 | `policy:<政策key>` | `policy:beta_20day_understands` |
+
+---
+
+### 7. 验证清单
+
+- [ ] `client_memory` 表有数据写入（非空）
+- [ ] 同一 client_id + memory_type + memory_key 不会重复插入（UNIQUE 索引验证）
+- [ ] 三种触发点均生效（ai_generate / sft_select / event_create）
+- [ ] 记忆内容可在 Experience Router system prompt 中正确注入
+- [ ] Profile Agent 读取记忆生成 summary 时有数据可用
+- [ ] LLM 提取失败（如 timeout）不阻断主流程（降级策略：跳过本次提取）
+
+---
+
+### 8. 未来扩展方向
+
+- **记忆时效性**：decision 类型记忆标注 `expires_at`（如 beta 计划结束日期）
+- **记忆可信度 RLHF**：结合 SFT feedback（skip/reject）调整记忆 confidence
+- **记忆可视化**：前端 `client_memory` 面板 — 查看/编辑/删除单条记忆
+- **批量回填**：对历史 `sft_memory` 记录跑一遍提取，初始化 `client_memory` 基础数据
 ```

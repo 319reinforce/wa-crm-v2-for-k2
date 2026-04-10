@@ -64,7 +64,7 @@ export function WorkerStatusBar() {
 
     // 轮询 worker 状态（每5秒）
     useEffect(() => {
-        async function fetchStatus() {
+        const fetchStatus = async () => {
             try {
                 const res = await fetch(`${API_BASE}/wa-worker/status`)
                 const data = await res.json()
@@ -80,7 +80,7 @@ export function WorkerStatusBar() {
 
     // 轮询 WhatsApp 状态和二维码（每5秒）
     useEffect(() => {
-        async function fetchWaStatus() {
+        const fetchWaStatus = async () => {
             try {
                 const res = await fetch(`${API_BASE}/wa/status`)
                 const data = await res.json()

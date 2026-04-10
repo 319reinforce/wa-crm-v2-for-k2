@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { WAMessageComposer } from './components/WAMessageComposer'
 import { SFTDashboard } from './components/SFTDashboard'
 import { EventPanel } from './components/EventPanel'
@@ -63,7 +63,7 @@ function App() {
 
   // 轮询 WhatsApp 状态和二维码
   useEffect(() => {
-    async function fetchWaStatus() {
+    const fetchWaStatus = async () => {
       try {
         const res = await fetch(`${API_BASE}/wa/status`)
         const data = await res.json()
@@ -135,37 +135,8 @@ function App() {
     }
   }, [dragging])
 
-  // loadData ref：确保 SSE 回调永远调用最新版本的 loadData（带当前 filter 值）
-  const loadDataRef = useRef(loadData)
-  useEffect(() => { loadDataRef.current = loadData }, [loadData])
-
-  useEffect(() => {
-    loadData()
-    const interval = setInterval(loadData, 15000)
-    return () => clearInterval(interval)
-  }, [filterOwner, filterBeta, filterPriority, filterAgency, filterEvent])
-
-  // SSE 实时订阅（populate_db.cjs 写完 MySQL 后会收到广播）
-  useEffect(() => {
-    let es
-    try {
-      es = new EventSource('/api/events/subscribe')
-      es.addEventListener('creators-updated', () => {
-        console.log('[SSE] 收到刷新事件，重新加载数据')
-        loadDataRef.current()
-      })
-      es.onerror = () => {
-        console.warn('[SSE] 连接断开，5秒后自动重连')
-      }
-    } catch (e) {
-      console.warn('[SSE] 连接失败，使用轮询兜底:', e.message)
-    }
-    return () => { if (es) es.close() }
-  }, [])
-
   // 计算未读：基于 ev_replied 字段（0=未回复显示红点，1=已回复消除红点）
-  const loadData = async () => {
-    console.log('[WACRM] 刷新开始', new Date().toLocaleTimeString('zh-CN'))
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
@@ -199,13 +170,39 @@ function App() {
       setCreators(enriched)
       setStats(statsData)
       setLastRefreshed(new Date())
-      console.log(`[WACRM] 刷新成功: ${enriched.length} 位达人`, new Date().toLocaleTimeString('zh-CN'))
     } catch (e) {
       console.error('[WACRM] 加载失败:', e)
     } finally {
       setLoading(false)
     }
-  }
+  }, [filterOwner])
+
+  // loadData ref：确保 SSE 回调永远调用最新版本的 loadData（带当前 filter 值）
+  const loadDataRef = useRef(loadData)
+  useEffect(() => { loadDataRef.current = loadData }, [loadData])
+
+  useEffect(() => {
+    loadData()
+    const interval = setInterval(loadData, 15000)
+    return () => clearInterval(interval)
+  }, [loadData])
+
+  // SSE 实时订阅（populate_db.cjs 写完 MySQL 后会收到广播）
+  useEffect(() => {
+    let es
+    try {
+      es = new EventSource('/api/events/subscribe')
+      es.addEventListener('creators-updated', () => {
+        loadDataRef.current?.()
+      })
+      es.onerror = () => {
+        console.warn('[SSE] 连接断开，5秒后自动重连')
+      }
+    } catch (e) {
+      console.warn('[SSE] 连接失败，使用轮询兜底:', e.message)
+    }
+    return () => { if (es) es.close() }
+  }, [])
 
   const handleSelectCreator = (creator) => {
     // 标记该联系人的未读为 0
@@ -213,7 +210,7 @@ function App() {
     setSelectedCreator(creator)
   }
 
-  const filteredCreators = creators.filter(c => {
+  const filteredCreators = useMemo(() => creators.filter(c => {
     if (search) {
       const s = search.toLowerCase()
       if (!(c.primary_name || '').toLowerCase().includes(s) &&
@@ -229,7 +226,7 @@ function App() {
       if (!c._full?.joinbrands?.[evKey]) return false
     }
     return true
-  })
+  }), [creators, search, filterBeta, filterPriority, filterAgency, filterEvent])
 
   const activeFilterCount = [filterBeta, filterPriority, filterAgency, filterEvent].filter(Boolean).length
 
@@ -604,7 +601,6 @@ function App() {
                 {selectedCreator.joinbrands.ev_monthly_joined && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#10b98118', color: '#10b981' }}>月卡加入</span>}
                 {selectedCreator.joinbrands.ev_whatsapp_shared && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#00a88418', color: '#00a884' }}>WA已发</span>}
                 {selectedCreator.joinbrands.ev_gmv_1k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#f59e0b18', color: '#f59e0b' }}>GMV&gt;1K</span>}
-                {selectedCreator.joinbrands.ev_gmv_1k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#f59e0b18', color: '#f59e0b' }}>GMV 1K</span>}
                 {selectedCreator.joinbrands.ev_gmv_2k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#f9731618', color: '#f97316' }}>GMV 2K</span>}
                 {selectedCreator.joinbrands.ev_gmv_5k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#f9731618', color: '#f97316' }}>GMV 5K</span>}
                 {selectedCreator.joinbrands.ev_gmv_10k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#ef444418', color: '#ef4444' }}>GMV 10K</span>}
@@ -846,7 +842,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
 
   const fetchCreator = useCallback((silent = false) => {
     if (!silent) setRefreshing(true)
-    fetch(`/api/creators/${creatorId}`)
+    fetch(`${API_BASE}/creators/${creatorId}`)
       .then(r => r.json())
       .then(data => {
         setCreator(data)
@@ -873,7 +869,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
   const fetchClientProfile = useCallback((silent = false) => {
     if (!creator?.wa_phone) return
     if (!silent) setProfileRefreshing(true)
-    fetch(`/api/client-profile/${encodeURIComponent(creator.wa_phone)}`)
+    fetch(`${API_BASE}/client-profile/${encodeURIComponent(creator.wa_phone)}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setClientProfile(data) })
       .catch(() => {})

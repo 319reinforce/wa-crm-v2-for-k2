@@ -13,10 +13,10 @@ router.get('/', async (req, res) => {
         const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
         const offset = parseInt(req.query.offset) || 0;
 
-        // Note: LIMIT/OFFSET must be interpolated directly — mysql2 prepared statements don't support them as bound params
+        // LIMIT/OFFSET validated and safe via Math.min/max — use parameterized query
         const messages = await db.getDb().prepare(
-            `SELECT * FROM wa_messages WHERE creator_id = ? ORDER BY timestamp ASC LIMIT ${limit} OFFSET ${offset}`
-        ).all(creatorId);
+            `SELECT * FROM wa_messages WHERE creator_id = ? ORDER BY timestamp ASC LIMIT ? OFFSET ?`
+        ).all(creatorId, limit, offset);
 
         const { total } = await db.getDb().prepare(
             'SELECT COUNT(*) as total FROM wa_messages WHERE creator_id = ?'

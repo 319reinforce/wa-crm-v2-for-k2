@@ -55,8 +55,8 @@ async function generateResponse(messages, opts = {}) {
  * @returns {Promise<{opt1: string, opt2: string}>}
  */
 async function generateCandidates(systemPrompt, userMessages, temperatures = [0.8, 0.4]) {
-    const [opt1, opt2] = await Promise.all(
-        temperatures.map(t =>
+    const settled = await Promise.allSettled(
+        temperatures.map((t) =>
             generateResponse(
                 [
                     { role: 'system', content: systemPrompt },
@@ -66,7 +66,21 @@ async function generateCandidates(systemPrompt, userMessages, temperatures = [0.
             )
         )
     );
-    return { opt1, opt2 };
+
+    const successes = settled
+        .filter((item) => item.status ***REMOVED***= 'fulfilled' && item.value)
+        .map((item) => item.value);
+
+    if (successes.length ***REMOVED***= 0) {
+        const failure = settled.find((item) => item.status ***REMOVED***= 'rejected');
+        throw failure?.reason || new Error('OpenAI candidate generation failed');
+    }
+
+    if (successes.length ***REMOVED***= 1) {
+        return { opt1: successes[0], opt2: successes[0] };
+    }
+
+    return { opt1: successes[0], opt2: successes[1] };
 }
 
 module.exports = { generateResponse, generateCandidates };

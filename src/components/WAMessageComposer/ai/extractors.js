@@ -56,8 +56,11 @@ export function computeSimilarity(text1, text2) {
 export function buildRichContext({ incomingMsg, client, creator, policyDocs, clientMemory, messages }) {
     const msgs = messages || [];
     const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+    const lastTimestampMs = lastMsg?.timestamp
+        ? (lastMsg.timestamp > 1e12 ? lastMsg.timestamp : lastMsg.timestamp * 1000)
+        : null;
     const daysSinceLast = lastMsg
-        ? Math.floor((Date.now() - lastMsg.timestamp) / 86400000)
+        ? Math.floor((Date.now() - lastTimestampMs) / 86400000)
         : null;
     const now = new Date();
     const tone = detectClientTone(msgs);

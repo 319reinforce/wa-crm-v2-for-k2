@@ -8,6 +8,12 @@
 require('dotenv').config();
 const { getDb } = require('../db');
 const { getClient, waitForReady, stop: stopWaService } = require('./services/waService');
+const {
+    analyzeCreatorEligibility,
+    getMessageText,
+    normalizeCreatorOwner,
+    normalizePhone,
+} = require('./services/creatorEligibilityService');
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 配置 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
@@ -15,40 +21,21 @@ const POLL_INTERVAL_MS = 5 * 60 * 1000;   // 增量轮询间隔（5分钟）
 const HISTORY_MSG_LIMIT = 200;            // 历史消息拉取条数
 const BASE_URL = `http://localhost:${process.env.PORT || 3000}`; // 画像服务调用地址
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 达人人效过滤 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 达人准入过滤 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
-function hasChinese(text) {
-    return /[\u4e00-\u9fff]/.test(text);
+function mapMessagesForEligibility(messages = []) {
+    return (messages || []).map((message) => ({
+        text: getMessageText(message),
+        timestamp: message?.timestamp || message?.timestamp_ms || 0,
+    }));
 }
 
-function isValidCreator(phone, name, recentMsgs = []) {
-    // 过滤 +86
-    if (phone.startsWith('+86')) return false;
-    // 过滤非美国号码（11位且不以1开头）
-    const digits = phone.replace(/\D/g, '');
-    if (digits.length ***REMOVED***= 11 && !digits.startsWith('1')) return false;
-    // 过滤非美国国际号码
-    if (phone.startsWith('+') && !phone.startsWith('+1') && !phone.startsWith('+86')) return false;
-    // 过滤中文消息过半
-    if (recentMsgs.length > 0) {
-        const chineseCount = recentMsgs.filter(m => hasChinese(m.body || m.text || '')).length;
-        if (chineseCount > recentMsgs.length * 0.5) return false;
-    }
-    // 过滤 moras 相关
-    if ((name || '').toLowerCase().includes('moras')) return false;
-    // 消息少于3条不考虑
-    if (recentMsgs.length < 3) return false;
-    return true;
+function getEligibilityForHistory(phone, name, messages = []) {
+    return analyzeCreatorEligibility(phone, name, mapMessagesForEligibility(messages), { mode: 'history' });
 }
 
-function isActiveCreator(phone, name, recentMsgs) {
-    if (!isValidCreator(phone, name, recentMsgs)) return false;
-    // 过滤 2026-01-21 之后无互动的
-    const cutoff = new Date('2026-01-21').getTime();
-    const lastMsg = recentMsgs[recentMsgs.length - 1];
-    const lastTs = (lastMsg?.timestamp || lastMsg?.timestamp_ms) * 1000;
-    if (!lastTs || lastTs < cutoff) return false;
-    return true;
+function getEligibilityForRealtime(phone, name, messages = []) {
+    return analyzeCreatorEligibility(phone, name, mapMessagesForEligibility(messages), { mode: 'realtime' });
 }
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 消息去重缓存 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
@@ -144,7 +131,8 @@ async function touchCreator(creatorId) {
 
 async function getOrCreateCreator(phone, name) {
     const db2 = getDb();
-    let row = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(phone);
+    const normalizedPhone = normalizePhone(phone);
+    let row = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(normalizedPhone);
     if (row) {
         await db2.prepare('UPDATE creators SET primary_name = ?, updated_at = NOW() WHERE id = ?')
             .run(name || 'Unknown', row.id);
@@ -152,7 +140,7 @@ async function getOrCreateCreator(phone, name) {
     }
     const result = await db2.prepare(
         'INSERT INTO creators (primary_name, wa_phone, wa_owner, source) VALUES (?, ?, ?, ?)'
-    ).run(name || 'Unknown', phone, 'Beau', 'wa');
+    ).run(name || 'Unknown', normalizedPhone, normalizeCreatorOwner('Beau'), 'wa');
     return result.lastInsertRowid;
 }
 
@@ -187,7 +175,7 @@ async function syncHistory(client) {
             const contact = await chat.getContact().catch(() => null);
             if (!contact) { progress.processedChats++; continue; }
 
-            const phone = contact.number || '';
+            const phone = normalizePhone(contact.number || '');
             const name = contact.name || contact.pushname || 'Unknown';
 
             let wamessages;
@@ -204,7 +192,8 @@ async function syncHistory(client) {
                 continue;
             }
 
-            if (!isValidCreator(phone, name, wamessages)) {
+            const eligibility = getEligibilityForHistory(phone, name, wamessages);
+            if (!eligibility.eligible) {
                 progress.processedChats++;
                 continue;
             }
@@ -252,12 +241,24 @@ async function handleIncomingMessage(msg) {
         const contact = await msg.getContact().catch(() => null);
         if (!contact) return;
 
-        const phone = contact.number || '';
+        const phone = normalizePhone(contact.number || '');
         const name = contact.name || contact.pushname || 'Unknown';
+        const db2 = getDb();
+        let existingCreator = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(phone);
 
-        if (!isValidCreator(phone, name, [])) return;
+        if (!existingCreator) {
+            let recentMsgs = [];
+            try {
+                const chat = await msg.getChat();
+                recentMsgs = chat ? await chat.fetchMessages({ limit: 8 }) : [];
+            } catch (_) {}
 
-        const creatorId = await getOrCreateCreator(phone, name);
+            const eligibility = getEligibilityForRealtime(phone, name, recentMsgs);
+            if (!eligibility.eligible) return;
+            existingCreator = { id: await getOrCreateCreator(phone, name) };
+        }
+
+        const creatorId = existingCreator.id;
         const nowSec = Math.floor(Date.now() / 1000);
         const inserted = await insertMessages(creatorId, [{
             role: msg.fromMe ? 'me' : 'user',
@@ -313,8 +314,14 @@ async function pollOnce(client) {
             const contact = await chat.getContact().catch(() => null);
             if (!contact) continue;
 
-            const phone = contact.number || '';
+            const phone = normalizePhone(contact.number || '');
             const name = contact.name || contact.pushname || 'Unknown';
+            const phoneEligibility = getEligibilityForRealtime(phone, name, []);
+            if (!phoneEligibility.eligible && phoneEligibility.reasons.every((reason) =>
+                ['cn_phone', 'non_target_phone', 'internal_contact'].includes(reason)
+            )) {
+                continue;
+            }
 
             const db2 = getDb();
             const lastRow = await db2.prepare(
@@ -332,6 +339,9 @@ async function pollOnce(client) {
                     wamessages = await chat.fetchMessages({ limit: 50 });
                 } catch (_) { continue; }
             }
+
+            const eligibility = getEligibilityForRealtime(phone, name, wamessages);
+            if (!eligibility.eligible) continue;
 
             const newer = (wamessages || []).filter(m => {
                 if (isAlreadyProcessed(m)) return false;

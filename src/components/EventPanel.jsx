@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import JudgeQuickForm from './JudgeQuickForm'
 
+const API_BASE = '/api';
+
 const WA = {
   darkHeader: '#111b21',
   teal: '#00a884',
@@ -69,7 +71,7 @@ export function EventPanel() {
       if (filterEventKey) params.set('event_key', filterEventKey)
       params.set('limit', '100')
 
-      const res = await fetch(`/api/events?${params.toString()}`, { signal: AbortSignal.timeout(15000) })
+      const res = await fetch(`${API_BASE}/events?${params.toString()}`, { signal: AbortSignal.timeout(15000) })
       const data = await res.json()
       setEvents(data.events || [])
       setTotal(data.total || 0)
@@ -82,7 +84,7 @@ export function EventPanel() {
 
   const fetchCreators = useCallback(async () => {
     try {
-      const res = await fetch('/api/creators?limit=500', { signal: AbortSignal.timeout(15000) })
+      const res = await fetch(`${API_BASE}/creators?limit=500`, { signal: AbortSignal.timeout(15000) })
       const data = await res.json()
       setCreators(Array.isArray(data) ? data : [])
     } catch (e) {
@@ -97,7 +99,7 @@ export function EventPanel() {
 
   const handleCreate = async () => {
     try {
-      const res = await fetch('/api/events', {
+      const res = await fetch(`${API_BASE}/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(createForm),
@@ -127,7 +129,7 @@ export function EventPanel() {
 
   const handleStatusChange = async (eventId, newStatus) => {
     try {
-      await fetch(`/api/events/${eventId}`, {
+      await fetch(`${API_BASE}/events/${eventId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -135,7 +137,7 @@ export function EventPanel() {
       })
       fetchEvents(true)
       if (selectedEvent?.id ***REMOVED***= eventId) {
-        const res = await fetch(`/api/events/${eventId}`, { signal: AbortSignal.timeout(15000) })
+        const res = await fetch(`${API_BASE}/events/${eventId}`, { signal: AbortSignal.timeout(15000) })
         const data = await res.json()
         setSelectedEvent(data)
       }
@@ -159,7 +161,7 @@ export function EventPanel() {
       try { if (event?.meta) meta = JSON.parse(event.meta); } catch (_) {}
       const videoCount = meta.video_count || 0
 
-      const res = await fetch(`/api/events/${eventId}/judge`, {
+      const res = await fetch(`${API_BASE}/events/${eventId}/judge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ period_start: periodStart, period_end: periodEnd, video_count: videoCount }),
@@ -177,7 +179,7 @@ export function EventPanel() {
 
   const handleViewEvent = async (eventId) => {
     try {
-      const res = await fetch(`/api/events/${eventId}`, { signal: AbortSignal.timeout(15000) })
+      const res = await fetch(`${API_BASE}/events/${eventId}`, { signal: AbortSignal.timeout(15000) })
       const data = await res.json()
       setSelectedEvent(data)
       setJudgeResult(null)

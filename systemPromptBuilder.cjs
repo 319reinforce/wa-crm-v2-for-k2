@@ -4,6 +4,7 @@
  */
 
 const db = require('./db.js');
+const { normalizeOperatorName } = require('./server/utils/operator');
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Reply Style（前后端共用）***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
@@ -38,7 +39,7 @@ const REPLY_STYLE = `【回复风格 — 严格遵守】
  * @param {string} opts.conversationSummary - 前端构建的更早对话摘要（convSummary.summary）
  * @param {string} opts.systemPromptVersion - Prompt 版本标识，默认 'v2'
  */
-function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) {
+async function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) {
 	const {
 		operator: forcedOperator = null,
 		topicContext = '',
@@ -50,18 +51,18 @@ function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) {
 	const dbInstance = db.getDb();
 
 	// 1. 确定 operator
-	let operator = forcedOperator;
+	let operator = normalizeOperatorName(forcedOperator);
 	let clientInfo = { name: '未知', conversion_stage: '未知', next_action: null };
 
 	if (!operator && clientId) {
-		const creator = dbInstance.prepare(`
+		const creator = await dbInstance.prepare(`
 			SELECT c.primary_name as name, c.wa_owner, wc.beta_status as conversion_stage, wc.next_action
 			FROM creators c
 			LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
 			WHERE c.wa_phone = ?
 		`).get(clientId);
 		if (creator) {
-			operator = creator.wa_owner;
+			operator = normalizeOperatorName(creator.wa_owner, operator);
 			clientInfo = {
 				name: creator.name || '未知',
 				conversion_stage: creator.conversion_stage || '未知',
@@ -91,7 +92,8 @@ function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) {
 	}
 
 	// 2. 获取 operator experience
-	const exp = dbInstance.prepare(
+	operator = normalizeOperatorName(operator);
+	const exp = await dbInstance.prepare(
 		'SELECT * FROM operator_experiences WHERE operator = ? AND is_active = 1'
 	).get(operator);
 	if (!exp) {
@@ -102,17 +104,20 @@ function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) {
 	// 3. 获取客户记忆
 	let clientMemory = [];
 	if (clientId) {
-		clientMemory = dbInstance.prepare(
+		clientMemory = await dbInstance.prepare(
 			'SELECT * FROM client_memory WHERE client_id = ?'
 		).all(clientId);
 	}
 
 	// 4. 获取政策文档
-	const policyDocs = dbInstance.prepare(
+	const policyDocsRows = await dbInstance.prepare(
 		'SELECT * FROM policy_documents WHERE is_active = 1'
-	).all().map(p => ({
+	).all();
+	const policyDocs = policyDocsRows.map(p => ({
 		...p,
-		applicable_scenarios: p.applicable_scenarios ? JSON.parse(p.applicable_scenarios) : []
+		applicable_scenarios: (p.applicable_scenarios && typeof p.applicable_scenarios ***REMOVED***= 'object')
+			? p.applicable_scenarios
+			: (p.applicable_scenarios ? JSON.parse(p.applicable_scenarios) : [])
 	}));
 
 	// 5. 编译核心 prompt（operator 专属规则 + 政策 + 禁止规则 + 回复风格）
@@ -129,8 +134,8 @@ function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) {
  * 编译完整的 system prompt（operator 已知时使用）
  */
 function compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs, exp) {
-	const sceneConfig = exp.scene_config ? JSON.parse(exp.scene_config) : {};
-	const forbiddenRules = exp.forbidden_rules ? JSON.parse(exp.forbidden_rules) : [];
+	const sceneConfig = (exp.scene_config && typeof exp.scene_config ***REMOVED***= 'object') ? exp.scene_config : {};
+	const forbiddenRules = (exp.forbidden_rules && typeof exp.forbidden_rules ***REMOVED***= 'object') ? exp.forbidden_rules : [];
 
 	let prompt = exp.system_prompt_base.replace('[BASE_PROMPT]', `
 你是一个专业的达人运营助手，帮助运营人员与 WhatsApp 达人沟通。

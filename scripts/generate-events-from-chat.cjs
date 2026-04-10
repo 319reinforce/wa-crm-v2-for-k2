@@ -12,6 +12,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+const { upsertMemory } = require('../server/services/memoryExtractionService');
 
 const DB_CONFIG = {
   host: process.env.DB_HOST || '127.0.0.1',
@@ -350,6 +351,15 @@ async function main() {
         } else {
           const result = await insertEvent(conn, creator.id, creator.wa_owner, evt);
           if (result.inserted) {
+            // ***REMOVED***= client_memory 自动积累：事件创建后写入 decision 记忆 ***REMOVED***=
+            await upsertMemory({
+              memory_type: 'decision',
+              memory_key: `decision:${evt.event_key}`,
+              memory_value: evt.trigger_text,
+              confidence: 2,
+              source_record_id: result.id,
+            }, creator.wa_phone).catch(e => console.log(`  [记忆写入失败] ${e.message}`));
+
             console.log(`\n  [+事件] ${evt.event_key} (${evt.status}) id=${result.id} — ${evt.trigger_text}`);
             created++;
             stats.events_created++;

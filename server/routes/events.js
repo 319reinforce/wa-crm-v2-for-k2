@@ -16,6 +16,7 @@ function normalizeOwner(o) {
 }
 
 const { getPolicy } = require('../utils/policyMatcher');
+const { extractAndSaveMemories } = require('../services/memoryExtractionService');
 
 // GET /api/events
 router.get('/', async (req, res) => {
@@ -36,14 +37,13 @@ router.get('/', async (req, res) => {
     if (creator_id) { sql += ` AND e.creator_id = ?`; params.push(creator_id); }
     if (event_key) { sql += ` AND e.event_key = ?`; params.push(event_key); }
 
-    sql += ` ORDER BY e.created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    sql += ` ORDER BY e.created_at DESC LIMIT ? OFFSET ?`;
 
-    const cond = status ? [status] : owner ? [owner] : creator_id ? [creator_id] : event_key ? [event_key] : [];
     const countSql = `SELECT COUNT(*) as count FROM events e WHERE 1=1${status ? ' AND e.status = ?' : ''}${owner ? ' AND e.owner = ?' : ''}${creator_id ? ' AND e.creator_id = ?' : ''}${event_key ? ' AND e.event_key = ?' : ''}`;
 
     const [events, total] = await Promise.all([
-      db2.prepare(sql).all(...params),
-      db2.prepare(countSql).get(...cond),
+      db2.prepare(sql).all(...params, limit, offset),
+      db2.prepare(countSql).get(...params),
     ]);
 
     res.json({ events, total: total.count, limit: parseInt(limit), offset: parseInt(offset) });
@@ -99,7 +99,28 @@ router.post('/', async (req, res) => {
       VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
     `).run(creator_id, event_key, event_type, normOwner, trigger_source, trigger_text, start_at || new Date().toISOString(), end_at, JSON.stringify(meta));
 
-    res.json({ id: result.lastInsertRowid, status: 'active' });
+    // ***REMOVED***= client_memory 自动积累：事件创建后异步提取记忆 ***REMOVED***=
+    const eventId = result.lastInsertRowid;
+    const creatorRow = await db2.prepare('SELECT wa_phone FROM creators WHERE id = ?').get(creator_id);
+    if (creatorRow) {
+        const msgsRes = await db2.prepare(`
+            SELECT role, text FROM wa_messages WHERE creator_id = ? ORDER BY timestamp DESC LIMIT 10
+        `).all(creator_id);
+        const messages = msgsRes ? msgsRes.reverse() : [];
+        if (messages.length > 0) {
+            setImmediate(() => {
+                extractAndSaveMemories({
+                    client_id: creatorRow.wa_phone,
+                    owner: normOwner,
+                    messages,
+                    trigger_type: 'event_create',
+                    source_record_id: eventId,
+                }).catch(e => console.error('[memoryExtraction] events.js hook error:', e.message));
+            });
+        }
+    }
+
+    res.json({ id: eventId, status: 'active' });
   } catch (err) {
     console.error('POST /api/events error:', err);
     res.status(500).json({ error: err.message });
