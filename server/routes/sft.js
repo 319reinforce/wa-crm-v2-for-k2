@@ -76,13 +76,13 @@ router.post('/sft-memory', async (req, res) => {
             const newStatus = (status ***REMOVED***= 'approved') ? existing.status || status : status;
             await db2.prepare(`
                 UPDATE sft_memory SET
-                    human_output = VALUES(human_output),
-                    status = CASE WHEN VALUES(status) = 'approved' THEN status ELSE VALUES(status) END,
-                    similarity = VALUES(similarity),
-                    chosen_output = VALUES(chosen_output),
-                    rejected_output = VALUES(rejected_output)
+                    human_output = ?,
+                    status = CASE WHEN ? = 'approved' THEN ? ELSE ? END,
+                    similarity = ?,
+                    chosen_output = ?,
+                    rejected_output = ?
                 WHERE id = ?
-            `).run(human_output, newStatus, similarity, chosen_output, rejected_output, existing.id);
+            `).run(human_output, status, newStatus, status, similarity, chosen_output, rejected_output, existing.id);
             return res.json({ ok: true, id: existing.id, updated: true });
         }
 

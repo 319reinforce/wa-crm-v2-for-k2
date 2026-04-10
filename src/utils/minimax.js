@@ -148,8 +148,16 @@ export async function generateResponse(options) {
     }
 
     const data = await response.json()
-    const textItem = data.content?.find(item => item.type ***REMOVED***= 'text')
-    return textItem?.text || ''
+    // MiniMax format: { content: { type: 'text', text: '...' } } 或 [{ type: 'text', text: '...' }]
+    if (data?.content) {
+        if (Array.isArray(data.content)) {
+            return data.content.find(item => item.type ***REMOVED***= 'text')?.text || '';
+        }
+        if (typeof data.content ***REMOVED***= 'object' && data.content.type ***REMOVED***= 'text') {
+            return data.content.text || '';
+        }
+    }
+    return ''
 }
 
 /**

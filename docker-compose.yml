@@ -1,21 +1,27 @@
 services:
   wa-crm:
-    build: .
+    build:
+      .
+      args:
+        - VITE_USE_OPENAI=${VITE_USE_OPENAI:-false}
+        - VITE_OPENAI_API_KEY=${VITE_OPENAI_API_KEY:-}
+        - VITE_OPENAI_API_BASE=${VITE_OPENAI_API_BASE:-https://api.openai.com/v1}
+        - VITE_OPENAI_MODEL=${VITE_OPENAI_MODEL:-gpt-4o}
     ports:
-      - "3000:3000"
-      - "3001:3001"
+      - "${PORT:-3000}:${PORT:-3000}"
     environment:
       - NODE_ENV=production
+      - PORT=${PORT:-3000}
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_USER=root
       - DB_PASSWORD=${DB_PASSWORD:-wa_crm_password}
       - DB_NAME=wa_crm_v2
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_API_BASE=${OPENAI_API_BASE:-https://api.openai.com/v1}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
-      - USE_OPENAI=${USE_OPENAI:-true}
-      - MINIMAX_API_KEY=${MINIMAX_API_KEY}
+      - USE_OPENAI=${USE_OPENAI:-false}
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
       - MINIMAX_API_BASE=${MINIMAX_API_BASE:-https://api.minimaxi.com/anthropic}
     volumes:
       - ./.wwebjs_auth:/app/.wwebjs_auth
@@ -24,6 +30,7 @@ services:
       mysql:
         condition: service_healthy
     restart: unless-stopped
+    stop_grace_period: 30s
 
   mysql:
     image: mysql:8

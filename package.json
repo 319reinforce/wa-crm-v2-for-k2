@@ -12,22 +12,24 @@
     "index": "node index_v2.js"
   },
   "dependencies": {
-    "better-sqlite3": "^11.0.0",
     "deasync": "^0.1.31",
     "dotenv": "^16.4.5",
     "emoji-picker-react": "^4.18.0",
     "express": "^4.21.0",
     "mysql2": "^3.20.0",
+    "qrcode-terminal": "^0.12.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-resizable-panels": "^4.9.0",
     "whatsapp-web.js": "^1.26.0"
   },
   "devDependencies": {
+    "better-sqlite3": "^11.0.0",
     "@tailwindcss/postcss": "^4.2.2",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.27",
     "postcss": "^8.5.8",
+    "qrcode": "^1.5.4",
     "tailwindcss": "^4.2.2",
     "vite": "^8.0.3"
   }

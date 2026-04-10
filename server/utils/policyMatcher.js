@@ -7,7 +7,13 @@ const db = require('../../db');
 function getPolicy(owner, eventKey) {
     const db2 = db.getDb();
     const row = db2.prepare('SELECT policy_json FROM events_policy WHERE owner = ? AND event_key = ?').get(owner, eventKey);
-    return row ? JSON.parse(row.policy_json) : null;
+    if (!row) return null;
+    try {
+        return JSON.parse(row.policy_json);
+    } catch (e) {
+        console.error('getPolicy JSON parse error:', e.message, row.policy_json);
+        return null;
+    }
 }
 
 module.exports = { getPolicy };

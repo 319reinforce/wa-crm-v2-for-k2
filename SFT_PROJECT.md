@@ -1,7 +1,7 @@
 # WA CRM v2 — SFT 语料训练项目
 
 > 本文档供其他 AI Agent 阅读学习使用
-> 更新时间：2026-04-09（文档修订：schema 修复、Scene 检测纠正、阈值统一）
+> 更新时间：2026-04-10（MySQL 迁移 + 模块化架构 + 完整事件系统）
 > 前置文档：`CLAUDE.md`（项目入口）、`BOT_INTEGRATION.md`（API 速查）
 
 ---
@@ -22,6 +22,38 @@ WA CRM v2 是一个面向 WhatsApp 达人（influencer）的 CRM 系统，同时
 
 ## 版本历史
 
+### v5 — 2026-04-10 MySQL 迁移 + 模块化架构
+
+本次重构完成数据库从 SQLite 到 MySQL 的完整迁移，以及后端模块化：
+
+| 改动项 | 说明 |
+|--------|------|
+| 数据库 | SQLite → MySQL 9.x（`mysql2/promise` 异步封装） |
+| 服务入口 | 单一 `server.js` → `server/index.cjs`（模块化） |
+| 路由拆分 | 所有路由移至 `server/routes/` |
+| SFT Service | 提取为 `server/services/sftService.js` |
+| Profile Service | 异步画像刷新，提取为 `server/services/profileService.js` |
+| WA Worker | WhatsApp 爬虫（实时监听 + 增量轮询），`server/waWorker.js` |
+| WA Service | WhatsApp Client 管理，`server/services/waService.js` |
+| 新增表 | `creator_aliases`、`manual_match`、`sync_log`、`event_periods`、`events_policy` |
+| OpenAI 支持 | `USE_OPENAI=true` 时路由到 OpenAI |
+| 事件系统 | `events.js` 完整实现（检测/判定/GMV核查/周期），修复 N+1 查询 |
+| ev_replied | creators 列表通过 SQL 子查询计算（对方最后消息是否已回复） |
+
+**新增文件**：
+- `server/index.cjs` — Express 模块化入口
+- `db.js` — MySQL ORM（`mysql2/promise`）
+- `schema.sql` — MySQL schema（utf8mb4_unicode_ci）
+- `server/waWorker.js` — WhatsApp 爬虫
+- `server/services/waService.js` — WhatsApp Client
+- `server/services/sftService.js` — SFT 数据访问封装
+- `server/services/profileService.js` — 异步画像刷新
+- `server/routes/` — 拆分后的所有路由
+- `server/middleware/` — 中间件
+- `server/constants/eventKeywords.js` — 事件关键词
+- `server/utils/policyMatcher.js` — 事件策略匹配
+- `src/components/WorkerStatusBar.jsx` — WA Worker 进度条
+
 ### v4 — 2026-04-09 RLHF 链路修复
 
 本次修复打通了 RLHF 训练所需的数据闭环：
@@ -29,12 +61,12 @@ WA CRM v2 是一个面向 WhatsApp 达人（influencer）的 CRM 系统，同时
 | 修复项 | 说明 |
 |--------|------|
 | Preference Pair | `sft_memory` 新增 `chosen_output`/`rejected_output` 字段，记录被选中/拒绝的回复内容 |
-| 训练/推理 prompt 对齐 | 新增 `systemPromptBuilder.cjs`（CJS 共享模块），`experience.js` 推理和 `server.js` 导出使用同一套 prompt 构建逻辑 |
+| 训练/推理 prompt 对齐 | 新增 `systemPromptBuilder.cjs`（CJS 共享模块），`experience.js` 推理和 server export 使用同一套 prompt 构建逻辑 |
 | sft_feedback 增强 | `sft_feedback` 新增 `reject_reason` 字段，skip 时可记录拒绝原因 |
 | 英文数据过滤 | `GET /api/sft-export` 新增 `?lang=en` 参数，只导出纯英文数据 |
 
 **新增文件**：
-- `systemPromptBuilder.cjs` — CJS 共享 prompt 构建器，experience.js 和 server.js 共用
+- `systemPromptBuilder.cjs` — CJS 共享 prompt 构建器，experience.js 和 server export 共用
 
 ### v3 — 2026-04-09 文档修订
 
@@ -62,26 +94,63 @@ WA CRM v2 是一个面向 WhatsApp 达人（influencer）的 CRM 系统，同时
 
 ## 核心文件
 
-### 后端
+### 后端（模块化）
 
 | 文件 | 说明 |
 |------|------|
-| `server.js` | Express 服务器，REST API 端口 3000 |
-| `db.js` | SQLite ORM（better-sqlite3） |
-| `schema.sql` | 数据库 schema 定义 |
-| `crm.db` | SQLite 数据库文件 |
-| `key_creators.js` | 达人身份映射表（跨系统关联） |
-| `migrate.js` | 数据库迁移脚本 |
+| `server/index.cjs` | Express 服务器入口，端口 3000 |
+| `db.js` | MySQL ORM（`mysql2/promise` 异步封装，对外接口与 better-sqlite3 一致） |
+| `schema.sql` | MySQL 数据库 schema 定义 |
+| `systemPromptBuilder.cjs` | CJS 共享 prompt 构建器（experience.js 和 export 共用） |
+
+**路由（`server/routes/`）**
+
+| 文件 | 说明 |
+|------|------|
+| `creators.js` | 达人 CRUD + wacrm 数据更新 |
+| `messages.js` | 消息读写 |
+| `stats.js` | 全局统计 + 健康检查 |
+| `ai.js` | MiniMax/OpenAI API 代理 + 翻译接口 |
+| `sft.js` | SFT 语料写入/查询/导出/反馈 |
+| `policy.js` | 政策文档管理 |
+| `audit.js` | 审计日志 + AB 评估数据 |
+| `profile.js` | 客户画像 + 标签 + 记忆 |
+| `events.js` | 事件系统（检测/判定/GMV核查/周期） |
+| `experience.js` | Experience Router（AI 体验路由） |
+| `wa.js` | WhatsApp 发送/状态查询 |
+
+**中间件（`server/middleware/`）**
+
+| 文件 | 说明 |
+|------|------|
+| `audit.js` | `writeAudit()` 审计日志写入 |
+
+**服务（`server/services/`）**
+
+| 文件 | 说明 |
+|------|------|
+| `waService.js` | WhatsApp 单账号 Client（LocalAuth + 扫码认证 + 重连） |
+| `sftService.js` | SFT 语料与反馈数据访问封装 |
+| `profileService.js` | 异步画像摘要刷新（debounced 5s） |
+
+**Worker**
+
+| 文件 | 说明 |
+|------|------|
+| `server/waWorker.js` | WhatsApp 爬虫（实时监听 + 增量轮询 5 分钟） |
 
 ### 前端（React + Vite + TailwindCSS）
 
 | 文件 | 说明 |
 |------|------|
-| `src/App.jsx` | 主应用 — 达人列表 + 详情 + SFT Tab |
+| `src/App.jsx` | 主应用 — 三面板布局（flex + 拖拽调整宽度）+ 移动端响应式 |
+| `src/components/WAMessageComposer.jsx` | 消息编辑器，含 Scene 检测 + AI 生成 + 移动端 UI |
 | `src/components/SFTDashboard.jsx` | SFT 语料看板（含 records/review/trends/evaluation 四个子 Tab） |
-| `src/components/WAMessageComposer.jsx` | 消息编辑器，handleSkip 触发 sft_feedback 写入 |
+| `src/components/EventPanel.jsx` | 事件管理面板（含列表、详情、创建、判定）|
+| `src/components/WorkerStatusBar.jsx` | WA Worker 可视化进度条（可拖拽、展开/收缩）|
 | `src/utils/systemPrompt.js` | **共享 system prompt 模板**，前后端共用同一份 |
-| `src/utils/minimax.js` | MiniMax API Client，AI 生成时调用共享模板 |
+| `src/utils/minimax.js` | MiniMax API Client |
+| `src/utils/openai.js` | OpenAI API Client（`USE_OPENAI=true` 时使用） |
 
 ### 原始数据
 
@@ -95,39 +164,38 @@ data/*.json   # 120个达人的每日对话数据（JSON格式）
 
 ## 数据库 Schema
 
+> **MySQL 9.x**（已从 SQLite 迁移），字符集 `utf8mb4_unicode_ci`，数据库名 `wa_crm_v2`
+
 ### sft_memory — SFT 训练语料表（核心）
 
 ```sql
 CREATE TABLE sft_memory (
-  id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-  model_opt1              TEXT,                              -- 模型生成的候选回复 A
-  model_opt2              TEXT,                              -- 模型生成的候选回复 B
-  human_selected          TEXT NOT NULL,                     -- 'opt1' | 'opt2' | 'custom'
-  human_output            TEXT NOT NULL,                     -- 最终实际使用的输出（训练标签）
-  model_predicted         TEXT,                              -- 模型预测值（与 human_selected 对比）
-  model_rejected          TEXT,                              -- 模型被拒绝的值
-  is_custom_input         INTEGER DEFAULT 0,                 -- 是否人工自行输入（非模型生成）
-  human_reason            TEXT,                              -- 人工选择理由（可选）
-  context_json            TEXT,                              -- 客户上下文 JSON（含 input_text, client_id, scene 等）
-  status                  TEXT DEFAULT 'approved',            -- approved | pending_review | needs_review | rejected
-  reviewed_by             TEXT,                              -- 审核人（人工审核后写入）
-
-  -- v2 新增字段
-  input_text_hash         TEXT,                              -- SHA256(input_text)，用于去重
-  human_output_hash       TEXT,                              -- SHA256(human_output)，用于去重
-  created_date            TEXT,                              -- DATE(created_at)，存储为 YYYY-MM-DD 字符串
-  client_id_hash          TEXT,                              -- SHA256(client_id)，用于去重和隐私
-  similarity              INTEGER,                           -- AI 候选相似度（0-100）
-  scene                  TEXT,                              -- 场景标签（建联阶段/事件类型）
-  message_history         TEXT,                              -- JSON，前10轮对话历史
-  system_prompt_version   TEXT DEFAULT 'v1',                 -- 使用的 system prompt 版本
-
-  created_at              DATETIME DEFAULT CURRENT_TIMESTAMP
+    id                      INT AUTO_INCREMENT PRIMARY KEY,
+    model_opt1              TEXT,
+    model_opt2              TEXT,
+    human_selected          VARCHAR(16) NOT NULL,   -- 'opt1'|'opt2'|'custom'
+    human_output            TEXT NOT NULL,
+    model_predicted         VARCHAR(16),
+    model_rejected          VARCHAR(16),
+    is_custom_input         TINYINT(1) DEFAULT 0,
+    human_reason            TEXT,
+    context_json            JSON,
+    status                  VARCHAR(32) DEFAULT 'approved',
+    reviewed_by             VARCHAR(64),
+    similarity              INT,
+    scene                   VARCHAR(64),
+    message_history         JSON,                   -- 前10轮对话历史
+    system_prompt_version   VARCHAR(16) DEFAULT 'v1',
+    client_id_hash          VARCHAR(64),            -- SHA256(client_id)
+    input_text_hash         VARCHAR(64),            -- SHA256(input_text)
+    human_output_hash       VARCHAR(64),            -- SHA256(human_output)
+    created_date            DATE,                   -- YYYY-MM-DD
+    chosen_output           TEXT,                   -- 被选中的回复（RLHF Preference Pair）
+    rejected_output         TEXT,                   -- 被拒绝的回复（RLHF Preference Pair）
+    created_at              DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
--- 去重唯一索引
 CREATE UNIQUE INDEX idx_sft_dedup ON sft_memory(
-  client_id_hash, input_text_hash, human_output_hash, created_date
+    client_id_hash, input_text_hash, human_output_hash, created_date
 );
 ```
 
@@ -215,48 +283,96 @@ CREATE TABLE policy_documents (
 |------|------|------|
 | `GET` | `/api/sft-memory` | 查询语料列表（支持 `?limit=50&offset=0`） |
 | `POST` | `/api/sft-memory` | **写入单条语料**（后端自动判断 status） |
+| `GET` | `/api/sft-memory/pending` | 待审核语料列表（status = pending_review/needs_review） |
+| `PATCH` | `/api/sft-memory/:id/review` | 审核操作 `{ action: "approve" \| "reject", comment }` |
 | `GET` | `/api/sft-memory/stats` | 语料统计（total/opt1/opt2/custom 分布 + pending_review 数量） |
-| `GET` | `/api/sft-memory/pending` | 待审核语料列表（status = pending_review） |
-| `PATCH` | `/api/sft-memory/:id/review` | 审核操作 `{ action: "approve" \| "reject" }` |
-| `GET` | `/api/sft-memory/trends` | 近 30 天采用率趋势（opt1/opt2/custom/skipped rate + volume） |
-| `GET` | `/api/sft-export` | 导出 SFT 训练数据（支持 `?format=jsonl`） |
-| `POST` | `/api/sft-feedback` | 写入 skip/reject/edit 反馈（v2 新增） |
+| `GET` | `/api/sft-memory/trends` | 近 30 天采用率趋势 |
+| `GET` | `/api/sft-export` | 导出 SFT 训练数据（支持 `?format=jsonl`，`?lang=en`） |
+| `POST` | `/api/sft-feedback` | 写入 skip/reject/edit 反馈 |
 | `GET` | `/api/sft-feedback/stats` | 反馈统计（按 type.scene 聚合） |
 | `GET` | `/api/ab-evaluation` | A/B 评估数据（按场景 + 负责人分布） |
-| `GET` | `/api/client-memory/:clientId` | 查询某客户的记忆 |
-| `POST` | `/api/client-memory` | 更新客户记忆 |
+| `GET` | `/api/client-memory/:clientId` | 查询客户记忆 |
+| `POST` | `/api/client-memory` | 更新客户记忆（UPSERT） |
 
-### Experience Router（按 operator 路由 AI 体验）
+### Experience Router
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/api/experience/operators` | 列出所有 operator 体验配置 |
 | `GET` | `/api/experience/:operator` | 获取单个 operator 完整体验 |
 | `GET` | `/api/experience/:operator/clients` | 获取该 operator 下的所有客户 |
-| `POST` | `/api/experience/route` | **核心路由**：生成 AI 候选回复（自动选择 operator 体验）|
+| `POST` | `/api/experience/route` | **核心路由**：生成 AI 候选回复 |
 | `GET` | `/api/experience/:operator/system-prompt` | 编译后的完整 system prompt（调试用） |
 
-### Policy 相关
+### 事件系统
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/api/policy-documents` | 获取所有政策文档 |
-| `POST` | `/api/policy-documents` | 创建/更新政策文档（UPSERT） |
+| `GET` | `/api/events` | 查询事件列表（支持 `?status=&owner=&creator_id=&event_key=`） |
+| `GET` | `/api/events/:id` | 事件详情（含 periods + policy） |
+| `POST` | `/api/events` | 创建事件 |
+| `PATCH` | `/api/events/:id` | 更新事件状态/结束时间 |
+| `DELETE` | `/api/events/:id` | 删除事件（仅 pending 状态） |
+| `POST` | `/api/events/detect` | 语义检测事件 |
+| `GET` | `/api/events/:id/periods` | 获取事件周期列表 |
+| `POST` | `/api/events/:id/judge` | 判定周期（计算 bonus） |
+| `POST` | `/api/events/gmv-check` | GMV 里程碑批量核查（修复 N+1） |
+| `GET` | `/api/events/summary/:creatorId` | 达人事件汇总 |
+| `GET` | `/api/events/policy/:owner/:eventKey` | 获取事件策略配置 |
 
-### 达人数据相关
+### 客户画像
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/api/creators` | 达人列表（支持 `owner/search/beta_status/priority/agency/event` 过滤） |
+| `GET` | `/api/client-profile/:clientId` | 获取完整客户画像 |
+| `PUT` | `/api/client-profile/:clientId` | 更新画像 summary |
+| `PUT` | `/api/client-profiles/:clientId/tags` | 手工标签管理 |
+| `POST` | `/api/client-profiles/:clientId/memory` | 添加客户记忆 |
+| `DELETE` | `/api/client-profiles/:clientId/memory` | 删除客户记忆 |
+| `POST` | `/api/profile-agent/event` | 触发画像更新（自动提取标签） |
+
+### 达人数据
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/creators` | 达人列表（支持 `owner/search/is_active/beta_status/priority/agency/event` 过滤） |
 | `GET` | `/api/creators/:id` | 达人完整信息 |
+| `PUT` | `/api/creators/:id` | 更新达人基本信息 |
+| `PUT` | `/api/creators/:id/wacrm` | 更新 WA CRM 数据（含级联逻辑） |
 | `GET` | `/api/creators/:id/messages` | 达人消息历史 |
-| `GET` | `/api/stats` | 全局统计数据 |
+| `POST` | `/api/creators/:id/messages` | 写入消息 |
 
-### 审计日志
+### AI / 翻译
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/minimax` | MiniMax API 代理（并发两个温度生成 opt1/opt2） |
+| `POST` | `/api/translate` | 翻译接口（支持单条和批量） |
+| `POST` | `/api/ai/generate` | 独立 OpenAI 生成接口（需 `USE_OPENAI=true`） |
+
+### WhatsApp
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/wa/send` | 发送 WA 消息 |
+| `GET` | `/api/wa/status` | 查询 WA 连接状态 |
+| `GET` | `/api/wa/qr` | 二维码状态（提示去终端扫码） |
+| `GET` | `/api/wa-worker/status` | WA Worker 同步进度 |
+
+### 审计与统计
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/api/audit-log` | 查询审计日志（支持 `?action=&limit=50`） |
+| `GET` | `/api/stats` | 全局统计数据 |
+| `GET` | `/api/health` | 健康检查 |
+
+### Policy
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/policy-documents` | 获取所有政策文档（`?active_only=true`） |
+| `POST` | `/api/policy-documents` | 创建/更新政策文档（UPSERT） |
 
 ---
 
@@ -509,15 +625,28 @@ GET /api/policy-documents?active_only=true
 
 | 资源 | 路径 |
 |------|------|
-| SFT 语料数据库 | `/Users/depp/wa-bot/wa-crm-v2/crm.db` |
-| SFT Dashboard 组件 | `/Users/depp/wa-bot/wa-crm-v2/src/components/SFTDashboard.jsx` |
+| SFT 语料数据库 | MySQL `wa_crm_v2`（`crm.db` 已弃用） |
+| Schema | `/Users/depp/wa-bot/wa-crm-v2/schema.sql` |
+| Server 入口 | `/Users/depp/wa-bot/wa-crm-v2/server/index.cjs` |
+| DB ORM | `/Users/depp/wa-bot/wa-crm-v2/db.js` |
+| System Prompt Builder | `/Users/depp/wa-bot/wa-crm-v2/systemPromptBuilder.cjs` |
+| SFT Dashboard | `/Users/depp/wa-bot/wa-crm-v2/src/components/SFTDashboard.jsx` |
+| 消息编辑器 | `/Users/depp/wa-bot/wa-crm-v2/src/components/WAMessageComposer.jsx` |
+| 事件面板 | `/Users/depp/wa-bot/wa-crm-v2/src/components/EventPanel.jsx` |
+| WA Worker 进度条 | `/Users/depp/wa-bot/wa-crm-v2/src/components/WorkerStatusBar.jsx` |
 | 共享 System Prompt | `/Users/depp/wa-bot/wa-crm-v2/src/utils/systemPrompt.js` |
 | AI 生成（MiniMax） | `/Users/depp/wa-bot/wa-crm-v2/src/utils/minimax.js` |
-| 消息编辑器 | `/Users/depp/wa-bot/wa-crm-v2/src/components/WAMessageComposer.jsx` |
-| 后端 API（server.js） | `/Users/depp/wa-bot/wa-crm-v2/server.js` |
-| 数据库 Schema | `/Users/depp/wa-bot/wa-crm-v2/schema.sql` |
+| OpenAI 生成 | `/Users/depp/wa-bot/wa-crm-v2/src/utils/openai.js` |
+| Experience Router | `/Users/depp/wa-bot/wa-crm-v2/server/routes/experience.js` |
+| SFT Routes | `/Users/depp/wa-bot/wa-crm-v2/server/routes/sft.js` |
+| Events Routes | `/Users/depp/wa-bot/wa-crm-v2/server/routes/events.js` |
+| WA Worker | `/Users/depp/wa-bot/wa-crm-v2/server/waWorker.js` |
+| WA Service | `/Users/depp/wa-bot/wa-crm-v2/server/services/waService.js` |
+| Profile Service | `/Users/depp/wa-bot/wa-crm-v2/server/services/profileService.js` |
+| SFT Service | `/Users/depp/wa-bot/wa-crm-v2/server/services/sftService.js` |
+| Event Keywords | `/Users/depp/wa-bot/wa-crm-v2/server/constants/eventKeywords.js` |
+| Policy Matcher | `/Users/depp/wa-bot/wa-crm-v2/server/utils/policyMatcher.js` |
 | 原始对话数据 | `/Users/depp/wa-bot/wa-crm-v2/data/*.json` |
-| Profile Agent | `/Users/depp/wa-bot/wa-crm-v2/agents/profile-agent.js` |
 
 ---
 
@@ -877,9 +1006,9 @@ function computeSimilarity(text1, text2) {
 
 ---
 
-## RLHF 闭环（待实现 — 2026-04-09 方案设计）
+## RLHF 闭环（部分实现 — 2026-04-10）
 
-> **当前状态**：SFT 数据已收集，但模型未被微调，RLHF 后半段完全缺失。
+> **当前状态**：`chosen_output`/`rejected_output` 字段已实现（v4），模型微调/灰度 AB 测未实现。
 > **目标**：将 `sft_memory` 中 approved 数据真正用于模型优化，形成"收集→训练→上线→效果追踪"的完整闭环。
 
 ### 完整 RLHF 闭环流程
@@ -1112,26 +1241,35 @@ WHERE status = 'approved'
 
 ## 事件系统（EVENT_SYSTEM）
 
-> **状态**：需求文档已编写，代码未实现
+> **状态**：代码已完整实现
 >
-> **详细文档**：[`docs/EVENT_SYSTEM.md`](docs/EVENT_SYSTEM.md)（含事件类型、触发条件、奖励规则、路由逻辑）
+> - 事件检测：`POST /api/events/detect`（语义关键词匹配 + GMV 交叉核对）
+> - 事件判定：`POST /api/events/:id/judge`（按策略计算 bonus）
+> - GMV 核查：`POST /api/events/gmv-check`（批量查询，修复 N+1）
+> - 事件周期：`event_periods` 表记录每个周期的视频数和 bonus
+> - 事件策略：`events_policy` 表存储 per-owner/per-eventKey 的策略配置
 
-### events 表（待建）
+### events 表
 
 ```sql
 CREATE TABLE events (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  creator_id      INTEGER REFERENCES creators(id),
-  event_key       TEXT NOT NULL,            -- 'trial_7day', 'monthly_challenge', 'agency_bound'
-  event_type      TEXT NOT NULL,             -- 'challenge', 'gmv', 'referral', 'incentive_task'
-  owner           TEXT NOT NULL,             -- 'Beau' | 'Yiyun'
-  status          TEXT DEFAULT 'active',     -- 'active' | 'completed' | 'cancelled'
-  trigger_source  TEXT,                      -- 'semantic_auto' | 'manual' | 'gmv_crosscheck'
-  trigger_text    TEXT,                      -- 触发时的原始语义文本
-  start_at        DATETIME,
-  end_at          DATETIME,
-  meta            JSON,                      -- 事件特定数据
-  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id      INT NOT NULL,
+    event_key       VARCHAR(64) NOT NULL,  -- 'trial_7day'|'monthly_challenge'|'agency_bound'|'gmv_milestone'
+    event_type      VARCHAR(32) NOT NULL,   -- 'challenge'|'gmv'|'referral'|'incentive_task'|'agency'
+    owner           VARCHAR(32) NOT NULL,   -- 'Beau'|'Yiyun'
+    status          VARCHAR(16) DEFAULT 'active',  -- 'pending'|'active'|'completed'|'cancelled'
+    trigger_source  VARCHAR(32) DEFAULT 'semantic_auto',  -- 'semantic_auto'|'manual'|'gmv_crosscheck'
+    trigger_text    TEXT,
+    start_at        DATETIME,
+    end_at          DATETIME,
+    meta            JSON,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX idx_events_unique_active ON events(
+    creator_id, event_key, status, (IF(status='active',0,1))
 );
 ```
 
@@ -1145,6 +1283,15 @@ CREATE TABLE events (
 | `incentive_task` | 单次激励任务 | GMV 达标后解锁 |
 | `agency` | Agency 绑定 | 语义识别 + 手动确认 |
 
+### EVENT_KEYWORDS（语义触发）
+
+| event_key | 关键词 |
+|-----------|--------|
+| `trial_7day` | trial, 7day, 7-day, free challenge, 7天挑战, 试用挑战, 加入挑战 |
+| `monthly_challenge` | monthly challenge, monthly, 月度挑战, 包月任务, 每月挑战 |
+| `agency_bound` | agency, bound, signed, contract, 签约, 绑定机构, mcn, 代理 |
+| `referral` | invite, refer, 推荐, 介绍, 新人, creator joined |
+
 ### Beau GMV 阶梯奖励
 
 | GMV 里程碑 | 奖励 |
@@ -1153,5 +1300,3 @@ CREATE TABLE events (
 | ≥ $5,000 | $100 现金 |
 | ≥ $10,000 | $120 现金 |
 | ≥ $20,000 | $200 现金 |
-
-> **完整规则、路由逻辑、7日/月度挑战判定、推荐激励规则**：见 [`docs/EVENT_SYSTEM.md`](docs/EVENT_SYSTEM.md)

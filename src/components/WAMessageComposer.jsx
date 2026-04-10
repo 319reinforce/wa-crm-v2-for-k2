@@ -1359,25 +1359,36 @@ ${fullEventSummary}
         await extractAndSaveMemory(null, sentText);
 
         // 发送 WhatsApp 消息（根据达人负责人选择 operator 账号）
+        let sendOk = false;
         try {
-            await fetch(`${API_BASE}/wa/send`, {
+            const res = await fetch(`${API_BASE}/wa/send`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone: client.phone, text: sentText, operator: client.wa_owner || 'Beau' })
+                body: JSON.stringify({ phone: client.phone, text: sentText })
             });
+            const data = await res.json();
+            if (!data.ok) {
+                console.error('[WA Send] 发送失败:', data.error);
+                alert(`发送失败: ${data.error}`);
+            } else {
+                sendOk = true;
+            }
         } catch (e) {
             console.error('[WA Send] 发送失败:', e);
+            alert(`发送失败: ${e.message}`);
         }
 
-        // 保存到 CRM SQLite
-        try {
-            await fetch(`${API_BASE}/creators/${client.id}/messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role: 'me', text: sentText, timestamp: Date.now() })
-            });
-        } catch (e) {
-            console.error('[CRM DB] 保存失败:', e);
+        // 仅在发送成功时才写入 CRM（避免虚假"已发送"记录）
+        if (sendOk) {
+            try {
+                await fetch(`${API_BASE}/creators/${client.id}/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ role: 'me', text: sentText, timestamp: Date.now() })
+                });
+            } catch (e) {
+                console.error('[CRM DB] 保存失败:', e);
+            }
         }
 
         setInputText('');

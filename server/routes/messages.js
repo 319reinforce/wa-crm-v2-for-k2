@@ -37,17 +37,11 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'role and text required' });
         }
         const creatorId = parseInt(req.params.id);
-        const ts = timestamp || Date.now();
+        const ts = timestamp ? Math.floor(timestamp / 1000) : Math.floor(Date.now() / 1000);
 
         await db.getDb().prepare(
             'INSERT INTO wa_messages (creator_id, role, text, timestamp) VALUES (?, ?, ?, ?)'
         ).run(creatorId, role, text, ts);
-
-        if (role ***REMOVED***= 'me') {
-            await db.getDb().prepare(
-                'UPDATE joinbrands_link SET ev_replied = 1 WHERE creator_id = ?'
-            ).run(creatorId);
-        }
 
         res.json({ ok: true, id: creatorId, timestamp: ts });
     } catch (err) {

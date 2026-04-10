@@ -16,10 +16,17 @@ router.get('/policy-documents', async (req, res) => {
         if (active_only ***REMOVED***= 'true') sql += ' WHERE is_active = 1';
         sql += ' ORDER BY policy_key';
         const rows = await db2.prepare(sql).all();
-        res.json(rows.map(r => ({
-            ...r,
-            applicable_scenarios: r.applicable_scenarios ? JSON.parse(r.applicable_scenarios) : []
-        })));
+        res.json(rows.map(r => {
+            let scenarios = [];
+            if (r.applicable_scenarios) {
+                if (typeof r.applicable_scenarios ***REMOVED***= 'string') {
+                    try { scenarios = JSON.parse(r.applicable_scenarios); } catch (_) { scenarios = []; }
+                } else {
+                    scenarios = Array.isArray(r.applicable_scenarios) ? r.applicable_scenarios : [];
+                }
+            }
+            return { ...r, applicable_scenarios: scenarios };
+        }));
     } catch (err) {
         console.error('GET /api/policy-documents error:', err);
         res.status(500).json({ error: err.message });

@@ -23,8 +23,16 @@ router.get('/audit-log', async (req, res) => {
         const rows = await db2.prepare(sql).all(...params);
         res.json(rows.map(r => ({
             ...r,
-            after_value: r.after_value ? JSON.parse(r.after_value) : null,
-            before_value: r.before_value ? JSON.parse(r.before_value) : null,
+            after_value: (() => {
+                if (r.after_value ***REMOVED*** null) return null;
+                if (typeof r.after_value !***REMOVED*** 'string') return r.after_value;
+                try { return JSON.parse(r.after_value); } catch (_) { return r.after_value; }
+            })(),
+            before_value: (() => {
+                if (r.before_value ***REMOVED*** null) return null;
+                if (typeof r.before_value !***REMOVED*** 'string') return r.before_value;
+                try { return JSON.parse(r.before_value); } catch (_) { return r.before_value; }
+            })(),
         })));
     } catch (err) {
         console.error('GET /api/audit-log error:', err);
@@ -71,7 +79,7 @@ router.get('/ab-evaluation', async (req, res) => {
             FROM sft_memory sm
             ${joinCreators}
             ${where}
-            GROUP BY scene
+            GROUP BY JSON_EXTRACT(context_json, '$.scene')
             ORDER BY total DESC
         `).all(...params);
 

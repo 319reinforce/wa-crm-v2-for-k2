@@ -77,14 +77,30 @@ router.post('/minimax', async (req, res) => {
             }),
         ]);
         const [data1, data2] = await Promise.all([raw1.json(), raw2.json()]);
+
+        // 检查 API 错误
+        if (!raw1.ok || !raw2.ok || data1?.error || data2?.error) {
+            const err1 = data1?.error?.message || (raw1.ok ? '' : `HTTP ${raw1.status}`);
+            const err2 = data2?.error?.message || (raw2.ok ? '' : `HTTP ${raw2.status}`);
+            return res.status(502).json({
+                error: 'MiniMax API error',
+                detail: raw1.ok && raw2.ok ? (data1?.error?.message || data2?.error?.message) : `${err1} / ${err2}`,
+            });
+        }
+
         const extractText = (d) => {
             // OpenAI format: { choices: [{ message: { content: "..." } }] }
             if (d?.choices?.[0]?.message?.content) {
                 return d.choices[0].message.content;
             }
-            // MiniMax format: { content: [{ type: 'text', text: '...' }] }
-            if (d?.content?.find) {
-                return d.content.find(c => c.type ***REMOVED***= 'text')?.text || '';
+            // MiniMax format: { content: { type: 'text', text: '...' } } 或 [{ type: 'text', text: '...' }]
+            if (d?.content) {
+                if (Array.isArray(d.content)) {
+                    return d.content.find(c => c.type ***REMOVED***= 'text')?.text || '';
+                }
+                if (typeof d.content ***REMOVED***= 'object' && d.content.type ***REMOVED***= 'text') {
+                    return d.content.text || '';
+                }
             }
             return '';
         };

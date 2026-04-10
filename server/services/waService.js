@@ -1,46 +1,35 @@
 /**
- * WhatsApp Service — whatsapp-web.js 多账号封装
- * 每个 operator 独立 session 目录
+ * WhatsApp Service — 单账号版本（Beau）
  */
 const { Client, LocalAuth } = require('whatsapp-web.js');
+const { EventEmitter } = require('events');
 const path = require('path');
 const fs = require('fs');
+let qrterminal;
+try { qrterminal = require('qrcode-terminal'); } catch(e) { qrterminal = null; }
 
-// Session 根目录
-const SESSION_BASE = path.join(__dirname, '../../.wwebjs_auth');
+// 每个 PORT 使用独立的 session 目录，支持多实例并行
+const WA_PORT = parseInt(process.env.PORT || '3000', 10);
+const SESSION_DIR = path.join(__dirname, `../../.wwebjs_auth/session-${WA_PORT}`);
+if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 
-// 各 operator session 目录（与 old wa-ai-crm 兼容）
-const OPERATOR_SESSIONS = {
-    Beau: path.join(SESSION_BASE, 'sessions-beau'),
-    Yiyun: path.join(SESSION_BASE, 'sessions-yiyun'),
-    WangYouKe: path.join(SESSION_BASE, 'sessions-wangyouke'),
-};
+// Shared EventEmitter so waWorker can wait for ready
+const ee = new EventEmitter();
 
-// 默认用 Beau
-const DEFAULT_OPERATOR = 'Beau';
+let client = null;
+let ready = false;
+let qr = null;
+let reconnectTimer = null;  // 断开重连定时器，可清除
 
-// 确保所有 session 目录存在
-Object.values(OPERATOR_SESSIONS).forEach(dir => {
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
+function initClient() {
+    if (client) return client;
 
-// 多账号 client 映射
-const clients = {};  // operator → { client, ready, qr }
-const pendingInits = {}; // 防止重复初始化
+    console.log(`[WA Service] 初始化 WhatsApp Client...`);
 
-function initClient(operator = DEFAULT_OPERATOR) {
-    if (clients[operator]?.client) return clients[operator].client;
-    if (pendingInits[operator]) return null;
-
-    const sessionDir = OPERATOR_SESSIONS[operator] || OPERATOR_SESSIONS[Beau];
-    pendingInits[operator] = true;
-
-    console.log(`[WA Service] 初始化 ${operator} WhatsApp Client (session: ${sessionDir})...`);
-
-    const client = new Client({
+    client = new Client({
         authStrategy: new LocalAuth({
-            dir: sessionDir,
-            dataPath: sessionDir,
+            dir: SESSION_DIR,
+            dataPath: SESSION_DIR,
         }),
         puppeteer: {
             executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -49,79 +38,105 @@ function initClient(operator = DEFAULT_OPERATOR) {
         },
     });
 
-    clients[operator] = { client, ready: false, qr: null };
-
-    client.on('qr', (qr) => {
-        clients[operator].qr = qr;
-        console.log(`[WA Service] ${operator} 需要扫码认证 → GET /api/wa/qr?operator=${operator}`);
+    client.on('qr', (q) => {
+        qr = q;
+        console.log(`[WA Service] 需要扫码认证`);
+        if (qrterminal) {
+            console.log('═'.repeat(50));
+            try { qrterminal.generate(q, { small: true }); } catch (e) { console.log('QR:', q); }
+            console.log('═'.repeat(50));
+        } else {
+            // 无 qrcode-terminal 时直接打印 QR 数据
+            console.log('QR:', q);
+        }
+        console.log(`WhatsApp → ⋮ → 已关联的设备 → 关联新设备 扫码上方二维码`);
     });
 
     client.on('ready', () => {
-        clients[operator].ready = true;
-        clients[operator].qr = null;
-        console.log(`[WA Service] ${operator} WhatsApp 已就绪!`);
+        ready = true;
+        qr = null;
+        console.log(`[WA Service] WhatsApp 已就绪!`);
+        ee.emit('ready');
     });
 
     client.on('disconnected', () => {
-        clients[operator].ready = false;
-        clients[operator].client = null;
-        console.log(`[WA Service] ${operator} 已断开，5秒后重新连接...`);
-        delete clients[operator].client;
-        setTimeout(() => { delete pendingInits[operator]; initClient(operator); }, 5000);
+        ready = false;
+        client = null;
+        console.log(`[WA Service] 已断开，5秒后重新连接...`);
+        reconnectTimer = setTimeout(initClient, 5000);
     });
 
     client.initialize();
-    delete pendingInits[operator];
-
     return client;
 }
 
-// 预初始化所有 operator
-Object.keys(OPERATOR_SESSIONS).forEach(op => initClient(op));
-
 /**
- * 发送 WhatsApp 消息
- * @param {string} phone - 目标手机号
- * @param {string} text - 消息内容
- * @param {string} operator - 用哪个 operator 的账号发送（Beau/Yiyun/WangYouKe）
+ * 启动 WhatsApp Client（由 server/index.cjs 在端口确认可用后调用）
+ * 不再自动调用，支持多实例时按序初始化
  */
-async function sendMessage(phone, text, operator = DEFAULT_OPERATOR) {
-    const account = clients[operator];
-    if (!account?.client || !account.ready) {
-        return { ok: false, error: `${operator} WhatsApp 未就绪，请先扫码认证` };
-    }
+function start() {
+    initClient();
+}
 
+module.exports = { sendMessage, getStatus, getClient: () => client, getReady: () => ready, waitForReady, stop, start };
+
+async function sendMessage(phone, text) {
+    if (!client || !ready) {
+        return { ok: false, error: 'WhatsApp 未就绪，请先扫码认证' };
+    }
     try {
         const cleanPhone = phone.replace(/[^\d+]/g, '');
         const chatId = cleanPhone.startsWith('+')
             ? cleanPhone.substring(1) + '@c.us'
             : cleanPhone + '@c.us';
-
-        const messageId = await account.client.sendMessage(chatId, text);
-        console.log(`[WA Service] ${operator} 发送成功 → ${phone}: ${text.slice(0, 50)}`);
+        const messageId = await client.sendMessage(chatId, text);
+        console.log(`[WA Service] 发送成功 → ${phone}: ${text.slice(0, 50)}`);
         return { ok: true, messageId };
     } catch (err) {
-        console.error(`[WA Service] ${operator} 发送失败 → ${phone}:`, err.message);
+        console.error(`[WA Service] 发送失败 → ${phone}:`, err.message);
         return { ok: false, error: err.message };
     }
 }
 
-function getStatus(operator = DEFAULT_OPERATOR) {
-    const account = clients[operator];
-    return {
-        operator,
-        ready: account?.ready || false,
-        hasQr: !!account?.qr,
-        qr: account?.qr || null,
-    };
+function getStatus() {
+    return { ready, hasQr: !!qr, qr };
 }
 
-function getAllStatus() {
-    return Object.keys(OPERATOR_SESSIONS).map(op => ({
-        operator: op,
-        sessionDir: OPERATOR_SESSIONS[op],
-        ...getStatus(op),
-    }));
+/**
+ * 等待 WhatsApp Client 就绪（最多 timeoutMs）
+ * @returns {Promise<void>}
+ */
+function waitForReady(timeoutMs = 120000) {
+    return new Promise((resolve, reject) => {
+        if (ready) { resolve(); return; }
+        const tid = setTimeout(() => {
+            ee.removeListener('ready', onReady);
+            reject(new Error('等待 WhatsApp 就绪超时'));
+        }, timeoutMs);
+        function onReady() {
+            clearTimeout(tid);
+            resolve();
+        }
+        ee.once('ready', onReady);
+    });
 }
 
-module.exports = { sendMessage, getStatus, getAllStatus, OPERATOR_SESSIONS };
+/**
+ * 停止 WhatsApp Service，清除所有定时器
+ * 注意：destroy 前先移除 disconnected 监听，避免关闭时触发重连定时器
+ */
+function stop() {
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    if (client) {
+        client.removeAllListeners('disconnected');
+        client.destroy().catch(() => {});
+        client = null;
+    }
+    ready = false;
+    qr = null;
+}
+
+module.exports = { sendMessage, getStatus, getClient: () => client, getReady: () => ready, waitForReady, stop, start };

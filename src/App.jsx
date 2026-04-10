@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { WAMessageComposer } from './components/WAMessageComposer'
 import { SFTDashboard } from './components/SFTDashboard'
 import { EventPanel } from './components/EventPanel'
+import { WorkerStatusBar } from './components/WorkerStatusBar'
 
 const API_BASE = '/api'
 
@@ -58,7 +59,6 @@ function App() {
   const [lastRefreshed, setLastRefreshed] = useState(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [tagsVisible, setTagsVisible] = useState(true)
-
   // 面板尺寸记忆（从 localStorage 恢复）
   const [panelWidths, setPanelWidths] = useState(() => {
     try {
@@ -148,7 +148,7 @@ function App() {
       setUnreadCounts(newUnread)
 
       // 按最后活跃时间倒序（最新的在前面）
-      enriched.sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
+      enriched.sort((a, b) => (new Date(b.updated_at).getTime() || 0) - (new Date(a.updated_at).getTime() || 0))
 
       setCreators(enriched)
       setStats(statsData)
@@ -507,6 +507,8 @@ function App() {
         </div>
       </div>
 
+      <WorkerStatusBar />
+
       {/* ***REMOVED******REMOVED***= Mobile: Full-screen Chat (shown when creator selected) ***REMOVED******REMOVED***= */}
       {selectedCreator && (
         <div className="flex-1 flex flex-col md:hidden" style={{ background: WA.chatBg }}>
@@ -552,7 +554,6 @@ function App() {
                 {selectedCreator.joinbrands.ev_gmv_2k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#f9731618', color: '#f97316' }}>GMV 2K</span>}
                 {selectedCreator.joinbrands.ev_gmv_5k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#f9731618', color: '#f97316' }}>GMV 5K</span>}
                 {selectedCreator.joinbrands.ev_gmv_10k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#ef444418', color: '#ef4444' }}>GMV 10K</span>}
-                {selectedCreator.joinbrands.ev_gmv_10k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#ef444418', color: '#ef4444' }}>GMV&gt;10K</span>}
                 {selectedCreator.joinbrands.ev_churned && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#ef444418', color: '#ef4444' }}>已流失</span>}
               </div>
             </div>
@@ -675,11 +676,12 @@ function ChatListItem({ creator, onClick, unread }) {
   const full = creator._full || {}
   const wacrm = full.wacrm || {}
 
-  const lastActiveLabel = creator.last_active ? formatRelativeTime(creator.last_active) : null
-  const lastActiveFull = creator.last_active
-    ? new Date(creator.last_active).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const lastActiveTs = creator.updated_at ? new Date(creator.updated_at).getTime() : 0
+  const lastActiveLabel = lastActiveTs ? formatRelativeTime(lastActiveTs) : null
+  const lastActiveFull = lastActiveTs
+    ? new Date(lastActiveTs).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     : ''
-  const isRecent = creator.last_active && (Date.now() - creator.last_active) < 86400000
+  const isRecent = lastActiveTs && (Date.now() - lastActiveTs) < 86400000
 
   const activeEvents = EVENT_BADGES.filter(e => full[e.key]).slice(0, 2)
 
