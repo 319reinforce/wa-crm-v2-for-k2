@@ -27,8 +27,34 @@ const WA = {
   inputBg: '#f0f2f5',
 }
 
+function getConversationStatusMeta(creator) {
+    const full = creator?._full || creator || {};
+    const wacrm = full.wacrm || {};
+    const joinbrands = full.joinbrands || {};
+    const urgencyLevel = Number(wacrm.urgency_level || 0);
+    const isUrgent = wacrm.priority ***REMOVED***= 'urgent' || urgencyLevel >= 8 || !!joinbrands.ev_churned;
+    const isAgencyProspect = !isUrgent && !wacrm.agency_bound && !joinbrands.ev_agency_bound;
 
-export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPanel }) {
+    if (isUrgent) {
+        return {
+            label: '紧急跟进',
+            bg: 'rgba(251,146,60,0.12)',
+            color: '#fb923c',
+        };
+    }
+
+    if (isAgencyProspect) {
+        return {
+            label: 'Agency 转化中',
+            bg: 'rgba(16,185,129,0.14)',
+            color: '#047857',
+        };
+    }
+
+    return null;
+}
+
+export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMessageSent, asPanel }) {
     const [inputText, setInputText] = useState('');
     const [generating, setGenerating] = useState(false);
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -582,6 +608,7 @@ ${fullEventSummary}
             operator,
             operatorDisplayName,
             operatorConfigured,
+            retrieval_snapshot_id: retrievalSnapshotId,
         } = await promptRes.json();
         if (!promptRes.ok || !systemPrompt) {
             throw new Error('system prompt 构建失败');
@@ -602,6 +629,10 @@ ${fullEventSummary}
                 client_id,
                 max_tokens: 500,
                 temperature: [0.8, 0.4],
+                retrieval_snapshot_id: retrievalSnapshotId || null,
+                scene: effectiveScene,
+                operator: operator || null,
+                prompt_version: systemPromptVersion || 'v2',
             }),
             signal: AbortSignal.timeout(60000),
         });
@@ -638,6 +669,7 @@ ${fullEventSummary}
             operatorDisplayName,
             operatorConfigured,
             scene: effectiveScene,
+            retrievalSnapshotId: retrievalSnapshotId || null,
         };
     };
 
@@ -749,6 +781,7 @@ ${fullEventSummary}
                 operatorDisplayName: result.operatorDisplayName,
                 operatorConfigured: result.operatorConfigured,
                 scene: result.scene,
+                retrievalSnapshotId: result.retrievalSnapshotId || null,
                 generated_at: Date.now(),
                 policyDocs,
             };
@@ -953,6 +986,7 @@ ${fullEventSummary}
                 operatorDisplayName: result.operatorDisplayName,
                 operatorConfigured: result.operatorConfigured,
                 scene: result.scene,
+                retrievalSnapshotId: result.retrievalSnapshotId || null,
                 generated_at: Date.now(),
                 policyDocs,
             });
@@ -1039,6 +1073,7 @@ ${fullEventSummary}
                 operatorDisplayName: result.operatorDisplayName,
                 operatorConfigured: result.operatorConfigured,
                 scene: result.scene,
+                retrievalSnapshotId: result.retrievalSnapshotId || null,
                 generated_at: Date.now(),
                 policyDocs,
             }));
@@ -1050,7 +1085,7 @@ ${fullEventSummary}
         }
     };
 
-    const persistCrmSentMessage = async (sentText) => {
+    const persistCrmSentMessage = async (sentText, sentAt) => {
         try {
             await fetch(`${API_BASE}/creators/${client.id}/messages`, {
                 method: 'POST',
@@ -1058,7 +1093,7 @@ ${fullEventSummary}
                 body: JSON.stringify({
                     role: 'me',
                     text: sentText,
-                    timestamp: Date.now()
+                    timestamp: sentAt
                 })
             });
         } catch (e) {
@@ -1086,7 +1121,10 @@ ${fullEventSummary}
             return false;
         }
 
-        await persistCrmSentMessage(sentText);
+        const sentAt = Date.now();
+        await persistCrmSentMessage(sentText, sentAt);
+        setMessages(prev => [...prev, { role: 'me', text: sentText, timestamp: sentAt }]);
+        onMessageSent?.(client.id);
         return true;
     };
 
@@ -1098,6 +1136,7 @@ ${fullEventSummary}
         diffAnalysis,
         promptUsed = null,
         promptVersion = 'v2',
+        retrievalSnapshotId = null,
     }) => {
         try {
             const richContext = buildRichContext({
@@ -1117,7 +1156,10 @@ ${fullEventSummary}
                     human_selected: humanSelected,
                     human_output: sentText,
                     diff_analysis: diffAnalysis,
-                    context: richContext,
+                    context: {
+                        ...richContext,
+                        retrieval_snapshot_id: retrievalSnapshotId,
+                    },
                     messages,
                     system_prompt_used: promptUsed,
                     system_prompt_version: promptVersion,
@@ -1170,6 +1212,7 @@ ${fullEventSummary}
             diffAnalysis,
             promptUsed: activePicker.systemPrompt || null,
             promptVersion: activePicker.systemPromptVersion || 'v2',
+            retrievalSnapshotId: activePicker.retrievalSnapshotId || null,
         });
 
         await extractAndSaveMemory(activePicker.incomingMsg, sentText);
@@ -1243,6 +1286,7 @@ ${fullEventSummary}
                 operatorDisplayName: result.operatorDisplayName,
                 operatorConfigured: result.operatorConfigured,
                 scene: result.scene,
+                retrievalSnapshotId: result.retrievalSnapshotId || null,
                 generated_at: Date.now(),
                 policyDocs,
             });
@@ -1294,6 +1338,7 @@ ${fullEventSummary}
     const groupedMessages = [];
     let lastDate = null;
     const msgsToShow = messages.slice(-50);
+    const conversationStatusMeta = getConversationStatusMeta(creator);
     for (const msg of msgsToShow) {
         const date = formatDate(msg.timestamp);
         if (date !***REMOVED*** lastDate) {
@@ -1484,13 +1529,15 @@ ${fullEventSummary}
                         >
                             {creator && creator.joinbrands && (
                                 <>
+                                    {conversationStatusMeta?.label && <EventPill label={conversationStatusMeta.label} color={conversationStatusMeta.color} bg={conversationStatusMeta.bg} />}
                                     {(creator.joinbrands.ev_trial_active || creator.joinbrands.ev_trial_7day) && <EventPill label="7天试用" color="#3b82f6" />}
                                     {creator.joinbrands.ev_monthly_invited && <EventPill label="月卡邀请" color="#8b5cf6" />}
                                     {creator.joinbrands.ev_monthly_joined && <EventPill label="月卡加入" color="#10b981" />}
                                     {creator.joinbrands.ev_whatsapp_shared && <EventPill label="WA已发" color="#00a884" />}
-                                    {creator.joinbrands.ev_gmv_1k && <EventPill label="GMV>1K" color="#f59e0b" />}
-                                    {creator.joinbrands.ev_gmv_2k && <EventPill label="GMV>2K" color="#f97316" />}
-                                    {creator.joinbrands.ev_gmv_10k && <EventPill label="GMV>10K" color="#ef4444" />}
+                                    {creator.joinbrands.ev_gmv_1k && <EventPill label="GMV 1K" color="#f59e0b" />}
+                                    {creator.joinbrands.ev_gmv_2k && <EventPill label="GMV 2K" color="#f97316" />}
+                                    {creator.joinbrands.ev_gmv_5k && <EventPill label="GMV 5K" color="#ea580c" />}
+                                    {creator.joinbrands.ev_gmv_10k && <EventPill label="GMV 10K" color="#ef4444" />}
                                     {creator.joinbrands.ev_churned && <EventPill label="已流失" color="#ef4444" />}
                                 </>
                             )}
@@ -1779,11 +1826,11 @@ ${fullEventSummary}
 }
 
 // ***REMOVED******REMOVED******REMOVED*** EventPill（悬浮事件标签）***REMOVED******REMOVED******REMOVED***
-function EventPill({ label, color }) {
+function EventPill({ label, color, bg }) {
     return (
         <span
             className="text-xs px-3 py-1.5 rounded-full font-semibold shrink-0"
-            style={{ background: color + '20', color }}
+            style={{ background: bg || color + '20', color }}
         >
             {label}
         </span>
