@@ -6,6 +6,32 @@ import { WorkerStatusBar } from './components/WorkerStatusBar'
 
 const API_BASE = '/api'
 
+async function fetchJsonOrThrow(url, options) {
+  const res = await fetch(url, options)
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const data = await res.json()
+      if (typeof data?.error ***REMOVED***= 'string' && data.error.trim()) message = data.error.trim()
+    } catch (_) {}
+    throw new Error(message)
+  }
+  return res.json()
+}
+
+async function fetchOkOrThrow(url, options) {
+  const res = await fetch(url, options)
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const data = await res.json()
+      if (typeof data?.error ***REMOVED***= 'string' && data.error.trim()) message = data.error.trim()
+    } catch (_) {}
+    throw new Error(message)
+  }
+  return res
+}
+
 const WA = {
   darkHeader: '#111b21',
   teal: '#00a884',
@@ -143,14 +169,14 @@ function App() {
       if (filterOwner) params.set('owner', filterOwner)
 
       const [creatorsData, statsData] = await Promise.all([
-        fetch(`${API_BASE}/creators?${params.toString()}`).then(r => r.json()),
-        fetch(`${API_BASE}/stats`).then(r => r.json()),
+        fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`),
+        fetchJsonOrThrow(`${API_BASE}/stats`),
       ])
 
       // Enrich with full data
       const enriched = await Promise.all(creatorsData.map(async c => {
         try {
-          const full = await fetch(`${API_BASE}/creators/${c.id}`).then(r => r.json())
+          const full = await fetchJsonOrThrow(`${API_BASE}/creators/${c.id}`)
           return { ...c, _full: full }
         } catch {
           return c
@@ -205,10 +231,29 @@ function App() {
   }, [])
 
   const handleSelectCreator = (creator) => {
-    // 标记该联系人的未读为 0
-    setUnreadCounts(prev => ({ ...prev, [creator.id]: 0 }))
     setSelectedCreator(creator)
   }
+
+  const handleCreatorMessageSent = useCallback((creatorId) => {
+    if (!creatorId) return
+    setUnreadCounts(prev => ({ ...prev, [creatorId]: 0 }))
+    setCreators(prev => prev.map(c => {
+      if (c.id !***REMOVED*** creatorId) return c
+      return {
+        ...c,
+        ev_replied: 1,
+        _full: c._full ? { ...c._full, ev_replied: 1 } : c._full,
+      }
+    }))
+    setSelectedCreator(prev => {
+      if (!prev || prev.id !***REMOVED*** creatorId) return prev
+      return {
+        ...prev,
+        ev_replied: 1,
+        _full: prev._full ? { ...prev._full, ev_replied: 1 } : prev._full,
+      }
+    })
+  }, [])
 
   const filteredCreators = useMemo(() => creators.filter(c => {
     if (search) {
@@ -229,6 +274,7 @@ function App() {
   }), [creators, search, filterBeta, filterPriority, filterAgency, filterEvent])
 
   const activeFilterCount = [filterBeta, filterPriority, filterAgency, filterEvent].filter(Boolean).length
+  const selectedCreatorStatusMeta = getCreatorStatusMeta(selectedCreator)
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -501,6 +547,7 @@ function App() {
               creatorId={selectedCreator.id}
               creatorName={selectedCreator.primary_name}
               onClose={() => setSelectedCreator(null)}
+              onMessageSent={handleCreatorMessageSent}
               asPanel
             />
           ) : (
@@ -538,6 +585,7 @@ function App() {
               }}
               creator={selectedCreator}
               onClose={() => setSelectedCreator(null)}
+              onMessageSent={handleCreatorMessageSent}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center" style={{ background: WA.chatBg }}>
@@ -596,11 +644,16 @@ function App() {
               }}
             >
               <div className="flex gap-2">
+                {selectedCreatorStatusMeta.label && (
+                  <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: selectedCreatorStatusMeta.bg, color: selectedCreatorStatusMeta.accent }}>
+                    {selectedCreatorStatusMeta.label}
+                  </span>
+                )}
                 {selectedCreator.joinbrands.ev_trial_active && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#3b82f618', color: '#3b82f6' }}>七日挑战进行中</span>}
                 {selectedCreator.joinbrands.ev_monthly_started && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#8b5cf618', color: '#8b5cf6' }}>开启月度挑战</span>}
                 {selectedCreator.joinbrands.ev_monthly_joined && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#10b98118', color: '#10b981' }}>月卡加入</span>}
                 {selectedCreator.joinbrands.ev_whatsapp_shared && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#00a88418', color: '#00a884' }}>WA已发</span>}
-                {selectedCreator.joinbrands.ev_gmv_1k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#f59e0b18', color: '#f59e0b' }}>GMV&gt;1K</span>}
+                {selectedCreator.joinbrands.ev_gmv_1k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#f59e0b18', color: '#f59e0b' }}>GMV 1K</span>}
                 {selectedCreator.joinbrands.ev_gmv_2k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#f9731618', color: '#f97316' }}>GMV 2K</span>}
                 {selectedCreator.joinbrands.ev_gmv_5k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#f9731618', color: '#f97316' }}>GMV 5K</span>}
                 {selectedCreator.joinbrands.ev_gmv_10k && <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0" style={{ background: '#ef444418', color: '#ef4444' }}>GMV 10K</span>}
@@ -622,6 +675,7 @@ function App() {
               creator={selectedCreator}
               onClose={() => setSelectedCreator(null)}
               onSwipeLeft={() => setMobileSidebarOpen(true)}
+              onMessageSent={handleCreatorMessageSent}
               asPanel
             />
           </div>
@@ -660,11 +714,15 @@ function KanbanView({ creators, onCreatorClick }) {
 
 function KanbanCard({ creator, color, onClick }) {
   const ownerColor = { 'Beau': '#3b82f6', 'Yiyun': '#8b5cf6' }[creator.wa_owner] || '#94a3b8'
+  const statusMeta = getCreatorStatusMeta(creator)
   return (
     <div
       onClick={onClick}
       className="bg-white rounded-xl p-4 cursor-pointer hover:shadow-lg transition-all"
-      style={{ borderLeft: `4px solid ${color}` }}
+      style={{
+        borderLeft: `4px solid ${statusMeta.accent ***REMOVED***= 'transparent' ? color : statusMeta.accent}`,
+        background: statusMeta.bg ***REMOVED***= 'transparent' ? WA.white : `linear-gradient(180deg, ${statusMeta.bg} 0%, ${WA.white} 72%)`,
+      }}
     >
       <div className="flex items-center gap-3 mb-3">
         <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: ownerColor }}>
@@ -673,6 +731,13 @@ function KanbanCard({ creator, color, onClick }) {
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold truncate" style={{ color: WA.textDark }}>{creator.primary_name || 'Unknown'}</div>
           <div className="text-xs" style={{ color: WA.textMuted }}>{creator.wa_phone || '-'}</div>
+          {statusMeta.label && (
+            <div className="mt-1">
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: statusMeta.bg, color: statusMeta.accent }}>
+                {statusMeta.label}
+              </span>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex items-center justify-between">
@@ -720,11 +785,50 @@ function formatRelativeTime(ts) {
   return `${md.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}`
 }
 
+function getCreatorStatusMeta(creator) {
+  const full = creator?._full || creator || {}
+  const wacrm = full.wacrm || {}
+  const joinbrands = full.joinbrands || {}
+  const urgencyLevel = Number(wacrm.urgency_level || 0)
+  const isUrgent = wacrm.priority ***REMOVED***= 'urgent' || urgencyLevel >= 8 || !!joinbrands.ev_churned
+  const isAgencyProspect = !isUrgent && !wacrm.agency_bound && !joinbrands.ev_agency_bound
+
+  if (isUrgent) {
+    return {
+      key: 'urgent',
+      label: '紧急跟进',
+      bg: 'rgba(251,146,60,0.12)',
+      hoverBg: 'rgba(251,146,60,0.18)',
+      accent: '#fb923c',
+    }
+  }
+
+  if (isAgencyProspect) {
+    return {
+      key: 'agency',
+      label: 'Agency 转化中',
+      bg: 'rgba(16,185,129,0.10)',
+      hoverBg: 'rgba(16,185,129,0.16)',
+      accent: '#10b981',
+    }
+  }
+
+  return {
+    key: 'default',
+    label: '',
+    bg: 'transparent',
+    hoverBg: WA.hover,
+    accent: 'transparent',
+  }
+}
+
 // ***REMOVED******REMOVED******REMOVED*** Chat List Item ***REMOVED******REMOVED******REMOVED***
 function ChatListItem({ creator, onClick, unread }) {
   const ownerColor = { 'Beau': '#3b82f6', 'Yiyun': '#8b5cf6' }[creator.wa_owner] || WA.textMuted
   const full = creator._full || {}
   const wacrm = full.wacrm || {}
+  const joinbrands = full.joinbrands || {}
+  const statusMeta = getCreatorStatusMeta(creator)
 
   const lastActiveTs = creator.updated_at ? new Date(creator.updated_at).getTime() : 0
   const lastActiveLabel = lastActiveTs ? formatRelativeTime(lastActiveTs) : null
@@ -733,15 +837,19 @@ function ChatListItem({ creator, onClick, unread }) {
     : ''
   const isRecent = lastActiveTs && (Date.now() - lastActiveTs) < 86400000
 
-  const activeEvents = EVENT_BADGES.filter(e => full[e.key]).slice(0, 2)
+  const activeEvents = EVENT_BADGES.filter(e => joinbrands[e.key] || full[e.key]).slice(0, 2)
 
   return (
     <div
       onClick={onClick}
       className="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors"
-      style={{ borderBottom: `1px solid ${WA.borderLight}`, background: 'transparent' }}
-      onMouseEnter={e => e.currentTarget.style.background = WA.hover}
-      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+      style={{
+        borderBottom: `1px solid ${WA.borderLight}`,
+        borderLeft: `3px solid ${statusMeta.accent}`,
+        background: statusMeta.bg,
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = statusMeta.hoverBg}
+      onMouseLeave={e => e.currentTarget.style.background = statusMeta.bg}
     >
       {/* Avatar + unread dot */}
       <div className="relative shrink-0">
@@ -779,8 +887,13 @@ function ChatListItem({ creator, onClick, unread }) {
         </div>
 
         {/* Tags row */}
-        {(activeEvents.length > 0 || wacrm.priority || wacrm.agency_bound > 0 || creator.keeper_gmv > 0) && (
+        {(activeEvents.length > 0 || wacrm.priority || wacrm.agency_bound > 0 || creator.keeper_gmv > 0 || statusMeta.label) && (
           <div className="flex flex-wrap gap-1 mt-1">
+            {statusMeta.label && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: statusMeta.bg ***REMOVED***= 'transparent' ? 'rgba(0,0,0,0.05)' : statusMeta.bg, color: statusMeta.accent }}>
+                {statusMeta.label}
+              </span>
+            )}
             {activeEvents.map(e => (
               <span key={e.key} className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: e.bg, color: e.color }}>
                 {e.label}
@@ -827,7 +940,7 @@ function EmptyState({ viewMode }) {
 }
 
 // ***REMOVED******REMOVED******REMOVED*** Creator Detail Panel ***REMOVED******REMOVED******REMOVED***
-function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
+function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, asPanel }) {
   const [creator, setCreator] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -840,29 +953,27 @@ function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
   const [profileRefreshing, setProfileRefreshing] = useState(false)
   const [profileExpanded, setProfileExpanded] = useState(false)
 
-  const fetchCreator = useCallback((silent = false) => {
+  const fetchCreator = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true)
-    fetch(`${API_BASE}/creators/${creatorId}`)
-      .then(r => r.json())
-      .then(data => {
-        setCreator(data)
-        setEditForm({
-          primary_name: data.primary_name || '',
-          wa_phone: data.wa_phone || '',
-          wa_owner: data.wa_owner || '',
-          keeper_username: data.keeper_username || '',
-          beta_status: data.wacrm?.beta_status || 'not_introduced',
-          priority: data.wacrm?.priority || 'normal',
-          agency_bound: data.wacrm?.agency_bound ? '1' : '0',
-          video_count: data.wacrm?.video_count || 0,
-        })
-        setLoading(false)
-        setRefreshing(false)
+    try {
+      const data = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}`)
+      setCreator(data)
+      setEditForm({
+        primary_name: data.primary_name || '',
+        wa_phone: data.wa_phone || '',
+        wa_owner: data.wa_owner || '',
+        keeper_username: data.keeper_username || '',
+        beta_status: data.wacrm?.beta_status || 'not_introduced',
+        priority: data.wacrm?.priority || 'normal',
+        agency_bound: data.wacrm?.agency_bound ? '1' : '0',
+        video_count: data.wacrm?.video_count || 0,
       })
-      .catch(() => {
-        setLoading(false)
-        setRefreshing(false)
-      })
+    } catch (_) {
+      // ignore, keep current creator state
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
   }, [creatorId])
 
   // 获取客户画像（summary + tags + memory）
@@ -875,6 +986,48 @@ function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
       .catch(() => {})
       .finally(() => { if (!silent) setProfileRefreshing(false) })
   }, [creator?.wa_phone])
+
+  const updateClientTag = useCallback(async (tag, action = 'upsert') => {
+    if (!creator?.wa_phone || !tag) return
+    try {
+      await fetchOkOrThrow(`${API_BASE}/client-profiles/${encodeURIComponent(creator.wa_phone)}/tags`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag, action })
+      })
+      fetchClientProfile(true)
+    } catch (e) {
+      console.error('[ClientProfile][tags] 更新失败:', e)
+    }
+  }, [creator?.wa_phone, fetchClientProfile])
+
+  const deleteStrategyMemory = useCallback(async (memoryKey) => {
+    if (!creator?.wa_phone || !memoryKey) return
+    try {
+      await fetchOkOrThrow(`${API_BASE}/client-profiles/${encodeURIComponent(creator.wa_phone)}/memory`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memory_type: 'strategy', memory_key: memoryKey })
+      })
+      fetchClientProfile(true)
+    } catch (e) {
+      console.error('[ClientProfile][memory] 删除失败:', e)
+    }
+  }, [creator?.wa_phone, fetchClientProfile])
+
+  const addStrategyMemory = useCallback(async (memoryKey, memoryValue) => {
+    if (!creator?.wa_phone || !memoryKey || !memoryValue) return
+    try {
+      await fetchOkOrThrow(`${API_BASE}/client-profiles/${encodeURIComponent(creator.wa_phone)}/memory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memory_type: 'strategy', memory_key: memoryKey, memory_value: memoryValue })
+      })
+      fetchClientProfile(true)
+    } catch (e) {
+      console.error('[ClientProfile][memory] 新增失败:', e)
+    }
+  }, [creator?.wa_phone, fetchClientProfile])
 
   useEffect(() => {
     fetchCreator(true)
@@ -965,7 +1118,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
     setEditSaving(true)
     try {
       // 更新 creators 表（基本信息）
-      await fetch(`/api/creators/${creatorId}`, {
+      await fetchOkOrThrow(`${API_BASE}/creators/${creatorId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -976,7 +1129,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
         })
       })
       // 更新 wa_crm_data + joinbrands_link + keeper_link（运营数据 & 事件标签）
-      await fetch(`/api/creators/${creatorId}/wacrm`, {
+      await fetchOkOrThrow(`${API_BASE}/creators/${creatorId}/wacrm`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1028,6 +1181,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
   )
 
   const wacrm = creator?.wacrm || {}
+  const detailStatusMeta = getCreatorStatusMeta(creator)
   const clientInfo = {
     id: creator?.id,
     phone: creator?.wa_phone,
@@ -1090,181 +1244,6 @@ function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
               <InfoRow label="视频数" value={wacrm.video_count ? `${wacrm.video_count} / ${wacrm.video_target || 35}` : '-'} />
             </Section>
 
-            {/* ***REMOVED******REMOVED***= 画像管理（可折叠）***REMOVED******REMOVED******REMOVED*** */}
-            <div className="rounded-xl border" style={{ borderColor: WA.borderLight, background: WA.white }}>
-              {/* 折叠头部 */}
-              <div
-                className="flex items-center justify-between px-4 py-3 cursor-pointer"
-                onClick={() => setProfileExpanded(v => !v)}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold" style={{ color: '#111b21' }}>画像管理</span>
-                  {clientProfile?.tags?.length > 0 && (
-                    <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: '#f0f0f0', color: '#667781' }}>
-                      {clientProfile.tags.length}标签
-                    </span>
-                  )}
-                  {clientProfile?.memory?.filter(m => m.type ***REMOVED***= 'strategy').length > 0 && (
-                    <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: '#008069' }}>
-                      {clientProfile.memory.filter(m => m.type ***REMOVED***= 'strategy').length}策略
-                    </span>
-                  )}
-                </div>
-                <span className="text-sm" style={{ color: '#667781' }}>{profileExpanded ? '▲' : '▼'}</span>
-              </div>
-
-              {/* 展开内容 */}
-              {profileExpanded && (
-                <div className="px-4 pb-4 space-y-3 border-t" style={{ borderColor: WA.borderLight }}>
-                  {/* AI 摘要 */}
-                  <div className="pt-3">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-semibold" style={{ color: '#111b21' }}>AI 摘要</span>
-                      <button
-                        onClick={() => fetchClientProfile()}
-                        disabled={profileRefreshing}
-                        className="text-xs px-2 py-0.5 rounded hover:opacity-80 transition-opacity"
-                        style={{ color: profileRefreshing ? '#667781' : '#00a884' }}
-                      >
-                        {profileRefreshing ? '刷新中...' : '🔄 刷新'}
-                      </button>
-                    </div>
-                    {clientProfile?.summary ? (
-                      <div className="text-sm py-2 px-3 rounded-lg" style={{ background: '#f0f2f5', color: '#111b21' }}>
-                        {clientProfile.summary}
-                      </div>
-                    ) : (
-                      <div className="text-sm" style={{ color: '#667781' }}>暂无摘要</div>
-                    )}
-                  </div>
-
-                  {/* 客户标签 */}
-                  <div>
-                    <div className="text-xs font-semibold mb-1.5" style={{ color: '#111b21' }}>客户标签</div>
-                    {clientProfile?.tags?.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mb-2">
-                        {clientProfile.tags.map((t, i) => (
-                          <span key={i} className="flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ background: '#f0f0f0', color: '#111b21' }}>
-                            {t.tag}
-                            <button
-                              onClick={() => {
-                                fetch(`/api/client-profiles/${encodeURIComponent(creator?.wa_phone)}/tags`, {
-                                  method: 'PUT',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ tag: t.tag, action: 'delete' })
-                                }).then(() => fetchClientProfile())
-                              }}
-                              className="text-red-400 hover:text-red-600 font-bold ml-0.5"
-                            >×</button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="text-xs w-10 shrink-0 pt-1" style={{ color: '#667781' }}>语气</span>
-                      {[['tone:casual','休闲'],['tone:formal','正式'],['tone:friendly','友好']].map(([tag, label]) => (
-                        <button key={tag} onClick={() => { fetch(`/api/client-profiles/${encodeURIComponent(creator?.wa_phone)}/tags`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag, action: 'upsert' }) }).then(() => fetchClientProfile()) }}
-                          className="text-xs px-2 py-1 rounded-full border" style={{ borderColor: '#e9edef', color: '#111b21', background: 'transparent' }}>+ {label}</button>
-                      ))}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="text-xs w-10 shrink-0 pt-1" style={{ color: '#667781' }}>内容</span>
-                      {[['format:video','视频'],['format:text','图文'],['format:mixed','混合']].map(([tag, label]) => (
-                        <button key={tag} onClick={() => { fetch(`/api/client-profiles/${encodeURIComponent(creator?.wa_phone)}/tags`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag, action: 'upsert' }) }).then(() => fetchClientProfile()) }}
-                          className="text-xs px-2 py-1 rounded-full border" style={{ borderColor: '#e9edef', color: '#111b21', background: 'transparent' }}>+ {label}</button>
-                      ))}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="text-xs w-10 shrink-0 pt-1" style={{ color: '#667781' }}>阶段</span>
-                      {[['stage:new','新用户'],['stage:trial','试用中'],['stage:onboarding','onboarding'],['stage:active','活跃'],['stage:churned','流失']].map(([tag, label]) => (
-                        <button key={tag} onClick={() => { fetch(`/api/client-profiles/${encodeURIComponent(creator?.wa_phone)}/tags`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag, action: 'upsert' }) }).then(() => fetchClientProfile()) }}
-                          className="text-xs px-2 py-1 rounded-full border" style={{ borderColor: '#e9edef', color: '#111b21', background: 'transparent' }}>+ {label}</button>
-                      ))}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="text-xs w-10 shrink-0 pt-1" style={{ color: '#667781' }}>偏好</span>
-                      {[['interest:drifto','DRIFTO'],['interest:fashion','时尚'],['interest:beauty','美妆'],['interest:lifestyle','生活']].map(([tag, label]) => (
-                        <button key={tag} onClick={() => { fetch(`/api/client-profiles/${encodeURIComponent(creator?.wa_phone)}/tags`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag, action: 'upsert' }) }).then(() => fetchClientProfile()) }}
-                          className="text-xs px-2 py-1 rounded-full border" style={{ borderColor: '#e9edef', color: '#111b21', background: 'transparent' }}>+ {label}</button>
-                      ))}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="text-xs w-10 shrink-0 pt-1" style={{ color: '#667781' }}>互动</span>
-                      {[['engagement:high','高'],['engagement:medium','中'],['engagement:low','低']].map(([tag, label]) => (
-                        <button key={tag} onClick={() => { fetch(`/api/client-profiles/${encodeURIComponent(creator?.wa_phone)}/tags`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag, action: 'upsert' }) }).then(() => fetchClientProfile()) }}
-                          className="text-xs px-2 py-1 rounded-full border" style={{ borderColor: '#e9edef', color: '#111b21', background: 'transparent' }}>+ {label}</button>
-                      ))}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="text-xs w-10 shrink-0 pt-1" style={{ color: '#667781' }}>来源</span>
-                      {[['source:organic','自然流量'],['source:referral','推荐'],['source:ads','广告']].map(([tag, label]) => (
-                        <button key={tag} onClick={() => { fetch(`/api/client-profiles/${encodeURIComponent(creator?.wa_phone)}/tags`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag, action: 'upsert' }) }).then(() => fetchClientProfile()) }}
-                          className="text-xs px-2 py-1 rounded-full border" style={{ borderColor: '#e9edef', color: '#111b21', background: 'transparent' }}>+ {label}</button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* 回复策略 */}
-                  <div className="border-t pt-3" style={{ borderColor: '#e9edef' }}>
-                    <div className="text-xs font-semibold mb-1.5" style={{ color: '#111b21' }}>回复策略</div>
-                    {clientProfile?.memory?.filter(m => m.type ***REMOVED***= 'strategy').length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mb-2">
-                        {clientProfile.memory.filter(m => m.type ***REMOVED***= 'strategy').map((m, i) => (
-                          <span key={i} className="flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: '#008069' }}>
-                            {m.value}
-                            <button onClick={() => {
-                              fetch(`/api/client-profiles/${encodeURIComponent(creator?.wa_phone)}/memory`, {
-                                method: 'DELETE',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ memory_type: 'strategy', memory_key: m.key })
-                              }).then(() => fetchClientProfile())
-                            }} className="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex flex-wrap gap-1.5">
-                      {[
-                        ['DRIFTO介绍', '介绍DRIFTO MCN背景、2个月签约期、佣金100%返还机制'],
-                        ['价格咨询', '回应月费、Beta激励、套餐价格相关疑问'],
-                        ['月费说明', '解释$20月费扣除规则、每周一结算'],
-                        ['Beta计划', '介绍20天Beta $200激励、$10/天规则'],
-                        ['月度挑战', '邀请开启月度挑战计划、DRIFTO MCN月费权益'],
-                        ['流失挽回', '针对流失客户的激活话术、重新建立沟通'],
-                        ['视频要求', '说明5个/天最佳、超6个TikTok降权规则'],
-                        ['付款说明', '解释PayPal返还、佣金结算周期'],
-                      ].map(([key, desc]) => (
-                        <button key={key}
-                          onClick={() => {
-                            fetch(`/api/client-profiles/${encodeURIComponent(creator?.wa_phone)}/memory`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ memory_type: 'strategy', memory_key: key, memory_value: desc })
-                            }).then(() => fetchClientProfile())
-                          }}
-                          className="text-xs px-2 py-1 rounded-full border"
-                          style={{ borderColor: '#00a884', color: '#111b21', background: 'transparent' }}
-                        >+ {key}</button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <Section title="事件">
-              <div className="flex flex-wrap gap-1.5">
-                {EVENT_BADGES.filter(e => creator?.[e.key]).map(e => (
-                  <span key={e.key} className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: e.bg, color: e.color }}>
-                    {e.label}
-                  </span>
-                ))}
-                {!EVENT_BADGES.some(e => creator?.[e.key]) && (
-                  <span className="text-xs" style={{ color: WA.textMuted }}>暂无事件</span>
-                )}
-              </div>
-            </Section>
-
             <Section title="快捷操作">
               <div className="flex flex-col gap-2">
                 <ActionPill label="更新状态" icon="🔄" color="#f59e0b" onClick={handleRefresh} loading={refreshing} />
@@ -1282,7 +1261,112 @@ function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
                 ) : (
                   <ActionPill label="编辑达人" icon="✏️" color="#3b82f6" onClick={handleEditOpen} />
                 )}
+                <ActionPill
+                  label={profileExpanded ? '收起画像管理' : '画像管理'}
+                  icon={profileExpanded ? '▲' : '👩‍🦰'}
+                  color={detailStatusMeta.accent ***REMOVED***= 'transparent' ? WA.teal : detailStatusMeta.accent}
+                  onClick={() => setProfileExpanded(v => !v)}
+                />
               </div>
+
+              {profileExpanded && (
+                <div className="mt-3 p-4 rounded-xl space-y-3" style={{ background: WA.lightBg }}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold" style={{ color: WA.textMuted }}>画像管理</span>
+                      {clientProfile?.tags?.length > 0 && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted }}>
+                          {clientProfile.tags.length} 标签
+                        </span>
+                      )}
+                      {clientProfile?.memory?.filter(m => m.type ***REMOVED***= 'strategy').length > 0 && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: WA.teal }}>
+                          {clientProfile.memory.filter(m => m.type ***REMOVED***= 'strategy').length} 策略
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => fetchClientProfile()}
+                      disabled={profileRefreshing}
+                      className="text-xs px-2 py-1 rounded hover:opacity-80 transition-opacity"
+                      style={{ color: profileRefreshing ? WA.textMuted : WA.teal }}
+                    >
+                      {profileRefreshing ? '刷新中...' : '🔄 刷新'}
+                    </button>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold mb-1.5" style={{ color: WA.textMuted }}>AI 摘要</div>
+                    {clientProfile?.summary ? (
+                      <div className="text-sm py-2 px-3 rounded-lg" style={{ background: WA.white, color: WA.textDark }}>
+                        {clientProfile.summary}
+                      </div>
+                    ) : (
+                      <div className="text-sm" style={{ color: WA.textMuted }}>暂无摘要</div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold mb-1.5" style={{ color: WA.textMuted }}>客户标签</div>
+                    {clientProfile?.tags?.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {clientProfile.tags.map((t, i) => (
+                          <span key={i} className="flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ background: WA.white, color: WA.textDark }}>
+                            {t.tag}
+                            <button
+                              onClick={() => updateClientTag(t.tag, 'delete')}
+                              className="text-red-400 hover:text-red-600 font-bold ml-0.5"
+                            >×</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <ProfileTagGroup label="语气" tags={[['tone:casual', '休闲'], ['tone:formal', '正式'], ['tone:friendly', '友好']]} onAdd={updateClientTag} />
+                      <ProfileTagGroup label="内容" tags={[['format:video', '视频'], ['format:text', '图文'], ['format:mixed', '混合']]} onAdd={updateClientTag} />
+                      <ProfileTagGroup label="阶段" tags={[['stage:new', '新用户'], ['stage:trial', '试用中'], ['stage:onboarding', 'onboarding'], ['stage:active', '活跃'], ['stage:churned', '流失']]} onAdd={updateClientTag} />
+                      <ProfileTagGroup label="偏好" tags={[['interest:drifto', 'DRIFTO'], ['interest:fashion', '时尚'], ['interest:beauty', '美妆'], ['interest:lifestyle', '生活']]} onAdd={updateClientTag} />
+                      <ProfileTagGroup label="互动" tags={[['engagement:high', '高'], ['engagement:medium', '中'], ['engagement:low', '低']]} onAdd={updateClientTag} />
+                      <ProfileTagGroup label="来源" tags={[['source:organic', '自然流量'], ['source:referral', '推荐'], ['source:ads', '广告']]} onAdd={updateClientTag} />
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-3" style={{ borderColor: WA.borderLight }}>
+                    <div className="text-xs font-semibold mb-1.5" style={{ color: WA.textMuted }}>回复策略</div>
+                    {clientProfile?.memory?.filter(m => m.type ***REMOVED***= 'strategy').length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {clientProfile.memory.filter(m => m.type ***REMOVED***= 'strategy').map((m, i) => (
+                          <span key={i} className="flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: WA.teal }}>
+                            {m.value}
+                            <button onClick={() => deleteStrategyMemory(m.key)} className="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        ['DRIFTO介绍', '介绍DRIFTO MCN背景、2个月签约期、佣金100%返还机制'],
+                        ['价格咨询', '回应月费、Beta激励、套餐价格相关疑问'],
+                        ['月费说明', '解释$20月费扣除规则、每周一结算'],
+                        ['Beta计划', '介绍20天Beta $200激励、$10/天规则'],
+                        ['月度挑战', '邀请开启月度挑战计划、DRIFTO MCN月费权益'],
+                        ['流失挽回', '针对流失客户的激活话术、重新建立沟通'],
+                        ['视频要求', '说明5个/天最佳、超6个TikTok降权规则'],
+                        ['付款说明', '解释PayPal返还、佣金结算周期'],
+                      ].map(([key, desc]) => (
+                        <button
+                          key={key}
+                          onClick={() => addStrategyMemory(key, desc)}
+                          className="text-xs px-2 py-1 rounded-full border"
+                          style={{ borderColor: WA.teal, color: WA.textDark, background: 'transparent' }}
+                        >
+                          + {key}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Panel 模式内联编辑表单 */}
               {asPanel && editPanelOpen && (
@@ -1509,13 +1593,13 @@ function CreatorDetail({ creatorId, creatorName, onClose, asPanel }) {
 
             {/* Desktop Message composer */}
             <div className="flex-1 flex flex-col min-w-0" style={{ background: WA.chatBg }}>
-              <WAMessageComposer client={clientInfo} creator={creator} onClose={onClose} />
+              <WAMessageComposer client={clientInfo} creator={creator} onClose={onClose} onMessageSent={onMessageSent} />
             </div>
           </div>
 
           {/* Mobile: just the chat composer (header is in App's main panel) */}
           <div className="flex-1 flex flex-col md:hidden" style={{ background: WA.chatBg }}>
-            <WAMessageComposer client={clientInfo} creator={creator} onClose={onClose} />
+            <WAMessageComposer client={clientInfo} creator={creator} onClose={onClose} onMessageSent={onMessageSent} />
           </div>
         </>
       )}
@@ -1701,6 +1785,24 @@ function InlineEditField({ label, value, onChange, type = 'text', options = [] }
   )
 }
 
+function ProfileTagGroup({ label, tags, onAdd }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      <span className="text-xs w-10 shrink-0 pt-1" style={{ color: WA.textMuted }}>{label}</span>
+      {tags.map(([tag, text]) => (
+        <button
+          key={tag}
+          onClick={() => onAdd?.(tag, 'upsert')}
+          className="text-xs px-2 py-1 rounded-full border"
+          style={{ borderColor: WA.borderLight, color: WA.textDark, background: 'transparent' }}
+        >
+          + {text}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ***REMOVED******REMOVED******REMOVED*** Panel 2 空状态：显示全局统计 ***REMOVED******REMOVED******REMOVED***
 function Panel2Empty({ stats, creators }) {
   if (!stats) {
@@ -1809,6 +1911,32 @@ function ActionPill({ label, icon, color, onClick, loading }) {
   )
 }
 
+function parseEventMeta(meta) {
+  if (!meta) return {}
+  if (typeof meta ***REMOVED***= 'object') return meta
+  try {
+    return JSON.parse(meta)
+  } catch (_) {
+    return {}
+  }
+}
+
+function formatUsd(value) {
+  const amount = Number(value || 0)
+  if (!Number.isFinite(amount) || amount <= 0) return '$0'
+  return `$${amount.toLocaleString()}`
+}
+
+function getGmvMilestoneStates(gmvCurrent) {
+  const amount = Number(gmvCurrent || 0)
+  return [
+    { label: '1K', threshold: 1000 },
+    { label: '2K', threshold: 2000 },
+    { label: '5K', threshold: 5000 },
+    { label: '10K', threshold: 10000 },
+  ].map(item => ({ ...item, reached: amount >= item.threshold }))
+}
+
 // ***REMOVED******REMOVED******REMOVED*** Creator Events Section (in CreatorDetail) ***REMOVED******REMOVED******REMOVED***
 function CreatorEventsSection({ creatorId }) {
   const [summary, setSummary] = useState(null)
@@ -1833,15 +1961,22 @@ function CreatorEventsSection({ creatorId }) {
 
   useEffect(() => {
     if (!creatorId) return
-    setLoading(true)
-    fetch(`/api/events/summary/${creatorId}`)
-      .then(r => r.json())
-      .then(data => {
+    let cancelled = false
+    const loadSummary = async () => {
+      setLoading(true)
+      try {
+        const data = await fetchJsonOrThrow(`${API_BASE}/events/summary/${creatorId}`)
+        if (cancelled) return
         setSummary(data.summary)
         setEvents(data.events || [])
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
+      } catch (_) {
+        if (cancelled) return
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadSummary()
+    return () => { cancelled = true }
   }, [creatorId])
 
   if (loading) {
@@ -1868,46 +2003,73 @@ function CreatorEventsSection({ creatorId }) {
   return (
     <Section title={`事件 (${events.length})`}>
       {/* Summary chips */}
-      <div className="flex flex-wrap gap-2 mb-3">
+      <div className="flex flex-wrap gap-2.5 mb-4">
         {summary.active_count > 0 && (
-          <span className="text-xs px-3 py-1 rounded-full font-semibold" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>
+          <span className="text-sm px-3.5 py-1.5 rounded-full font-semibold" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>
             🔥 {summary.active_count} 进行中
           </span>
         )}
         {summary.completed_count > 0 && (
-          <span className="text-xs px-3 py-1 rounded-full font-semibold" style={{ background: 'rgba(148,163,184,0.15)', color: '#94a3b8' }}>
+          <span className="text-sm px-3.5 py-1.5 rounded-full font-semibold" style={{ background: 'rgba(148,163,184,0.15)', color: '#94a3b8' }}>
             ✅ {summary.completed_count} 已完成
           </span>
         )}
         {summary.wa_owner && (
-          <span className="text-xs px-3 py-1 rounded-full font-semibold" style={{ background: summary.wa_owner ***REMOVED***= 'Beau' ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', color: summary.wa_owner ***REMOVED***= 'Beau' ? '#3b82f6' : '#8b5cf6' }}>
+          <span className="text-sm px-3.5 py-1.5 rounded-full font-semibold" style={{ background: summary.wa_owner ***REMOVED***= 'Beau' ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', color: summary.wa_owner ***REMOVED***= 'Beau' ? '#3b82f6' : '#8b5cf6' }}>
             {summary.wa_owner}
           </span>
         )}
       </div>
 
       {/* Events list */}
-      <div className="space-y-2">
+      <div className="space-y-3">
         {events.slice(0, 5).map(evt => {
           const typeInfo = EVENT_TYPE_LABELS[evt.event_key] || { label: evt.event_key, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
           const statusInfo = STATUS_LABELS[evt.status] || { label: evt.status, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
+          const meta = parseEventMeta(evt.meta)
+          const gmvCurrent = meta.gmv_current || meta.gmv || meta.amount || 0
+          const gmvMilestones = evt.event_key ***REMOVED***= 'gmv_milestone' ? getGmvMilestoneStates(gmvCurrent) : []
           return (
-            <div key={evt.id} className="p-3 rounded-xl" style={{ background: WA.lightBg }}>
-              <div className="flex items-center justify-between mb-1.5">
+            <div key={evt.id} className="p-4 rounded-2xl" style={{ background: WA.lightBg }}>
+              <div className="flex items-start justify-between gap-3 mb-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: typeInfo.bg, color: typeInfo.color }}>
+                  <span className="text-sm px-2.5 py-1 rounded-full font-semibold" style={{ background: typeInfo.bg, color: typeInfo.color }}>
                     {typeInfo.label}
                   </span>
-                  <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: statusInfo.bg, color: statusInfo.color }}>
+                  <span className="text-sm px-2.5 py-1 rounded-full font-semibold" style={{ background: statusInfo.bg, color: statusInfo.color }}>
                     {statusInfo.label}
                   </span>
                 </div>
-                <span className="text-xs" style={{ color: WA.textMuted }}>
+                <span className="text-sm shrink-0" style={{ color: WA.textMuted }}>
                   {evt.start_at ? new Date(evt.start_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) : '-'}
                 </span>
               </div>
+
+              {evt.event_key ***REMOVED***= 'gmv_milestone' && (
+                <div className="mb-2.5 p-3 rounded-xl" style={{ background: WA.white }}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium" style={{ color: WA.textMuted }}>当前 GMV</span>
+                    <span className="text-base font-semibold" style={{ color: typeInfo.color }}>{formatUsd(gmvCurrent)}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {gmvMilestones.map(item => (
+                      <span
+                        key={item.label}
+                        className="text-sm px-2.5 py-1 rounded-full font-semibold"
+                        style={{
+                          background: item.reached ? typeInfo.bg : 'rgba(148,163,184,0.12)',
+                          color: item.reached ? typeInfo.color : WA.textMuted,
+                        }}
+                      >
+                        {item.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {evt.trigger_text && (
-                <div className="text-xs truncate" style={{ color: WA.textMuted }}>
+                <div className="text-sm leading-6" style={{ color: WA.textMuted }}>
                   "{evt.trigger_text.slice(0, 50)}{evt.trigger_text.length > 50 ? '...' : ''}"
                 </div>
               )}
