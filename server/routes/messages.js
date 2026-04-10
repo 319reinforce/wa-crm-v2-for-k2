@@ -12,17 +12,20 @@ router.get('/', async (req, res) => {
         const creatorId = parseInt(req.params.id);
         const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
         const offset = parseInt(req.query.offset) || 0;
+        const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 100;
+        const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
 
-        // LIMIT/OFFSET validated and safe via Math.min/max — use parameterized query
+        // MySQL prepared statements may reject LIMIT/OFFSET placeholders in some driver paths.
+        // These values are validated integers, so inline them and keep creator_id parameterized.
         const messages = await db.getDb().prepare(
-            `SELECT * FROM wa_messages WHERE creator_id = ? ORDER BY timestamp ASC LIMIT ? OFFSET ?`
-        ).all(creatorId, limit, offset);
+            `SELECT * FROM wa_messages WHERE creator_id = ? ORDER BY timestamp ASC LIMIT ${safeLimit} OFFSET ${safeOffset}`
+        ).all(creatorId);
 
         const { total } = await db.getDb().prepare(
             'SELECT COUNT(*) as total FROM wa_messages WHERE creator_id = ?'
         ).get(creatorId);
 
-        res.json({ messages, total, limit, offset });
+        res.json({ messages, total, limit: safeLimit, offset: safeOffset });
     } catch (err) {
         console.error('Error fetching messages:', err);
         res.status(500).json({ error: err.message });
