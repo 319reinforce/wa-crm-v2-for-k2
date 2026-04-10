@@ -7,6 +7,7 @@
     "start": "node server/index.cjs",
     "dev": "vite",
     "build": "vite build",
+    "test": "node scripts/test-smoke.cjs",
     "preview": "vite preview",
     "migrate": "node migrate.js",
     "index": "node index_v2.js",
