@@ -859,8 +859,8 @@ function getPriorityBadgeMeta(priority) {
   }
   if (priority ***REMOVED***= 'high') {
     return {
-      label: '中优先级',
-      style: { background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }
+      label: '高优先级',
+      style: { background: 'rgba(245,158,11,0.10)', color: '#d97706', border: '1px solid rgba(245,158,11,0.18)' }
     }
   }
   if (priority ***REMOVED***= 'medium') {
@@ -928,8 +928,9 @@ function ChatListItem({ creator, onClick, unread }) {
   const wacrm = full.wacrm || {}
   const joinbrands = full.joinbrands || {}
   const statusMeta = getCreatorStatusMeta(creator)
+  const priorityMeta = getPriorityBadgeMeta(wacrm.priority)
 
-  const lastActiveTs = creator.updated_at ? new Date(creator.updated_at).getTime() : 0
+  const lastActiveTs = getCreatorLastConversationTs(creator)
   const lastActiveLabel = lastActiveTs ? formatRelativeTime(lastActiveTs) : null
   const lastActiveFull = lastActiveTs
     ? new Date(lastActiveTs).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -986,7 +987,7 @@ function ChatListItem({ creator, onClick, unread }) {
         </div>
 
         {/* Tags row */}
-        {(activeEvents.length > 0 || wacrm.priority || wacrm.agency_bound > 0 || creator.keeper_gmv > 0 || statusMeta.label) && (
+        {(activeEvents.length > 0 || priorityMeta || wacrm.agency_bound > 0 || creator.keeper_gmv > 0 || statusMeta.label) && (
           <div className="flex flex-wrap gap-1 mt-1">
             {statusMeta.label && (
               <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: statusMeta.bg ***REMOVED***= 'transparent' ? 'rgba(0,0,0,0.05)' : statusMeta.bg, color: statusMeta.accent }}>
@@ -998,9 +999,9 @@ function ChatListItem({ creator, onClick, unread }) {
                 {e.label}
               </span>
             ))}
-            {wacrm.priority && wacrm.priority !***REMOVED*** 'low' && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: wacrm.priority ***REMOVED***= 'high' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)', color: wacrm.priority ***REMOVED***= 'high' ? '#ef4444' : '#f59e0b' }}>
-                {wacrm.priority ***REMOVED***= 'high' ? '高优先级' : '中优先级'}
+            {priorityMeta && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full" style={priorityMeta.style}>
+                {priorityMeta.label}
               </span>
             )}
             {wacrm.agency_bound > 0 && (
