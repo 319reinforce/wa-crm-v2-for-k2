@@ -183,15 +183,15 @@ function App() {
         }
       }))
 
-      // 计算未读：基于 ev_replied 字段（0=未回复显示红点，1=已回复消除红点）
+      // 计算未读：基于消息方向 + 48h 话题过期规则
       const newUnread = {}
-      for (const c of creatorsData) {
-        newUnread[c.id] = c.ev_replied ? 0 : 1
+      for (const c of enriched) {
+        newUnread[c.id] = shouldShowUnread(c) ? 1 : 0
       }
       setUnreadCounts(newUnread)
 
-      // 按最后活跃时间倒序（最新的在前面）
-      enriched.sort((a, b) => (new Date(b.updated_at).getTime() || 0) - (new Date(a.updated_at).getTime() || 0))
+      // 按最后一次对话结束时间倒序
+      enriched.sort((a, b) => getCreatorLastConversationTs(b) - getCreatorLastConversationTs(a))
 
       setCreators(enriched)
       setStats(statsData)
@@ -231,6 +231,9 @@ function App() {
   }, [])
 
   const handleSelectCreator = (creator) => {
+    if (!shouldShowUnread(creator)) {
+      setUnreadCounts(prev => ({ ...prev, [creator.id]: 0 }))
+    }
     setSelectedCreator(creator)
   }
 
@@ -785,13 +788,109 @@ function formatRelativeTime(ts) {
   return `${md.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}`
 }
 
+const TOPIC_STALE_MS = 48 * 3600 * 1000
+
+function normalizeChatTimestamp(value) {
+  if (value ***REMOVED*** null || value ***REMOVED***= '') return 0
+  if (typeof value ***REMOVED***= 'number') return value > 1e12 ? value : value * 1000
+  if (typeof value ***REMOVED***= 'string' && /^\d+$/.test(value)) {
+    const n = Number(value)
+    return n > 1e12 ? n : n * 1000
+  }
+  const parsed = new Date(value).getTime()
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function getCreatorMessages(creator) {
+  return Array.isArray(creator?._full?.messages) ? creator._full.messages : []
+}
+
+function getCreatorLastConversationTs(creator) {
+  const messageTs = getCreatorMessages(creator).map(m => normalizeChatTimestamp(m?.timestamp))
+  const candidates = [
+    normalizeChatTimestamp(creator?.last_active),
+    ...messageTs,
+    normalizeChatTimestamp(creator?.updated_at),
+  ].filter(Boolean)
+  return candidates.length ? Math.max(...candidates) : 0
+}
+
+function isTopicExpired(creator) {
+  const messages = getCreatorMessages(creator)
+  const lastUserTs = messages
+    .filter(m => m?.role ***REMOVED***= 'user')
+    .map(m => normalizeChatTimestamp(m?.timestamp))
+    .filter(Boolean)
+    .reduce((max, ts) => Math.max(max, ts), 0)
+
+  const referenceTs = lastUserTs || getCreatorLastConversationTs(creator)
+  return referenceTs > 0 && (Date.now() - referenceTs) > TOPIC_STALE_MS
+}
+
+function shouldShowUnread(creator) {
+  const messages = getCreatorMessages(creator)
+  if (messages.length > 0) {
+    let lastUserTs = 0
+    let lastMeTs = 0
+    for (const msg of messages) {
+      const ts = normalizeChatTimestamp(msg?.timestamp)
+      if (!ts) continue
+      if (msg?.role ***REMOVED***= 'user') lastUserTs = Math.max(lastUserTs, ts)
+      if (msg?.role ***REMOVED***= 'me') lastMeTs = Math.max(lastMeTs, ts)
+    }
+    if (!lastUserTs) return false
+    if (lastMeTs >= lastUserTs) return false
+    if ((Date.now() - lastUserTs) > TOPIC_STALE_MS) return false
+    return true
+  }
+
+  if (creator?.ev_replied) return false
+  if (isTopicExpired(creator)) return false
+  return !creator?.ev_replied
+}
+
+function getPriorityBadgeMeta(priority) {
+  if (!priority) return null
+  if (priority ***REMOVED***= 'urgent') {
+    return {
+      label: '高优先级',
+      style: { background: 'rgba(245,158,11,0.16)', color: '#f59e0b' }
+    }
+  }
+  if (priority ***REMOVED***= 'high') {
+    return {
+      label: '中优先级',
+      style: { background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }
+    }
+  }
+  if (priority ***REMOVED***= 'medium') {
+    return {
+      label: '中优先级',
+      style: { background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }
+    }
+  }
+  if (priority ***REMOVED***= 'normal' || priority ***REMOVED***= 'low') {
+    return {
+      label: '低优先级',
+      style: { background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }
+    }
+  }
+  return null
+}
+
 function getCreatorStatusMeta(creator) {
   const full = creator?._full || creator || {}
   const wacrm = full.wacrm || {}
   const joinbrands = full.joinbrands || {}
   const urgencyLevel = Number(wacrm.urgency_level || 0)
   const isUrgent = wacrm.priority ***REMOVED***= 'urgent' || urgencyLevel >= 8 || !!joinbrands.ev_churned
-  const isAgencyProspect = !isUrgent && !wacrm.agency_bound && !joinbrands.ev_agency_bound
+  const recentMessagesText = getCreatorMessages(creator).slice(-12).map(m => m?.text || '').join(' ').toLowerCase()
+  const isAgencyProspect = !isUrgent && !wacrm.agency_bound && !joinbrands.ev_agency_bound && (
+    !!wacrm.agency_bound_at ||
+    !!wacrm.agency_deadline ||
+    /\b(agency|mcn|contract|sign|signed|binding|bound)\b/.test(recentMessagesText) ||
+    /(绑定|签约|机构)/.test(recentMessagesText)
+  )
 
   if (isUrgent) {
     return {
