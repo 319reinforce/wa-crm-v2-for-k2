@@ -708,7 +708,6 @@ ${fullEventSummary}
             ? buildTopicContext({ topic: effectiveTopic, creator, activeEvents, mode: isSameTopic ? 'same_topic' : 'new_topic' })
             : '';
         const richContextParagraph = buildRichContextParagraph(richCtx);
-        const basePrompt = buildSystemPrompt({ mode: isSameTopic ? 'same_topic' : 'new_topic', activeEvents });
 
         // 方向二：最近优先机制
         // - 同一话题（manual/auto）：最近10条直接传，更早消息摘要注入Prompt
@@ -727,25 +726,29 @@ ${fullEventSummary}
             conversationMsgs.push({ role: 'user', content: '[请回复这位达人]' });
         }
 
-        // 组装顺序：话题上下文 → 丰富上下文 → 更早摘要（如果有）→ 基础规则
-        const systemPromptParts = [
-            topicContext,
-            richContextParagraph,
-            convSummary ? convSummary.summary : null,
-            basePrompt,
-        ].filter(Boolean);
-        const systemPrompt = systemPromptParts.join('\n\n');
+        // 通过后端 /api/ai/system-prompt 构建完整 system prompt（与 sft-export 对齐）
+        // 前端提供：topicContext + richContext + conversationSummary + operator + scene
+        // 后端补充：operator experience、client_memory、policy_documents、REPLY_STYLE
+        const { prompt: systemPrompt } = await fetch(`${API_BASE}/ai/system-prompt`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                client_id,
+                scene: richCtx?.scene || 'unknown',
+                topicContext,
+                richContext: richContextParagraph,
+                conversationSummary: convSummary ? convSummary.summary : '',
+            }),
+            signal: AbortSignal.timeout(30000),
+        }).then(r => r.json());
 
-        // 最前面插入 system prompt
+        // 将 system prompt 注入消息列表
         const allMessages = [
             { role: 'system', content: systemPrompt },
             ...conversationMsgs,
         ];
 
-        // 单请求：同时获取 opt1（temp=0.8）和 opt2（temp=0.4）
-        // 后端 /api/minimax 根据 USE_OPENAI 自动路由
-        // - MiniMax: 并发两路请求（temp 0.8 vs 0.4），返回 {content_opt1, content_opt2}
-        // - OpenAI: generateCandidates 并发生成两个候选，返回 {content_opt1, content_opt2}
+        // 调用 /api/minimax 生成候选
         const res = await fetch(`${API_BASE}/minimax`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

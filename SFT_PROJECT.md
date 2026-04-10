@@ -1,7 +1,7 @@
 # WA CRM v2 — SFT 语料训练项目
 
 > 本文档供其他 AI Agent 阅读学习使用
-> 更新时间：2026-04-10（MySQL 迁移 + 模块化架构 + 完整事件系统）
+> 更新时间：2026-04-10（RLHF 问题修复 + Prompt 对齐 + 灰度路由）
 > 前置文档：`CLAUDE.md`（项目入口）、`BOT_INTEGRATION.md`（API 速查）
 
 ---
@@ -21,6 +21,20 @@ WA CRM v2 是一个面向 WhatsApp 达人（influencer）的 CRM 系统，同时
 ---
 
 ## 版本历史
+
+### v6 — 2026-04-10 RLHF 问题修复 + Prompt 对齐
+
+**本次修复解决 RLHF 训练数据与推理 Prompt 不对齐的核心问题：**
+
+| 修复项 | 说明 |
+|--------|------|
+| Prompt 对齐（P0）| `WAMessageComposer` 改用 `POST /api/ai/system-prompt` 获取 `systemPromptBuilder.cjs` 构建的完整 prompt |
+| 对话格式对齐（P0）| sft-export 与推理使用完全相同的 prompt 组装逻辑（前端上下文 + 后端 operator/policy） |
+| Reply Style 统一（P0）| `REPLY_STYLE` 常量注入 `systemPromptBuilder.cjs`，训练/推理共用同一套风格规则 |
+| Prompt 版本追踪（P1）| `system_prompt_version` 升级为 `'v2'`，动态从 `buildFullSystemPrompt` 返回 |
+| 灰度路由（P1）| `POST /api/minimax` 实现 `USE_FINETUNED` + `AB_RATIO` 10% 灰度逻辑 |
+| 后端 Experience Router（P2）| operator 检测从 `client_id` 下沉到 `buildFullSystemPrompt`（前端不再传 operator 字段） |
+| 训练门槛检查（P3）| `GET /api/sft-training-status` 返回 approved/custom/scene 覆盖状态 + 下一步建议 |
 
 ### v5 — 2026-04-10 MySQL 迁移 + 模块化架构
 
@@ -1300,3 +1314,50 @@ CREATE UNIQUE INDEX idx_events_unique_active ON events(
 | ≥ $5,000 | $100 现金 |
 | ≥ $10,000 | $120 现金 |
 | ≥ $20,000 | $200 现金 |
+
+---
+
+## RLHF 阶段路径现状（2026-04-10）
+
+### 阶段状态总览
+
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| 阶段0 数据积累 | ⚠️ 数据量=0 | 代码基建完整，运营使用是唯一 blocker |
+| 阶段1 模型训练 | 🟡 导出就绪，脚本未写 | `GET /api/sft-export` + `GET /api/sft-training-status` 可用 |
+| 阶段2 灰度部署 | ✅ 已实现 | `USE_FINETUNED` + `AB_RATIO` 10% 灰度路由（`POST /api/minimax` 内部） |
+| 阶段3 持续迭代 | 🟡 门槛检查就绪 | `GET /api/sft-training-status` 提供下一步建议，自动化触发待接入 Modal |
+
+### RLHF 训练门槛
+
+| 条件 | 门槛 | 当前状态 |
+|------|------|---------|
+| approved 语料 | ≥ 200 条 | 0 条 |
+| custom 高质量数据 | ≥ 20 条 | 未知 |
+| 场景覆盖 | ≥ 3 类 | 未知 |
+| 英文数据比例 | - | 未知 |
+
+**门槛检查 API：** `GET /api/sft-training-status` 返回 ready 状态、各项指标 vs 门槛、blockers 列表、下一步建议 + 导出链接。
+
+### 推荐技术栈（不变）
+
+| 组件 | 推荐 |
+|------|------|
+| 训练平台 | Modal（$10-15/次） |
+| 训练框架 | Axolotl |
+| Base 模型 | Mistral-7B-Instruct |
+| 推理托管 | 硅基流动 / Together AI / Modal |
+
+### 环境变量（RLHF 相关）
+
+```bash
+# 灰度路由
+USE_FINETUNED=true                    # true = 开启微调模型灰度
+FINETUNED_BASE=https://your-endpoint.com/v1/messages  # 微调模型 endpoint
+FINETUNED_API_KEY=your-key            # 微调模型 API key
+AB_RATIO=0.1                          # 灰度比例（10% 流量）
+
+# AI 提供商
+USE_OPENAI=true                       # true = 使用 OpenAI（GPT-4o）
+MINIMAX_API_KEY=your-key             # MiniMax API key（默认）
+```

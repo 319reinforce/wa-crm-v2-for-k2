@@ -13,6 +13,7 @@ const { getClient, waitForReady, stop: stopWaService } = require('./services/waS
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;   // 增量轮询间隔（5分钟）
 const HISTORY_MSG_LIMIT = 200;            // 历史消息拉取条数
+const BASE_URL = `http://localhost:${process.env.PORT || 3000}`; // 画像服务调用地址
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 达人人效过滤 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
@@ -270,6 +271,17 @@ async function handleIncomingMessage(msg) {
             messageHandlers.forEach(fn => {
                 try { fn({ phone, name, text: msg.body, creatorId }); } catch (_) {}
             });
+
+            // 触发客户画像系统：标签提取 + MiniMax summary 刷新
+            fetch(`${BASE_URL}/api/profile-agent/event`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    event_type: 'wa_message',
+                    client_id: phone,  // wa_phone 是 client_id
+                    data: { text: msg.body, role: msg.fromMe ? 'me' : 'user' }
+                })
+            }).catch(() => {});  // 非阻塞，不影响主流程
         }
     } catch (e) {
         console.error('[WA Worker] handleIncomingMessage error:', e.message);
@@ -338,6 +350,17 @@ async function pollOnce(client) {
                 if (inserted > 0) {
                     await touchCreator(creatorId);
                     console.log(`[WA Worker][Poll] ${name}: +${inserted} 条新消息`);
+
+                    // 触发客户画像系统（每批次只发一次，避免刷接口）
+                    fetch(`${BASE_URL}/api/profile-agent/event`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            event_type: 'wa_message',
+                            client_id: phone,
+                            data: { text: newer[0].body, role: newer[0].fromMe ? 'me' : 'user' }
+                        })
+                    }).catch(() => {});
                 }
             }
         }

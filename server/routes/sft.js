@@ -219,6 +219,65 @@ router.get('/sft-memory/stats', async (req, res) => {
     }
 });
 
+// GET /api/sft-training-status — 训练就绪状态检查
+router.get('/sft-training-status', async (req, res) => {
+    try {
+        const db2 = db.getDb();
+
+        const THRESHOLDS = {
+            approved: 200,
+            custom: 20,
+            scenes: 3,
+        };
+
+        const [approvedRow, customRow, sceneRows, enApprovedRow] = await Promise.all([
+            db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved'").get(),
+            db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved' AND human_selected = 'custom'").get(),
+            db2.prepare("SELECT COUNT(DISTINCT scene) as count FROM sft_memory WHERE status = 'approved' AND scene IS NOT NULL").get(),
+            db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved' AND (SELECT input_text FROM sft_memory WHERE LENGTH(input_text) > 0 AND input_text IS NOT NULL LIMIT 1) IS NOT NULL").get(),
+        ]);
+
+        const approved = approvedRow?.count || 0;
+        const custom = customRow?.count || 0;
+        const sceneCount = sceneRows?.count || 0;
+
+        const approvedReady = approved >= THRESHOLDS.approved;
+        const customReady = custom >= THRESHOLDS.custom;
+        const scenesReady = sceneCount >= THRESHOLDS.scenes;
+        const trainingReady = approvedReady && customReady && scenesReady;
+
+        const blockers = [];
+        if (!approvedReady) blockers.push(`approved 数据 ${approved}/${THRESHOLDS.approved}`);
+        if (!customReady) blockers.push(`custom 数据 ${custom}/${THRESHOLDS.custom}`);
+        if (!scenesReady) blockers.push(`场景覆盖 ${sceneCount}/${THRESHOLDS.scenes}`);
+
+        let nextAction = '继续积累数据';
+        if (trainingReady) {
+            nextAction = '数据已就绪，可以开始训练！请运行 Modal + Axolotl 训练脚本';
+        } else if (approvedReady && !customReady) {
+            nextAction = '鼓励运营使用 custom 回复（高质量训练数据）';
+        } else if (approvedReady) {
+            nextAction = '数据接近门槛，继续推进运营使用';
+        }
+
+        res.json({
+            ready: trainingReady,
+            approved,
+            approved_threshold: THRESHOLDS.approved,
+            custom,
+            custom_threshold: THRESHOLDS.custom,
+            scene_count: sceneCount,
+            scene_threshold: THRESHOLDS.scenes,
+            blockers,
+            next_action: nextAction,
+            export_url: `/api/sft-export?status=approved&limit=${THRESHOLDS.approved}&lang=en&format=jsonl`,
+        });
+    } catch (err) {
+        console.error('GET /api/sft-training-status error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // GET /api/sft-memory/trends
 router.get('/sft-memory/trends', async (req, res) => {
     try {
@@ -347,7 +406,11 @@ router.get('/sft-export', async (req, res) => {
                 return null;
             }
 
-            const systemPrompt = buildFullSystemPrompt(ctx.client_id, r.scene || ctx.scene || 'unknown', history);
+            const { prompt: systemPrompt, version: promptVersion } = buildFullSystemPrompt(
+                ctx.client_id,
+                r.scene || ctx.scene || 'unknown',
+                history
+            );
             const conversationMsgs = buildConversationMessages(history, inputText);
 
             return {
@@ -365,7 +428,7 @@ router.get('/sft-export', async (req, res) => {
                     is_custom_input: r.is_custom_input,
                     reviewed_by: r.reviewed_by,
                     created_at: r.created_at,
-                    system_prompt_version: r.system_prompt_version || 'v1',
+                    system_prompt_version: promptVersion || 'v2',
                     chosen_output: r.chosen_output,
                     rejected_output: r.rejected_output,
                 }

@@ -6,7 +6,15 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 
-// POST /api/minimax — MiniMax API 代理（USE_OPENAI=true 时路由到 OpenAI）
+// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 灰度路由辅助 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+
+function shouldUseFinetuned() {
+    if (process.env.USE_FINETUNED !***REMOVED*** 'true') return false;
+    const ratio = parseFloat(process.env.AB_RATIO || '0.1');
+    return Math.random() < ratio;
+}
+
+// POST /api/minimax — AI 生成路由（含 USE_FINETUNED 灰度）
 router.post('/minimax', async (req, res) => {
     try {
         const { messages, model, max_tokens, temperature, client_id } = req.body;
@@ -18,6 +26,59 @@ router.post('/minimax', async (req, res) => {
             if (!valid) {
                 return res.status(403).json({ error: '无效的 client_id' });
             }
+        }
+
+        // ***REMOVED***= 灰度路由：AB_RATIO 流量走微调模型 ***REMOVED***=
+        if (shouldUseFinetuned()) {
+            const FINETUNED_BASE = process.env.FINETUNED_BASE || 'http://localhost:8000/v1/messages';
+            const FINETUNED_KEY = process.env.FINETUNED_API_KEY || 'EMPTY';
+            const temps = Array.isArray(temperature) ? temperature : [0.8, 0.4];
+
+            const [raw1, raw2] = await Promise.all([
+                fetch(FINETUNED_BASE, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${FINETUNED_KEY}`,
+                    },
+                    body: JSON.stringify({
+                        model: 'wa-crm-finetuned',
+                        messages,
+                        max_tokens: max_tokens || 500,
+                        temperature: temps[0],
+                    }),
+                    signal: AbortSignal.timeout(60000),
+                }),
+                fetch(FINETUNED_BASE, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${FINETUNED_KEY}`,
+                    },
+                    body: JSON.stringify({
+                        model: 'wa-crm-finetuned',
+                        messages,
+                        max_tokens: max_tokens || 500,
+                        temperature: temps[1],
+                    }),
+                    signal: AbortSignal.timeout(60000),
+                }),
+            ]);
+
+            const [data1, data2] = await Promise.all([raw1.json(), raw2.json()]);
+            if (!raw1.ok || !raw2.ok) {
+                return res.status(502).json({ error: 'Finetuned model error', detail: `${raw1.status}/${raw2.status}` });
+            }
+
+            const extractText = (d) => d?.choices?.[0]?.message?.content || '';
+            return res.json({
+                id: 'finetuned-' + Date.now(),
+                type: 'message',
+                role: 'assistant',
+                model: 'wa-crm-finetuned',
+                content: [{ type: 'text', text: extractText(data1) }],
+                content_opt2: [{ type: 'text', text: extractText(data2) }],
+            });
         }
 
         if (process.env.USE_OPENAI ***REMOVED***= 'true') {
@@ -114,6 +175,32 @@ router.post('/minimax', async (req, res) => {
         });
     } catch (err) {
         console.error('MiniMax proxy error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/ai/system-prompt — 构建完整 system prompt（与 sft-export 对齐）
+// 前端 generateViaExperienceRouter 调用此端点获取统一 prompt，再调 /api/minimax
+router.post('/ai/system-prompt', async (req, res) => {
+    try {
+        const { client_id, scene, operator, topicContext, richContext, conversationSummary } = req.body;
+
+        if (!scene) {
+            return res.status(400).json({ error: 'scene is required' });
+        }
+
+        const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
+        const { prompt, version } = buildFullSystemPrompt(client_id, scene, [], {
+            operator: operator || null,
+            topicContext: topicContext || '',
+            richContext: richContext || '',
+            conversationSummary: conversationSummary || '',
+            systemPromptVersion: 'v2',
+        });
+
+        res.json({ systemPrompt: prompt, version });
+    } catch (err) {
+        console.error('POST /api/ai/system-prompt error:', err);
         res.status(500).json({ error: err.message });
     }
 });
