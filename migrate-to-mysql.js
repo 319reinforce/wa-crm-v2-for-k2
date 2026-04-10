@@ -117,8 +117,19 @@ async function main() {
         {
             const rows = sqliteDb.prepare('SELECT * FROM creators').all();
             const cols = ['id', 'primary_name', 'wa_phone', 'keeper_username', 'wa_owner', 'source', 'is_active', 'created_at', 'updated_at'];
-            log(`迁移 creators: ${rows.length} 条`);
-            await batchInsert('creators', cols, rows);
+            const mapped = rows.map(r => ({
+                id: r.id,
+                primary_name: r.creator_name,
+                wa_phone: r.whatsapp_phone || null,
+                keeper_username: r.tiktok_username || null,
+                wa_owner: r.wa_owner || 'Beau',
+                source: r.source || 'unknown',
+                is_active: 1,
+                created_at: r.created_at || null,
+                updated_at: r.updated_at || null,
+            }));
+            log(`迁移 creators: ${mapped.length} 条`);
+            await batchInsert('creators', cols, mapped);
             log(`  ✓ creators`);
         }
 
@@ -146,16 +157,25 @@ async function main() {
             log(`  ✓ wa_messages`);
         }
 
-        // 4. wa_crm_data
+        // 4. wa_crm_data (源表: SQLite wa_crm_link)
         {
-            const rows = sqliteDb.prepare('SELECT * FROM wa_crm_data').all();
-            const cols = ['id', 'creator_id', 'priority', 'next_action', 'event_score', 'urgency_level',
-                'monthly_fee_status', 'monthly_fee_amount', 'monthly_fee_deducted',
-                'beta_status', 'beta_cycle_start', 'beta_program_type',
-                'agency_bound', 'agency_bound_at', 'agency_deadline',
-                'video_count', 'video_target', 'video_last_checked', 'created_at', 'updated_at'];
-            log(`迁移 wa_crm_data: ${rows.length} 条`);
-            await batchInsert('wa_crm_data', cols, rows);
+            const rows = sqliteDb.prepare('SELECT * FROM wa_crm_link').all();
+            const cols = ['id', 'creator_id', 'priority', 'next_action',
+                'monthly_fee_status',
+                'beta_status', 'agency_bound', 'created_at', 'updated_at'];
+            const mapped = rows.map(r => ({
+                id: r.id,
+                creator_id: r.creator_id,
+                priority: r.priority || 'low',
+                next_action: r.next_action || null,
+                monthly_fee_status: r.monthly_fee_status || 'pending',
+                beta_status: r.beta_status || 'not_introduced',
+                agency_bound: r.agency_bound || 0,
+                created_at: r.last_synced || null,
+                updated_at: r.last_synced || null,
+            }));
+            log(`迁移 wa_crm_data: ${mapped.length} 条`);
+            await batchInsert('wa_crm_data', cols, mapped);
             log(`  ✓ wa_crm_data`);
         }
 
@@ -175,12 +195,23 @@ async function main() {
             const rows = sqliteDb.prepare('SELECT * FROM joinbrands_link').all();
             const cols = ['id', 'creator_id', 'creator_name_jb', 'jb_gmv', 'jb_status', 'jb_priority', 'jb_next_action',
                 'last_message', 'days_since_msg', 'invite_code_jb',
-                'ev_joined', 'ev_ready_sent', 'ev_trial_7day', 'ev_trial_active',
-                'ev_monthly_started', 'ev_monthly_invited', 'ev_monthly_joined',
-                'ev_whatsapp_shared', 'ev_gmv_1k', 'ev_gmv_2k', 'ev_gmv_5k', 'ev_gmv_10k',
+                'ev_joined', 'ev_ready_sent', 'ev_trial_7day', 'ev_monthly_invited', 'ev_monthly_joined',
+                'ev_whatsapp_shared', 'ev_gmv_1k', 'ev_gmv_3k', 'ev_gmv_10k',
                 'ev_agency_bound', 'ev_churned', 'last_synced'];
-            log(`迁移 joinbrands_link: ${rows.length} 条`);
-            if (rows.length > 0) await batchInsert('joinbrands_link', cols, rows);
+            const mapped = rows.map(r => ({
+                id: r.id, creator_id: r.creator_id, creator_name_jb: r.creator_name_jb,
+                jb_gmv: r.jb_gmv, jb_status: r.jb_status, jb_priority: r.jb_priority,
+                jb_next_action: r.jb_next_action, last_message: r.last_message,
+                days_since_msg: r.days_since_msg, invite_code_jb: r.invite_code_jb,
+                ev_joined: r.ev_joined, ev_ready_sent: r.ev_ready_sent,
+                ev_trial_7day: r.ev_trial_7day, ev_monthly_invited: r.ev_monthly_invited,
+                ev_monthly_joined: r.ev_monthly_joined, ev_whatsapp_shared: r.ev_whatsapp_shared,
+                ev_gmv_1k: r.ev_gmv_1k, ev_gmv_3k: r.ev_gmv_3k, ev_gmv_10k: r.ev_gmv_10k,
+                ev_agency_bound: r.ev_agency_bound, ev_churned: r.ev_churned,
+                last_synced: r.last_synced,
+            }));
+            log(`迁移 joinbrands_link: ${mapped.length} 条`);
+            if (mapped.length > 0) await batchInsert('joinbrands_link', cols, mapped);
             log(`  ✓ joinbrands_link`);
         }
 

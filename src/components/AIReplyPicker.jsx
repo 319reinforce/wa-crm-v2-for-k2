@@ -20,6 +20,7 @@ export default function AIReplyPicker({
     onEditCandidate,
     onRegenerate,
     loading,
+    error,
 }) {
     const PICKER_BG = '#EFF6FF';
     const PICKER_BORDER = '#BFDBFE';
@@ -59,6 +60,17 @@ export default function AIReplyPicker({
                 <div className="flex items-center justify-center gap-3 py-8">
                     <span className="animate-spin text-2xl">⏳</span>
                     <span className="text-sm" style={{ color: WA.textMuted }}>AI 正在生成候选回复...</span>
+                </div>
+            ) : error ? (
+                <div className="flex flex-col items-center gap-3 py-6 px-4">
+                    <div className="text-red-500 text-sm font-medium">⚠️ {error}</div>
+                    <button
+                        onClick={onRegenerate}
+                        className="text-sm px-4 py-2 rounded-xl font-medium"
+                        style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}
+                    >
+                        🔄 重试
+                    </button>
                 </div>
             ) : (
                 <div className="p-3 md:p-4 space-y-2 md:space-y-3">

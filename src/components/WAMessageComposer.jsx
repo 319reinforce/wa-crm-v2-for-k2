@@ -146,6 +146,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
     const [activePicker, setActivePicker] = useState(null);
     const [pickerCustom, setPickerCustom] = useState('');
     const [pickerLoading, setPickerLoading] = useState(false);
+    const [pickerError, setPickerError] = useState(null);
 
     // 待审核队列
     const [pendingCandidates, setPendingCandidates] = useState([]);
@@ -301,12 +302,12 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
         return lines.join('\n');
     }
 
-    // 构建 System Prompt（双模式：响应模式 vs 推进模式）
-    const buildSystemPrompt = ({ lastMsgRole, activeEvents }) => {
+    // 构建 System Prompt（双模式：同一话题 vs 新话题）
+    // mode: 'same_topic'（manual/auto）| 'new_topic'（keyword/time）
+    const buildSystemPrompt = ({ mode = 'new_topic', activeEvents }) => {
         const clientName = client?.name || creator?.primary_name || '未知';
         const owner = client?.wa_owner || creator?.wa_owner || '未知';
         const stage = client?.conversion_stage || creator?._full?.wacrm?.beta_status || '未知';
-        const isPushMode = lastMsgRole ***REMOVED***= 'assistant'; // 上一条是运营发的 → 推进模式
 
         const base = `你是一个专业的达人运营助手，帮助运营人员与 WhatsApp 达人沟通。
 
@@ -344,16 +345,29 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, asPan
 
         const pushSection = buildEventPushSection(activeEvents, owner);
 
-        if (isPushMode) {
+        // ***REMOVED***= 同一话题模式（manual/auto）：推进为主 ***REMOVED***=
+        // 客户已在对话中，表达明确意图 → 回答问题 + 推进事件进展
+        if (mode ***REMOVED***= 'same_topic') {
             return `${base}
 ${replyStyle}
 ${pushSection}
-回复要求：简洁，专业、100字以内，直接回答客户问题，在回复末尾加一句推进下一步的行动。只输出你要发送给客户的回复内容，不要输出任何分析或解释。`;
-        } else {
-            return `${base}
-${replyStyle}
-回复要求：简洁，专业、100字以内，直接回答客户问题，必要时在末尾推进下一步。只输出你要发送给客户的回复内容，不要输出任何分析或解释。`;
+【同一话题回复要求】
+- 客户已在当前话题中，先直接回答其问题
+- 在回复末尾加一句推进语句（从上方【当前进行中事件】中找对应的"推进提示"）
+- 若达人有明确意向（好的/OK/知道了），优先回答后再适当推进
+- 回复不超过 100 字，只输出发送给客户的文字，不要分析或解释`;
         }
+
+        // ***REMOVED***= 新话题模式（keyword/time）：理解 + 回答为主 ***REMOVED***=
+        // 客户刚开启新话题 → 先友好理解 + 针对性回答 + 必要时介绍支持
+        return `${base}
+${replyStyle}
+【新话题回复要求】
+- 先友好回应客户的疑问或需求
+- 针对性回答问题，不要泛泛而谈
+- 若涉及试用/月卡/推荐等，可适当介绍支持和激励政策
+- 不要主动延伸话题，问什么答什么
+- 回复不超过 100 字，只输出发送给客户的文字，不要分析或解释`;
     };
 
     // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
@@ -647,7 +661,6 @@ ${fullEventSummary}
     // 通过 Experience Router 生成候选回复
     const generateViaExperienceRouter = async ({ conversation, scene, client_id, forcedInput, richCtx }) => {
         const allMsgs = conversation.messages;
-        const lastMsgRole = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1].role : null;
         const lastIncomingText = [...allMsgs].reverse().find(m => m.role ***REMOVED***= 'user')?.text || '';
         const lastMsgTimestamp = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1].timestamp : null;
 
@@ -695,7 +708,7 @@ ${fullEventSummary}
             ? buildTopicContext({ topic: effectiveTopic, creator, activeEvents, mode: isSameTopic ? 'same_topic' : 'new_topic' })
             : '';
         const richContextParagraph = buildRichContextParagraph(richCtx);
-        const basePrompt = buildSystemPrompt({ lastMsgRole, activeEvents });
+        const basePrompt = buildSystemPrompt({ mode: isSameTopic ? 'same_topic' : 'new_topic', activeEvents });
 
         // 方向二：最近优先机制
         // - 同一话题（manual/auto）：最近10条直接传，更早消息摘要注入Prompt
@@ -747,18 +760,29 @@ ${fullEventSummary}
         const data = await res.json();
         console.log('[generateViaExperienceRouter] raw data:', JSON.stringify(data).slice(0, 200));
 
-        // 提取 opt1 / opt2（统一从 content_opt1 / content_opt2 拿）
-        // MiniMax 返回: { content: [{type:"text", text:opt1}], content_opt2: [{type:"text", text:opt2}] }
-        // OpenAI 返回:   { content: [{type:"text", text:opt1}], content_opt2: [{type:"text", text:opt2}] }
+        // 检查 API 错误
+        if (!res.ok || data.error) {
+            const msg = data.error || `HTTP ${res.status}`;
+            console.error('[generateViaExperienceRouter] API error:', msg);
+            throw new Error(msg);
+        }
+
+        // 提取 opt1 / opt2（统一从 content / content_opt2 拿）
+        // MiniMax/OpenAI 均返回: { content: [{type:"text", text:opt1}], content_opt2: [{type:"text", text:opt2}] }
         const extractText = (d) => {
-            if (!d || !d.content || !Array.isArray(d.content)) return '';
+            if (!d || !Array.isArray(d.content)) return '';
             return d.content.find(c => c.type ***REMOVED***= 'text')?.text || '';
         };
         const extractOpt2 = (d) => {
-            if (!d || !d.content_opt2 || !Array.isArray(d.content_opt2)) return '';
+            if (!d || !Array.isArray(d.content_opt2)) return '';
             return d.content_opt2.find(c => c.type ***REMOVED***= 'text')?.text || '';
         };
-        return { opt1: extractText(data), opt2: extractOpt2(data) };
+        const opt1 = extractText(data);
+        const opt2 = extractOpt2(data);
+        if (!opt1 && !opt2) {
+            throw new Error('AI 返回空候选，请重试');
+        }
+        return { opt1, opt2 };
     };
 
     const fetchPolicyDocs = async () => {
@@ -843,6 +867,7 @@ ${fullEventSummary}
     const generateForIncoming = async (incomingMsg) => {
         if (!client?.id || !client?.phone) return null;
         setPickerLoading(true);
+        setPickerError(null);
         try {
             // 重新 fetch 最新消息，避免闭包 stale 问题
             const msgsRes = await fetch(`${API_BASE}/creators/${client.id}/messages`);
@@ -873,6 +898,7 @@ ${fullEventSummary}
             };
         } catch (e) {
             console.error('[generateForIncoming] error:', e);
+            setPickerError(e.message || '生成失败，请重试');
             return null;
         } finally {
             setPickerLoading(false);
@@ -1145,6 +1171,7 @@ ${fullEventSummary}
         if (!incomingMsg) return;
 
         setPickerLoading(true);
+        setPickerError(null);
         try {
             const conversation = buildConversation(messages);
             conversation.messages.push({ role: 'user', text: incomingMsg.text });
@@ -1164,6 +1191,7 @@ ${fullEventSummary}
             }));
         } catch (e) {
             console.error('[Regenerate] error:', e);
+            setPickerError(e.message || '生成失败，请重试');
         } finally {
             setPickerLoading(false);
         }
@@ -1273,11 +1301,13 @@ ${fullEventSummary}
                         opt1: activePicker.candidates?.opt1,
                         opt2: activePicker.candidates?.opt2,
                         scene: activePicker.scene || 'unknown',
+                        reject_reason: '运营跳过 AI 候选，未提供原因',
                     })
                 });
             } catch (_) {}
         }
         setPickerCustom('');
+        setPickerError(null);
         const [next, ...rest] = pendingCandidates;
         setPendingCandidates(rest);
         setActivePicker(next || null);
@@ -1290,6 +1320,7 @@ ${fullEventSummary}
         setActivePicker(null);
         setPendingCandidates([]);
         setPickerCustom('');
+        setPickerError(null);
     };
 
     // 手动 AI 生成（输入框有文字时按 Enter 触发）
@@ -1698,6 +1729,7 @@ ${fullEventSummary}
                         onEditCandidate={handleEditCandidate}
                         onRegenerate={handleRegenerate}
                         loading={pickerLoading}
+                        error={pickerError}
                     />
                 )}
 

@@ -27,6 +27,46 @@ const { start: startWaService } = require('./services/waService');
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** SSE 实时广播 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+const sseClients = new Set();
+
+// GET /api/events/subscribe — 前端 SSE 订阅
+app.get('/api/events/subscribe', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    sseClients.add(res);
+    console.log(`[SSE] Client connected (total: ${sseClients.size})`);
+
+    req.on('close', () => {
+        sseClients.delete(res);
+        console.log(`[SSE] Client disconnected (total: ${sseClients.size})`);
+    });
+});
+
+// POST /api/events/broadcast — populate_db.cjs 调用，广播刷新事件
+app.post('/api/events/broadcast', (req, res) => {
+    const { event = 'creators-updated' } = req.body || {};
+    const message = `event: ${event}\ndata: ${JSON.stringify({ refreshed: true })}\n\n`;
+    sseClients.forEach(client => {
+        try { client.write(message); } catch (e) { sseClients.delete(client); }
+    });
+    console.log(`[SSE] Broadcast "${event}" to ${sseClients.size} clients`);
+    res.json({ ok: true, clients: sseClients.size });
+});
+
+// SSE 心跳：每 25 秒向所有客户端发送一次 ping，防止连接被中间件关闭
+setInterval(() => {
+    if (sseClients.size ***REMOVED***= 0) return;
+    const ping = `: ping ${Date.now()}\n\n`;
+    sseClients.forEach(client => {
+        try { client.write(ping); } catch (e) { sseClients.delete(client); }
+    });
+}, 25000);
+
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 端口检测 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
 /**

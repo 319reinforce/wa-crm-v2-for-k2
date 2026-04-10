@@ -59,6 +59,30 @@ function App() {
   const [lastRefreshed, setLastRefreshed] = useState(null)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [tagsVisible, setTagsVisible] = useState(true)
+  const [waQrData, setWaQrData] = useState(null)  // WA QR code data URL
+
+  // 轮询 WhatsApp 状态和二维码
+  useEffect(() => {
+    async function fetchWaStatus() {
+      try {
+        const res = await fetch(`${API_BASE}/wa/status`)
+        const data = await res.json()
+        if (data.hasQr) {
+          try {
+            const qrRes = await fetch(`${API_BASE}/wa/qr`)
+            const qrInfo = await qrRes.json()
+            if (qrInfo.qr) setWaQrData(qrInfo.qr)
+          } catch (_) {}
+        } else {
+          setWaQrData(null)
+        }
+      } catch (_) {}
+    }
+    fetchWaStatus()
+    const id = setInterval(fetchWaStatus, 5000)
+    return () => clearInterval(id)
+  }, [])
+
   // 面板尺寸记忆（从 localStorage 恢复）
   const [panelWidths, setPanelWidths] = useState(() => {
     try {
@@ -111,11 +135,33 @@ function App() {
     }
   }, [dragging])
 
+  // loadData ref：确保 SSE 回调永远调用最新版本的 loadData（带当前 filter 值）
+  const loadDataRef = useRef(loadData)
+  useEffect(() => { loadDataRef.current = loadData }, [loadData])
+
   useEffect(() => {
     loadData()
     const interval = setInterval(loadData, 15000)
     return () => clearInterval(interval)
   }, [filterOwner, filterBeta, filterPriority, filterAgency, filterEvent])
+
+  // SSE 实时订阅（populate_db.cjs 写完 MySQL 后会收到广播）
+  useEffect(() => {
+    let es
+    try {
+      es = new EventSource('/api/events/subscribe')
+      es.addEventListener('creators-updated', () => {
+        console.log('[SSE] 收到刷新事件，重新加载数据')
+        loadDataRef.current()
+      })
+      es.onerror = () => {
+        console.warn('[SSE] 连接断开，5秒后自动重连')
+      }
+    } catch (e) {
+      console.warn('[SSE] 连接失败，使用轮询兜底:', e.message)
+    }
+    return () => { if (es) es.close() }
+  }, [])
 
   // 计算未读：基于 ev_replied 字段（0=未回复显示红点，1=已回复消除红点）
   const loadData = async () => {
@@ -498,10 +544,18 @@ function App() {
             />
           ) : (
             <div className="flex-1 flex items-center justify-center" style={{ background: WA.chatBg }}>
-              <div className="text-center" style={{ color: WA.textMuted }}>
-                <div className="text-5xl mb-4">💬</div>
-                <div className="text-sm">选择一个达人开始对话</div>
-              </div>
+              {waQrData ? (
+                <div className="text-center">
+                  <img src={waQrData} alt="WA QR" style={{ width: 220, height: 220, borderRadius: 12, border: '2px solid #e5e7eb', marginBottom: 16 }} />
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#856404', marginBottom: 4 }}>⚠️ 请扫码认证 WhatsApp</div>
+                  <div style={{ fontSize: 12, color: '#856404' }}>WhatsApp → ⋮ → 已关联的设备 → 关联新设备</div>
+                </div>
+              ) : (
+                <div className="text-center" style={{ color: WA.textMuted }}>
+                  <div className="text-5xl mb-4">💬</div>
+                  <div className="text-sm">选择一个达人开始对话</div>
+                </div>
+              )}
             </div>
           )}
         </div>
