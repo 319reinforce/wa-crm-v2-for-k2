@@ -4,6 +4,7 @@
  */
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const db = require('../../db');
 const { extractAndSaveMemories } = require('../services/memoryExtractionService');
 const { normalizeOperatorName } = require('../utils/operator');
@@ -94,11 +95,79 @@ async function settleCandidateRequests(requests) {
     return [successes[0], successes[1]];
 }
 
+function sha256(text) {
+    return crypto.createHash('sha256').update(String(text || '')).digest('hex');
+}
+
+async function writeRetrievalSnapshot(snapshot) {
+    try {
+        const db2 = db.getDb();
+        const result = await db2.prepare(`
+            INSERT INTO retrieval_snapshot
+            (client_id, operator, scene, system_prompt_version, snapshot_hash, grounding_json, topic_context, rich_context, conversation_summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            snapshot.client_id || null,
+            snapshot.operator || null,
+            snapshot.scene || 'unknown',
+            snapshot.system_prompt_version || 'v2',
+            snapshot.snapshot_hash,
+            JSON.stringify(snapshot.grounding_json || {}),
+            snapshot.topic_context || null,
+            snapshot.rich_context || null,
+            snapshot.conversation_summary || null,
+        );
+        return result.lastInsertRowid || null;
+    } catch (err) {
+        console.warn('[retrievalSnapshot] write failed:', err.message);
+        return null;
+    }
+}
+
+async function writeGenerationLog(log) {
+    try {
+        const db2 = db.getDb();
+        await db2.prepare(`
+            INSERT INTO generation_log
+            (client_id, retrieval_snapshot_id, provider, model, route, ab_bucket, scene, operator, temperature_json, message_count, prompt_version, latency_ms, status, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            log.client_id || null,
+            log.retrieval_snapshot_id || null,
+            log.provider || null,
+            log.model || null,
+            log.route || null,
+            log.ab_bucket || null,
+            log.scene || 'unknown',
+            log.operator || null,
+            JSON.stringify(log.temperature || null),
+            log.message_count || 0,
+            log.prompt_version || null,
+            log.latency_ms || null,
+            log.status || 'success',
+            log.error_message || null,
+        );
+    } catch (err) {
+        console.warn('[generationLog] write failed:', err.message);
+    }
+}
+
 // POST /api/minimax — AI 生成路由（含 USE_FINETUNED 灰度）
 router.post('/minimax', async (req, res) => {
     try {
-        const { messages, model, max_tokens, temperature, client_id } = req.body;
+        const { messages, model, max_tokens, temperature, client_id, retrieval_snapshot_id, scene, operator, prompt_version } = req.body;
         let finetunedHookFired = false;
+        const startTs = Date.now();
+        const logBase = {
+            client_id,
+            retrieval_snapshot_id: retrieval_snapshot_id || null,
+            scene: scene || 'unknown',
+            operator: normalizeOperatorName(operator, operator),
+            temperature,
+            message_count: Array.isArray(messages) ? messages.length : 0,
+            prompt_version: prompt_version || null,
+            latency_ms: null,
+        };
 
         // 隔离校验：client_id 必须在 creators 表中存在
         if (client_id) {
@@ -145,6 +214,7 @@ router.post('/minimax', async (req, res) => {
 
                 const [opt1Candidate, opt2Candidate] = await settleCandidateRequests(candidateRequests);
                 if (opt1Candidate?.text) {
+                    const latency = Date.now() - startTs;
                     const okResponse = {
                         id: 'finetuned-' + Date.now(),
                         type: 'message',
@@ -169,6 +239,15 @@ router.post('/minimax', async (req, res) => {
                             });
                         }
                     }
+                    await writeGenerationLog({
+                        ...logBase,
+                        provider: 'finetuned',
+                        model: 'wa-crm-finetuned',
+                        route: 'minimax',
+                        ab_bucket: 'finetuned',
+                        latency_ms: latency,
+                        status: 'success',
+                    });
                     return res.json(okResponse);
                 }
             } catch (_) {
@@ -190,6 +269,7 @@ router.post('/minimax', async (req, res) => {
             const userMsgs = messages.filter(m => m.role !***REMOVED*** 'system');
             const temps = Array.isArray(temperature) ? temperature : [0.8, 0.4];
             const { opt1, opt2 } = await generateCandidates(systemPrompt, userMsgs, temps);
+            const latency = Date.now() - startTs;
             // ***REMOVED***= client_memory 自动积累：仅在 Finetuned 未触发时执行 ***REMOVED***=
             if (client_id && !finetunedHookFired) {
                 const msgs = normalizeMessagesForMemory(messages);
@@ -205,6 +285,15 @@ router.post('/minimax', async (req, res) => {
                     });
                 }
             }
+            await writeGenerationLog({
+                ...logBase,
+                provider: 'openai',
+                model: process.env.OPENAI_MODEL || 'gpt-4o',
+                route: 'minimax',
+                ab_bucket: 'openai',
+                latency_ms: latency,
+                status: 'success',
+            });
             return res.json({
                 id: 'openai-' + Date.now(),
                 type: 'message',
@@ -254,11 +343,22 @@ router.post('/minimax', async (req, res) => {
         try {
             [opt1Candidate, opt2Candidate] = await settleCandidateRequests(candidateRequests);
         } catch (error) {
+            await writeGenerationLog({
+                ...logBase,
+                provider: 'minimax',
+                model: model || 'mini-max-typing',
+                route: 'minimax',
+                ab_bucket: 'minimax',
+                latency_ms: Date.now() - startTs,
+                status: 'failed',
+                error_message: error.message,
+            });
             return res.status(502).json({
                 error: 'MiniMax API error',
                 detail: error.message,
             });
         }
+        const latency = Date.now() - startTs;
         // ***REMOVED***= client_memory 自动积累：MiniMax 路由 AI 生成成功后 ***REMOVED***=
         if (client_id) {
             const msgs = normalizeMessagesForMemory(messages);
@@ -274,6 +374,15 @@ router.post('/minimax', async (req, res) => {
                 });
             }
         }
+        await writeGenerationLog({
+            ...logBase,
+            provider: 'minimax',
+            model: opt1Candidate?.payload?.model || model || 'mini-max-typing',
+            route: 'minimax',
+            ab_bucket: 'minimax',
+            latency_ms: latency,
+            status: 'success',
+        });
         return res.json({
             id: opt1Candidate?.payload?.id || 'minimax-' + Date.now(),
             type: 'message',
@@ -284,6 +393,22 @@ router.post('/minimax', async (req, res) => {
         });
     } catch (err) {
         console.error('MiniMax proxy error:', err);
+        await writeGenerationLog({
+            client_id: req.body?.client_id || null,
+            retrieval_snapshot_id: req.body?.retrieval_snapshot_id || null,
+            provider: process.env.USE_OPENAI ***REMOVED***= 'true' ? 'openai' : 'minimax',
+            model: req.body?.model || null,
+            route: 'minimax',
+            ab_bucket: null,
+            scene: req.body?.scene || 'unknown',
+            operator: normalizeOperatorName(req.body?.operator, req.body?.operator),
+            temperature: req.body?.temperature || null,
+            message_count: Array.isArray(req.body?.messages) ? req.body.messages.length : 0,
+            prompt_version: req.body?.prompt_version || null,
+            latency_ms: null,
+            status: 'failed',
+            error_message: err.message,
+        });
         res.status(500).json({ error: err.message });
     }
 });
@@ -307,27 +432,40 @@ router.post('/ai/system-prompt', async (req, res) => {
             if (row) resolvedOperator = normalizeOperatorName(row.wa_owner, null);
         }
 
-        // Derive dynamic version from generation context (not hardcoded)
-        // Version = operator + flags for memory/policy presence
-        let version = 'v2_base';
-        if (resolvedOperator) {
-            let memFlag = '', polFlag = '';
-            // Check if client memory exists (these will be injected into prompt if present)
-            if (client_id) {
-                const memRows = await db.getDb().prepare('SELECT COUNT(*) as c FROM client_memory WHERE client_id = ?').get(client_id);
-                memFlag = memRows?.c > 0 ? '_mem' : '';
-                const polRows = await db.getDb().prepare("SELECT COUNT(*) as c FROM policy_documents WHERE is_active = 1 AND JSON_LENGTH(applicable_scenarios) > 0").get();
-                polFlag = polRows?.c > 0 ? '_pol' : '';
-            }
-            version = `v2_${resolvedOperator}${memFlag}${polFlag}`;
-        }
-
-        const { prompt, version: _ignored } = await buildFullSystemPrompt(client_id, scene, [], {
+        const { prompt, version: _ignored, grounding } = await buildFullSystemPrompt(client_id, scene, [], {
             operator: resolvedOperator,
             topicContext: topicContext || '',
             richContext: richContext || '',
             conversationSummary: conversationSummary || '',
-            systemPromptVersion: version,
+            systemPromptVersion: 'v2',
+        });
+        let version = 'v2_base';
+        if (resolvedOperator) {
+            const memFlag = (grounding?.memory?.length || 0) > 0 ? '_mem' : '';
+            const polFlag = (grounding?.policies?.length || 0) > 0 ? '_pol' : '';
+            version = `v2_${resolvedOperator}${memFlag}${polFlag}`;
+        }
+
+        const snapshotHash = sha256(JSON.stringify({
+            client_id: client_id || null,
+            operator: resolvedOperator || null,
+            scene,
+            version,
+            grounding: grounding || {},
+            topicContext: topicContext || '',
+            richContext: richContext || '',
+            conversationSummary: conversationSummary || '',
+        }));
+        const retrievalSnapshotId = await writeRetrievalSnapshot({
+            client_id,
+            operator: resolvedOperator,
+            scene,
+            system_prompt_version: version,
+            snapshot_hash: snapshotHash,
+            grounding_json: grounding || {},
+            topic_context: topicContext || '',
+            rich_context: richContext || '',
+            conversation_summary: conversationSummary || '',
         });
 
         let operatorDisplayName = resolvedOperator || null;
@@ -346,6 +484,7 @@ router.post('/ai/system-prompt', async (req, res) => {
             operator: resolvedOperator,
             operatorDisplayName,
             operatorConfigured,
+            retrieval_snapshot_id: retrievalSnapshotId,
         });
     } catch (err) {
         console.error('POST /api/ai/system-prompt error:', err);

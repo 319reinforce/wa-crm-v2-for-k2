@@ -205,6 +205,52 @@ CREATE INDEX idx_sft_scene ON sft_memory(scene);
 CREATE INDEX idx_sft_client_hash ON sft_memory(client_id_hash);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- Retrieval Snapshot — 每次生成的检索上下文快照
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+CREATE TABLE IF NOT EXISTS retrieval_snapshot (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    client_id           VARCHAR(64),
+    operator            VARCHAR(32),
+    scene               VARCHAR(64) DEFAULT 'unknown',
+    system_prompt_version VARCHAR(32) DEFAULT 'v2',
+    snapshot_hash       VARCHAR(64) NOT NULL,
+    grounding_json      JSON NOT NULL,
+    topic_context       TEXT,
+    rich_context        TEXT,
+    conversation_summary TEXT,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_rs_client_scene ON retrieval_snapshot(client_id, scene, created_at);
+CREATE INDEX idx_rs_hash ON retrieval_snapshot(snapshot_hash);
+
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- Generation Log — 模型生成日志（用于AB评估与追溯）
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+CREATE TABLE IF NOT EXISTS generation_log (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    client_id           VARCHAR(64),
+    retrieval_snapshot_id BIGINT,
+    provider            VARCHAR(32),
+    model               VARCHAR(64),
+    route               VARCHAR(32) DEFAULT 'minimax',
+    ab_bucket           VARCHAR(32),
+    scene               VARCHAR(64) DEFAULT 'unknown',
+    operator            VARCHAR(32),
+    temperature_json    JSON,
+    message_count       INT DEFAULT 0,
+    prompt_version      VARCHAR(32),
+    latency_ms          INT,
+    status              VARCHAR(16) DEFAULT 'success',
+    error_message       TEXT,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_gl_client_created ON generation_log(client_id, created_at);
+CREATE INDEX idx_gl_status_created ON generation_log(status, created_at);
+CREATE INDEX idx_gl_snapshot ON generation_log(retrieval_snapshot_id);
+
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 -- SFT Feedback — Skip/Reject/Edit 反馈记录
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS sft_feedback (

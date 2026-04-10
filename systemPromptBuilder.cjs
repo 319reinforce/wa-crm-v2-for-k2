@@ -3,8 +3,7 @@
  * experience.js（推理）和 server.js（export）共用同一套 prompt 构建逻辑
  */
 
-const db = require('./db.js');
-const { normalizeOperatorName } = require('./server/utils/operator');
+const { getGroundingContext } = require('./server/services/retrievalService');
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Reply Style（前后端共用）***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
@@ -48,29 +47,6 @@ async function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) 
 		systemPromptVersion = 'v2',
 	} = opts;
 
-	const dbInstance = db.getDb();
-
-	// 1. 确定 operator
-	let operator = normalizeOperatorName(forcedOperator);
-	let clientInfo = { name: '未知', conversion_stage: '未知', next_action: null };
-
-	if (!operator && clientId) {
-		const creator = await dbInstance.prepare(`
-			SELECT c.primary_name as name, c.wa_owner, wc.beta_status as conversion_stage, wc.next_action
-			FROM creators c
-			LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
-			WHERE c.wa_phone = ?
-		`).get(clientId);
-		if (creator) {
-			operator = normalizeOperatorName(creator.wa_owner, operator);
-			clientInfo = {
-				name: creator.name || '未知',
-				conversion_stage: creator.conversion_stage || '未知',
-				next_action: creator.next_action || null,
-			};
-		}
-	}
-
 	const promptParts = [];
 
 	// 前端注入的上下文（话题上下文 + 丰富上下文 + 更早摘要）
@@ -85,48 +61,39 @@ async function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) 
 		promptParts.push(conversationSummary);
 	}
 
+	const {
+		operator,
+		clientInfo,
+		experience,
+		clientMemory,
+		policyDocs,
+		grounding,
+	} = await getGroundingContext({
+		clientId,
+		scene,
+		operator: forcedOperator,
+	});
+
 	if (!operator) {
 		// 无法确定 operator，返回基础 prompt
 		promptParts.push(buildBasePrompt(clientInfo, scene));
-		return { prompt: promptParts.join('\n\n'), version: systemPromptVersion };
+		return { prompt: promptParts.join('\n\n'), version: systemPromptVersion, grounding };
 	}
 
-	// 2. 获取 operator experience
-	operator = normalizeOperatorName(operator);
-	const exp = await dbInstance.prepare(
-		'SELECT * FROM operator_experiences WHERE operator = ? AND is_active = 1'
-	).get(operator);
-	if (!exp) {
+	// 2. operator 体验缺失时退回基础 prompt
+	if (!experience) {
 		promptParts.push(buildBasePrompt(clientInfo, scene));
-		return { prompt: promptParts.join('\n\n'), version: systemPromptVersion };
+		return { prompt: promptParts.join('\n\n'), version: systemPromptVersion, grounding };
 	}
-
-	// 3. 获取客户记忆
-	let clientMemory = [];
-	if (clientId) {
-		clientMemory = await dbInstance.prepare(
-			'SELECT * FROM client_memory WHERE client_id = ?'
-		).all(clientId);
-	}
-
-	// 4. 获取政策文档
-	const policyDocsRows = await dbInstance.prepare(
-		'SELECT * FROM policy_documents WHERE is_active = 1'
-	).all();
-	const policyDocs = policyDocsRows.map(p => ({
-		...p,
-		applicable_scenarios: (p.applicable_scenarios && typeof p.applicable_scenarios ***REMOVED***= 'object')
-			? p.applicable_scenarios
-			: (p.applicable_scenarios ? JSON.parse(p.applicable_scenarios) : [])
-	}));
 
 	// 5. 编译核心 prompt（operator 专属规则 + 政策 + 禁止规则 + 回复风格）
-	const corePrompt = compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs, exp);
+	const corePrompt = compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs, experience);
 	promptParts.push(corePrompt);
 
 	return {
 		prompt: promptParts.join('\n\n'),
 		version: systemPromptVersion,
+		grounding,
 	};
 }
 
