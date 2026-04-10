@@ -935,6 +935,9 @@ function ChatListItem({ creator, onClick, unread }) {
   const lastActiveFull = lastActiveTs
     ? new Date(lastActiveTs).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     : ''
+  const lastActiveExactLabel = lastActiveTs
+    ? new Date(lastActiveTs).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : ''
   const isRecent = lastActiveTs && (Date.now() - lastActiveTs) < 86400000
 
   const activeEvents = EVENT_BADGES.filter(e => joinbrands[e.key] || full[e.key]).slice(0, 2)
@@ -984,6 +987,14 @@ function ChatListItem({ creator, onClick, unread }) {
           <span className="text-xs" style={{ color: WA.textMuted }}>{creator.wa_phone || '-'}</span>
           <span className="text-xs" style={{ color: WA.borderLight }}>·</span>
           <span className="text-xs" style={{ color: WA.textMuted }}>{creator.msg_count || 0} 条</span>
+          {lastActiveExactLabel && (
+            <>
+              <span className="text-xs" style={{ color: WA.borderLight }}>·</span>
+              <span className="text-xs truncate" style={{ color: WA.textMuted }} title={`最后聊天 ${lastActiveFull}`}>
+                最后聊天 {lastActiveExactLabel}
+              </span>
+            </>
+          )}
         </div>
 
         {/* Tags row */}

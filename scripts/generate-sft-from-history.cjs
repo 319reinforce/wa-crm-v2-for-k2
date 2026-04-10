@@ -15,6 +15,9 @@ const { generateCandidates: generateOpenAICandidates } = require('../src/utils/o
 const API_KEY = process.env.MINIMAX_API_KEY;
 const API_BASE = process.env.MINIMAX_API_BASE || 'https://api.minimaxi.com/anthropic';
 const USE_OPENAI = process.env.USE_OPENAI ***REMOVED***= 'true';
+const MAX_RETRY = Math.max(parseInt(process.env.SFT_BACKFILL_MAX_RETRY || '4', 10) || 4, 1);
+const BASE_RETRY_DELAY_MS = Math.max(parseInt(process.env.SFT_BACKFILL_RETRY_MS || '800', 10) || 800, 200);
+const BETWEEN_PAIR_DELAY_MS = Math.max(parseInt(process.env.SFT_BACKFILL_PAIR_DELAY_MS || '700', 10) || 700, 200);
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
@@ -57,6 +60,15 @@ function inferScene(text, betaStatus, messageCount = 0) {
     return messageCount <= 1 ? 'first_contact' : 'follow_up';
 }
 
+function isRateLimitError(err) {
+    const message = String(err?.message || '');
+    return message.includes('429') || message.includes('rate_limit');
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function generateResponse(messages, temperature) {
     const headers = {
         'Content-Type': 'application/json',
@@ -94,7 +106,16 @@ async function generateCandidates(systemPrompt, conversationMsgs) {
         messages.push({ role: 'user', content: '[请回复这位达人]' });
     }
     if (USE_OPENAI) {
-        return generateOpenAICandidates(systemPrompt, messages, [0.8, 0.4]);
+        for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+            try {
+                return await generateOpenAICandidates(systemPrompt, messages, [0.8, 0.4]);
+            } catch (err) {
+                if (!isRateLimitError(err) || attempt ***REMOVED***= MAX_RETRY) throw err;
+                const waitMs = BASE_RETRY_DELAY_MS * attempt;
+                process.stdout.write(`  [retry] openai rate-limit, wait ${waitMs}ms (attempt ${attempt}/${MAX_RETRY})\n`);
+                await sleep(waitMs);
+            }
+        }
     }
     const allMessages = [{ role: 'system', content: systemPrompt }, ...messages];
     const [opt1, opt2] = await Promise.all([generateResponse(allMessages, 0.8), generateResponse(allMessages, 0.4)]);
@@ -244,7 +265,7 @@ async function main() {
 
                 inserted++;
                 process.stdout.write(`  [creator#${creator.id}] ${index + 1}/${pendingPairs.length} inserted\n`);
-                await new Promise((resolve) => setTimeout(resolve, 400));
+                await sleep(BETWEEN_PAIR_DELAY_MS);
             } catch (err) {
                 errors++;
                 process.stdout.write(`  [creator#${creator.id}] ${index + 1}/${pendingPairs.length} error: ${err.message}\n`);

@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   root: path.join(__dirname, 'src'),
   base: './',
+  publicDir: false,
   build: {
     outDir: path.join(__dirname, 'public'),
     emptyOutDir: true,
