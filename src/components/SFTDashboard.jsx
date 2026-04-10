@@ -2,6 +2,19 @@ import React, { useState, useEffect } from 'react'
 
 const API_BASE = '/api'
 
+async function fetchJsonOrThrow(url, options) {
+  const res = await fetch(url, options)
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const data = await res.json()
+      if (typeof data?.error ***REMOVED***= 'string' && data.error.trim()) message = data.error.trim()
+    } catch (_) {}
+    throw new Error(message)
+  }
+  return res.json()
+}
+
 export function SFTDashboard() {
   const [stats, setStats] = useState(null)
   const [records, setRecords] = useState([])
@@ -16,23 +29,37 @@ export function SFTDashboard() {
   }, [])
 
   useEffect(() => {
-    if (activeTab ***REMOVED***= 'evaluation') {
-      fetch(`${API_BASE}/ab-evaluation`).then(r => r.json()).then(setAbData).catch(console.error)
+    let cancelled = false
+    const loadTabData = async () => {
+      try {
+        if (activeTab ***REMOVED***= 'evaluation') {
+          const data = await fetchJsonOrThrow(`${API_BASE}/ab-evaluation`)
+          if (!cancelled) setAbData(data)
+          return
+        }
+        if (activeTab ***REMOVED***= 'trends') {
+          const data = await fetchJsonOrThrow(`${API_BASE}/sft-memory/trends`)
+          if (!cancelled) setTrendsData(data)
+          return
+        }
+        if (activeTab ***REMOVED***= 'review') {
+          const data = await fetchJsonOrThrow(`${API_BASE}/sft-memory/pending`)
+          if (!cancelled) setPendingRecords(data)
+        }
+      } catch (e) {
+        if (!cancelled) console.error(e)
+      }
     }
-    if (activeTab ***REMOVED***= 'trends') {
-      fetch(`${API_BASE}/sft-memory/trends`).then(r => r.json()).then(setTrendsData).catch(console.error)
-    }
-    if (activeTab ***REMOVED***= 'review') {
-      fetch(`${API_BASE}/sft-memory/pending`).then(r => r.json()).then(setPendingRecords).catch(console.error)
-    }
+    loadTabData()
+    return () => { cancelled = true }
   }, [activeTab])
 
   const loadData = async () => {
     setLoading(true)
     try {
       const [statsData, recordsData] = await Promise.all([
-        fetch(`${API_BASE}/sft-memory/stats`).then(r => r.json()),
-        fetch(`${API_BASE}/sft-memory?limit=50`).then(r => r.json())
+        fetchJsonOrThrow(`${API_BASE}/sft-memory/stats`),
+        fetchJsonOrThrow(`${API_BASE}/sft-memory?limit=50`)
       ])
       setStats(statsData)
       setRecords(recordsData)
@@ -484,13 +511,21 @@ function TrendsPanel({ data, loading }) {
     return `${i * xStep},${scaleY(val)}`;
   }).join(' ');
 
+  // Backward/forward compatible: backend historically used `volumes`, some code read `volume`.
+  const trendVolumes = Array.isArray(data.volumes)
+    ? data.volumes
+    : (Array.isArray(data.volume) ? data.volume : []);
+  const avgVolume = trendVolumes.length
+    ? Math.round(trendVolumes.reduce((sum, item) => sum + (Number(item) || 0), 0) / trendVolumes.length)
+    : '-';
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="opt1 均值" value={data.opt1_rate?.length ? `${(data.opt1_rate.reduce((a, b) => a + b, 0) / data.opt1_rate.length).toFixed(1)}%` : '-'} color="blue" />
         <StatCard label="opt2 均值" value={data.opt2_rate?.length ? `${(data.opt2_rate.reduce((a, b) => a + b, 0) / data.opt2_rate.length).toFixed(1)}%` : '-'} color="green" />
         <StatCard label="人工 均值" value={data.custom_rate?.length ? `${(data.custom_rate.reduce((a, b) => a + b, 0) / data.custom_rate.length).toFixed(1)}%` : '-'} color="amber" />
-        <StatCard label="日均条数" value={data.volume?.length ? Math.round(data.volume.reduce((a, b) => a + b, 0) / data.volume.length) : '-'} color="slate" />
+        <StatCard label="日均条数" value={avgVolume} color="slate" />
       </div>
 
       <div className="bg-[#1e293b] rounded-xl p-4">
