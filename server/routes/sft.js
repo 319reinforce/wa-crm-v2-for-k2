@@ -410,8 +410,9 @@ router.get('/sft-export', async (req, res) => {
         const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
 
         const db2 = db.getDb();
-        const { format = 'json', status = 'approved', lang = 'all', month } = req.query;
+        const { format = 'json', status = 'approved', lang = 'all', month, include_retrieval = 'false' } = req.query;
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 1000, 1), 5000);
+        const withRetrieval = include_retrieval ***REMOVED***= 'true';
 
         let sql = `SELECT * FROM sft_memory WHERE status = ?`;
         const params = [status];
@@ -422,6 +423,38 @@ router.get('/sft-export', async (req, res) => {
         sql += ` ORDER BY created_at DESC LIMIT ${limit} OFFSET 0`;
 
         const rows = await db2.prepare(sql).all(...params);
+        const retrievalMap = new Map();
+
+        if (withRetrieval) {
+            const retrievalIds = [];
+            for (const row of rows) {
+                try {
+                    const parsed = row.context_json ? JSON.parse(row.context_json) : {};
+                    const retrievalId = parsed?.retrieval_snapshot_id;
+                    if (retrievalId) retrievalIds.push(Number(retrievalId));
+                } catch (_) {}
+            }
+            const uniqueIds = Array.from(new Set(retrievalIds.filter((id) => Number.isInteger(id) && id > 0)));
+            if (uniqueIds.length > 0) {
+                const placeholders = uniqueIds.map(() => '?').join(',');
+                const retrievedRows = await db2.prepare(`
+                    SELECT id, snapshot_hash, grounding_json, scene, operator, system_prompt_version, created_at
+                    FROM retrieval_snapshot
+                    WHERE id IN (${placeholders})
+                `).all(...uniqueIds);
+                for (const item of retrievedRows) {
+                    retrievalMap.set(item.id, {
+                        id: item.id,
+                        snapshot_hash: item.snapshot_hash,
+                        grounding_json: parseJsonSafe(item.grounding_json),
+                        scene: item.scene,
+                        operator: item.operator,
+                        system_prompt_version: item.system_prompt_version,
+                        created_at: item.created_at,
+                    });
+                }
+            }
+        }
 
         const isEnglish = (text) => /^[a-zA-Z\s.,!?]+$/.test((text || '').slice(0, 100));
 
@@ -492,6 +525,10 @@ router.get('/sft-export', async (req, res) => {
                     system_prompt_version: promptVersion || 'v2',
                     chosen_output: r.chosen_output,
                     rejected_output: r.rejected_output,
+                    retrieval_snapshot_id: ctx.retrieval_snapshot_id || null,
+                    retrieval_snapshot: withRetrieval && ctx.retrieval_snapshot_id
+                        ? retrievalMap.get(Number(ctx.retrieval_snapshot_id)) || null
+                        : undefined,
                 }
             };
         };

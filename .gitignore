@@ -10,3 +10,4 @@ data/*.json
 *.log
 .DS_Store
 .agents/
+test-results/

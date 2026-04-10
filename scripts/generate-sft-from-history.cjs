@@ -105,6 +105,15 @@ async function main() {
     const db2 = db.getDb();
     console.log('[generate-sft-from-history] start');
     if (DRY_RUN) console.log('[generate-sft-from-history] dry-run mode');
+    if (USE_OPENAI) console.log('[generate-sft-from-history] provider=openai');
+    else console.log('[generate-sft-from-history] provider=minimax');
+
+    const sftColumnRows = await db2.prepare(`
+        SELECT COLUMN_NAME
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sft_memory'
+    `).all();
+    const sftColumns = new Set(sftColumnRows.map((row) => row.COLUMN_NAME));
 
     const creatorsSql = `
         SELECT
@@ -199,32 +208,38 @@ async function main() {
                 });
 
                 if (!DRY_RUN) {
-                    await db2.prepare(`
-                        INSERT INTO sft_memory
-                        (model_opt1, model_opt2, human_selected, human_output,
-                         model_predicted, model_rejected, is_custom_input, human_reason,
-                         context_json, status, reviewed_by, similarity, scene, message_history,
-                         client_id_hash, input_text_hash, human_output_hash, created_date,
-                         chosen_output, rejected_output, system_prompt_used, system_prompt_version)
-                        VALUES (?, ?, 'custom', ?, NULL, NULL, 1, ?, ?, 'pending_review', ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    `).run(
-                        opt1 || null,
-                        opt2 || null,
-                        humanReply.text,
-                        '历史对话回填：人工回复作为训练标签，待运营审核',
-                        contextJson,
-                        'history_backfill',
+                    const candidateRecord = {
+                        model_opt1: opt1 || null,
+                        model_opt2: opt2 || null,
+                        human_selected: 'custom',
+                        human_output: humanReply.text,
+                        model_predicted: null,
+                        model_rejected: null,
+                        is_custom_input: 1,
+                        human_reason: '历史对话回填：人工回复作为训练标签，待运营审核',
+                        context_json: contextJson,
+                        status: 'pending_review',
+                        reviewed_by: 'history_backfill',
+                        similarity: null,
                         scene,
-                        JSON.stringify(conversationMsgs.slice(-10)),
-                        sha256(creator.phone),
-                        sha256(userMsg.text || ''),
-                        sha256(humanReply.text || ''),
-                        createdDate,
-                        humanReply.text,
-                        opt1 || null,
-                        prompt || null,
-                        version || 'v2',
-                    );
+                        message_history: JSON.stringify(conversationMsgs.slice(-10)),
+                        client_id_hash: sha256(creator.phone),
+                        input_text_hash: sha256(userMsg.text || ''),
+                        human_output_hash: sha256(humanReply.text || ''),
+                        created_date: createdDate,
+                        chosen_output: humanReply.text,
+                        rejected_output: opt1 || null,
+                        system_prompt_used: prompt || null,
+                        system_prompt_version: version || 'v2',
+                    };
+
+                    const insertColumns = Object.keys(candidateRecord).filter((column) => sftColumns.has(column));
+                    const placeholders = insertColumns.map(() => '?').join(', ');
+                    const values = insertColumns.map((column) => candidateRecord[column]);
+                    await db2.prepare(`
+                        INSERT INTO sft_memory (${insertColumns.join(', ')})
+                        VALUES (${placeholders})
+                    `).run(...values);
                 }
 
                 inserted++;

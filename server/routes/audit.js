@@ -1,6 +1,6 @@
 /**
  * Audit routes
- * GET /api/audit-log, GET /api/ab-evaluation
+ * GET /api/audit-log, GET /api/ab-evaluation, GET /api/generation-log/stats, GET /api/generation-log/recent
  */
 const express = require('express');
 const router = express.Router();
@@ -147,6 +147,106 @@ router.get('/ab-evaluation', async (req, res) => {
         });
     } catch (err) {
         console.error('GET /api/ab-evaluation error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/generation-log/stats
+router.get('/generation-log/stats', async (req, res) => {
+    try {
+        const db2 = db.getDb();
+        const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 60);
+        const { owner } = req.query;
+        const startAt = new Date(Date.now() - (days * 24 * 60 * 60 * 1000))
+            .toISOString()
+            .slice(0, 19)
+            .replace('T', ' ');
+
+        let joinClause = '';
+        const params = [startAt];
+        if (owner) {
+            joinClause = 'LEFT JOIN creators c ON c.wa_phone = gl.client_id';
+        }
+
+        let whereClause = 'WHERE gl.created_at >= ?';
+        if (owner) {
+            whereClause += ' AND c.wa_owner = ?';
+            params.push(owner);
+        }
+
+        const totalRow = await db2.prepare(`
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN gl.status = 'success' THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN gl.status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+                AVG(CASE WHEN gl.latency_ms IS NOT NULL THEN gl.latency_ms END) AS avg_latency_ms
+            FROM generation_log gl
+            ${joinClause}
+            ${whereClause}
+        `).get(...params);
+
+        const byProviderRows = await db2.prepare(`
+            SELECT gl.provider, COUNT(*) AS count
+            FROM generation_log gl
+            ${joinClause}
+            ${whereClause}
+            GROUP BY gl.provider
+            ORDER BY count DESC
+        `).all(...params);
+
+        const byRouteRows = await db2.prepare(`
+            SELECT gl.route, COUNT(*) AS count
+            FROM generation_log gl
+            ${joinClause}
+            ${whereClause}
+            GROUP BY gl.route
+            ORDER BY count DESC
+        `).all(...params);
+
+        const byDayRows = await db2.prepare(`
+            SELECT DATE(gl.created_at) AS date,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN gl.status = 'success' THEN 1 ELSE 0 END) AS success_count,
+                   SUM(CASE WHEN gl.status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+            FROM generation_log gl
+            ${joinClause}
+            ${whereClause}
+            GROUP BY DATE(gl.created_at)
+            ORDER BY date ASC
+        `).all(...params);
+
+        res.json({
+            window_days: days,
+            owner: owner || null,
+            total: totalRow?.total || 0,
+            success_count: totalRow?.success_count || 0,
+            failed_count: totalRow?.failed_count || 0,
+            avg_latency_ms: totalRow?.avg_latency_ms ? Math.round(totalRow.avg_latency_ms) : null,
+            by_provider: byProviderRows,
+            by_route: byRouteRows,
+            by_day: byDayRows,
+        });
+    } catch (err) {
+        console.error('GET /api/generation-log/stats error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/generation-log/recent
+router.get('/generation-log/recent', async (req, res) => {
+    try {
+        const db2 = db.getDb();
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 500);
+        const rows = await db2.prepare(`
+            SELECT id, client_id, retrieval_snapshot_id, provider, model, route, ab_bucket, scene, operator,
+                   message_count, prompt_version, latency_ms, status, error_message, created_at
+            FROM generation_log
+            ORDER BY created_at DESC
+            LIMIT ${limit}
+        `).all();
+        res.json(rows);
+    } catch (err) {
+        console.error('GET /api/generation-log/recent error:', err);
         res.status(500).json({ error: err.message });
     }
 });
