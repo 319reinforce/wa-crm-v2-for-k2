@@ -4,16 +4,12 @@
  */
 const db = require('../../db');
 
-function getPolicy(owner, eventKey) {
+async function getPolicy(owner, eventKey) {
     const db2 = db.getDb();
-    const row = db2.prepare('SELECT policy_json FROM events_policy WHERE owner = ? AND event_key = ?').get(owner, eventKey);
+    const row = await db2.prepare('SELECT policy_json FROM events_policy WHERE owner = ? AND event_key = ?').get(owner, eventKey);
     if (!row) return null;
-    try {
-        return JSON.parse(row.policy_json);
-    } catch (e) {
-        console.error('getPolicy JSON parse error:', e.message, row.policy_json);
-        return null;
-    }
+    // MySQL json column returns parsed object already, no need to JSON.parse again
+    return row.policy_json;
 }
 
 module.exports = { getPolicy };

@@ -32,7 +32,7 @@ detect_os() {
 
 # ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 1. 安装 Git ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 install_git() {
-    log_info "[1/6] 检查 Git..."
+    log_info "[1/7] 检查 Git..."
     if command -v git &> /dev/null; then
         log_info "Git 已安装: $(git --version)"
     else
@@ -54,7 +54,7 @@ install_git() {
 
 # ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 2. 安装 Docker ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 install_docker() {
-    log_info "[2/6] 检查 Docker..."
+    log_info "[2/7] 检查 Docker..."
     if command -v docker &> /dev/null; then
         log_info "Docker 已安装: $(docker --version)"
     else
@@ -103,7 +103,7 @@ install_docker() {
 
 # ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 3. 配置 SSH Key ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 setup_ssh() {
-    log_info "[3/6] 检查 SSH Key..."
+    log_info "[3/7] 检查 SSH Key..."
 
     # 检查是否有 SSH Key
     if [[ -f ~/.ssh/id_ed25519.pub ]]; then
@@ -127,7 +127,7 @@ setup_ssh() {
 
 # ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 4. 克隆/更新代码 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 clone_repo() {
-    log_info "[4/6] 克隆代码仓库..."
+    log_info "[4/7] 克隆代码仓库..."
 
     if [[ -d "whatsapp-mgr" ]]; then
         log_info "代码已存在，更新中..."
@@ -143,38 +143,54 @@ clone_repo() {
 
 # ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 5. 配置环境变量 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 setup_env() {
-    log_info "[5/6] 配置环境变量..."
+    log_info "[5/7] 配置环境变量..."
 
     if [[ -f .env ]] && [[ -s .env ]]; then
         log_warn ".env 已存在，跳过创建"
+        log_info "如需修改，请手动编辑 .env 文件"
     else
-        cat > .env << 'EOF'
+        # 使用 .env.example 模板（如果存在）
+        if [[ -f .env.example ]]; then
+            cp .env.example .env
+            log_info "已从 .env.example 创建 .env，请编辑填入您的 API Key"
+        else
+            # 创建带占位符的 .env
+            cat > .env << 'EOF'
 # MySQL 数据库
-DB_PASSWORD=030319
+DB_PASSWORD=your_mysql_password
 DB_HOST=mysql
 DB_PORT=3306
 DB_USER=root
 DB_NAME=wa_crm_v2
 
 # OpenAI
-OPENAI_API_KEY=***REMOVED***
+OPENAI_API_KEY=your_openai_api_key
 OPENAI_API_BASE=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o
 USE_OPENAI=false
 
 # MiniMax
-MINIMAX_API_KEY=***REMOVED***
+MINIMAX_API_KEY=your_minimax_api_key
 MINIMAX_API_BASE=https://api.minimaxi.com/anthropic
 EOF
-        log_info ".env 创建完成"
+            log_info "已创建 .env 模板，请编辑填入您的 API Key"
+        fi
+        echo ""
+        log_warn "请编辑 .env 文件填入您的 API Key"
+        read -p "编辑完成后按回车继续... "
     fi
 }
 
-# ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 6. 启动 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
-start_services() {
-    log_info "[6/6] 构建并启动容器..."
+# ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 6. 构建 Docker 镜像 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+build_docker() {
+    log_info "[6/7] 构建 Docker 镜像..."
+    docker compose build --no-cache
+}
 
-    docker compose up --build -d
+# ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 7. 启动 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+start_services() {
+    log_info "[7/7] 启动容器..."
+    docker compose up -d
 
     # 等待服务启动
     sleep 5
@@ -196,6 +212,7 @@ main() {
     setup_ssh
     clone_repo
     setup_env
+    build_docker
     start_services
 
     echo ""

@@ -1,7 +1,7 @@
 # WA CRM v2 — SFT 语料训练项目
 
 > 本文档供其他 AI Agent 阅读学习使用
-> 更新时间：2026-04-10（RLHF 问题修复 + Prompt 对齐 + 灰度路由）
+> 更新时间：2026-04-10（画像标签提取升级：关键词→LLM + RLHF 修复 + Prompt 对齐）
 > 前置文档：`CLAUDE.md`（项目入口）、`BOT_INTEGRATION.md`（API 速查）
 
 ---
@@ -22,6 +22,35 @@ WA CRM v2 是一个面向 WhatsApp 达人（influencer）的 CRM 系统，同时
 
 ## 版本历史
 
+### v7 — 2026-04-10 画像标签提取升级：关键词 → MiniMax LLM
+
+**本次升级将客户画像标签提取从正则关键词替换为 MiniMax LLM 智能分类：**
+
+| 改动项 | 说明 |
+|--------|------|
+| 提取方式 | 正则关键词 → MiniMax LLM 结构化标签 |
+| 标签体系 | 8 大类（format/tone/urgency/engagement/intent/topic/preference/stage），覆盖 40+ 标签 |
+| 标签结构 | `{ tag: "intent:purchase_intent", reason: "用户明确表示想购买", confidence: 2 }` |
+| 降级策略 | LLM 调用失败时返回空标签数组，不阻断主流程 |
+| 响应时间 | 15s timeout，非阻塞 |
+
+**`extractTagsWithLLM(text)` 调用链：**
+```
+POST /api/profile-agent/event
+    ↓
+extractTagsWithLLM(text)
+    ↓
+MiniMax API（mini-max-typing，temperature=0.2）
+    ↓
+JSON.parse LLM 返回的 { tags: [...] } 结构
+    ↓
+INSERT IGNORE client_tags（confidence 从 LLM 响应获取，默认 2）
+    ↓
+scheduleProfileRefresh(client_id)  // 5s debounce → MiniMax summary
+```
+
+**新增文件：** 无（全部在 `server/routes/profile.js` 内实现）
+
 ### v6 — 2026-04-10 RLHF 问题修复 + Prompt 对齐
 
 **本次修复解决 RLHF 训练数据与推理 Prompt 不对齐的核心问题：**
@@ -31,6 +60,7 @@ WA CRM v2 是一个面向 WhatsApp 达人（influencer）的 CRM 系统，同时
 | Prompt 对齐（P0）| `WAMessageComposer` 改用 `POST /api/ai/system-prompt` 获取 `systemPromptBuilder.cjs` 构建的完整 prompt |
 | 对话格式对齐（P0）| sft-export 与推理使用完全相同的 prompt 组装逻辑（前端上下文 + 后端 operator/policy） |
 | Reply Style 统一（P0）| `REPLY_STYLE` 常量注入 `systemPromptBuilder.cjs`，训练/推理共用同一套风格规则 |
+| Context 完整捕获（P0）| `sft_memory` 新增 `system_prompt_used` 列，`generateViaExperienceRouter` 返回实际 prompt 供存储，解决 sft-export 重新构建导致的 prompt 漂移 |
 | Prompt 版本追踪（P1）| `system_prompt_version` 升级为 `'v2'`，动态从 `buildFullSystemPrompt` 返回 |
 | 灰度路由（P1）| `POST /api/minimax` 实现 `USE_FINETUNED` + `AB_RATIO` 10% 灰度逻辑 |
 | 后端 Experience Router（P2）| operator 检测从 `client_id` 下沉到 `buildFullSystemPrompt`（前端不再传 operator 字段） |
@@ -206,6 +236,7 @@ CREATE TABLE sft_memory (
     created_date            DATE,                   -- YYYY-MM-DD
     chosen_output           TEXT,                   -- 被选中的回复（RLHF Preference Pair）
     rejected_output         TEXT,                   -- 被拒绝的回复（RLHF Preference Pair）
+    system_prompt_used      TEXT,                   -- 推理时实际使用的完整 system prompt（解决训练/推理 prompt 漂移）
     created_at              DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX idx_sft_dedup ON sft_memory(
@@ -711,26 +742,39 @@ CREATE TABLE client_tags (
 
 ### 标签来源详解
 
-#### 1. ai_extracted — 从 WA 消息正则提取
+#### 1. ai_extracted — 从 WA 消息 MiniMax LLM 提取（v7 升级）
 
-触发时机：客户发消息后，由 `POST /api/profile-agent/event` 调用 `extractTagsFromMessage()`。
+触发时机：客户发消息后，由 `POST /api/profile-agent/event` 调用 `extractTagsWithLLM()`。
 
-**提取规则（`agents/profile-agent.js`）：**
+**提取方式：** MiniMax LLM（`mini-max-typing`，temperature=0.2）结构化 JSON 输出，包含标签 + 理由 + 置信度。
 
-| 匹配条件 | 标签 | 置信度 |
-|---------|------|--------|
-| 出现 "prefer/更喜欢" + "video" | `format:video` | 2 |
-| 出现 "prefer/更喜欢" + "text" | `format:text` | 2 |
-| 出现 "prefer/更喜欢" + "voice/call" | `format:voice` | 2 |
-| 出现 "don't like/dislike/不喜欢" | `preference:cautious` | 1 |
-| 出现 "please/would/could/kindly" | `tone:formal` | 2 |
-| 出现 "hey/great/awesome/cool/yeah/thanks" | `tone:casual` | 2 |
-| 运营回复中出现 "decided/chose/选择了" | `decision_made:true` | 3 |
-| 出现 "trial/7-day/7day/free try" | `stage:trial_intro` | 2 |
-| 出现 "monthly/month/card/membership" | `stage:monthly_inquiry` | 2 |
-| 出现 "commission/分成/提成" | `stage:commission_query` | 2 |
-| 出现 "mcn/agency/经纪" | `stage:mcn_inquiry` | 2 |
-| 用户消息超过 50 字 | `engagement:detailed_response` | 1 |
+**标签体系（8 大类）：**
+
+| 类别 | 标签示例 | 说明 |
+|------|---------|------|
+| `format` | `video`, `text`, `voice`, `image`, `carousel` | 内容格式偏好 |
+| `tone` | `formal`, `casual`, `aggressive`, `friendly`, `hesitant` | 对话语气 |
+| `urgency` | `high`, `medium`, `low` | 紧迫程度 |
+| `engagement` | `high`, `medium`, `low`, `passive` | 参与度 |
+| `intent` | `purchase_intent`, `info_seeking`, `complaint`, `renewal`, `upgrade`, `churn_risk`, `referral` | 意图分类 |
+| `topic` | `pricing`, `demo`, `tutorial`, `contract`, `trial`, `commission`, `payment`, `gmv`, `mcn`, `content`, `violation` | 话题分类 |
+| `preference` | `video_preferred`, `text_preferred`, `async_communication`, `detailed_response`, `brief_response` | 偏好特征 |
+| `stage` | `first_contact`, `trial_intro`, `trial_active`, `monthly_inquiry`, `mcn_joined`, `churned`, `loyal` | 客户阶段 |
+
+**LLM 输出格式：**
+```json
+{
+  "tags": [
+    { "tag": "intent:purchase_intent", "reason": "用户明确表示想购买产品", "confidence": 3 },
+    { "tag": "tone:formal", "reason": "使用了please和would等礼貌用语", "confidence": 2 },
+    { "tag": "engagement:high", "reason": "用户主动询问多个问题", "confidence": 2 }
+  ]
+}
+```
+
+**降级处理：** LLM 调用超时（15s）或失败时返回空数组，不阻断 `scheduleProfileRefresh` 主流程。
+
+**代码位置：** `server/routes/profile.js` → `extractTagsWithLLM()`
 
 #### 2. sft_feedback — 从 SFT 记录学习
 
@@ -767,7 +811,7 @@ CREATE TABLE client_tags (
 
 | event_type | 触发时机 | 提取内容 |
 |------------|---------|---------|
-| `wa_message` | 客户发消息后 | tone/format/preference/stage 标签 |
+| `wa_message` | 客户发消息后 | MiniMax LLM 8类标签（intent/tone/format/urgency/engagement/topic/preference/stage） |
 | `sft_record` | SFT 记录写入后 | 场景 AI 表现（强/弱）标签 |
 | `keeper_update` | Keeper 数据同步后 | GMV tier / content_active 标签 |
 | `manual_tag` | 运营人员手工标注 | 自定义标签 |

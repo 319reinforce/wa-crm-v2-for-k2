@@ -21,6 +21,7 @@ const profileRouter = require('./routes/profile');
 const eventsRouter = require('./routes/events');
 const experienceRouter = require('./routes/experience');
 const waRouter = require('./routes/wa');
+const trainingRouter = require('./routes/training');
 const { start: startWaWorker, stop: stopWaWorker, getProgress: getWaWorkerProgress } = require('./waWorker');
 const { start: startWaService } = require('./services/waService');
 
@@ -142,6 +143,7 @@ app.use('/api', profileRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/experience', experienceRouter);
 app.use('/api/wa', waRouter);
+app.use('/api/training', trainingRouter);
 
 // WA Worker 路由
 app.get('/api/wa-worker/status', (req, res) => {

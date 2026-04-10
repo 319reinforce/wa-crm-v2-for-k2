@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS sft_memory (
     created_date        DATE COMMENT 'YYYY-MM-DD',
     chosen_output       TEXT COMMENT '被选中的回复（RLHF Preference Pair）',
     rejected_output     TEXT COMMENT '被拒绝的回复（RLHF Preference Pair）',
+    system_prompt_used  TEXT COMMENT '推理时实际使用的完整 system prompt',
     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

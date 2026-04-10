@@ -6,6 +6,16 @@ const db = require('../../db');
 const { EVENT_KEYWORDS } = require('../constants/eventKeywords');
 const { getPolicy } = require('../utils/policyMatcher');
 
+// 确保 owner 只能是 Beau 或 Yiyun
+function normalizeOwner(owner) {
+    if (!owner) return 'Beau';
+    const lower = owner.toLowerCase();
+    if (lower ***REMOVED***= 'beau' || lower ***REMOVED***= 'yiyun') {
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+    }
+    return owner;
+}
+
 /**
  * 分页查询事件列表
  */
@@ -45,7 +55,7 @@ async function getEventWithDetails(eventId) {
 
     if (!event) return null;
 
-    event.policy = getPolicy(event.owner, event.event_key);
+    event.policy = await getPolicy(event.owner, event.event_key);
     event.periods = await db2.prepare(`
         SELECT * FROM event_periods WHERE event_id = ? ORDER BY period_start DESC
     `).all(eventId);
@@ -57,6 +67,7 @@ async function getEventWithDetails(eventId) {
  */
 async function createEvent({ creator_id, event_key, event_type, owner, trigger_source = 'manual', trigger_text = '', start_at, end_at, meta = {} }) {
     const db2 = db.getDb();
+    owner = normalizeOwner(owner);
     const existing = await db2.prepare(`SELECT id FROM events WHERE creator_id = ? AND event_key = ? AND status = 'active'`).get(creator_id, event_key);
     if (existing) {
         const err = new Error('同一达人已有相同事件处于 active 状态');
@@ -134,7 +145,7 @@ async function detectEventsFromText(text, creatorId) {
                     detected.push({
                         event_key,
                         event_type,
-                        owner: creator.wa_owner || 'Beau',
+                        owner: normalizeOwner(creator.wa_owner) || 'Beau',
                         trigger_text: text,
                         trigger_source: 'semantic_auto',
                         confidence: 1.0,
@@ -153,7 +164,7 @@ async function detectEventsFromText(text, creatorId) {
                 detected.push({
                     event_key: 'gmv_milestone',
                     event_type: 'gmv',
-                    owner: creator.wa_owner || 'Beau',
+                    owner: normalizeOwner(creator.wa_owner) || 'Beau',
                     trigger_text: text,
                     trigger_source: 'gmv_crosscheck',
                     gmv_current: keeper.keeper_gmv,
@@ -175,7 +186,7 @@ async function judgeEventPeriod(eventId, { period_start, period_end, video_count
     const event = await db2.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
     if (!event) return null;
 
-    const policy = getPolicy(event.owner, event.event_key);
+    const policy = await getPolicy(event.owner, event.event_key);
     if (!policy) return null;
 
     const weekly_target = policy.weekly_target || 35;
@@ -222,7 +233,7 @@ async function checkGmvMilestones() {
         if (!keeper) continue;
 
         const gmv = keeper.keeper_gmv || 0;
-        const policy = getPolicy(evt.owner, 'gmv_milestone');
+        const policy = await getPolicy(evt.owner, 'gmv_milestone');
 
         let totalReward = 0;
         if (policy && policy.gmv_milestones) {

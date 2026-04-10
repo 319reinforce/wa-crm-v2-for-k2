@@ -47,7 +47,7 @@ router.post('/client-memory', async (req, res) => {
             ON DUPLICATE KEY UPDATE memory_value = VALUES(memory_value), confidence = VALUES(confidence), updated_at = NOW()
         `).run(client_id, memory_type, memory_key, memory_value, confidence);
 
-        writeAudit('client_memory_update', 'client_memory', null, null, {
+        await writeAudit('client_memory_update', 'client_memory', null, null, {
             client_id, memory_type, memory_key, memory_value, confidence
         }, req);
         res.json({ ok: true });
@@ -200,6 +200,101 @@ router.delete('/client-profiles/:clientId/memory', async (req, res) => {
     }
 });
 
+// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** MiniMax LLM 标签提取 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+
+const LABEL_SYSTEM_PROMPT = `你是一个客户对话标签提取专家。根据用户消息提取结构化标签。
+
+标签体系（每条标签格式：type:value）：
+- format类: video | text | voice | image | carousel
+- tone类: formal | casual | aggressive | friendly | hesitant
+- urgency类: high | medium | low
+- engagement类: high | medium | low | passive
+- intent类: purchase_intent | info_seeking | complaint | renewal | upgrade | churn_risk | referral
+- topic类: pricing | demo | tutorial | contract | feature_request | trial | commission | payment | gmv | mcn | content | violation
+- preference类: video_preferred | text_preferred | async_communication | detailed_response | brief_response
+- stage类: first_contact | trial_intro | trial_active | monthly_inquiry | mcn_joined | churned | loyal
+
+规则：
+- 只输出与消息内容明确相关的标签，不要猜测
+- 最多输出5个标签，没有合适的标签则返回空数组
+- 每条标签需要附上简短 reason 说明提取依据
+- 输出必须是合法JSON格式`;
+
+async function extractTagsWithLLM(text) {
+    if (!text || text.trim().length < 3) return [];
+
+    const API_KEY = process.env.MINIMAX_API_KEY;
+    if (!API_KEY) {
+        console.warn('[profile-agent] MINIMAX_API_KEY not set, skipping LLM extraction');
+        return [];
+    }
+
+    try {
+        const response = await fetch('https://api.minimaxi.com/anthropic/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': API_KEY,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+                model: 'mini-max-typing',
+                messages: [{
+                    role: 'user',
+                    content: `${LABEL_SYSTEM_PROMPT}\n\n用户消息: "${text}"\n\n请直接输出JSON，不要任何其他内容：`
+                }],
+                max_tokens: 400,
+                temperature: 0.2,
+            }),
+            signal: AbortSignal.timeout(15000),
+        });
+
+        if (!response.ok) {
+            console.warn(`[profile-agent] LLM extraction failed: ${response.status}`);
+            return [];
+        }
+
+        let data;
+        try {
+            data = await response.json();
+        } catch (err) {
+            console.warn(`[profile-agent] non-JSON response (status ${response.status}):`, (await response.text()).slice(0, 80));
+            return [];
+        }
+        const textItem = data.content?.find(item => item.type ***REMOVED***= 'text');
+        const raw = textItem?.text?.trim() || '';
+
+        // 清理 Markdown code fence，再提取 JSON（非贪心匹配第一个块）
+        const cleaned = raw
+            .replace(/```json\s*/gi, '')
+            .replace(/```\s*/gi, '')
+            .trim();
+        const jsonMatch = cleaned.match(/\{[\s\S]*?\}/) || cleaned.match(/\[[\s\S]*?\]/);
+        if (!jsonMatch) {
+            console.warn('[profile-agent] LLM response has no JSON:', raw.slice(0, 100));
+            return [];
+        }
+
+        const parsed = JSON.parse(jsonMatch[0]);
+        const tags = Array.isArray(parsed) ? parsed : parsed.tags || [];
+
+        // 规范化：统一转成 { tag, source: 'ai_extracted', reason } 格式
+        return tags
+            .filter(t => t.tag && typeof t.tag ***REMOVED***= 'string')
+            .map(t => ({
+                tag: t.tag,
+                source: 'ai_extracted',
+                reason: t.reason || '',
+                confidence: t.confidence || 2,
+            }));
+    } catch (err) {
+        console.warn(`[profile-agent] LLM extraction error: ${err.message}`);
+        return [];
+    }
+}
+
+// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 事件触发入口 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+
 // POST /api/profile-agent/event
 router.post('/profile-agent/event', async (req, res) => {
     try {
@@ -225,25 +320,26 @@ router.post('/profile-agent/event', async (req, res) => {
         if (event_type ***REMOVED***= 'wa_message') {
             const { text, role } = eventData || {};
             if (text) {
-                const t = text.toLowerCase();
-                if (/\b(prefer|更喜欢|比较喜欢)\b/.test(t)) {
-                    if (/\bvideo\b/.test(t)) tags_added.push({ tag: 'format:video', source: 'ai_extracted' });
-                    if (/\btext\b/.test(t)) tags_added.push({ tag: 'format:text', source: 'ai_extracted' });
-                }
-                if (/\b(please|would|could|kindly)\b/.test(t)) {
-                    tags_added.push({ tag: 'tone:formal', source: 'ai_extracted' });
-                }
-                if (/\b(today|tonight|马上|立刻|赶紧)\b/.test(t)) {
-                    tags_added.push({ tag: 'urgency:high', source: 'ai_extracted' });
-                }
+                // LLM 标签提取（主要方式）
+                tags_added = await extractTagsWithLLM(text);
             }
         }
 
-        // Insert tags
-        for (const { tag, source } of tags_added) {
+        // Insert tags（重复时保留较高的 confidence）
+        for (const { tag, source, confidence } of tags_added) {
             await db2.prepare(
-                'INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, ?, ?, 2)'
-            ).run(client_id, tag, source);
+                'INSERT INTO client_tags (client_id, tag, source, confidence) ' +
+                'VALUES (?, ?, ?, ?) ' +
+                'ON DUPLICATE KEY UPDATE ' +
+                'confidence = IF(VALUES(confidence) > confidence, VALUES(confidence), confidence)'
+            ).run(client_id, tag, source, confidence || 2);
+        }
+
+        // 写入审计日志
+        if (tags_added.length > 0) {
+            await writeAudit('profile_tags_extracted', 'client_tags', null, null, {
+                client_id, event_type, tags_added
+            }, req);
         }
 
         // Trigger async profile refresh

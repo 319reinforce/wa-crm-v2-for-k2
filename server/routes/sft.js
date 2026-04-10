@@ -22,6 +22,8 @@ router.post('/sft-memory', async (req, res) => {
             diff_analysis,
             context,
             messages = [],
+            system_prompt_used = null,
+            system_prompt_version = 'v2',
             reviewed_by = 'system'
         } = req.body;
 
@@ -80,9 +82,11 @@ router.post('/sft-memory', async (req, res) => {
                     status = CASE WHEN ? = 'approved' THEN ? ELSE ? END,
                     similarity = ?,
                     chosen_output = ?,
-                    rejected_output = ?
+                    rejected_output = ?,
+                    system_prompt_used = COALESCE(?, system_prompt_used),
+                    system_prompt_version = COALESCE(?, system_prompt_version)
                 WHERE id = ?
-            `).run(human_output, status, newStatus, status, similarity, chosen_output, rejected_output, existing.id);
+            `).run(human_output, status, newStatus, status, similarity, chosen_output, rejected_output, system_prompt_used, system_prompt_version, existing.id);
             return res.json({ ok: true, id: existing.id, updated: true });
         }
 
@@ -93,8 +97,8 @@ router.post('/sft-memory', async (req, res) => {
              context_json, status, reviewed_by,
              similarity, scene, message_history,
              client_id_hash, input_text_hash, human_output_hash, created_date,
-             chosen_output, rejected_output)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             chosen_output, rejected_output, system_prompt_used, system_prompt_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             model_candidates?.opt1 || null,
             model_candidates?.opt2 || null,
@@ -115,7 +119,9 @@ router.post('/sft-memory', async (req, res) => {
             human_output_hash,
             created_date,
             chosen_output,
-            rejected_output
+            rejected_output,
+            system_prompt_used,
+            system_prompt_version
         );
 
         await writeAudit('sft_create', 'sft_memory', result.lastInsertRowid, null, {
@@ -230,11 +236,10 @@ router.get('/sft-training-status', async (req, res) => {
             scenes: 3,
         };
 
-        const [approvedRow, customRow, sceneRows, enApprovedRow] = await Promise.all([
+        const [approvedRow, customRow, sceneRows] = await Promise.all([
             db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved'").get(),
             db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved' AND human_selected = 'custom'").get(),
             db2.prepare("SELECT COUNT(DISTINCT scene) as count FROM sft_memory WHERE status = 'approved' AND scene IS NOT NULL").get(),
-            db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved' AND (SELECT input_text FROM sft_memory WHERE LENGTH(input_text) > 0 AND input_text IS NOT NULL LIMIT 1) IS NOT NULL").get(),
         ]);
 
         const approved = approvedRow?.count || 0;
@@ -406,11 +411,21 @@ router.get('/sft-export', async (req, res) => {
                 return null;
             }
 
-            const { prompt: systemPrompt, version: promptVersion } = buildFullSystemPrompt(
-                ctx.client_id,
-                r.scene || ctx.scene || 'unknown',
-                history
-            );
+            // 优先使用推理时捕获的 system_prompt_used，避免重新构建导致漂移
+            let systemPrompt;
+            let promptVersion;
+            if (r.system_prompt_used) {
+                systemPrompt = r.system_prompt_used;
+                promptVersion = r.system_prompt_version || 'v2';
+            } else {
+                const built = buildFullSystemPrompt(
+                    ctx.client_id,
+                    r.scene || ctx.scene || 'unknown',
+                    history
+                );
+                systemPrompt = built.prompt;
+                promptVersion = built.version || 'v2';
+            }
             const conversationMsgs = buildConversationMessages(history, inputText);
 
             return {

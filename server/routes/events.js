@@ -9,6 +9,12 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const { EVENT_KEYWORDS } = require('../constants/eventKeywords');
+function normalizeOwner(o) {
+    if (!o) return 'Beau';
+    const l = o.toLowerCase();
+    return (l ***REMOVED***= 'beau' || l ***REMOVED***= 'yiyun') ? (l.charAt(0).toUpperCase() + l.slice(1)) : o;
+}
+
 const { getPolicy } = require('../utils/policyMatcher');
 
 // GET /api/events
@@ -60,7 +66,7 @@ router.get('/:id', async (req, res) => {
 
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
-    event.policy = getPolicy(event.owner, event.event_key);
+    event.policy = await getPolicy(event.owner, event.event_key);
     event.periods = await db2.prepare(`
       SELECT * FROM event_periods WHERE event_id = ? ORDER BY period_start DESC
     `).all(req.params.id);
@@ -77,8 +83,9 @@ router.post('/', async (req, res) => {
   try {
     const db2 = db.getDb();
     const { creator_id, event_key, event_type, owner, trigger_source = 'manual', trigger_text = '', start_at, end_at, meta = {} } = req.body;
+    const normOwner = normalizeOwner(owner);
 
-    if (!creator_id || !event_key || !event_type || !owner) {
+    if (!creator_id || !event_key || !event_type || !normOwner) {
       return res.status(400).json({ error: 'creator_id, event_key, event_type, owner required' });
     }
 
@@ -90,7 +97,7 @@ router.post('/', async (req, res) => {
     const result = await db2.prepare(`
       INSERT INTO events (creator_id, event_key, event_type, owner, status, trigger_source, trigger_text, start_at, end_at, meta)
       VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
-    `).run(creator_id, event_key, event_type, owner, trigger_source, trigger_text, start_at || new Date().toISOString(), end_at, JSON.stringify(meta));
+    `).run(creator_id, event_key, event_type, normOwner, trigger_source, trigger_text, start_at || new Date().toISOString(), end_at, JSON.stringify(meta));
 
     res.json({ id: result.lastInsertRowid, status: 'active' });
   } catch (err) {
@@ -168,7 +175,7 @@ router.post('/detect', async (req, res) => {
             detected.push({
               event_key,
               event_type,
-              owner: creator.wa_owner || 'Beau',
+              owner: normalizeOwner(creator.wa_owner) || 'Beau',
               trigger_text: text,
               trigger_source: 'semantic_auto',
               confidence: 1.0,
@@ -187,7 +194,7 @@ router.post('/detect', async (req, res) => {
           detected.push({
             event_key: 'gmv_milestone',
             event_type: 'gmv',
-            owner: creator.wa_owner || 'Beau',
+            owner: normalizeOwner(creator.wa_owner) || 'Beau',
             trigger_text: text,
             trigger_source: 'gmv_crosscheck',
             gmv_current: keeper.keeper_gmv,
@@ -228,7 +235,7 @@ router.post('/:id/judge', async (req, res) => {
     const event = await db2.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
-    const policy = getPolicy(event.owner, event.event_key);
+    const policy = await getPolicy(event.owner, event.event_key);
     if (!policy) return res.status(400).json({ error: `No policy found for ${event.owner}/${event.event_key}` });
 
     let bonus_earned = 0;
@@ -302,7 +309,7 @@ router.post('/gmv-check', async (req, res) => {
       if (!keeper) continue;
 
       const gmv = keeper.keeper_gmv || 0;
-      const policy = getPolicy(evt.owner, 'gmv_milestone');
+      const policy = await getPolicy(evt.owner, 'gmv_milestone');
 
       let totalReward = 0;
       if (policy && policy.gmv_milestones) {
@@ -377,7 +384,7 @@ router.get('/summary/:creatorId', async (req, res) => {
 router.get('/policy/:owner/:eventKey', async (req, res) => {
   try {
     const { owner, eventKey } = req.params;
-    const policy = getPolicy(owner, eventKey);
+    const policy = await getPolicy(owner, eventKey);
     if (!policy) return res.status(404).json({ error: 'Policy not found' });
     res.json({ owner, event_key: eventKey, policy });
   } catch (err) {

@@ -64,7 +64,7 @@ router.post('/policy-documents', async (req, res) => {
             `).run(policy_key, policy_version, policy_content, scenarios_json, is_active ? 1 : 0);
         }
 
-        writeAudit(auditAction, 'policy_documents', policy_key, oldRow || null, {
+        await writeAudit(auditAction, 'policy_documents', policy_key, oldRow || null, {
             policy_key, policy_version, is_active
         }, req);
         res.json({ ok: true });

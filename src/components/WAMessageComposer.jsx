@@ -729,7 +729,7 @@ ${fullEventSummary}
         // 通过后端 /api/ai/system-prompt 构建完整 system prompt（与 sft-export 对齐）
         // 前端提供：topicContext + richContext + conversationSummary + operator + scene
         // 后端补充：operator experience、client_memory、policy_documents、REPLY_STYLE
-        const { prompt: systemPrompt } = await fetch(`${API_BASE}/ai/system-prompt`, {
+        const { prompt: systemPrompt, version: systemPromptVersion } = await fetch(`${API_BASE}/ai/system-prompt`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -785,7 +785,7 @@ ${fullEventSummary}
         if (!opt1 && !opt2) {
             throw new Error('AI 返回空候选，请重试');
         }
-        return { opt1, opt2 };
+        return { opt1, opt2, systemPrompt, systemPromptVersion };
     };
 
     const fetchPolicyDocs = async () => {
@@ -896,6 +896,8 @@ ${fullEventSummary}
             return {
                 incomingMsg,
                 candidates: result,
+                systemPrompt: result.systemPrompt,
+                systemPromptVersion: result.systemPromptVersion,
                 generated_at: Date.now(),
                 policyDocs,
             };
@@ -1109,7 +1111,14 @@ ${fullEventSummary}
                 client_id: client.phone,
                 richCtx,
             });
-            setActivePicker({ incomingMsg: latestMsg, candidates: result, generated_at: Date.now(), policyDocs });
+            setActivePicker({
+                incomingMsg: latestMsg,
+                candidates: result,
+                systemPrompt: result.systemPrompt,
+                systemPromptVersion: result.systemPromptVersion,
+                generated_at: Date.now(),
+                policyDocs,
+            });
         } catch (e) {
             console.error('[Regenerate] error:', e);
         } finally {
@@ -1189,6 +1198,8 @@ ${fullEventSummary}
                 ...prev,
                 incomingMsg,
                 candidates: result,
+                systemPrompt: result.systemPrompt,
+                systemPromptVersion: result.systemPromptVersion,
                 generated_at: Date.now(),
                 policyDocs,
             }));
@@ -1247,6 +1258,8 @@ ${fullEventSummary}
                     diff_analysis,
                     context: richContext,
                     messages,
+                    system_prompt_used: activePicker.systemPrompt || null,
+                    system_prompt_version: activePicker.systemPromptVersion || 'v2',
                 })
             });
 
@@ -1346,6 +1359,8 @@ ${fullEventSummary}
             setActivePicker({
                 incomingMsg: { text: inputText, timestamp: Date.now() },
                 candidates: result,
+                systemPrompt: result.systemPrompt,
+                systemPromptVersion: result.systemPromptVersion,
                 generated_at: Date.now(),
                 policyDocs,
             });
