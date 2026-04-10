@@ -377,15 +377,18 @@ router.get('/sft-export', async (req, res) => {
         const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
 
         const db2 = db.getDb();
-        const { format = 'json', status = 'approved', lang = 'all' } = req.query;
+        const { format = 'json', status = 'approved', lang = 'all', month } = req.query;
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 1000, 1), 5000);
 
-        const rows = await db2.prepare(`
-            SELECT * FROM sft_memory
-            WHERE status = ?
-            ORDER BY created_at DESC
-            LIMIT ${limit} OFFSET 0
-        `).all(status);
+        let sql = `SELECT * FROM sft_memory WHERE status = ?`;
+        const params = [status];
+        if (month && /^\d{4}-\d{2}$/.test(month)) {
+            sql += ` AND DATE_FORMAT(created_at, '%Y-%m') = ?`;
+            params.push(month);
+        }
+        sql += ` ORDER BY created_at DESC LIMIT ${limit} OFFSET 0`;
+
+        const rows = await db2.prepare(sql).all(...params);
 
         const isEnglish = (text) => /^[a-zA-Z\s.,!?]+$/.test((text || '').slice(0, 100));
 

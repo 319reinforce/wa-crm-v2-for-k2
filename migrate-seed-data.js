@@ -53,6 +53,37 @@ async function main() {
       description: 'Agency绑定后可参与推荐激励',
       parallel_with_challenge: true
     })],
+    ['Beau', 'gmv_milestone_10k', JSON.stringify({
+      gmv_milestones: [
+        { threshold: 1000, reward_type: 'commission_boost', value: 0.5, condition: 'weekly_video >= 35' },
+        { threshold: 5000, reward_type: 'cash', value: 100 },
+        { threshold: 10000, reward_type: 'cash', value: 120 },
+        { threshold: 20000, reward_type: 'cash', value: 200 },
+      ]
+    })],
+    ['Beau', 'referral', JSON.stringify({
+      reward_per_referral: 10, reward_tier2: 15,
+      description: '推荐达人奖励：1-10人$10/人，11人以上$15/人'
+    })],
+    ['Beau', 'beta_program', JSON.stringify({
+      description: 'Beta Program 20天挑战',
+      incentive: 200, cycle_days: 20
+    })],
+    ['Yiyun', 'gmv_milestone', JSON.stringify({
+      gmv_milestones: [
+        { threshold: 1000, reward_type: 'commission_boost', value: 0.5 },
+        { threshold: 5000, reward_type: 'cash', value: 100 },
+        { threshold: 10000, reward_type: 'cash', value: 120 },
+      ]
+    })],
+    ['Yiyun', 'referral', JSON.stringify({
+      reward_per_referral: 10, reward_tier2: 15,
+      description: '推荐达人奖励：1-10人$10/人，11人以上$15/人'
+    })],
+    ['Yiyun', 'beta_program', JSON.stringify({
+      description: 'Beta Program 7天试用',
+      incentive: 0, cycle_days: 7
+    })],
   ];
 
   for (const [owner, event_key, policy_json] of eventPolicies) {

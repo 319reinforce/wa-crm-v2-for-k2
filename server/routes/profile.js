@@ -258,7 +258,8 @@ async function extractTagsWithLLM(text) {
         try {
             data = await response.json();
         } catch (err) {
-            console.warn(`[profile-agent] non-JSON response (status ${response.status}):`, (await response.text()).slice(0, 80));
+            const bodyText = await response.clone().text();
+            console.warn(`[profile-agent] non-JSON response (status ${response.status}):`, bodyText.slice(0, 80));
             return [];
         }
         const textItem = data.content?.find(item => item.type ***REMOVED***= 'text');

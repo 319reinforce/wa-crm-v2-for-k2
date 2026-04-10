@@ -82,7 +82,7 @@ async function exportSFTData(monthLabel) {
 
     console.log(`[Training] 导出 SFT 数据到 ${exportPath}...`);
 
-    const res = await apiRequest('GET', `/api/sft-export?format=jsonl&status=approved&limit=${EXPORT_LIMIT}`, null);
+    const res = await apiRequest('GET', `/api/sft-export?format=jsonl&status=approved&limit=${EXPORT_LIMIT}&month=${monthLabel}`, null);
     if (res.status !***REMOVED*** 200) {
         throw new Error(`导出失败: HTTP ${res.status}`);
     }

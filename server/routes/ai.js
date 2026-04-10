@@ -34,51 +34,63 @@ router.post('/minimax', async (req, res) => {
             const FINETUNED_KEY = process.env.FINETUNED_API_KEY || 'EMPTY';
             const temps = Array.isArray(temperature) ? temperature : [0.8, 0.4];
 
-            const [raw1, raw2] = await Promise.all([
-                fetch(FINETUNED_BASE, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${FINETUNED_KEY}`,
-                    },
-                    body: JSON.stringify({
-                        model: 'wa-crm-finetuned',
-                        messages,
-                        max_tokens: max_tokens || 500,
-                        temperature: temps[0],
+            let finetunedFailed = false;
+            try {
+                const [raw1, raw2] = await Promise.all([
+                    fetch(FINETUNED_BASE, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${FINETUNED_KEY}`,
+                        },
+                        body: JSON.stringify({
+                            model: 'wa-crm-finetuned',
+                            messages,
+                            max_tokens: max_tokens || 500,
+                            temperature: temps[0],
+                        }),
+                        signal: AbortSignal.timeout(15000),
                     }),
-                    signal: AbortSignal.timeout(60000),
-                }),
-                fetch(FINETUNED_BASE, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${FINETUNED_KEY}`,
-                    },
-                    body: JSON.stringify({
-                        model: 'wa-crm-finetuned',
-                        messages,
-                        max_tokens: max_tokens || 500,
-                        temperature: temps[1],
+                    fetch(FINETUNED_BASE, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${FINETUNED_KEY}`,
+                        },
+                        body: JSON.stringify({
+                            model: 'wa-crm-finetuned',
+                            messages,
+                            max_tokens: max_tokens || 500,
+                            temperature: temps[1],
+                        }),
+                        signal: AbortSignal.timeout(15000),
                     }),
-                    signal: AbortSignal.timeout(60000),
-                }),
-            ]);
+                ]);
 
-            const [data1, data2] = await Promise.all([raw1.json(), raw2.json()]);
-            if (!raw1.ok || !raw2.ok) {
-                return res.status(502).json({ error: 'Finetuned model error', detail: `${raw1.status}/${raw2.status}` });
+                const [data1, data2] = await Promise.all([raw1.json(), raw2.json()]);
+                if (!raw1.ok || !raw2.ok) {
+                    finetunedFailed = true;
+                } else {
+                    const extractText = (d) => d?.choices?.[0]?.message?.content || '';
+                    return res.json({
+                        id: 'finetuned-' + Date.now(),
+                        type: 'message',
+                        role: 'assistant',
+                        model: 'wa-crm-finetuned',
+                        content: [{ type: 'text', text: extractText(data1) }],
+                        content_opt2: [{ type: 'text', text: extractText(data2) }],
+                    });
+                }
+            } catch (_) {
+                finetunedFailed = true;
             }
 
-            const extractText = (d) => d?.choices?.[0]?.message?.content || '';
-            return res.json({
-                id: 'finetuned-' + Date.now(),
-                type: 'message',
-                role: 'assistant',
-                model: 'wa-crm-finetuned',
-                content: [{ type: 'text', text: extractText(data1) }],
-                content_opt2: [{ type: 'text', text: extractText(data2) }],
-            });
+            // Finetuned 失败时静默 fallback 到 OpenAI（不在错误路径停留）
+            if (finetunedFailed && process.env.USE_OPENAI !***REMOVED*** 'true') {
+                // USE_OPENAI 也不可用时再报 502
+                return res.status(502).json({ error: 'Finetuned model unavailable, OpenAI not enabled', detail: 'both finetuned and OpenAI unavailable' });
+            }
+            // finetuned 失败但 USE_OPENAI=true → 继续走到下方 OpenAI 路由
         }
 
         if (process.env.USE_OPENAI ***REMOVED***= 'true') {
