@@ -208,8 +208,7 @@ function App() {
     if (!shouldShowUnread(creator)) {
       setUnreadCounts(prev => ({ ...prev, [creator.id]: 0 }))
     }
-    setDetailPanelExpanded(false)
-    setDetailPanelPinned(false)
+    setDetailPanelExpanded(detailPanelPinned)
     setSelectedCreator(creator)
   }
 

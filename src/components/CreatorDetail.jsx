@@ -282,7 +282,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
     <div className="mt-2.5 p-3 rounded-xl space-y-2.5" style={{ background: WA.lightBg }}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-semibold" style={{ color: WA.textMuted }}>画像管理</span>
+          <span className="text-[9px] font-semibold" style={{ color: WA.textMuted }}>画像管理</span>
           {clientProfile?.tags?.length > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted }}>
               {clientProfile.tags.length} 标签
@@ -381,7 +381,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
     <div className="mt-2.5 p-3 rounded-xl space-y-2.5" style={{ background: WA.lightBg }}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-semibold" style={{ color: WA.textMuted }}>财务面板</span>
+          <span className="text-[9px] font-semibold" style={{ color: WA.textMuted }}>财务面板</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted }}>
             {wacrm.monthly_fee_status || 'pending'}
           </span>
@@ -397,7 +397,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
         <button
           onClick={handleEditSave}
           disabled={editSaving}
-          className="px-3 py-2 rounded-xl text-xs font-medium text-white"
+          className="px-3 py-2 rounded-xl text-[11px] font-medium text-white"
           style={{ background: editSaving ? '#9ca3af' : WA.teal }}
         >
           {editSaving ? '保存中...' : '保存财务'}
@@ -410,7 +410,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
     <div className="mt-2.5 p-3 rounded-xl space-y-2.5" style={{ background: WA.lightBg }}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-semibold" style={{ color: WA.textMuted }}>Keeper 面板</span>
+          <span className="text-[9px] font-semibold" style={{ color: WA.textMuted }}>Keeper 面板</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted }}>
             GMV {displayKeeper.keeper_gmv ? `$${Number(displayKeeper.keeper_gmv).toLocaleString()}` : '$0'}
           </span>
@@ -430,7 +430,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
         <button
           onClick={handleEditSave}
           disabled={editSaving}
-          className="px-3 py-2 rounded-xl text-xs font-medium text-white"
+          className="px-3 py-2 rounded-xl text-[11px] font-medium text-white"
           style={{ background: editSaving ? '#9ca3af' : WA.teal }}
         >
           {editSaving ? '保存中...' : '保存 Keeper'}
@@ -441,19 +441,19 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
 
   const quickEditPanel = activeManageTab ***REMOVED***= 'edit' && (
     <div className="mt-2.5 p-3 rounded-xl space-y-2.5" style={{ background: WA.lightBg }}>
-      <div className="text-[11px] font-semibold mb-1.5" style={{ color: WA.textMuted }}>编辑达人</div>
-      <InlineEditField label="姓名" value={editForm.primary_name || ''} onChange={v => setEditForm(f => ({ ...f, primary_name: v }))} type="text" />
-      <InlineEditField label="电话" value={editForm.wa_phone || ''} onChange={v => setEditForm(f => ({ ...f, wa_phone: v }))} type="text" />
-      <InlineEditField label="负责人" value={editForm.wa_owner || ''} onChange={v => setEditForm(f => ({ ...f, wa_owner: v }))} type="select" options={OWNER_ORDER.map(owner => [owner, owner])} />
-      <InlineEditField label="Keeper" value={editForm.keeper_username || ''} onChange={v => setEditForm(f => ({ ...f, keeper_username: v }))} type="text" />
-      <InlineEditField label="优先级" value={editForm.priority || ''} onChange={v => setEditForm(f => ({ ...f, priority: v }))} type="select" options={[['normal', '普通'], ['high', '高'], ['urgent', '紧急']]} />
-      <InlineEditField label="Agency" value={editForm.agency_bound || '0'} onChange={v => setEditForm(f => ({ ...f, agency_bound: v }))} type="select" options={[['0', '否'], ['1', '是']]} />
-      <InlineEditField label="视频数" value={String(editForm.video_count || 0)} onChange={v => setEditForm(f => ({ ...f, video_count: parseInt(v) || 0 }))} type="number" />
-      <InlineEditField label="目标" value={String(editForm.video_target || 35)} onChange={v => setEditForm(f => ({ ...f, video_target: parseInt(v) || 35 }))} type="number" />
+      <div className="text-[9px] font-semibold mb-1.5" style={{ color: WA.textMuted }}>编辑达人</div>
+      <InlineEditField compact label="姓名" value={editForm.primary_name || ''} onChange={v => setEditForm(f => ({ ...f, primary_name: v }))} type="text" />
+      <InlineEditField compact label="电话" value={editForm.wa_phone || ''} onChange={v => setEditForm(f => ({ ...f, wa_phone: v }))} type="text" />
+      <InlineEditField compact label="负责人" value={editForm.wa_owner || ''} onChange={v => setEditForm(f => ({ ...f, wa_owner: v }))} type="select" options={OWNER_ORDER.map(owner => [owner, owner])} />
+      <InlineEditField compact label="Keeper" value={editForm.keeper_username || ''} onChange={v => setEditForm(f => ({ ...f, keeper_username: v }))} type="text" />
+      <InlineEditField compact label="优先级" value={editForm.priority || ''} onChange={v => setEditForm(f => ({ ...f, priority: v }))} type="select" options={[['normal', '普通'], ['high', '高'], ['urgent', '紧急']]} />
+      <InlineEditField compact label="Agency" value={editForm.agency_bound || '0'} onChange={v => setEditForm(f => ({ ...f, agency_bound: v }))} type="select" options={[['0', '否'], ['1', '是']]} />
+      <InlineEditField compact label="视频数" value={String(editForm.video_count || 0)} onChange={v => setEditForm(f => ({ ...f, video_count: parseInt(v) || 0 }))} type="number" />
+      <InlineEditField compact label="目标" value={String(editForm.video_target || 35)} onChange={v => setEditForm(f => ({ ...f, video_target: parseInt(v) || 35 }))} type="number" />
       <div>
-        <div className="text-[11px] mb-1" style={{ color: WA.textMuted }}>下一步</div>
+        <div className="text-[9px] mb-1" style={{ color: WA.textMuted }}>下一步</div>
         <textarea
-          className="w-full text-[11px] px-2.5 py-2 rounded-xl border focus:outline-none focus:ring-2 resize-none"
+          className="w-full text-[9px] px-2.5 py-2 rounded-xl border focus:outline-none focus:ring-2 resize-none"
           style={{ borderColor: WA.borderLight, background: WA.white, color: '#111b21' }}
           rows={2}
           value={editForm.next_action || ''}
@@ -462,10 +462,10 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
         />
       </div>
       <div className="border-t pt-2 mt-1" style={{ borderColor: WA.borderLight }}>
-        <div className="text-[11px] font-semibold mb-2" style={{ color: WA.textMuted }}>事件标签</div>
+        <div className="text-[9px] font-semibold mb-2" style={{ color: WA.textMuted }}>事件标签</div>
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] w-20 shrink-0" style={{ color: WA.textMuted }}>挑战阶段</span>
+            <span className="text-[9px] w-20 shrink-0" style={{ color: WA.textMuted }}>挑战阶段</span>
             <select
               value={editForm.ev_trial_active ? 'active' : (editForm.ev_monthly_started ? 'monthly' : 'none')}
               onChange={e => {
@@ -476,7 +476,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                   ev_monthly_started: v ***REMOVED***= 'monthly',
                 }))
               }}
-              className="flex-1 text-xs px-2 py-1.5 rounded-lg border"
+              className="flex-1 text-[9px] px-2 py-1.5 rounded-lg border"
               style={{ borderColor: WA.borderLight, background: WA.white, color: WA.textDark }}
             >
               <option value="none">无</option>
@@ -485,7 +485,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] w-20 shrink-0" style={{ color: WA.textMuted }}>GMV 阶段</span>
+            <span className="text-[9px] w-20 shrink-0" style={{ color: WA.textMuted }}>GMV 阶段</span>
             <select
               value={editForm.ev_gmv_10k ? '10k' : (editForm.ev_gmv_5k ? '5k' : (editForm.ev_gmv_2k ? '2k' : (editForm.ev_gmv_1k ? '1k' : 'none')))}
               onChange={e => {
@@ -498,7 +498,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                   ev_gmv_10k: v ***REMOVED***= '10k',
                 }))
               }}
-              className="flex-1 text-xs px-2 py-1.5 rounded-lg border"
+              className="flex-1 text-[9px] px-2 py-1.5 rounded-lg border"
               style={{ borderColor: WA.borderLight, background: WA.white, color: WA.textDark }}
             >
               <option value="none">无</option>
@@ -509,7 +509,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] w-20 shrink-0" style={{ color: WA.textMuted }}>状态</span>
+            <span className="text-[9px] w-20 shrink-0" style={{ color: WA.textMuted }}>状态</span>
             <select
               value={editForm.ev_churned ? 'churned' : (editForm.ev_agency_bound ? 'agency' : 'active')}
               onChange={e => {
@@ -520,7 +520,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                   ev_churned: v ***REMOVED***= 'churned',
                 }))
               }}
-              className="flex-1 text-xs px-2 py-1.5 rounded-lg border"
+              className="flex-1 text-[9px] px-2 py-1.5 rounded-lg border"
               style={{ borderColor: WA.borderLight, background: WA.white, color: WA.textDark }}
             >
               <option value="active">正常/活跃</option>
@@ -534,14 +534,14 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
         <button
           onClick={handleEditSave}
           disabled={editSaving}
-          className="flex-1 py-2 rounded-xl text-xs font-medium text-white"
+          className="flex-1 py-2 rounded-xl text-[9px] font-medium text-white"
           style={{ background: editSaving ? '#9ca3af' : WA.teal }}
         >
           {editSaving ? '保存中...' : '保存'}
         </button>
         <button
           onClick={() => setEditForm(editFormInitial)}
-          className="px-3 py-2 rounded-xl text-xs font-medium"
+          className="px-3 py-2 rounded-xl text-[9px] font-medium"
           style={{ background: WA.borderLight, color: WA.textMuted }}
         >
           重置
@@ -595,7 +595,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
               color: WA.textMuted,
             }}
           >
-            <span className="text-[11px] font-semibold tracking-wide">事件达成</span>
+            <span className="text-[9px] font-semibold tracking-wide">事件达成</span>
             <span
               className="block h-1.5 w-10 rounded-full"
               style={{ background: showEventsPanel ? WA.teal + '55' : WA.borderLight }}
@@ -606,7 +606,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                 setEventsPinned(v => !v)
                 setEventsExpanded(true)
               }}
-              className="text-[11px] font-semibold transition-opacity hover:opacity-80"
+              className="text-[9px] font-semibold transition-opacity hover:opacity-80"
               style={{ color: showEventsPanel ? WA.teal : WA.textMuted }}
               title={eventsPinned ? '取消固定' : '固定展开'}
             >
@@ -1014,13 +1014,15 @@ function buildCreatorDraftPreview(creator, editForm = {}) {
   }
 }
 
-function InlineEditField({ label, value, onChange, type = 'text', options = [] }) {
+function InlineEditField({ label, value, onChange, type = 'text', options = [], compact = false }) {
+  const labelClass = compact ? 'text-[9px] mb-1' : 'text-[11px] mb-1'
+  const fieldClass = compact ? 'w-full text-[9px] px-2.5 py-2 rounded-xl border focus:outline-none focus:ring-2' : 'w-full text-[11px] px-2.5 py-2 rounded-xl border focus:outline-none focus:ring-2'
   if (type ***REMOVED***= 'select') {
     return (
       <label className="block">
-        <div className="text-[11px] mb-1" style={{ color: WA.textMuted }}>{label}</div>
+        <div className={labelClass} style={{ color: WA.textMuted }}>{label}</div>
         <select
-          className="w-full text-[11px] px-2.5 py-2 rounded-xl border focus:outline-none focus:ring-2"
+          className={fieldClass}
           style={{ borderColor: WA.borderLight, background: WA.white, color: WA.textDark }}
           value={value}
           onChange={e => onChange(e.target.value)}
@@ -1035,9 +1037,9 @@ function InlineEditField({ label, value, onChange, type = 'text', options = [] }
 
   return (
     <label className="block">
-      <div className="text-[11px] mb-1" style={{ color: WA.textMuted }}>{label}</div>
+      <div className={labelClass} style={{ color: WA.textMuted }}>{label}</div>
       <input
-        className="w-full text-[11px] px-2.5 py-2 rounded-xl border focus:outline-none focus:ring-2"
+        className={fieldClass}
         style={{ borderColor: WA.borderLight, background: WA.white, color: WA.textDark }}
         type={type}
         value={value}
@@ -1099,10 +1101,10 @@ function ActionPill({ label, icon, color, onClick, loading }) {
     <button
       onClick={onClick}
       disabled={loading}
-      className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-medium transition-all hover:opacity-80 disabled:opacity-50"
+      className="w-full flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-medium transition-all hover:opacity-80 disabled:opacity-50"
       style={{ background: color + '18', color }}
     >
-      <span>{loading ? '⏳' : icon}</span><span>{loading ? '刷新中...' : label}</span>
+      <span className="text-[11px] leading-none">{loading ? '⏳' : icon}</span><span>{loading ? '刷新中...' : label}</span>
     </button>
   )
 }
@@ -1111,7 +1113,7 @@ function ManagementTabButton({ active, label, icon, color, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="px-2.5 py-2 rounded-xl text-[11px] font-semibold transition-all"
+      className="px-2.5 py-2 rounded-xl text-[8px] font-semibold transition-all"
       style={{
         background: active ? color : WA.white,
         color: active ? WA.white : color,
@@ -1119,7 +1121,7 @@ function ManagementTabButton({ active, label, icon, color, onClick }) {
         boxShadow: active ? `${color}22 0 8px 20px` : 'none',
       }}
     >
-      <span className="block text-sm leading-none">{icon}</span>
+      <span className="block text-[11px] leading-none">{icon}</span>
       <span className="block mt-1 leading-none">{label}</span>
     </button>
   )
