@@ -1,6 +1,6 @@
 {
   "session_id": "beau",
-  "updated_at": "2026-04-11T16:12:01.817Z",
+  "updated_at": "2026-04-11T16:20:48.052Z",
   "ready": true,
   "hasQr": false,
   "error": null,
@@ -26,13 +26,13 @@
     "processedChats": 108,
     "newMessages": 17,
     "errors": [],
-    "lastPollAt": "2026-04-11T16:10:28.156Z",
+    "lastPollAt": "2026-04-11T16:20:35.102Z",
     "clientReady": true,
     "clientError": null,
     "owner": "Beau",
     "sessionId": "beau",
     "resolvedOwner": "Beau",
-    "uptime": 3253669
+    "uptime": 3779904
   },
   "pid": 75876,
   "api_base": "http://127.0.0.1:3000",
