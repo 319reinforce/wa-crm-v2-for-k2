@@ -269,6 +269,7 @@ async function getSftFeedbackStats() {
 }
 
 module.exports = {
+    parseJsonSafe,
     validateHumanOutput,
     listSftMemory,
     listPendingSftMemory,

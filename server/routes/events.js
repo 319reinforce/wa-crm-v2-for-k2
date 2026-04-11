@@ -9,6 +9,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const { EVENT_KEYWORDS } = require('../constants/eventKeywords');
+const { writeAudit } = require('../middleware/audit');
 function normalizeOwner(o) {
     if (!o) return 'Beau';
     const l = o.toLowerCase();
@@ -120,6 +121,17 @@ router.post('/', async (req, res) => {
         }
     }
 
+    await writeAudit('event_create', 'events', eventId, null, {
+      creator_id,
+      event_key,
+      event_type,
+      owner: normOwner,
+      status: 'active',
+      trigger_source,
+      start_at: start_at || null,
+      end_at: end_at || null,
+    }, req);
+
     res.json({ id: eventId, status: 'active' });
   } catch (err) {
     console.error('POST /api/events error:', err);
@@ -148,6 +160,8 @@ router.patch('/:id', async (req, res) => {
     params.push(req.params.id);
 
     await db2.prepare(`UPDATE events SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    const updated = await db2.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
+    await writeAudit('event_update', 'events', req.params.id, existing, updated, req);
     res.json({ ok: true });
   } catch (err) {
     console.error('PATCH /api/events/:id error:', err);
@@ -159,12 +173,13 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const db2 = db.getDb();
-    const event = await db2.prepare('SELECT status FROM events WHERE id = ?').get(req.params.id);
+    const event = await db2.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
     if (!event) return res.status(404).json({ error: 'Event not found' });
     if (event.status !***REMOVED*** 'pending') return res.status(400).json({ error: '只能删除 pending 状态的事件' });
 
     await db2.prepare('DELETE FROM event_periods WHERE event_id = ?').run(req.params.id);
     await db2.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
+    await writeAudit('event_delete', 'events', req.params.id, event, null, req);
     res.json({ ok: true });
   } catch (err) {
     console.error('DELETE /api/events/:id error:', err);
@@ -316,7 +331,7 @@ router.post('/gmv-check', async (req, res) => {
 
     // Batch fetch all event_periods upfront (fixes N+1)
     const eventIds = activeGmvEvents.map(e => e.id);
-    const periods = await db2.prepare(`SELECT * FROM event_periods WHERE event_id IN (${eventIds.map(() => '?').join(',')}) AND status = 'active'`).all(...eventIds);
+    const periods = await db2.prepare(`SELECT * FROM event_periods WHERE event_id IN (${eventIds.map(() => '?').join(',')}) AND status = 'pending'`).all(...eventIds);
     const periodMap = {};
     periods.forEach(p => {
       if (!periodMap[p.event_id] || new Date(p.period_end) > new Date(periodMap[p.event_id].period_end)) {

@@ -14,8 +14,8 @@
 
 ```bash
 # 1. 克隆项目
-git clone git@git.k2lab.ai:319reinforce/wa-crm-v2-for-k2.git
-cd wa-crm-v2
+git clone git@git.k2lab.ai:lets-ai/whatsapp-mgr.git
+cd whatsapp-mgr
 
 # 2. 配置环境变量
 cp .env.example .env
@@ -55,8 +55,8 @@ docker compose down -v     # 停止并删除数据卷（慎用）
 
 ```bash
 # 1. 克隆项目
-git clone git@git.k2lab.ai:319reinforce/wa-crm-v2-for-k2.git
-cd wa-crm-v2
+git clone git@git.k2lab.ai:lets-ai/whatsapp-mgr.git
+cd whatsapp-mgr
 
 # 2. 安装依赖
 npm install
@@ -105,10 +105,71 @@ curl http://localhost:3000/api/health
 | `OPENAI_MODEL` | `gpt-4o` | OpenAI 模型 |
 | `MINIMAX_API_KEY` | - | MiniMax API Key |
 | `MINIMAX_API_BASE` | `https://api.minimaxi.com/anthropic` | MiniMax API 地址 |
+| `WA_SESSION_ID` | 空（默认用端口） | WhatsApp 会话 ID（同机多 session 时必填，如 `beau`/`yiyun`） |
+| `WA_OWNER` | `Beau` | 当前 WA 会话归属负责人 |
+| `WA_API_BASE` | `http://127.0.0.1:3000` | 独立 crawler 回调主服务地址（画像/事件） |
 
 ### Vite 前端变量（自动生效）
 
 前端构建时读取 `VITE_` 前缀的同名变量，无需额外配置。
+
+---
+
+## 多 Session 抓取（同一台电脑）
+
+目标：主服务统一分析/训练，多个 WA 会话并行抓取并写入同一 MySQL。
+
+### 1) 启动主服务（只负责 API/UI）
+
+```bash
+DISABLE_WA_SERVICE=true DISABLE_WA_WORKER=true PORT=3000 npm start
+```
+
+### 2) 启动多个独立 crawler（每个会话一个进程）
+
+```bash
+# Beau 会话
+WA_SESSION_ID=beau WA_OWNER=Beau WA_API_BASE=http://127.0.0.1:3000 npm run wa:crawler
+
+# Yiyun 会话（新开终端）
+WA_SESSION_ID=yiyun WA_OWNER=Yiyun WA_API_BASE=http://127.0.0.1:3000 npm run wa:crawler
+```
+
+说明：
+- 每个 crawler 使用独立 `.wwebjs_auth/session-<WA_SESSION_ID>` 目录。
+- 所有消息统一写入同一数据库，并记录 `wa_messages.operator`（会话归属）。
+
+### 3) PM2 常驻 + 自愈 + 日志轮转（推荐生产）
+
+已提供文件：
+- `ecosystem.wa-crawlers.config.cjs`：4 个 crawler 常驻配置
+- `scripts/wa-pm2.sh`：一键管理脚本
+
+```bash
+# 启动/接管 4 个 crawler（会先清理裸跑进程）
+bash scripts/wa-pm2.sh start
+
+# 配置日志轮转（每天轮转，50M 切分，保留 14 份，压缩）
+bash scripts/wa-pm2.sh setup-logrotate
+
+# 查看状态
+bash scripts/wa-pm2.sh status
+bash scripts/wa-pm2.sh doctor
+```
+
+常用命令：
+
+```bash
+bash scripts/wa-pm2.sh restart
+bash scripts/wa-pm2.sh stop
+bash scripts/wa-pm2.sh delete
+bash scripts/wa-pm2.sh logs wa-crawler-beau
+```
+
+说明：
+- 自愈依赖 PM2 `autorestart` + `restart_delay` + `exp_backoff_restart_delay`。
+- 日志输出到 `/tmp/wa-crawler-*.log`，错误日志到 `/tmp/wa-crawler-*.err.log`。
+- 若需要系统重启后自动恢复，请执行 `pm2 startup`（按 PM2 提示完成）后再 `pm2 save`。
 
 ---
 
@@ -139,7 +200,7 @@ curl http://localhost:3000/api/health
 ## 目录结构
 
 ```
-wa-crm-v2/
+whatsapp-mgr/
 ├── server/             # 后端入口（Node.js）
 │   └── index.cjs       # 主服务（注意 .cjs 扩展名）
 ├── src/                # 前端 React 代码

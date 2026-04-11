@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import JudgeQuickForm from './JudgeQuickForm'
+import { OWNER_ORDER, getOwnerColor } from '../utils/operators'
+import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 
 const API_BASE = '/api';
 
@@ -23,6 +25,8 @@ const EVENT_TYPE_LABELS = {
   gmv_milestone: { label: 'GMV里程碑', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
   referral: { label: '推荐', color: '#06b6d4', bg: 'rgba(6,182,212,0.15)' },
   incentive_task: { label: '激励任务', color: '#ec4899', bg: 'rgba(236,72,153,0.15)' },
+  recall_pending: { label: '待召回', color: '#f97316', bg: 'rgba(249,115,22,0.15)' },
+  second_touch: { label: '二次触达', color: '#0ea5e9', bg: 'rgba(14,165,233,0.15)' },
 }
 
 const STATUS_LABELS = {
@@ -32,10 +36,7 @@ const STATUS_LABELS = {
   cancelled: { label: '已取消', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
 }
 
-const OWNER_LABELS = {
-  Beau: { color: '#3b82f6' },
-  Yiyun: { color: '#8b5cf6' },
-}
+const OWNER_OPTIONS = OWNER_ORDER
 
 export function EventPanel() {
   const [events, setEvents] = useState([])
@@ -55,11 +56,24 @@ export function EventPanel() {
     creator_id: '',
     event_key: 'trial_7day',
     event_type: 'challenge',
-    owner: 'Beau',
+    owner: OWNER_OPTIONS[0],
     trigger_source: 'manual',
     trigger_text: '',
     start_at: new Date().toISOString().slice(0, 16),
     end_at: '',
+  })
+  const selectedCreator = creators.find(c => String(c.id) ***REMOVED***= String(createForm.creator_id))
+  const selectedAgencyBound = Boolean(
+    selectedCreator?.wacrm?.agency_bound
+      ?? selectedCreator?._full?.wacrm?.agency_bound
+      ?? selectedCreator?.joinbrands?.ev_agency_bound
+      ?? selectedCreator?._full?.joinbrands?.ev_agency_bound
+  )
+  const agencyOnlyKeys = new Set(['recall_pending', 'second_touch'])
+  const createEventEntries = Object.entries(EVENT_TYPE_LABELS).filter(([key]) => {
+    if (!selectedCreator) return true
+    if (selectedAgencyBound && agencyOnlyKeys.has(key)) return false
+    return true
   })
 
   const fetchEvents = useCallback(async (silent = false) => {
@@ -71,8 +85,7 @@ export function EventPanel() {
       if (filterEventKey) params.set('event_key', filterEventKey)
       params.set('limit', '100')
 
-      const res = await fetch(`${API_BASE}/events?${params.toString()}`, { signal: AbortSignal.timeout(15000) })
-      const data = await res.json()
+      const data = await fetchJsonOrThrow(`${API_BASE}/events?${params.toString()}`, { signal: AbortSignal.timeout(15000) })
       setEvents(data.events || [])
       setTotal(data.total || 0)
     } catch (e) {
@@ -84,8 +97,7 @@ export function EventPanel() {
 
   const fetchCreators = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/creators?limit=500`, { signal: AbortSignal.timeout(15000) })
-      const data = await res.json()
+      const data = await fetchJsonOrThrow(`${API_BASE}/creators?limit=500`, { signal: AbortSignal.timeout(15000) })
       setCreators(Array.isArray(data) ? data : [])
     } catch (e) {
       console.error('fetchCreators error:', e)
@@ -97,25 +109,27 @@ export function EventPanel() {
     fetchCreators()
   }, [fetchEvents, fetchCreators])
 
+  useEffect(() => {
+    if (!selectedCreator) return
+    if (selectedAgencyBound && agencyOnlyKeys.has(createForm.event_key)) {
+      setCreateForm(f => ({ ...f, event_key: 'trial_7day', event_type: 'challenge' }))
+    }
+  }, [selectedCreator, selectedAgencyBound, createForm.event_key])
+
   const handleCreate = async () => {
     try {
-      const res = await fetch(`${API_BASE}/events`, {
+      await fetchJsonOrThrow(`${API_BASE}/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(createForm),
         signal: AbortSignal.timeout(15000),
       })
-      const data = await res.json()
-      if (!res.ok) {
-        alert(data.error || '创建失败')
-        return
-      }
       setShowCreate(false)
       setCreateForm({
         creator_id: '',
         event_key: 'trial_7day',
         event_type: 'challenge',
-        owner: 'Beau',
+        owner: OWNER_OPTIONS[0],
         trigger_source: 'manual',
         trigger_text: '',
         start_at: new Date().toISOString().slice(0, 16),
@@ -129,7 +143,7 @@ export function EventPanel() {
 
   const handleStatusChange = async (eventId, newStatus) => {
     try {
-      await fetch(`${API_BASE}/events/${eventId}`, {
+      await fetchOkOrThrow(`${API_BASE}/events/${eventId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -137,8 +151,7 @@ export function EventPanel() {
       })
       fetchEvents(true)
       if (selectedEvent?.id ***REMOVED***= eventId) {
-        const res = await fetch(`${API_BASE}/events/${eventId}`, { signal: AbortSignal.timeout(15000) })
-        const data = await res.json()
+        const data = await fetchJsonOrThrow(`${API_BASE}/events/${eventId}`, { signal: AbortSignal.timeout(15000) })
         setSelectedEvent(data)
       }
     } catch (e) {
@@ -161,13 +174,12 @@ export function EventPanel() {
       try { if (event?.meta) meta = JSON.parse(event.meta); } catch (_) {}
       const videoCount = meta.video_count || 0
 
-      const res = await fetch(`${API_BASE}/events/${eventId}/judge`, {
+      const data = await fetchJsonOrThrow(`${API_BASE}/events/${eventId}/judge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ period_start: periodStart, period_end: periodEnd, video_count: videoCount }),
         signal: AbortSignal.timeout(15000),
       })
-      const data = await res.json()
       setJudgeResult(data)
       fetchEvents(true)
     } catch (e) {
@@ -179,8 +191,7 @@ export function EventPanel() {
 
   const handleViewEvent = async (eventId) => {
     try {
-      const res = await fetch(`${API_BASE}/events/${eventId}`, { signal: AbortSignal.timeout(15000) })
-      const data = await res.json()
+      const data = await fetchJsonOrThrow(`${API_BASE}/events/${eventId}`, { signal: AbortSignal.timeout(15000) })
       setSelectedEvent(data)
       setJudgeResult(null)
     } catch (e) {
@@ -244,8 +255,9 @@ export function EventPanel() {
           style={{ borderColor: filterOwner ? WA.teal + '50' : WA.borderLight, color: filterOwner ? WA.textDark : WA.textMuted }}
         >
           <option value="">全部负责人</option>
-          <option value="Beau">Beau</option>
-          <option value="Yiyun">Yiyun</option>
+          {OWNER_OPTIONS.map(owner => (
+            <option key={owner} value={owner}>{owner}</option>
+          ))}
         </select>
         <select
           value={filterEventKey}
@@ -286,7 +298,7 @@ export function EventPanel() {
             events.map(event => {
               const typeInfo = EVENT_TYPE_LABELS[event.event_key] || { label: event.event_key, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
               const statusInfo = STATUS_LABELS[event.status] || { label: event.status, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
-              const ownerColor = OWNER_LABELS[event.owner]?.color || '#94a3b8'
+              const ownerColor = getOwnerColor(event.owner)
               const isSelected = selectedEvent?.id ***REMOVED***= event.id
 
               return (
@@ -369,8 +381,8 @@ export function EventPanel() {
                   {STATUS_LABELS[selectedEvent.status]?.label || selectedEvent.status}
                 </span>
                 <span className="text-xs px-3 py-1.5 rounded-full font-semibold" style={{
-                  background: OWNER_LABELS[selectedEvent.owner] ? OWNER_LABELS[selectedEvent.owner].color + '20' : 'rgba(148,163,184,0.15)',
-                  color: OWNER_LABELS[selectedEvent.owner]?.color || '#94a3b8',
+                  background: getOwnerColor(selectedEvent.owner) + '20',
+                  color: getOwnerColor(selectedEvent.owner),
                 }}>
                   {selectedEvent.owner}
                 </span>
@@ -535,11 +547,20 @@ export function EventPanel() {
                     value={createForm.event_key}
                     onChange={e => {
                       const key = e.target.value
-                      const typeMap = { trial_7day: 'challenge', monthly_challenge: 'challenge', agency_bound: 'agency', gmv_milestone: 'gmv', referral: 'referral' }
+                      const typeMap = {
+                        trial_7day: 'challenge',
+                        monthly_challenge: 'challenge',
+                        agency_bound: 'agency',
+                        gmv_milestone: 'gmv',
+                        referral: 'referral',
+                        incentive_task: 'incentive',
+                        recall_pending: 'followup',
+                        second_touch: 'followup',
+                      }
                       setCreateForm(f => ({ ...f, event_key: key, event_type: typeMap[key] || 'challenge' }))
                     }}
                   >
-                    {Object.entries(EVENT_TYPE_LABELS).map(([k, v]) => (
+                    {createEventEntries.map(([k, v]) => (
                       <option key={k} value={k}>{v.label}</option>
                     ))}
                   </select>
@@ -549,11 +570,12 @@ export function EventPanel() {
                   <select
                     className="w-full text-sm px-3 py-2.5 rounded-xl border focus:outline-none"
                     style={{ borderColor: WA.borderLight, background: WA.lightBg }}
-                    value={createForm.owner}
-                    onChange={e => setCreateForm(f => ({ ...f, owner: e.target.value }))}
-                  >
-                    <option value="Beau">Beau</option>
-                    <option value="Yiyun">Yiyun</option>
+                  value={createForm.owner}
+                  onChange={e => setCreateForm(f => ({ ...f, owner: e.target.value }))}
+                >
+                    {OWNER_OPTIONS.map(owner => (
+                      <option key={owner} value={owner}>{owner}</option>
+                    ))}
                   </select>
                 </div>
               </div>

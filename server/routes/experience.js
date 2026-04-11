@@ -232,7 +232,7 @@ router.post('/route', async (req, res) => {
         }));
 
         const { prompt: systemPrompt, version } = await buildFullSystemPrompt(client_id, scene, messages,
-            { topicContext, richContext, conversationSummary, systemPromptVersion: 'v2' });
+            { operator, topicContext, richContext, conversationSummary, systemPromptVersion: 'v2' });
 
         const recentMessages = (messages || []).slice(-10);
         const formattedMessages = recentMessages.map(msg => ({
@@ -302,6 +302,9 @@ router.post('/route', async (req, res) => {
             });
         }
 
+        if (!opt1 && !opt2) {
+            return res.status(502).json({ success: false, error: 'AI 生成失败' });
+        }
         res.json({
             success: true,
             operator,

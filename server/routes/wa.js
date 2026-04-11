@@ -7,18 +7,32 @@
 const express = require('express');
 const router = express.Router();
 const QRCode = require('qrcode');
-const { sendMessage, getStatus } = require('../services/waService');
+const { getQrValue } = require('../services/waService');
+const {
+    getRoutedQr,
+    getRoutedStatus,
+    sendRoutedMessage,
+} = require('../services/waSessionRouter');
 
 // POST /api/wa/send
 router.post('/send', async (req, res) => {
     try {
-        const { phone, text } = req.body;
+        const { phone, text, session_id, operator, creator_id } = req.body || {};
         if (!phone || !text) {
             return res.status(400).json({ ok: false, error: 'phone and text required' });
         }
-        const result = await sendMessage(phone, text);
+        const bypass = req.get('X-WA-Proxy-Bypass') ***REMOVED***= '1';
+        const result = await sendRoutedMessage(
+            { phone, text, session_id, operator, creator_id },
+            { bypass }
+        );
         if (result.ok) {
-            res.json({ ok: true, messageId: result.messageId });
+            res.json({
+                ok: true,
+                messageId: result.messageId,
+                routed_session_id: result.routed_session_id || session_id || null,
+                routed_operator: result.routed_operator || operator || null,
+            });
         } else {
             res.status(400).json({ ok: false, error: result.error });
         }
@@ -30,17 +44,39 @@ router.post('/send', async (req, res) => {
 
 // GET /api/wa/status
 router.get('/status', async (req, res) => {
-    res.json(getStatus());
+    const localOnly = req.query.local_only ***REMOVED***= '1' || req.get('X-WA-Proxy-Bypass') ***REMOVED***= '1';
+    const all = req.query.all ***REMOVED***= '1' && !localOnly;
+    res.json(await getRoutedStatus({
+        all,
+        session_id: req.query.session_id,
+        operator: req.query.operator,
+        creator_id: req.query.creator_id ? parseInt(req.query.creator_id, 10) : null,
+    }));
+});
+
+// GET /api/wa/sessions — 聚合状态接口
+router.get('/sessions', async (req, res) => {
+    res.json(await getRoutedStatus({ all: true }));
 });
 
 // GET /api/wa/qr — 返回二维码图片（网页端扫码用）
 router.get('/qr', async (req, res) => {
-    const status = getStatus();
-    if (!status.hasQr) {
+    const localOnly = req.query.local_only ***REMOVED***= '1' || req.get('X-WA-Proxy-Bypass') ***REMOVED***= '1';
+    const rawQr = localOnly
+        ? getQrValue()
+        : await getRoutedQr({
+            session_id: req.query.session_id,
+            operator: req.query.operator,
+            creator_id: req.query.creator_id ? parseInt(req.query.creator_id, 10) : null,
+        });
+    if (!rawQr) {
         return res.status(404).json({ ok: false, message: '无可用二维码' });
     }
+    if (String(rawQr).startsWith('data:image/')) {
+        return res.json({ ok: true, qr: rawQr });
+    }
     try {
-        const dataUrl = await QRCode.toDataURL(status.qr, {
+        const dataUrl = await QRCode.toDataURL(rawQr, {
             margin: 2,
             width: 300,
             color: { dark: '#000000', light: '#ffffff' },

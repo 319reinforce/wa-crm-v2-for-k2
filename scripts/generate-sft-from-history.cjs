@@ -5,12 +5,13 @@
  *   node scripts/generate-sft-from-history.cjs
  *   node scripts/generate-sft-from-history.cjs --dry-run
  *   node scripts/generate-sft-from-history.cjs --creator=123
+ *   node scripts/generate-sft-from-history.cjs --since=2026-04-12 --rule-version=2026-04-15
  */
 require('dotenv').config();
 const crypto = require('crypto');
 const db = require('../db');
 const { buildFullSystemPrompt } = require('../systemPromptBuilder.cjs');
-const { generateCandidates: generateOpenAICandidates } = require('../src/utils/openai');
+const { generateCandidates: generateOpenAICandidates } = require('../server/utils/openai');
 
 const API_KEY = process.env.MINIMAX_API_KEY;
 const API_BASE = process.env.MINIMAX_API_BASE || 'https://api.minimaxi.com/anthropic';
@@ -25,6 +26,12 @@ const creatorArg = args.find((item) => item.startsWith('--creator='));
 const targetCreatorId = creatorArg ? parseInt(creatorArg.split('=')[1], 10) : null;
 const maxPairsArg = args.find((item) => item.startsWith('--max-pairs='));
 const maxPairs = maxPairsArg ? Math.max(parseInt(maxPairsArg.split('=')[1], 10) || 0, 0) : 0;
+const sinceArg = args.find((item) => item.startsWith('--since='));
+const untilArg = args.find((item) => item.startsWith('--until='));
+const ruleVersionArg = args.find((item) => item.startsWith('--rule-version='));
+const ruleVersion = ruleVersionArg ? ruleVersionArg.split('=')[1] : (process.env.SFT_RULE_VERSION || '2026-04-15');
+const sinceMs = parseDateArg(sinceArg ? sinceArg.split('=')[1] : process.env.SFT_BACKFILL_SINCE || null, false);
+const untilMs = parseDateArg(untilArg ? untilArg.split('=')[1] : process.env.SFT_BACKFILL_UNTIL || null, true);
 
 if (!USE_OPENAI && !API_KEY) {
     console.error('[generate-sft-from-history] MINIMAX_API_KEY is required');
@@ -67,6 +74,49 @@ function isRateLimitError(err) {
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseDateArg(input, endOfDay = false) {
+    if (!input || typeof input !***REMOVED*** 'string') return null;
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+        const suffix = endOfDay ? 'T23:59:59.999+08:00' : 'T00:00:00.000+08:00';
+        const ms = new Date(`${trimmed}${suffix}`).getTime();
+        return Number.isFinite(ms) ? ms : null;
+    }
+    const ms = new Date(trimmed).getTime();
+    return Number.isFinite(ms) ? ms : null;
+}
+
+function inRange(timestamp, startMs, endMs) {
+    const ts = Number(timestamp);
+    if (!Number.isFinite(ts)) return false;
+    if (Number.isFinite(startMs) && ts < startMs) return false;
+    if (Number.isFinite(endMs) && ts > endMs) return false;
+    return true;
+}
+
+function loadKnowledgeSnapshot() {
+    const manifestPath = process.env.KNOWLEDGE_MANIFEST_PATH || 'docs/rag/knowledge-manifest.json';
+    try {
+        const payload = JSON.parse(require('fs').readFileSync(manifestPath, 'utf8'));
+        const approved = Array.isArray(payload?.sources)
+            ? payload.sources
+                .filter((item) => item?.status ***REMOVED***= 'approved')
+                .map((item) => item.id)
+                .filter(Boolean)
+            : [];
+        return {
+            manifest_version: payload?.version || null,
+            approved_source_ids: approved,
+        };
+    } catch (_) {
+        return {
+            manifest_version: null,
+            approved_source_ids: [],
+        };
+    }
 }
 
 async function generateResponse(messages, temperature) {
@@ -124,10 +174,14 @@ async function generateCandidates(systemPrompt, conversationMsgs) {
 
 async function main() {
     const db2 = db.getDb();
+    const knowledgeSnapshot = loadKnowledgeSnapshot();
     console.log('[generate-sft-from-history] start');
     if (DRY_RUN) console.log('[generate-sft-from-history] dry-run mode');
     if (USE_OPENAI) console.log('[generate-sft-from-history] provider=openai');
     else console.log('[generate-sft-from-history] provider=minimax');
+    if (Number.isFinite(sinceMs)) console.log(`[generate-sft-from-history] since=${new Date(sinceMs).toISOString()}`);
+    if (Number.isFinite(untilMs)) console.log(`[generate-sft-from-history] until=${new Date(untilMs).toISOString()}`);
+    console.log(`[generate-sft-from-history] rule_version=${ruleVersion}`);
 
     const sftColumnRows = await db2.prepare(`
         SELECT COLUMN_NAME
@@ -165,6 +219,7 @@ async function main() {
             'SELECT id, role, text, timestamp FROM wa_messages WHERE creator_id = ? ORDER BY timestamp ASC'
         ).all(creator.id);
         if (!messages.length) continue;
+        const messageIndex = new Map(messages.map((item, idx) => [item.id, idx]));
 
         const existingRows = await db2.prepare(`
             SELECT JSON_UNQUOTE(JSON_EXTRACT(context_json, '$.user_timestamp')) AS uts
@@ -176,7 +231,11 @@ async function main() {
 
         const pairs = [];
         for (let index = 0; index < messages.length - 1; index++) {
-            if (messages[index].role ***REMOVED***= 'user' && messages[index + 1].role ***REMOVED***= 'me') {
+            if (
+                messages[index].role ***REMOVED***= 'user' &&
+                messages[index + 1].role ***REMOVED***= 'me' &&
+                inRange(messages[index].timestamp, sinceMs, untilMs)
+            ) {
                 pairs.push({ userMsg: messages[index], humanReply: messages[index + 1] });
             }
         }
@@ -199,7 +258,11 @@ async function main() {
                 continue;
             }
 
-            const userIndex = messages.findIndex((item) => item.id ***REMOVED***= userMsg.id);
+            const userIndex = messageIndex.get(userMsg.id);
+            if (!Number.isFinite(userIndex)) {
+                skipped++;
+                continue;
+            }
             const conversationMsgs = messages.slice(Math.max(0, userIndex - 9), userIndex + 1);
             const scene = inferScene(userMsg.text, creator.beta_status, creator.msg_count);
 
@@ -226,6 +289,9 @@ async function main() {
                     human_reply_timestamp: humanReply.timestamp,
                     input_text: userMsg.text,
                     is_retroactive: true,
+                    rule_version: ruleVersion,
+                    knowledge_manifest_version: knowledgeSnapshot.manifest_version || null,
+                    knowledge_source_ids: knowledgeSnapshot.approved_source_ids || [],
                 });
 
                 if (!DRY_RUN) {

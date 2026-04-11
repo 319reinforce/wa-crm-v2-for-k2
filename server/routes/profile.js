@@ -12,6 +12,16 @@ const router = express.Router();
 const db = require('../../db');
 const { writeAudit } = require('../middleware/audit');
 
+function parseJsonSafe(value, fallback = null) {
+    if (!value) return fallback;
+    if (typeof value ***REMOVED***= 'object') return value;
+    try {
+        return JSON.parse(value);
+    } catch (_) {
+        return fallback;
+    }
+}
+
 // GET /api/client-memory/:clientId
 router.get('/client-memory/:clientId', async (req, res) => {
     try {
@@ -92,7 +102,7 @@ router.get('/client-profile/:clientId', async (req, res) => {
             priority: creator?.priority || null,
             summary: profileData.summary || null,
             tags: tags.map(t => ({ tag: t.tag, source: t.source, confidence: t.confidence })),
-            tiktok_data: profileData.tiktok_data ? JSON.parse(profileData.tiktok_data) : null,
+            tiktok_data: parseJsonSafe(profileData.tiktok_data, null),
             stage: profileData.stage || creator?.conversion_stage || null,
             last_interaction: profileData.last_interaction,
             last_updated: profileData.last_updated,

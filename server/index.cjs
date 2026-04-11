@@ -10,6 +10,7 @@ const db = require('../db');
 
 const jsonBody = require('./middleware/jsonBody');
 const timeout = require('./middleware/timeout');
+const { requireAppAuth } = require('./middleware/appAuth');
 const messagesRouter = require('./routes/messages');
 const creatorsRouter = require('./routes/creators');
 const statsRouter = require('./routes/stats');
@@ -27,12 +28,17 @@ const { start: startWaService } = require('./services/waService');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const DISABLE_WA_SERVICE = process.env.DISABLE_WA_SERVICE ***REMOVED***= 'true';
+const DISABLE_WA_WORKER = process.env.DISABLE_WA_WORKER ***REMOVED***= 'true';
+const EVENT_BROADCAST_TOKEN = process.env.EVENT_BROADCAST_TOKEN;
+const WA_SESSION_ID = String(process.env.WA_SESSION_ID || PORT).trim();
+const WA_OWNER = process.env.WA_OWNER || 'Beau';
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** SSE 实时广播 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 const sseClients = new Set();
 
 // GET /api/events/subscribe — 前端 SSE 订阅
-app.get('/api/events/subscribe', (req, res) => {
+app.get('/api/events/subscribe', requireAppAuth, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -50,6 +56,13 @@ app.get('/api/events/subscribe', (req, res) => {
 
 // POST /api/events/broadcast — populate_db.cjs 调用，广播刷新事件
 app.post('/api/events/broadcast', (req, res) => {
+    if (!EVENT_BROADCAST_TOKEN) {
+        return res.status(503).json({ ok: false, error: 'EVENT_BROADCAST_TOKEN not configured' });
+    }
+    const auth = req.headers.authorization || '';
+    if (auth !***REMOVED*** `Bearer ${EVENT_BROADCAST_TOKEN}`) {
+        return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    }
     const { event = 'creators-updated' } = req.body || {};
     const message = `event: ${event}\ndata: ${JSON.stringify({ refreshed: true })}\n\n`;
     sseClients.forEach(client => {
@@ -92,6 +105,17 @@ function isPortAvailable(port) {
     });
 }
 
+function isWaRuntimeError(error) {
+    const text = `${error?.stack || ''}\n${error?.message || error || ''}`;
+    return (
+        text.includes('whatsapp-web.js') ||
+        text.includes('puppeteer-core') ||
+        text.includes('Execution context was destroyed') ||
+        text.includes('Could not load response body for this request') ||
+        text.includes('Protocol error (Runtime.callFunctionOn)')
+    );
+}
+
 /**
  * 带重试的端口绑定
  * @param {object} app - Express app
@@ -121,23 +145,28 @@ app.use(timeout);
 // 静态文件（前端构建产物）
 app.use(express.static(path.join(__dirname, '../public')));
 
+// 基础健康检查保持公开，供进程探活和本地冒烟使用
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // 路由注册
 // 注意：messages 路由需要在 creators 路由之前挂载
-app.use('/api/creators/:id/messages', messagesRouter);
-app.use('/api/creators', creatorsRouter);
-app.use('/api', statsRouter);
-app.use('/api', aiRouter);
-app.use('/api', sftRouter);
-app.use('/api', policyRouter);
-app.use('/api', auditRouter);
-app.use('/api', profileRouter);
-app.use('/api/events', eventsRouter);
-app.use('/api/experience', experienceRouter);
-app.use('/api/wa', waRouter);
-app.use('/api/training', trainingRouter);
+app.use('/api/creators/:id/messages', requireAppAuth, messagesRouter);
+app.use('/api/creators', requireAppAuth, creatorsRouter);
+app.use('/api', requireAppAuth, statsRouter);
+app.use('/api', requireAppAuth, aiRouter);
+app.use('/api', requireAppAuth, sftRouter);
+app.use('/api', requireAppAuth, policyRouter);
+app.use('/api', requireAppAuth, auditRouter);
+app.use('/api', requireAppAuth, profileRouter);
+app.use('/api/events', requireAppAuth, eventsRouter);
+app.use('/api/experience', requireAppAuth, experienceRouter);
+app.use('/api/wa', requireAppAuth, waRouter);
+app.use('/api/training', requireAppAuth, trainingRouter);
 
 // WA Worker 路由
-app.get('/api/wa-worker/status', (req, res) => {
+app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
     res.json(getWaWorkerProgress());
 });
 
@@ -170,15 +199,40 @@ app.get('/api/wa-worker/status', (req, res) => {
 
         process.on('SIGTERM', () => shutdown('SIGTERM'));
         process.on('SIGINT', () => shutdown('SIGINT'));
+        process.on('unhandledRejection', (reason) => {
+            if (isWaRuntimeError(reason)) {
+                console.error('[WA Service] 捕获到非致命 unhandledRejection，已隔离 WA 模块:', reason?.message || reason);
+                stopWaWorker();
+                return;
+            }
+            console.error('[Process] Unhandled rejection:', reason);
+        });
+        process.on('uncaughtException', (error) => {
+            if (isWaRuntimeError(error)) {
+                console.error('[WA Service] 捕获到非致命 uncaughtException，已隔离 WA 模块:', error?.message || error);
+                stopWaWorker();
+                return;
+            }
+            console.error('[Process] Uncaught exception:', error);
+            process.exit(1);
+        });
 
         // 先启动 WhatsApp Service（端口确认可用后才初始化）
-        console.log(`[WA Service] 启动 WhatsApp Client (PORT=${PORT})...`);
-        startWaService();
+        if (!DISABLE_WA_SERVICE) {
+            console.log(`[WA Service] 启动 WhatsApp Client (PORT=${PORT}, session=${WA_SESSION_ID}, owner=${WA_OWNER})...`);
+            startWaService();
+        } else {
+            console.log('[WA Service] 已禁用（DISABLE_WA_SERVICE=true）');
+        }
 
         // 再启动 WA Worker（后台运行，不阻塞 HTTP）
-        startWaWorker({ syncHistory: true }).catch(err => {
-            console.error('[WA Worker] 启动失败:', err.message);
-        });
+        if (!DISABLE_WA_WORKER) {
+            startWaWorker({ syncHistory: true }).catch(err => {
+                console.error('[WA Worker] 启动失败:', err.message);
+            });
+        } else {
+            console.log('[WA Worker] 已禁用（DISABLE_WA_WORKER=true）');
+        }
     } catch (err) {
         console.error(`\n❌ 服务器启动失败: ${err.message}`);
         process.exit(1);

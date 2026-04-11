@@ -6,6 +6,211 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 
+function parseJsonSafe(value, fallback = null) {
+    if (value ***REMOVED***= null || value ***REMOVED***= undefined) return fallback;
+    if (typeof value ***REMOVED***= 'object') return value;
+    try {
+        return JSON.parse(value);
+    } catch (_) {
+        return fallback;
+    }
+}
+
+function toMysqlDateTime(ms) {
+    return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function pct(numerator, denominator) {
+    if (!denominator) return '0.0%';
+    return `${((numerator / denominator) * 100).toFixed(1)}%`;
+}
+
+function aggregateTopSources(rows) {
+    const map = new Map();
+    rows.forEach((row) => {
+        const hits = row?.rag?.hits || [];
+        hits.forEach((hit) => {
+            const key = `${hit.source_id || hit.filename || 'unknown'}|${hit.source_type || 'unknown'}`;
+            if (!map.has(key)) {
+                map.set(key, {
+                    source_id: hit.source_id || null,
+                    source_type: hit.source_type || null,
+                    filename: hit.filename || null,
+                    hit_count: 0,
+                });
+            }
+            map.get(key).hit_count += 1;
+        });
+    });
+    return Array.from(map.values()).sort((a, b) => b.hit_count - a.hit_count).slice(0, 12);
+}
+
+async function fetchGenerationRows({ startAt = null, endAt = null, owner = null, limit = null, hours = null } = {}) {
+    const db2 = db.getDb();
+    const params = [];
+    let ownerJoin = '';
+    let where = 'WHERE 1=1';
+
+    if (Number.isFinite(hours)) {
+        where += ' AND gl.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)';
+        params.push(hours);
+    } else if (startAt) {
+        where += ' AND gl.created_at >= ?';
+        params.push(startAt);
+    }
+    if (endAt) {
+        where += ' AND gl.created_at <= ?';
+        params.push(endAt);
+    }
+    if (owner) {
+        ownerJoin = 'LEFT JOIN creators c ON c.wa_phone = gl.client_id';
+        where += ' AND c.wa_owner = ?';
+        params.push(owner);
+    }
+    const limitSql = limit ? `LIMIT ${Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500)}` : '';
+    const rows = await db2.prepare(`
+        SELECT gl.id, gl.client_id, gl.retrieval_snapshot_id, gl.provider, gl.model, gl.route, gl.ab_bucket,
+               gl.scene, gl.operator, gl.message_count, gl.prompt_version, gl.latency_ms, gl.status, gl.error_message,
+               gl.created_at, rs.grounding_json
+        FROM generation_log gl
+        ${ownerJoin}
+        LEFT JOIN retrieval_snapshot rs ON rs.id = gl.retrieval_snapshot_id
+        ${where}
+        ORDER BY gl.created_at DESC
+        ${limitSql}
+    `).all(...params);
+
+    return rows.map((row) => {
+        const grounding = parseJsonSafe(row.grounding_json, {});
+        const rag = grounding?.rag || {};
+        const hitCount = Number.isFinite(Number(rag?.hit_count)) ? Number(rag.hit_count) : 0;
+        const hits = Array.isArray(rag?.hits) ? rag.hits : [];
+        return {
+            ...row,
+            grounding,
+            rag: {
+                enabled: !!rag?.enabled,
+                hit_count: hitCount,
+                hits,
+            },
+        };
+    });
+}
+
+function buildGenerationSummary(rows) {
+    const total = rows.length;
+    const successCount = rows.filter((r) => r.status ***REMOVED***= 'success').length;
+    const failedCount = rows.filter((r) => r.status ***REMOVED***= 'failed').length;
+    const withSnapshot = rows.filter((r) => !!r.retrieval_snapshot_id);
+    const withHits = withSnapshot.filter((r) => (r.rag?.hit_count || 0) > 0);
+    const avgHitCount = withSnapshot.length
+        ? (withSnapshot.reduce((sum, row) => sum + (row.rag?.hit_count || 0), 0) / withSnapshot.length).toFixed(2)
+        : '0.00';
+    const byScene = {};
+    rows.forEach((row) => {
+        const key = row.scene || 'unknown';
+        if (!byScene[key]) byScene[key] = { total: 0, rag_hit_count: 0 };
+        byScene[key].total += 1;
+        if ((row.rag?.hit_count || 0) > 0) byScene[key].rag_hit_count += 1;
+    });
+    Object.keys(byScene).forEach((scene) => {
+        byScene[scene].rag_hit_rate = pct(byScene[scene].rag_hit_count, byScene[scene].total);
+    });
+
+    return {
+        total,
+        success_count: successCount,
+        failed_count: failedCount,
+        success_rate: pct(successCount, total),
+        with_snapshot_count: withSnapshot.length,
+        rag_hit_count: withHits.length,
+        rag_hit_rate: pct(withHits.length, withSnapshot.length),
+        avg_rag_hit_count: Number(avgHitCount),
+        top_sources: aggregateTopSources(rows),
+        by_scene: byScene,
+    };
+}
+
+async function fetchSftRows({ startAt = null, endAt = null, owner = null, hours = null } = {}) {
+    const db2 = db.getDb();
+    const params = [];
+    let joinClause = '';
+    let where = 'WHERE 1=1';
+    if (Number.isFinite(hours)) {
+        where += ' AND sm.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)';
+        params.push(hours);
+    } else if (startAt) {
+        where += ' AND sm.created_at >= ?';
+        params.push(startAt);
+    }
+    if (endAt) {
+        where += ' AND sm.created_at <= ?';
+        params.push(endAt);
+    }
+    if (owner) {
+        joinClause = 'LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, "$.client_id"))';
+        where += ' AND c.wa_owner = ?';
+        params.push(owner);
+    }
+    return db2.prepare(`
+        SELECT sm.id, sm.human_selected, sm.status, sm.context_json, sm.scene, sm.created_at
+        FROM sft_memory sm
+        ${joinClause}
+        ${where}
+        ORDER BY sm.created_at DESC
+    `).all(...params);
+}
+
+async function fetchSkipCount({ startAt = null, endAt = null, owner = null, hours = null } = {}) {
+    const db2 = db.getDb();
+    const params = [];
+    let joinClause = '';
+    let where = "WHERE sf.feedback_type = 'skip'";
+    if (Number.isFinite(hours)) {
+        where += ' AND sf.created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)';
+        params.push(hours);
+    } else if (startAt) {
+        where += ' AND sf.created_at >= ?';
+        params.push(startAt);
+    }
+    if (endAt) {
+        where += ' AND sf.created_at <= ?';
+        params.push(endAt);
+    }
+    if (owner) {
+        joinClause = 'LEFT JOIN creators c ON c.wa_phone = sf.client_id';
+        where += ' AND c.wa_owner = ?';
+        params.push(owner);
+    }
+    const row = await db2.prepare(`
+        SELECT COUNT(*) AS count
+        FROM sft_feedback sf
+        ${joinClause}
+        ${where}
+    `).get(...params);
+    return row?.count || 0;
+}
+
+function buildSftSummary(rows, skipCount) {
+    const total = rows.length;
+    const custom = rows.filter((r) => r.human_selected ***REMOVED***= 'custom').length;
+    const adopted = rows.filter((r) => r.human_selected ***REMOVED***= 'opt1' || r.human_selected ***REMOVED***= 'opt2').length;
+    const retrievalLinked = rows.filter((row) => {
+        const ctx = parseJsonSafe(row.context_json, {});
+        return !!ctx?.retrieval_snapshot_id;
+    }).length;
+    return {
+        total_records: total,
+        custom_count: custom,
+        adopted_count: adopted,
+        rewrite_rate: pct(custom, total),
+        adoption_rate: pct(adopted, total),
+        retrieval_linked_count: retrievalLinked,
+        retrieval_linked_rate: pct(retrievalLinked, total),
+        skip_count: skipCount,
+    };
+}
+
 // GET /api/audit-log
 router.get('/audit-log', async (req, res) => {
     try {
@@ -247,6 +452,67 @@ router.get('/generation-log/recent', async (req, res) => {
         res.json(rows);
     } catch (err) {
         console.error('GET /api/generation-log/recent error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/generation-log/rag-sources
+router.get('/generation-log/rag-sources', async (req, res) => {
+    try {
+        const hours = Math.min(Math.max(parseInt(req.query.hours) || 24, 1), 24 * 14);
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 500);
+        const owner = req.query.owner || null;
+        const rows = await fetchGenerationRows({ hours, owner, limit });
+        const summary = buildGenerationSummary(rows);
+        const recent = rows.map((row) => ({
+            id: row.id,
+            created_at: row.created_at,
+            client_id: row.client_id,
+            scene: row.scene,
+            operator: row.operator,
+            provider: row.provider,
+            model: row.model,
+            status: row.status,
+            retrieval_snapshot_id: row.retrieval_snapshot_id,
+            rag_hit_count: row.rag?.hit_count || 0,
+            rag_sources: (row.rag?.hits || []).slice(0, 5),
+        }));
+        res.json({
+            window_hours: hours,
+            owner,
+            summary,
+            recent,
+        });
+    } catch (err) {
+        console.error('GET /api/generation-log/rag-sources error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/generation-log/rag-observation
+router.get('/generation-log/rag-observation', async (req, res) => {
+    try {
+        const hours = Math.min(Math.max(parseInt(req.query.hours) || 24, 1), 24 * 14);
+        const owner = req.query.owner || null;
+
+        const [generationRows, sftRows, skipCount] = await Promise.all([
+            fetchGenerationRows({ hours, owner }),
+            fetchSftRows({ hours, owner }),
+            fetchSkipCount({ hours, owner }),
+        ]);
+        const generation = buildGenerationSummary(generationRows);
+        const sft = buildSftSummary(sftRows, skipCount);
+
+        res.json({
+            window_hours: hours,
+            owner,
+            start_at: null,
+            end_at: null,
+            generation,
+            sft,
+        });
+    } catch (err) {
+        console.error('GET /api/generation-log/rag-observation error:', err);
         res.status(500).json({ error: err.message });
     }
 });

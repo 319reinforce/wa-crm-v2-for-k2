@@ -141,14 +141,14 @@ CREATE INDEX idx_feedback_client ON sft_feedback(client_id);
 - `ReviewPanel`：展示待审核记录，approve/reject 按钮
 - `TrendsPanel`：SVG 折线图展示 opt1/opt2/custom/skipped 采用率趋势
 - `StatCard` 新增 `red` 颜色映射（待审核统计卡片）
-- `minimax.js` 改用共享 `systemPrompt.js` 模板
+- `legacy/minimax.js` 改用共享 `systemPrompt.js` 模板（legacy 参考实现）
 
 ### Git 版本管理
 
 - 初始化 git 仓库（`git init`）
 - `.gitignore` 排除：node_modules / crm.db* / data/*.json / .wwebjs_auth / .env
 - 首次提交：`23ff621 feat: initial commit - WA CRM v2`
-- 远程仓库：`https://github.com/319reinforce/wa-crm-v2-for-k2.git`
+- 远程仓库：`git@git.k2lab.ai:lets-ai/whatsapp-mgr.git`
 
 ---
 

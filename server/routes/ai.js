@@ -13,8 +13,31 @@ const { normalizeOperatorName } = require('../utils/operator');
 
 function shouldUseFinetuned() {
     if (process.env.USE_FINETUNED !***REMOVED*** 'true') return false;
+    const model = String(process.env.FINETUNED_MODEL || '').trim();
+    if (!model) return false;
     const ratio = parseFloat(process.env.AB_RATIO || '0.1');
     return Math.random() < ratio;
+}
+
+function resolveFinetunedBase(rawBase) {
+    const fallback = 'http://localhost:8000/v1/messages';
+    const input = String(rawBase || '').trim() || fallback;
+    try {
+        const url = new URL(input);
+        // OpenAI root API URL compatibility: /v1 -> /v1/chat/completions
+        if (url.hostname ***REMOVED***= 'api.openai.com' && /^\/v1\/?$/.test(url.pathname)) {
+            return `${url.origin}/v1/chat/completions`;
+        }
+        return input;
+    } catch (_) {
+        return input;
+    }
+}
+
+function resolveFinetunedModel(baseUrl) {
+    const explicit = String(process.env.FINETUNED_MODEL || '').trim();
+    if (!explicit) return '';
+    return explicit;
 }
 
 function normalizeMessagesForMemory(messages = []) {
@@ -99,6 +122,14 @@ function sha256(text) {
     return crypto.createHash('sha256').update(String(text || '')).digest('hex');
 }
 
+function maskClientId(clientId) {
+    const value = String(clientId || '');
+    const digits = value.replace(/\D/g, '');
+    if (digits.length >= 4) return `***${digits.slice(-4)}`;
+    if (value.length > 4) return `***${value.slice(-4)}`;
+    return '***';
+}
+
 async function writeRetrievalSnapshot(snapshot) {
     try {
         const db2 = db.getDb();
@@ -180,8 +211,12 @@ router.post('/minimax', async (req, res) => {
 
         // ***REMOVED***= 灰度路由：AB_RATIO 流量走微调模型 ***REMOVED***=
         if (shouldUseFinetuned()) {
-            const FINETUNED_BASE = process.env.FINETUNED_BASE || 'http://localhost:8000/v1/messages';
+            const FINETUNED_BASE = resolveFinetunedBase(process.env.FINETUNED_BASE);
             const FINETUNED_KEY = process.env.FINETUNED_API_KEY || 'EMPTY';
+            const FINETUNED_MODEL = resolveFinetunedModel(FINETUNED_BASE);
+            if (!FINETUNED_MODEL) {
+                throw new Error('FINETUNED_MODEL is required when USE_FINETUNED=true');
+            }
             const temps = Array.isArray(temperature) ? temperature : [0.8, 0.4];
 
             let finetunedFailed = false;
@@ -194,7 +229,7 @@ router.post('/minimax', async (req, res) => {
                             'Authorization': `Bearer ${FINETUNED_KEY}`,
                         },
                         body: JSON.stringify({
-                            model: 'wa-crm-finetuned',
+                            model: FINETUNED_MODEL,
                             messages,
                             max_tokens: max_tokens || 500,
                             temperature: temp,
@@ -219,8 +254,9 @@ router.post('/minimax', async (req, res) => {
                         id: 'finetuned-' + Date.now(),
                         type: 'message',
                         role: 'assistant',
-                        model: 'wa-crm-finetuned',
+                        model: FINETUNED_MODEL,
                         content: [{ type: 'text', text: opt1Candidate.text }],
+                        content_opt1: [{ type: 'text', text: opt1Candidate.text }],
                         content_opt2: [{ type: 'text', text: opt2Candidate.text }],
                     };
                     // ***REMOVED***= client_memory 自动积累：Finetuned 路由 AI 生成成功后 ***REMOVED***=
@@ -242,7 +278,7 @@ router.post('/minimax', async (req, res) => {
                     await writeGenerationLog({
                         ...logBase,
                         provider: 'finetuned',
-                        model: 'wa-crm-finetuned',
+                        model: FINETUNED_MODEL,
                         route: 'minimax',
                         ab_bucket: 'finetuned',
                         latency_ms: latency,
@@ -256,7 +292,7 @@ router.post('/minimax', async (req, res) => {
 
             // 监控：记录 finetuned fallback 事件（用于 AB 测分析）
             if (finetunedFailed) {
-                console.warn(`[minimax路由] FINETUNED FALLBACK client_id=${client_id || 'unknown'} USE_OPENAI=${process.env.USE_OPENAI} 时间=${new Date().toISOString()}`);
+                console.warn(`[minimax路由] FINETUNED FALLBACK client_id=${maskClientId(client_id)} USE_OPENAI=${process.env.USE_OPENAI} 时间=${new Date().toISOString()}`);
             }
 
             // Finetuned 失败后继续走下方 OpenAI / MiniMax 默认链路
@@ -264,7 +300,7 @@ router.post('/minimax', async (req, res) => {
 
         if (process.env.USE_OPENAI ***REMOVED***= 'true') {
             // OpenAI 路由
-            const { generateCandidates } = require('../../src/utils/openai');
+            const { generateCandidates } = require('../utils/openai');
             const systemPrompt = messages.find(m => m.role ***REMOVED***= 'system')?.content || '';
             const userMsgs = messages.filter(m => m.role !***REMOVED*** 'system');
             const temps = Array.isArray(temperature) ? temperature : [0.8, 0.4];
@@ -300,6 +336,7 @@ router.post('/minimax', async (req, res) => {
                 role: 'assistant',
                 model: process.env.OPENAI_MODEL || 'gpt-4o',
                 content: [{ type: 'text', text: opt1 }],
+                content_opt1: [{ type: 'text', text: opt1 }],
                 content_opt2: [{ type: 'text', text: opt2 }],
             });
         }
@@ -389,6 +426,7 @@ router.post('/minimax', async (req, res) => {
             role: 'assistant',
             model: opt1Candidate?.payload?.model || 'mini-max',
             content: [{ type: 'text', text: opt1Candidate.text }],
+            content_opt1: [{ type: 'text', text: opt1Candidate.text }],
             content_opt2: [{ type: 'text', text: opt2Candidate.text }],
         });
     } catch (err) {
@@ -417,13 +455,25 @@ router.post('/minimax', async (req, res) => {
 // 前端 generateViaExperienceRouter 调用此端点获取统一 prompt，再调 /api/minimax
 router.post('/ai/system-prompt', async (req, res) => {
     try {
-        const { client_id, scene, operator, topicContext, richContext, conversationSummary } = req.body;
+        const {
+            client_id,
+            scene,
+            operator,
+            topicContext,
+            richContext,
+            conversationSummary,
+            query_text,
+            latest_user_message,
+        } = req.body;
 
         if (!scene) {
             return res.status(400).json({ error: 'scene is required' });
         }
 
         const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
+        const retrievalQueryText = [query_text, latest_user_message, topicContext, richContext, conversationSummary]
+            .filter((item) => typeof item ***REMOVED***= 'string' && item.trim())
+            .join('\n\n');
 
         // Determine operator (from client_id lookup or explicit override)
         let resolvedOperator = normalizeOperatorName(operator, null);
@@ -437,6 +487,7 @@ router.post('/ai/system-prompt', async (req, res) => {
             topicContext: topicContext || '',
             richContext: richContext || '',
             conversationSummary: conversationSummary || '',
+            retrievalQueryText,
             systemPromptVersion: 'v2',
         });
         let version = 'v2_base';
@@ -455,6 +506,7 @@ router.post('/ai/system-prompt', async (req, res) => {
             topicContext: topicContext || '',
             richContext: richContext || '',
             conversationSummary: conversationSummary || '',
+            retrievalQueryText,
         }));
         const retrievalSnapshotId = await writeRetrievalSnapshot({
             client_id,
@@ -648,7 +700,7 @@ router.post('/ai/generate', async (req, res) => {
             });
         }
 
-        const { generateCandidates } = require('../../src/utils/openai');
+        const { generateCandidates } = require('../utils/openai');
         const candidates = await generateCandidates(systemPrompt || '', messages, temperatures);
         res.json({ success: true, candidates });
     } catch (err) {

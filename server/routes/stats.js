@@ -1,15 +1,27 @@
 /**
  * Stats routes
- * GET /api/stats, GET /api/health
+ * GET /api/stats
  */
 const express = require('express');
 const router = express.Router();
 const db = require('../../db');
+const {
+    TABLE: ROSTER_TABLE,
+    hasRosterAssignments,
+} = require('../services/operatorRosterService');
 
 // GET /api/stats — 统计接口
 router.get('/stats', async (req, res) => {
     try {
         const db2 = db.getDb();
+        const rosterOnly = req.query.roster ***REMOVED***= 'all' ? false : await hasRosterAssignments();
+        const rosterJoin = rosterOnly
+            ? `INNER JOIN ${ROSTER_TABLE} ocr ON ocr.creator_id = c.id AND ocr.is_primary = 1`
+            : '';
+        const rosterJoinForMessages = rosterOnly
+            ? `INNER JOIN ${ROSTER_TABLE} ocr2 ON ocr2.creator_id = c2.id AND ocr2.is_primary = 1`
+            : '';
+        const rosterOwnerField = rosterOnly ? `COALESCE(ocr.operator, 'Unknown')` : `COALESCE(c.wa_owner, 'Unknown')`;
 
         const [totalsRow, byOwnerRows, byBetaRows, byPriorityRows, evRow] = await Promise.all([
             db2.prepare(`
@@ -18,21 +30,25 @@ router.get('/stats', async (req, res) => {
                            SELECT COUNT(*)
                            FROM wa_messages wm
                            INNER JOIN creators c2 ON c2.id = wm.creator_id
+                           ${rosterJoinForMessages}
                            WHERE c2.is_active = 1
                        ) as total_messages
                 FROM creators c
+                ${rosterJoin}
                 WHERE c.is_active = 1
             `).get(),
             db2.prepare(`
-                SELECT COALESCE(c.wa_owner, 'Unknown') as wa_owner, COUNT(*) as count
+                SELECT ${rosterOwnerField} as wa_owner, COUNT(*) as count
                 FROM creators c
+                ${rosterJoin}
                 WHERE c.is_active = 1
-                GROUP BY c.wa_owner
+                GROUP BY ${rosterOnly ? 'ocr.operator' : 'c.wa_owner'}
             `).all(),
             db2.prepare(`
                 SELECT COALESCE(wc.beta_status, 'unknown') as beta_status, COUNT(*) as count
                 FROM wa_crm_data wc
                 INNER JOIN creators c ON c.id = wc.creator_id
+                ${rosterJoin}
                 WHERE c.is_active = 1
                 GROUP BY wc.beta_status
             `).all(),
@@ -40,6 +56,7 @@ router.get('/stats', async (req, res) => {
                 SELECT COALESCE(wc.priority, 'unknown') as priority, COUNT(*) as count
                 FROM wa_crm_data wc
                 INNER JOIN creators c ON c.id = wc.creator_id
+                ${rosterJoin}
                 WHERE c.is_active = 1
                 GROUP BY wc.priority
             `).all(),
@@ -59,6 +76,7 @@ router.get('/stats', async (req, res) => {
                     SUM(j.ev_churned) as ev_churned
                 FROM joinbrands_link j
                 INNER JOIN creators c ON c.id = j.creator_id
+                ${rosterJoin}
                 WHERE c.is_active = 1
             `).get(),
         ]);
@@ -84,11 +102,6 @@ router.get('/stats', async (req, res) => {
         console.error('Error fetching stats:', err);
         res.status(500).json({ error: err.message });
     }
-});
-
-// GET /api/health — 健康检查
-router.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 module.exports = router;

@@ -118,6 +118,7 @@ function normalizeCreatorOwner(owner) {
 module.exports = {
     DEFAULT_CUTOFF_MS,
     analyzeCreatorEligibility,
+    getRelevanceSignals,
     getMessageText,
     getPhoneDigits,
     hasChinese,

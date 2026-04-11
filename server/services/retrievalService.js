@@ -4,6 +4,7 @@
  */
 const db = require('../../db');
 const { normalizeOperatorName } = require('../utils/operator');
+const { searchVectorStore } = require('../utils/openaiVectorStore');
 
 function parseJsonSafe(value, fallback) {
     if (value ***REMOVED***= null || value ***REMOVED***= undefined) return fallback;
@@ -15,7 +16,7 @@ function parseJsonSafe(value, fallback) {
     }
 }
 
-async function getGroundingContext({ clientId = null, scene = 'unknown', operator = null } = {}) {
+async function getGroundingContext({ clientId = null, scene = 'unknown', operator = null, queryText = '' } = {}) {
     const db2 = db.getDb();
     let resolvedOperator = normalizeOperatorName(operator, null);
     let clientInfo = { name: '未知', conversion_stage: '未知', next_action: null };
@@ -66,6 +67,42 @@ async function getGroundingContext({ clientId = null, scene = 'unknown', operato
     }));
     const scenePolicies = policyDocs.filter((doc) => (doc.applicable_scenarios || []).includes(scene));
 
+    const OPENAI_RAG_ENABLED = process.env.OPENAI_RAG_ENABLED ***REMOVED***= 'true';
+    const OPENAI_VECTOR_STORE_ID = process.env.OPENAI_VECTOR_STORE_ID || '';
+    const OPENAI_RAG_TOP_K = parseInt(process.env.OPENAI_RAG_TOP_K || '8', 10);
+
+    let externalKnowledge = [];
+    const fallbackQuery = [
+        `scene:${scene || 'unknown'}`,
+        clientInfo?.conversion_stage ? `stage:${clientInfo.conversion_stage}` : '',
+        clientInfo?.next_action ? `next_action:${clientInfo.next_action}` : '',
+        clientInfo?.name ? `client:${clientInfo.name}` : '',
+    ].filter(Boolean).join('\n');
+
+    const finalQuery = String(queryText || fallbackQuery).trim();
+    if (OPENAI_RAG_ENABLED && OPENAI_VECTOR_STORE_ID && finalQuery) {
+        try {
+            const hits = await searchVectorStore({
+                vectorStoreId: OPENAI_VECTOR_STORE_ID,
+                query: finalQuery,
+                topK: Number.isFinite(OPENAI_RAG_TOP_K) ? OPENAI_RAG_TOP_K : 8,
+            });
+            externalKnowledge = hits
+                .filter((hit) => hit && hit.content)
+                .slice(0, 8)
+                .map((hit, idx) => ({
+                    rank: idx + 1,
+                    file_id: hit.file_id,
+                    filename: hit.filename,
+                    score: hit.score,
+                    content: String(hit.content || '').slice(0, 1200),
+                    attributes: hit.attributes || {},
+                }));
+        } catch (err) {
+            console.warn('[retrievalService] openai rag search failed:', err.message);
+        }
+    }
+
     return {
         operator: resolvedOperator,
         clientInfo,
@@ -73,6 +110,7 @@ async function getGroundingContext({ clientId = null, scene = 'unknown', operato
         clientMemory,
         policyDocs,
         scenePolicies,
+        externalKnowledge,
         grounding: {
             client: {
                 id: clientId || null,
@@ -95,6 +133,20 @@ async function getGroundingContext({ clientId = null, scene = 'unknown', operato
                 memory_key: memory.memory_key,
                 confidence: memory.confidence,
             })),
+            rag: {
+                enabled: OPENAI_RAG_ENABLED && !!OPENAI_VECTOR_STORE_ID,
+                vector_store_id: OPENAI_VECTOR_STORE_ID || null,
+                query: finalQuery || null,
+                hit_count: externalKnowledge.length,
+                hits: externalKnowledge.map((item) => ({
+                    rank: item.rank,
+                    file_id: item.file_id,
+                    filename: item.filename,
+                    score: item.score,
+                    source_id: item.attributes?.source_id || null,
+                    source_type: item.attributes?.type || null,
+                })),
+            },
         },
     };
 }

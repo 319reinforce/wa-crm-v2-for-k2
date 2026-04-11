@@ -1,25 +1,15 @@
 import React, { useState, useEffect } from 'react'
+import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 
 const API_BASE = '/api'
-
-async function fetchJsonOrThrow(url, options) {
-  const res = await fetch(url, options)
-  if (!res.ok) {
-    let message = `HTTP ${res.status}`
-    try {
-      const data = await res.json()
-      if (typeof data?.error ***REMOVED***= 'string' && data.error.trim()) message = data.error.trim()
-    } catch (_) {}
-    throw new Error(message)
-  }
-  return res.json()
-}
 
 export function SFTDashboard() {
   const [stats, setStats] = useState(null)
   const [records, setRecords] = useState([])
   const [pendingRecords, setPendingRecords] = useState([])
   const [abData, setAbData] = useState(null)
+  const [ragObservation, setRagObservation] = useState(null)
+  const [ragSources, setRagSources] = useState(null)
   const [trendsData, setTrendsData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('records')
@@ -28,13 +18,26 @@ export function SFTDashboard() {
     loadData()
   }, [])
 
+  const loadPendingRecords = async () => {
+    const data = await fetchJsonOrThrow(`${API_BASE}/sft-memory/pending`)
+    setPendingRecords(data)
+  }
+
   useEffect(() => {
     let cancelled = false
     const loadTabData = async () => {
       try {
         if (activeTab ***REMOVED***= 'evaluation') {
-          const data = await fetchJsonOrThrow(`${API_BASE}/ab-evaluation`)
-          if (!cancelled) setAbData(data)
+          const [abEval, ragObs, ragSrc] = await Promise.all([
+            fetchJsonOrThrow(`${API_BASE}/ab-evaluation`),
+            fetchJsonOrThrow(`${API_BASE}/generation-log/rag-observation?hours=24`),
+            fetchJsonOrThrow(`${API_BASE}/generation-log/rag-sources?hours=24&limit=20`),
+          ])
+          if (!cancelled) {
+            setAbData(abEval)
+            setRagObservation(ragObs)
+            setRagSources(ragSrc)
+          }
           return
         }
         if (activeTab ***REMOVED***= 'trends') {
@@ -70,6 +73,18 @@ export function SFTDashboard() {
     }
   }
 
+  const handleRefresh = async () => {
+    await loadData()
+    if (activeTab ***REMOVED***= 'review') {
+      await loadPendingRecords()
+    }
+  }
+
+  const handleReviewed = async () => {
+    await loadData()
+    await loadPendingRecords()
+  }
+
   const formatDate = (ts) => {
     if (!ts) return '-'
     return new Date(ts).toLocaleString('zh-CN')
@@ -101,16 +116,21 @@ export function SFTDashboard() {
           ))}
         </div>
         {(activeTab ***REMOVED***= 'records' || activeTab ***REMOVED***= 'review') && (
-          <button onClick={loadData} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm">
+          <button onClick={handleRefresh} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm">
             刷新
           </button>
         )}
       </div>
 
       {activeTab ***REMOVED***= 'evaluation' ? (
-        <ABEvaluationPanel data={abData} loading={!abData} />
+        <ABEvaluationPanel
+          data={abData}
+          ragObservation={ragObservation}
+          ragSources={ragSources}
+          loading={!abData}
+        />
       ) : activeTab ***REMOVED***= 'review' ? (
-        <ReviewPanel records={pendingRecords} onReviewed={loadData} />
+        <ReviewPanel records={pendingRecords} onReviewed={handleReviewed} />
       ) : activeTab ***REMOVED***= 'trends' ? (
         <TrendsPanel data={trendsData} loading={!trendsData} />
       ) : (
@@ -237,7 +257,7 @@ function StatCard({ label, value, color = 'slate' }) {
   )
 }
 
-function ABEvaluationPanel({ data, loading }) {
+function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 gap-3" style={{ color: '#64748b' }}>
@@ -266,6 +286,15 @@ function ABEvaluationPanel({ data, loading }) {
         <StatCard label="模型 opt2" value={data.opt2_selected} color="green" />
         <StatCard label="人工输入" value={data.custom_input} color="amber" />
       </div>
+
+      {ragObservation && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard label="RAG 命中率(24h)" value={ragObservation?.generation?.rag_hit_rate || '-'} color="green" />
+          <StatCard label="平均命中片段" value={ragObservation?.generation?.avg_rag_hit_count ?? '-'} color="blue" />
+          <StatCard label="人工改写率(24h)" value={ragObservation?.sft?.rewrite_rate || '-'} color="amber" />
+          <StatCard label="回复采纳率(24h)" value={ragObservation?.sft?.adoption_rate || '-'} color="green" />
+        </div>
+      )}
 
       {/* 分布条 */}
       <div className="bg-[#1e293b] rounded-xl p-4">
@@ -336,6 +365,48 @@ function ABEvaluationPanel({ data, loading }) {
         </div>
       )}
 
+      {ragSources?.summary?.top_sources?.length > 0 && (
+        <div className="bg-[#1e293b] rounded-xl p-4">
+          <div className="text-sm font-medium mb-3 text-slate-300">RAG 命中来源 Top（24h）</div>
+          <div className="space-y-2">
+            {ragSources.summary.top_sources.slice(0, 8).map((item) => (
+              <div key={`${item.source_id || item.filename}-${item.source_type}`} className="flex items-center gap-3 text-xs">
+                <span className="text-slate-300 w-56 truncate">{item.source_id || item.filename || 'unknown'}</span>
+                <span className="text-slate-500 w-24">{item.source_type || '-'}</span>
+                <span className="text-emerald-400 font-medium">{item.hit_count} 命中</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Array.isArray(ragSources?.recent) && ragSources.recent.length > 0 && (
+        <div className="bg-[#1e293b] rounded-xl p-4">
+          <div className="text-sm font-medium mb-3 text-slate-300">最近生成的 RAG 来源（24h）</div>
+          <div className="space-y-3 max-h-72 overflow-auto pr-1">
+            {ragSources.recent.slice(0, 20).map((row) => (
+              <div key={row.id} className="bg-slate-800/70 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-slate-400">#{row.id} · {row.scene || 'unknown'} · hit={row.rag_hit_count || 0}</span>
+                  <span className="text-xs text-slate-500">{new Date(row.created_at).toLocaleString('zh-CN')}</span>
+                </div>
+                <div className="text-xs text-slate-500 mb-1">client: {row.client_id || '-'} · operator: {row.operator || '-'}</div>
+                <div className="flex flex-wrap gap-1">
+                  {(row.rag_sources || []).slice(0, 4).map((src, idx) => (
+                    <span key={`${row.id}-${idx}`} className="px-2 py-0.5 rounded bg-slate-700 text-slate-300 text-[11px]">
+                      {src.source_id || src.filename || 'unknown'} ({src.source_type || '-'})
+                    </span>
+                  ))}
+                  {(row.rag_sources || []).length ***REMOVED***= 0 && (
+                    <span className="text-[11px] text-slate-500">无命中来源</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 导出按钮 */}
       <div className="flex gap-3">
         <a href="/api/sft-export?format=jsonl&limit=1000" target="_blank" rel="noreferrer"
@@ -357,7 +428,7 @@ function ReviewPanel({ records, onReviewed }) {
   const handleReview = async (id, action) => {
     setLoadingId(id);
     try {
-      await fetch(`${API_BASE}/sft-memory/${id}/review`, {
+      await fetchOkOrThrow(`${API_BASE}/sft-memory/${id}/review`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action })

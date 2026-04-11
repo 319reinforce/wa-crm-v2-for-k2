@@ -36,6 +36,7 @@ const REPLY_STYLE = `【回复风格 — 严格遵守】
  * @param {string} opts.topicContext - 前端构建的话题上下文（topicContext）
  * @param {string} opts.richContext - 前端构建的丰富上下文段落（richContextParagraph）
  * @param {string} opts.conversationSummary - 前端构建的更早对话摘要（convSummary.summary）
+ * @param {string} opts.retrievalQueryText - 检索查询文本（优先于 topic/rich/summary 拼接）
  * @param {string} opts.systemPromptVersion - Prompt 版本标识，默认 'v2'
  */
 async function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) {
@@ -44,6 +45,7 @@ async function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) 
 		topicContext = '',
 		richContext = '',
 		conversationSummary = '',
+		retrievalQueryText = '',
 		systemPromptVersion = 'v2',
 	} = opts;
 
@@ -67,27 +69,29 @@ async function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) 
 		experience,
 		clientMemory,
 		policyDocs,
+		externalKnowledge,
 		grounding,
 	} = await getGroundingContext({
 		clientId,
 		scene,
 		operator: forcedOperator,
+		queryText: retrievalQueryText || [topicContext, richContext, conversationSummary].filter(Boolean).join('\n\n'),
 	});
 
 	if (!operator) {
 		// 无法确定 operator，返回基础 prompt
-		promptParts.push(buildBasePrompt(clientInfo, scene));
+		promptParts.push(buildBasePrompt(clientInfo, scene, externalKnowledge));
 		return { prompt: promptParts.join('\n\n'), version: systemPromptVersion, grounding };
 	}
 
 	// 2. operator 体验缺失时退回基础 prompt
 	if (!experience) {
-		promptParts.push(buildBasePrompt(clientInfo, scene));
+		promptParts.push(buildBasePrompt(clientInfo, scene, externalKnowledge));
 		return { prompt: promptParts.join('\n\n'), version: systemPromptVersion, grounding };
 	}
 
 	// 5. 编译核心 prompt（operator 专属规则 + 政策 + 禁止规则 + 回复风格）
-	const corePrompt = compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs, experience);
+	const corePrompt = compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs, experience, externalKnowledge);
 	promptParts.push(corePrompt);
 
 	return {
@@ -100,7 +104,7 @@ async function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) 
 /**
  * 编译完整的 system prompt（operator 已知时使用）
  */
-function compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs, exp) {
+function compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs, exp, externalKnowledge = []) {
 	const sceneConfig = (exp.scene_config && typeof exp.scene_config ***REMOVED***= 'object') ? exp.scene_config : {};
 	const forbiddenRules = (exp.forbidden_rules && typeof exp.forbidden_rules ***REMOVED***= 'object') ? exp.forbidden_rules : [];
 
@@ -152,6 +156,12 @@ ${clientInfo.next_action ? `- 运营计划: ${clientInfo.next_action}` : ''}
 		}
 	}
 
+	// 外部知识库（OpenAI Vector Store）
+	if (Array.isArray(externalKnowledge) && externalKnowledge.length > 0) {
+		prompt += '\n\n【外部知识库检索片段（RAG）】仅可引用以下片段，不可编造：\n';
+		prompt += formatExternalKnowledge(externalKnowledge);
+	}
+
 	// 禁止规则
 	const baseForbidden = [
 		'具体 GMV 数字、收入数据（如 "$3,000"、"|GMV $5,000"）',
@@ -174,7 +184,7 @@ ${clientInfo.next_action ? `- 运营计划: ${clientInfo.next_action}` : ''}
 /**
  * 基础 prompt（无法确定 operator 时使用）
  */
-function buildBasePrompt(clientInfo, scene) {
+function buildBasePrompt(clientInfo, scene, externalKnowledge = []) {
 	let prompt = `
 你是一个专业的达人运营助手，帮助运营人员与 WhatsApp 达人沟通。
 
@@ -188,6 +198,11 @@ ${clientInfo.next_action ? `- 运营计划: ${clientInfo.next_action}` : ''}
 
 	if (scene && scene !***REMOVED*** 'unknown') {
 		prompt += '\n\n【场景适配】场景: ' + scene;
+	}
+
+	if (Array.isArray(externalKnowledge) && externalKnowledge.length > 0) {
+		prompt += '\n\n【外部知识库检索片段（RAG）】仅可引用以下片段，不可编造：\n';
+		prompt += formatExternalKnowledge(externalKnowledge);
 	}
 
 	prompt += '\n\n【输出禁止规则 — 严格遵守】\n你的回复中禁止出现以下内容：';
@@ -225,6 +240,17 @@ function filterPoliciesByScene(policyDocs, scene) {
 	return policyDocs.filter(p =>
 		(p.applicable_scenarios || []).includes(scene)
 	);
+}
+
+function formatExternalKnowledge(items) {
+	return items
+		.map((item, index) => {
+			const sourceId = item?.attributes?.source_id ? ` source_id=${item.attributes.source_id}` : '';
+			const score = (typeof item.score ***REMOVED***= 'number') ? ` score=${item.score.toFixed(3)}` : '';
+			const text = String(item.content || '').trim().replace(/\n{2,}/g, '\n');
+			return `${index + 1}. [${item.filename || 'unknown'}]${sourceId}${score}\n${text}`;
+		})
+		.join('\n\n');
 }
 
 module.exports = { buildFullSystemPrompt };

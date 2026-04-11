@@ -161,16 +161,31 @@ async function main() {
         {
             const rows = sqliteDb.prepare('SELECT * FROM wa_crm_link').all();
             const cols = ['id', 'creator_id', 'priority', 'next_action',
-                'monthly_fee_status',
-                'beta_status', 'agency_bound', 'created_at', 'updated_at'];
+                'event_score', 'urgency_level',
+                'monthly_fee_status', 'monthly_fee_amount', 'monthly_fee_deducted',
+                'beta_status', 'beta_cycle_start', 'beta_program_type',
+                'agency_bound', 'agency_bound_at', 'agency_deadline',
+                'video_count', 'video_target', 'video_last_checked',
+                'created_at', 'updated_at'];
             const mapped = rows.map(r => ({
                 id: r.id,
                 creator_id: r.creator_id,
                 priority: r.priority || 'low',
                 next_action: r.next_action || null,
+                event_score: r.event_score ?? 0,
+                urgency_level: r.urgency_level ?? 5,
                 monthly_fee_status: r.monthly_fee_status || 'pending',
+                monthly_fee_amount: r.monthly_fee_amount ?? 20,
+                monthly_fee_deducted: r.monthly_fee_deducted ?? 0,
                 beta_status: r.beta_status || 'not_introduced',
+                beta_cycle_start: r.beta_cycle_start ?? null,
+                beta_program_type: r.beta_program_type || '20_day_beta',
                 agency_bound: r.agency_bound || 0,
+                agency_bound_at: r.agency_bound_at ?? null,
+                agency_deadline: r.agency_deadline ?? null,
+                video_count: r.video_count ?? 0,
+                video_target: r.video_target ?? 35,
+                video_last_checked: r.video_last_checked ?? null,
                 created_at: r.last_synced || null,
                 updated_at: r.last_synced || null,
             }));
@@ -195,8 +210,9 @@ async function main() {
             const rows = sqliteDb.prepare('SELECT * FROM joinbrands_link').all();
             const cols = ['id', 'creator_id', 'creator_name_jb', 'jb_gmv', 'jb_status', 'jb_priority', 'jb_next_action',
                 'last_message', 'days_since_msg', 'invite_code_jb',
-                'ev_joined', 'ev_ready_sent', 'ev_trial_7day', 'ev_monthly_invited', 'ev_monthly_joined',
-                'ev_whatsapp_shared', 'ev_gmv_1k', 'ev_gmv_3k', 'ev_gmv_10k',
+                'ev_joined', 'ev_ready_sent', 'ev_trial_7day', 'ev_trial_active',
+                'ev_monthly_started', 'ev_monthly_invited', 'ev_monthly_joined',
+                'ev_whatsapp_shared', 'ev_gmv_1k', 'ev_gmv_2k', 'ev_gmv_5k', 'ev_gmv_10k',
                 'ev_agency_bound', 'ev_churned', 'last_synced'];
             const mapped = rows.map(r => ({
                 id: r.id, creator_id: r.creator_id, creator_name_jb: r.creator_name_jb,
@@ -204,9 +220,15 @@ async function main() {
                 jb_next_action: r.jb_next_action, last_message: r.last_message,
                 days_since_msg: r.days_since_msg, invite_code_jb: r.invite_code_jb,
                 ev_joined: r.ev_joined, ev_ready_sent: r.ev_ready_sent,
-                ev_trial_7day: r.ev_trial_7day, ev_monthly_invited: r.ev_monthly_invited,
+                ev_trial_7day: r.ev_trial_7day,
+                ev_trial_active: r.ev_trial_active ?? r.ev_trial_7day ?? 0,
+                ev_monthly_started: r.ev_monthly_started ?? r.ev_monthly_invited ?? 0,
+                ev_monthly_invited: r.ev_monthly_invited,
                 ev_monthly_joined: r.ev_monthly_joined, ev_whatsapp_shared: r.ev_whatsapp_shared,
-                ev_gmv_1k: r.ev_gmv_1k, ev_gmv_3k: r.ev_gmv_3k, ev_gmv_10k: r.ev_gmv_10k,
+                ev_gmv_1k: r.ev_gmv_1k,
+                ev_gmv_2k: r.ev_gmv_2k ?? r.ev_gmv_3k ?? 0,
+                ev_gmv_5k: r.ev_gmv_5k ?? 0,
+                ev_gmv_10k: r.ev_gmv_10k,
                 ev_agency_bound: r.ev_agency_bound, ev_churned: r.ev_churned,
                 last_synced: r.last_synced,
             }));
@@ -251,17 +273,12 @@ async function main() {
             log(`  ✓ policy_documents`);
         }
 
-        // 10. audit_log（跳过 record_id 非整数、before_value/after_value 非 JSON 的测试记录）
+        // 10. audit_log（跳过 before_value/after_value 非 JSON 的测试记录）
         {
             const rows = sqliteDb.prepare('SELECT * FROM audit_log').all();
             const cols = ['id', 'action', 'table_name', 'record_id', 'operator', 'before_value', 'after_value', 'ip_address', 'user_agent', 'created_at'];
             log(`迁移 audit_log: ${rows.length} 条`);
             const validRows = rows.filter(r => {
-                // record_id 必须是整数（MySQL INT）
-                if (r.record_id !***REMOVED*** null && r.record_id !***REMOVED*** undefined && isNaN(Number(r.record_id))) {
-                    logError(`  [跳过] audit_log id=${r.id}: record_id="${r.record_id}" 不是整数`);
-                    return false;
-                }
                 // before_value/after_value 必须是合法 JSON（或 null）
                 try {
                     if (r.before_value) JSON.parse(r.before_value);
@@ -283,7 +300,7 @@ async function main() {
                 'is_custom_input', 'human_reason', 'context_json', 'status', 'reviewed_by',
                 'similarity', 'scene', 'message_history', 'system_prompt_version',
                 'client_id_hash', 'input_text_hash', 'human_output_hash', 'created_date',
-                'chosen_output', 'rejected_output', 'created_at'];
+                'chosen_output', 'rejected_output', 'system_prompt_used', 'created_at'];
             log(`迁移 sft_memory: ${rows.length} 条`);
             if (rows.length > 0) await batchInsert('sft_memory', cols, rows);
             log(`  ✓ sft_memory`);

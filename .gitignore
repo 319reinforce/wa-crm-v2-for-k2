@@ -11,3 +11,9 @@ data/*.json
 .DS_Store
 .agents/
 test-results/
+docs/rag/sources/*
+!docs/rag/sources/.gitkeep
+docs/rag/.openai-vector-sync-state.json
+docs/rag/observation-window.json
+docs/rag/observation-reports/*
+!docs/rag/observation-reports/.gitkeep

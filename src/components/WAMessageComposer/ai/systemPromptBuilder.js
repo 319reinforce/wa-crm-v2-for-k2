@@ -180,9 +180,12 @@ export function buildRichContextParagraph(richCtx) {
     if (policy_tags && policy_tags.length > 0) {
         policyBlock = `\n- 匹配策略: ${policy_tags.join(', ')}`;
     }
+    const nextActionBlock = richCtx.next_action
+        ? `\n- 运营计划: ${richCtx.next_action}`
+        : '';
 
     return `【当前对话上下文】
 - 场景: ${sceneLabel}
 - 客户语气: ${toneLabel} | 语言: ${langLabel} | 总消息: ${total_messages}条 | 上次互动: ${timeHint}
-- 时间: 周${day_of_week}${hour_of_day >= 9 && hour_of_day <= 21 ? '（工作时间）' : '（非工作时间）'}${memoryBlock}${policyBlock}`;
+- 时间: 周${day_of_week}${hour_of_day >= 9 && hour_of_day <= 21 ? '（工作时间）' : '（非工作时间）'}${memoryBlock}${policyBlock}${nextActionBlock}`;
 }

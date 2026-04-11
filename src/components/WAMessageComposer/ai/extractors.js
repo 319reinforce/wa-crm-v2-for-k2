@@ -86,6 +86,7 @@ export function buildRichContext({ incomingMsg, client, creator, policyDocs, cli
         beta_status: wacrm?.beta_status || 'unknown',
         priority: wacrm?.priority || 'normal',
         agency_bound: !!wacrm?.agency_bound,
+        next_action: wacrm?.next_action || null,
         conversion_stage: client.conversion_stage || 'unknown',
         days_since_last_msg: daysSinceLast,
         total_messages: msgs.length,
@@ -106,6 +107,7 @@ export function buildConversation(messages) {
         messages: (messages || []).slice(-20).map(m => ({
             role: m.role ***REMOVED***= 'me' ? 'me' : 'user',
             text: m.text,
+            timestamp: m.timestamp ?? null,
         })),
     };
 }

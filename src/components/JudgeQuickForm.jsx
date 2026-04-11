@@ -3,6 +3,7 @@
  * 提取自 EventPanel.jsx
  */
 import React, { useState } from 'react';
+import { fetchJsonOrThrow } from '../utils/api';
 
 const WA = {
     borderLight: '#E5E7EB',
@@ -22,7 +23,7 @@ export default function JudgeQuickForm({ eventId, onJudge }) {
         try {
             const now = new Date();
             const periodStart = new Date(now - 7 * 24 * 3600 * 1000).toISOString();
-            const res = await fetch(`/api/events/${eventId}/judge`, {
+            const data = await fetchJsonOrThrow(`/api/events/${eventId}/judge`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -31,7 +32,6 @@ export default function JudgeQuickForm({ eventId, onJudge }) {
                     video_count: parseInt(videoCount) || 0,
                 }),
             });
-            const data = await res.json();
             setResult(data);
             if (onJudge) onJudge(data);
         } catch (e) {

@@ -6,6 +6,8 @@
  */
 require('dotenv').config();
 const mysql = require('mysql2/promise');
+const crypto = require('crypto');
+const { filterShortWindowDuplicates, toTimestampMs } = require('./server/services/messageDedupService');
 
 const DB_CONFIG = {
     host: process.env.DB_HOST || '127.0.0.1',
@@ -47,6 +49,13 @@ function toSqliteFormat(result) {
         lastInsertRowid: result.insertId || 0,
         changes: result.affectedRows || 0,
     };
+}
+
+function buildMessageHash(role, text, timestampMs) {
+    return crypto
+        .createHash('sha256')
+        .update(`${role || ''}|${text || ''}|${timestampMs || ''}`)
+        .digest('hex');
 }
 
 const db = {
@@ -163,20 +172,47 @@ async function addAlias(creatorId, aliasType, aliasValue, verified = false) {
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 消息操作 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
-async function insertMessage(creatorId, role, text, timestamp) {
+async function insertMessage(creatorId, role, text, timestamp, operator = null) {
+    const timestampMs = toTimestampMs(timestamp);
+    const { kept } = await filterShortWindowDuplicates(db, creatorId, [{
+        creator_id: creatorId,
+        role,
+        operator,
+        text,
+        timestamp: timestampMs,
+    }], {
+        windowMs: 15 * 60 * 1000,
+        minTextLength: 12,
+    });
+    if (kept.length ***REMOVED***= 0) return;
+    const safe = kept[0];
+    const messageHash = buildMessageHash(safe.role, safe.text, safe.timestamp);
     await db.prepare(
-        'INSERT INTO wa_messages (creator_id, role, text, timestamp) VALUES (?, ?, ?, ?)'
-    ).run(creatorId, role, text, timestamp);
+        'INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(creatorId, safe.role, safe.operator || null, safe.text, safe.timestamp, messageHash);
 }
 
 async function insertMessagesBatch(creatorId, messages) {
     if (!messages || messages.length ***REMOVED***= 0) return;
     await db.transaction(async (txDb) => {
+        const normalizedMessages = messages.map((msg) => ({
+            creator_id: creatorId,
+            role: msg.role,
+            operator: msg.operator || null,
+            text: msg.text,
+            timestamp: toTimestampMs(msg.timestamp),
+        }));
+        const { kept } = await filterShortWindowDuplicates(txDb, creatorId, normalizedMessages, {
+            windowMs: 15 * 60 * 1000,
+            minTextLength: 12,
+        });
+        if (kept.length ***REMOVED***= 0) return;
         const insert = txDb.prepare(
-            'INSERT IGNORE INTO wa_messages (creator_id, role, text, timestamp) VALUES (?, ?, ?, ?)'
+            'INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash) VALUES (?, ?, ?, ?, ?, ?)'
         );
-        for (const msg of messages) {
-            await insert.run(creatorId, msg.role, msg.text, msg.timestamp);
+        for (const msg of kept) {
+            const messageHash = buildMessageHash(msg.role, msg.text, msg.timestamp);
+            await insert.run(creatorId, msg.role, msg.operator || null, msg.text, msg.timestamp, messageHash);
         }
     });
 }

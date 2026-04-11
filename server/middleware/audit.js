@@ -7,13 +7,14 @@ const db = require('../../db');
 async function writeAudit(action, tableName, recordId, beforeValue, afterValue, req) {
     try {
         const db2 = db.getDb();
+        const normalizedRecordId = recordId ***REMOVED***= null || recordId ***REMOVED***= undefined ? null : String(recordId);
         await db2.prepare(`
             INSERT INTO audit_log (action, table_name, record_id, before_value, after_value, ip_address, user_agent)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(
             action,
             tableName,
-            recordId,
+            normalizedRecordId,
             beforeValue ? JSON.stringify(beforeValue) : null,
             afterValue ? JSON.stringify(afterValue) : null,
             req.ip || req.connection?.remoteAddress || null,

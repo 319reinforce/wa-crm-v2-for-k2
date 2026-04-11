@@ -15,6 +15,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const http = require('http');
 
 const DB = require('../../db');
 
@@ -23,25 +24,49 @@ const EXPORT_LIMIT = parseInt(process.env.TRAINING_EXPORT_LIMIT || '5000');
 const SERVER_HOST = process.env.SERVER_HOST || 'http://localhost:3000';
 const DEEPSKILL_CHAT_ID = 'oc_5a15266d1e682f0ea9eb7a53a45b3303';
 const DRY_RUN = process.env.TRAINING_DRY_RUN ***REMOVED***= 'true';
+const INTERNAL_API_TOKEN = (
+    process.env.API_AUTH_TOKEN ||
+    process.env.AI_PROXY_TOKEN ||
+    process.env.WA_ADMIN_TOKEN ||
+    ''
+).trim();
+const INTERNAL_API_TIMEOUT_MS = Math.max(parseInt(process.env.TRAINING_API_TIMEOUT_MS || '30000', 10) || 30000, 3000);
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** HTTP 辅助 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
-function apiRequest(method, path, body) {
+function apiRequest(method, pathWithQuery, body) {
     return new Promise((resolve, reject) => {
-        const url = new URL(SERVER_HOST + path);
+        const url = new URL(pathWithQuery, SERVER_HOST);
+        const headers = { 'Content-Type': 'application/json' };
+        if (INTERNAL_API_TOKEN) {
+            headers.Authorization = `Bearer ${INTERNAL_API_TOKEN}`;
+        }
         const options = {
             hostname: url.hostname,
             port: url.port || (url.protocol ***REMOVED***= 'https:' ? 443 : 3000),
-            path: url.pathname,
+            path: `${url.pathname}${url.search}`,
             method,
-            headers: { 'Content-Type': 'application/json' },
+            headers,
         };
-        const req = (url.protocol ***REMOVED***= 'https:' ? https : require('http')).request(options, (res) => {
+        const req = (url.protocol ***REMOVED***= 'https:' ? https : http).request(options, (res) => {
             let data = '';
             res.on('data', d => data += d);
             res.on('end', () => {
-                try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
-                catch { resolve({ status: res.statusCode, data }); }
+                const contentType = String(res.headers['content-type'] || '').toLowerCase();
+                if (contentType.includes('application/json')) {
+                    try {
+                        resolve({ status: res.statusCode, data: JSON.parse(data), raw: data });
+                        return;
+                    } catch (_) {}
+                }
+                try {
+                    resolve({ status: res.statusCode, data: JSON.parse(data), raw: data });
+                } catch (_) {
+                    resolve({ status: res.statusCode, data, raw: data });
+                }
             });
+        });
+        req.setTimeout(INTERNAL_API_TIMEOUT_MS, () => {
+            req.destroy(new Error(`request timeout after ${INTERNAL_API_TIMEOUT_MS}ms`));
         });
         req.on('error', reject);
         if (body) req.write(JSON.stringify(body));
@@ -84,7 +109,10 @@ async function exportSFTData(monthLabel) {
 
     const res = await apiRequest('GET', `/api/sft-export?format=jsonl&status=approved&limit=${EXPORT_LIMIT}&month=${monthLabel}`, null);
     if (res.status !***REMOVED*** 200) {
-        throw new Error(`导出失败: HTTP ${res.status}`);
+        const detail = typeof res.data ***REMOVED***= 'string'
+            ? res.data.slice(0, 240)
+            : JSON.stringify(res.data || {}).slice(0, 240);
+        throw new Error(`导出失败: HTTP ${res.status}; ${detail}`);
     }
 
     const records = typeof res.data ***REMOVED***= 'string'
@@ -107,27 +135,39 @@ async function exportSFTData(monthLabel) {
     return { count, path: exportPath, recordCount: count };
 }
 
+async function ensureTrainingLogTable() {
+    const db2 = DB.getDb();
+    await db2.prepare(`
+        CREATE TABLE IF NOT EXISTS training_log (
+            id INTEGER PRIMARY KEY AUTO_INCREMENT,
+            month_label VARCHAR(16) NOT NULL,
+            record_count INT NOT NULL,
+            export_path VARCHAR(256),
+            status VARCHAR(16) NOT NULL,
+            detail TEXT,
+            triggered_by VARCHAR(32) DEFAULT 'manual',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `).run();
+}
+
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 记录训练元数据 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
-async function logTrainingRun({ monthLabel, recordCount, exportPath, status, detail }) {
+async function logTrainingRun({ monthLabel, recordCount, exportPath, status, detail, triggeredBy }) {
     try {
         const db2 = DB.getDb();
-        await db2.prepare(`
-            CREATE TABLE IF NOT EXISTS training_log (
-                id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                month_label VARCHAR(16) NOT NULL,
-                record_count INT NOT NULL,
-                export_path VARCHAR(256),
-                status VARCHAR(16) NOT NULL,
-                detail TEXT,
-                triggered_by VARCHAR(32) DEFAULT 'manual',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        `).run();
+        await ensureTrainingLogTable();
 
         await db2.prepare(`
             INSERT INTO training_log (month_label, record_count, export_path, status, detail, triggered_by)
             VALUES (?, ?, ?, ?, ?, ?)
-        `).run(monthLabel, recordCount, exportPath || '', status, detail || '', DRY_RUN ? 'dry_run' : 'cron');
+        `).run(
+            monthLabel,
+            recordCount,
+            exportPath || '',
+            status,
+            detail || '',
+            DRY_RUN ? 'dry_run' : (triggeredBy || 'manual')
+        );
         console.log('[Training] 训练记录已写入 training_log 表');
     } catch (e) {
         console.error('[Training] 写 training_log 失败:', e.message);
@@ -187,7 +227,7 @@ async function runTraining(triggeredBy = 'manual') {
     }
 
     // 3. 写数据库日志
-    await logTrainingRun({ monthLabel, recordCount, exportPath, status, detail });
+    await logTrainingRun({ monthLabel, recordCount, exportPath, status, detail, triggeredBy });
 
     // 4. 飞书通知
     const emoji = { success: '✅', failed: '❌', skipped: '⏭', dry_run: '⚠️' }[status] || '❓';
@@ -209,7 +249,10 @@ async function runTraining(triggeredBy = 'manual') {
 //   curl -X POST http://localhost:3000/api/training/trigger
 async function handleTrigger(req, res) {
     const authHeader = (req.headers['authorization'] || '');
-    const expectedToken = process.env.TRAINING_TRIGGER_TOKEN || 'training-trigger-token';
+    const expectedToken = process.env.TRAINING_TRIGGER_TOKEN;
+    if (!expectedToken) {
+        return res.status(503).json({ error: 'TRAINING_TRIGGER_TOKEN not configured' });
+    }
     if (authHeader !***REMOVED*** `Bearer ${expectedToken}`) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -228,4 +271,4 @@ if (require.main ***REMOVED***= module) {
         .catch(e => { console.error(e); process.exit(1); });
 }
 
-module.exports = { runTraining, handleTrigger };
+module.exports = { runTraining, handleTrigger, ensureTrainingLogTable };

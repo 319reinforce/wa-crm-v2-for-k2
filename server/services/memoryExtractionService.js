@@ -29,6 +29,15 @@ function getPool() {
     if (!_pool) _pool = mysql.createPool(MYSQL_CONFIG);
     return _pool;
 }
+const VERBOSE_LOGS = process.env.LOG_VERBOSE ***REMOVED***= 'true';
+
+function maskClientId(clientId) {
+    const value = String(clientId || '');
+    const digits = value.replace(/\D/g, '');
+    if (digits.length >= 4) return `***${digits.slice(-4)}`;
+    if (value.length > 4) return `***${value.slice(-4)}`;
+    return '***';
+}
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** LLM 调用（支持 OpenAI / MiniMax）***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 
@@ -243,7 +252,7 @@ async function extractAndSaveMemories({ client_id, owner, messages, trigger_type
     try {
         extractedMemories = await callLLMExtract(recentMessages, owner, trigger_type);
     } catch (e) {
-        console.error(`[memoryExtraction] LLM extraction failed for ${client_id}: ${e.message}`);
+        console.error(`[memoryExtraction] LLM extraction failed for ${maskClientId(client_id)}: ${e.message}`);
         return { extracted: 0, inserted: 0, skipped: 0, errors: 1 };
     }
 
@@ -267,8 +276,8 @@ async function extractAndSaveMemories({ client_id, owner, messages, trigger_type
         }
     }
 
-    if (stats.extracted > 0) {
-        console.log(`[memoryExtraction] ${client_id} [${trigger_type}]: extracted=${stats.extracted} inserted=${stats.inserted} skipped=${stats.skipped}`);
+    if (stats.extracted > 0 && VERBOSE_LOGS) {
+        console.log(`[memoryExtraction] ${maskClientId(client_id)} [${trigger_type}]: extracted=${stats.extracted} inserted=${stats.inserted} skipped=${stats.skipped}`);
     }
     return stats;
 }

@@ -53,13 +53,14 @@ CREATE TABLE IF NOT EXISTS wa_messages (
     operator    VARCHAR(32) DEFAULT NULL COMMENT "'Beau'|'Yiyun'|'WangYouKe'等",
     text        TEXT,
     timestamp   BIGINT COMMENT 'Unix timestamp (ms)',
+    message_hash VARCHAR(64) COMMENT 'SHA256(role|text|timestamp_ms)',
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_messages_creator ON wa_messages(creator_id);
 CREATE INDEX idx_messages_timestamp ON wa_messages(timestamp);
-CREATE UNIQUE INDEX idx_messages_dedup ON wa_messages(creator_id, timestamp);
+CREATE UNIQUE INDEX idx_messages_dedup_hash ON wa_messages(creator_id, message_hash);
 CREATE INDEX idx_messages_creator_timestamp ON wa_messages(creator_id, timestamp DESC);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
@@ -320,13 +321,27 @@ CREATE INDEX idx_sync_bot ON sync_log(bot_name);
 CREATE INDEX idx_sync_status ON sync_log(status);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- Training Log — SFT 训练执行日志
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+CREATE TABLE IF NOT EXISTS training_log (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    month_label     VARCHAR(16) NOT NULL COMMENT 'YYYY-MM',
+    record_count    INT NOT NULL,
+    export_path     VARCHAR(256),
+    status          VARCHAR(16) NOT NULL COMMENT "'success'|'failed'|'skipped'|'dry_run'",
+    detail          TEXT,
+    triggered_by    VARCHAR(32) DEFAULT 'manual' COMMENT "'manual'|'http_trigger'|'cli'|'dry_run'|'cron'",
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 -- Audit Log — 审计日志
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS audit_log (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     action          VARCHAR(64) NOT NULL,
     table_name      VARCHAR(64),
-    record_id       INT,
+    record_id       VARCHAR(64),
     operator        VARCHAR(64) DEFAULT 'system',
     before_value    JSON,
     after_value     JSON,
@@ -480,4 +495,30 @@ CREATE TABLE IF NOT EXISTS events_policy (
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_policy (owner, event_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- Operator Creator Roster — 93 人精准归属表
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+CREATE TABLE IF NOT EXISTS operator_creator_roster (
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NOT NULL,
+    operator            VARCHAR(32) NOT NULL,
+    session_id          VARCHAR(64) NOT NULL,
+    source_file         VARCHAR(128) DEFAULT NULL,
+    raw_poc             VARCHAR(64) DEFAULT NULL,
+    raw_name            VARCHAR(255) DEFAULT NULL,
+    raw_handle          VARCHAR(255) DEFAULT NULL,
+    raw_keeper_name     VARCHAR(255) DEFAULT NULL,
+    marketing_channel   VARCHAR(128) DEFAULT NULL,
+    match_strategy      VARCHAR(64) DEFAULT NULL,
+    score               INT DEFAULT 0,
+    is_primary          TINYINT(1) DEFAULT 1,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_ocr_creator (creator_id),
+    UNIQUE KEY uk_ocr_operator_raw (operator, raw_name(96), raw_handle(96), raw_keeper_name(96)),
+    KEY idx_ocr_operator (operator),
+    KEY idx_ocr_session (session_id),
+    CONSTRAINT fk_ocr_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

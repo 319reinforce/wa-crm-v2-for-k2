@@ -3,8 +3,9 @@
  * 管理 generateForIncoming 和 pushPicker
  */
 import { useCallback, useRef } from 'react';
-import { buildConversation, buildRichContext } from '../ai/extractors';
+import { buildConversation } from '../ai/extractors';
 import { generateViaExperienceRouter } from '../ai/experienceRouter';
+import { fetchJsonOrThrow } from '../../../utils/api';
 
 const API_BASE = '/api';
 
@@ -40,21 +41,20 @@ export function useAICandidate({
         setPickerLoading(true);
         try {
             // 重新 fetch 最新消息，避免闭包 stale 问题
-            const msgsRes = await fetch(`${API_BASE}/creators/${client.id}/messages`);
-            const msgsData = msgsRes.ok ? (await msgsRes.json()) : [];
+            const msgsData = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}/messages`, {
+                signal: AbortSignal.timeout(15000),
+            });
             const msgs = Array.isArray(msgsData) ? msgsData : (msgsData.messages || []);
             const conversation = buildConversation(msgs);
             conversation.messages.push({ role: 'user', text: incomingMsg.text });
 
-            const richCtx = buildRichContext({ incomingMsg, client, creator, policyDocs, clientMemory, messages: msgs });
-
             const result = await generateViaExperienceRouter({
                 conversation,
-                scene: richCtx.scene,
                 client_id: client.phone,
-                richCtx,
                 client,
                 creator,
+                policyDocs,
+                clientMemory,
                 currentTopic,
                 autoDetectedTopic,
                 setCurrentTopic,

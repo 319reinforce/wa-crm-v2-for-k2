@@ -18,6 +18,9 @@ export default function AIReplyPicker({
     promptVersion,
     customText,
     onCustomChange,
+    onTranslateCustom,
+    onEmojiCustom,
+    customToolLoading,
     onSelect,
     onSkip,
     onEditCandidate,
@@ -28,6 +31,10 @@ export default function AIReplyPicker({
     const PICKER_BG = '#EFF6FF';
     const PICKER_BORDER = '#BFDBFE';
     const PICKER_ACCENT = '#3b82f6';
+
+    const translatingCustom = !!customToolLoading?.translate;
+    const emojiCustomizing = !!customToolLoading?.emoji;
+    const customDisabled = !customText?.trim();
 
     return (
         <div style={{ background: PICKER_BG, borderTop: '2px solid ' + PICKER_BORDER }}>
@@ -165,10 +172,30 @@ export default function AIReplyPicker({
                                 minHeight: '88px',
                             }}
                         />
-                        <div className="flex justify-end mt-2">
+                        <div className="flex justify-end mt-2 gap-2">
+                            <button
+                                onClick={onTranslateCustom}
+                                disabled={customDisabled || translatingCustom || emojiCustomizing}
+                                className="px-3 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center gap-1.5"
+                                style={{ background: 'rgba(59,130,246,0.12)', color: '#1d4ed8' }}
+                                title="将当前输入交给大模型翻译"
+                            >
+                                <span>{translatingCustom ? '⏳' : '🌐'}</span>
+                                <span className="hidden sm:inline">翻译</span>
+                            </button>
+                            <button
+                                onClick={onEmojiCustom}
+                                disabled={customDisabled || translatingCustom || emojiCustomizing}
+                                className="px-3 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center gap-1.5"
+                                style={{ background: 'rgba(16,185,129,0.14)', color: '#047857' }}
+                                title="将当前输入交给大模型添加 emoji 风格"
+                            >
+                                <span>{emojiCustomizing ? '⏳' : '😄'}</span>
+                                <span className="hidden sm:inline">加 Emoji</span>
+                            </button>
                             <button
                                 onClick={() => onSelect('custom')}
-                                disabled={!customText?.trim()}
+                                disabled={customDisabled}
                                 className="px-4 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
                                 style={{ background: '#f59e0b' }}
                             >

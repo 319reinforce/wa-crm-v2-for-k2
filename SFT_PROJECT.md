@@ -209,8 +209,8 @@ scheduleProfileRefresh(client_id)  // 5s debounce → MiniMax summary
 | `src/components/EventPanel.jsx` | 事件管理面板（含列表、详情、创建、判定）|
 | `src/components/WorkerStatusBar.jsx` | WA Worker 可视化进度条（可拖拽、展开/收缩）|
 | `src/utils/systemPrompt.js` | **共享 system prompt 模板**，前后端共用同一份 |
-| `src/utils/minimax.js` | MiniMax API Client |
-| `src/utils/openai.js` | OpenAI API Client（`USE_OPENAI=true` 时使用） |
+| `src/utils/legacy/minimax.js` | MiniMax API Client（legacy） |
+| `server/utils/openai.js` | OpenAI API Client（`USE_OPENAI=true` 时使用） |
 
 ### 原始数据
 
@@ -696,8 +696,8 @@ GET /api/policy-documents?active_only=true
 | 事件面板 | `/Users/depp/wa-bot/wa-crm-v2/src/components/EventPanel.jsx` |
 | WA Worker 进度条 | `/Users/depp/wa-bot/wa-crm-v2/src/components/WorkerStatusBar.jsx` |
 | 共享 System Prompt | `/Users/depp/wa-bot/wa-crm-v2/src/utils/systemPrompt.js` |
-| AI 生成（MiniMax） | `/Users/depp/wa-bot/wa-crm-v2/src/utils/minimax.js` |
-| OpenAI 生成 | `/Users/depp/wa-bot/wa-crm-v2/src/utils/openai.js` |
+| AI 生成（MiniMax） | `/Users/depp/wa-bot/wa-crm-v2/src/utils/legacy/minimax.js` |
+| OpenAI 生成 | `/Users/depp/wa-bot/wa-crm-v2/server/utils/openai.js` |
 | Experience Router | `/Users/depp/wa-bot/wa-crm-v2/server/routes/experience.js` |
 | SFT Routes | `/Users/depp/wa-bot/wa-crm-v2/server/routes/sft.js` |
 | Events Routes | `/Users/depp/wa-bot/wa-crm-v2/server/routes/events.js` |
@@ -724,7 +724,7 @@ GET /api/policy-documents?active_only=true
 | `ev_monthly_joined` | 月卡加入 | 绿 | 已加入月卡 |
 | `ev_whatsapp_shared` | WA已发 | 青 | WhatsApp 已分享 |
 | `ev_gmv_1k` | GMV>1K | 橙 | JoinBrands GMV 超 1k |
-| `ev_gmv_3k` | GMV>3K | 深橙 | JoinBrands GMV 超 3k |
+| `ev_gmv_2k` | GMV>2K | 深橙 | JoinBrands GMV 超 2k |
 | `ev_gmv_10k` | GMV>10K | 红 | JoinBrands GMV 超 10k |
 | `ev_churned` | 已流失 | 红 | 已确认流失 |
 

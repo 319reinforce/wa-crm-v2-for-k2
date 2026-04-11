@@ -4,6 +4,8 @@
  * 拖拽位置记忆到 localStorage
  */
 import React, { useState, useEffect, useRef } from 'react'
+import { fetchAppAuth } from '../utils/appAuth'
+import { fetchWaAdmin } from '../utils/waAdmin'
 
 const API_BASE = '/api'
 const POLL_INTERVAL_MS = 5 * 60 * 1000   // 5分钟，与 waWorker.js 保持一致
@@ -66,7 +68,7 @@ export function WorkerStatusBar() {
     useEffect(() => {
         const fetchStatus = async () => {
             try {
-                const res = await fetch(`${API_BASE}/wa-worker/status`)
+                const res = await fetchAppAuth(`${API_BASE}/wa-worker/status`)
                 const data = await res.json()
                 setStatus(data)
                 setVisible(data.phase !***REMOVED*** 'idle')
@@ -82,21 +84,36 @@ export function WorkerStatusBar() {
     useEffect(() => {
         const fetchWaStatus = async () => {
             try {
-                const res = await fetch(`${API_BASE}/wa/status`)
+                const res = await fetchWaAdmin(`${API_BASE}/wa/status`)
+                if (!res.ok) {
+                    setWaStatus(null)
+                    setQrDataUrl(null)
+                    return
+                }
                 const data = await res.json()
                 setWaStatus(data)
                 if (data.hasQr) {
                     setVisible(true)
                     // 获取 QR 图片
                     try {
-                        const qrRes = await fetch(`${API_BASE}/wa/qr`)
+                        const qrRes = await fetchWaAdmin(`${API_BASE}/wa/qr`)
+                        if (!qrRes.ok) {
+                            setQrDataUrl(null)
+                            return
+                        }
                         const qrData = await qrRes.json()
                         if (qrData.qr) setQrDataUrl(qrData.qr)
                     } catch (_) {}
-                } else if (data.ready) {
-                    setExpanded(false)  // 已就绪，收起面板
+                } else {
+                    setQrDataUrl(null)
+                    if (data.ready) {
+                        setExpanded(false)  // 已就绪，收起面板
+                    }
                 }
-            } catch (_) {}
+            } catch (_) {
+                setWaStatus(null)
+                setQrDataUrl(null)
+            }
         }
         fetchWaStatus()
         const id = setInterval(fetchWaStatus, 5000)

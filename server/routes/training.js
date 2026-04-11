@@ -4,13 +4,16 @@
  */
 const express = require('express');
 const router = express.Router();
-const { runTraining } = require('../workers/trainingWorker');
+const { runTraining, ensureTrainingLogTable } = require('../workers/trainingWorker');
 const db = require('../../db');
 
 // POST /api/training/trigger — 触发训练（外部 cron 或 MetaBot Scheduler 调用）
 router.post('/trigger', async (req, res) => {
     // Token 校验
-    const token = process.env.TRAINING_TRIGGER_TOKEN || 'training-trigger-token';
+    const token = process.env.TRAINING_TRIGGER_TOKEN;
+    if (!token) {
+        return res.status(503).json({ error: 'TRAINING_TRIGGER_TOKEN not configured' });
+    }
     const auth = req.headers['authorization'] || '';
     if (auth !***REMOVED*** `Bearer ${token}`) {
         return res.status(401).json({ error: 'Unauthorized: invalid token' });
@@ -28,6 +31,7 @@ router.post('/trigger', async (req, res) => {
 router.get('/status', async (req, res) => {
     try {
         const db2 = db.getDb();
+        await ensureTrainingLogTable();
         const lastRun = await db2.prepare(`
             SELECT * FROM training_log ORDER BY created_at DESC LIMIT 1
         `).get();
@@ -48,6 +52,7 @@ router.get('/status', async (req, res) => {
 router.get('/logs', async (req, res) => {
     try {
         const db2 = db.getDb();
+        await ensureTrainingLogTable();
         const limit = Math.min(parseInt(req.query.limit) || 12, 60);
         // MySQL LIMIT 不支持占位符，用字符串拼接（limit 已做安全钳制）
         const rows = await db2.prepare(`

@@ -1,7 +1,7 @@
 /**
  * System Prompt 共享模板
  * 前端 AI 生成和后端 SFT 导出共用同一套 prompt 结构
- * AI 生成时在此模板基础上加 policy/memory 层（minimax.js）
+ * AI 生成时在此模板基础上加 policy/memory 层（legacy/minimax.js）
  * SFT 导出时直接使用本模板
  */
 
