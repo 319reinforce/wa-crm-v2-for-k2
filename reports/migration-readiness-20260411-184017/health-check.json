@@ -1,0 +1,1209 @@
+{
+  "generated_at": "2026-04-11T10:40:19.744Z",
+  "database": "wa_crm_v2",
+  "health_summary": {
+    "creators_null_phone": 1187,
+    "creators_null_keeper": 1405,
+    "active_creators": 202,
+    "roster_total": 107,
+    "message_null_hash": 0,
+    "normalized_phone_duplicate_groups": 0,
+    "keeper_username_duplicate_groups": 0,
+    "alias_duplicate_groups": 0,
+    "roster_duplicate_groups": 0,
+    "message_hash_duplicate_groups": 0
+  },
+  "roster_summary": [
+    {
+      "operator": "Beau",
+      "roster_count": 52,
+      "mapped_count": "52",
+      "unmapped_count": "0"
+    },
+    {
+      "operator": "Jiawen",
+      "roster_count": 14,
+      "mapped_count": "14",
+      "unmapped_count": "0"
+    },
+    {
+      "operator": "Yiyun",
+      "roster_count": 41,
+      "mapped_count": "41",
+      "unmapped_count": "0"
+    }
+  ],
+  "row_counts": {
+    "creators": 1405,
+    "creator_aliases": 1693,
+    "wa_messages": 15265,
+    "wa_crm_data": 989,
+    "keeper_link": 911,
+    "joinbrands_link": 48,
+    "manual_match": 0,
+    "sft_memory": 643,
+    "retrieval_snapshot": 269,
+    "generation_log": 286,
+    "sft_feedback": 0,
+    "client_memory": 156,
+    "policy_documents": 3,
+    "sync_log": 9,
+    "audit_log": 3,
+    "client_profiles": 47,
+    "client_tags": 0,
+    "operator_experiences": 2,
+    "events": 232,
+    "event_periods": 1,
+    "events_policy": 13,
+    "operator_creator_roster": 107,
+    "training_log": 10
+  },
+  "unique_indexes": [
+    {
+      "table_name": "audit_log",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "client_memory",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "client_memory",
+      "index_name": "uk_client_mem",
+      "columns": "client_id,memory_type,memory_key"
+    },
+    {
+      "table_name": "client_profiles",
+      "index_name": "client_id",
+      "columns": "client_id"
+    },
+    {
+      "table_name": "client_profiles",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "client_tags",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "client_tags",
+      "index_name": "uk_tag",
+      "columns": "client_id,tag,source"
+    },
+    {
+      "table_name": "creator_aliases",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "creator_aliases",
+      "index_name": "uk_alias",
+      "columns": "alias_type,alias_value"
+    },
+    {
+      "table_name": "creators",
+      "index_name": "keeper_username",
+      "columns": "keeper_username"
+    },
+    {
+      "table_name": "creators",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "creators",
+      "index_name": "wa_phone",
+      "columns": "wa_phone"
+    },
+    {
+      "table_name": "event_periods",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "events",
+      "index_name": "idx_events_unique_active",
+      "columns": "creator_id,event_key,status"
+    },
+    {
+      "table_name": "events",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "events_policy",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "events_policy",
+      "index_name": "uk_policy",
+      "columns": "owner,event_key"
+    },
+    {
+      "table_name": "generation_log",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "joinbrands_link",
+      "index_name": "creator_id",
+      "columns": "creator_id"
+    },
+    {
+      "table_name": "joinbrands_link",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "keeper_link",
+      "index_name": "creator_id",
+      "columns": "creator_id"
+    },
+    {
+      "table_name": "keeper_link",
+      "index_name": "keeper_username",
+      "columns": "keeper_username"
+    },
+    {
+      "table_name": "keeper_link",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "manual_match",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "manual_match",
+      "index_name": "uk_match",
+      "columns": "keeper_username,joinbrands_name,wa_phone"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "index_name": "uk_ocr_creator",
+      "columns": "creator_id"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "index_name": "uk_ocr_operator_raw",
+      "columns": "operator,raw_name,raw_handle,raw_keeper_name"
+    },
+    {
+      "table_name": "operator_experiences",
+      "index_name": "operator",
+      "columns": "operator"
+    },
+    {
+      "table_name": "operator_experiences",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "policy_documents",
+      "index_name": "policy_key",
+      "columns": "policy_key"
+    },
+    {
+      "table_name": "policy_documents",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "retrieval_snapshot",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "sft_feedback",
+      "index_name": "idx_feedback_dedup",
+      "columns": "client_id,feedback_type,created_at"
+    },
+    {
+      "table_name": "sft_feedback",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "sft_memory",
+      "index_name": "idx_sft_dedup",
+      "columns": "client_id_hash,input_text_hash,human_output_hash,created_date,system_prompt_version"
+    },
+    {
+      "table_name": "sft_memory",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "sync_log",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "training_log",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "wa_crm_data",
+      "index_name": "creator_id",
+      "columns": "creator_id"
+    },
+    {
+      "table_name": "wa_crm_data",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    },
+    {
+      "table_name": "wa_messages",
+      "index_name": "idx_messages_dedup_hash",
+      "columns": "creator_id,message_hash"
+    },
+    {
+      "table_name": "wa_messages",
+      "index_name": "PRIMARY",
+      "columns": "id"
+    }
+  ],
+  "duplicate_candidates": {
+    "normalized_phone_duplicates": [],
+    "keeper_username_duplicates": [],
+    "creator_alias_duplicates": [],
+    "operator_roster_duplicates": [],
+    "message_hash_duplicates_sample": []
+  },
+  "json_health": [
+    {
+      "table_name": "audit_log",
+      "column_name": "after_value",
+      "total_rows": 3,
+      "null_rows": 0,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "audit_log",
+      "column_name": "before_value",
+      "total_rows": 3,
+      "null_rows": 3,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "client_profiles",
+      "column_name": "tags",
+      "total_rows": 47,
+      "null_rows": 47,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "client_profiles",
+      "column_name": "tiktok_data",
+      "total_rows": 47,
+      "null_rows": 47,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "event_periods",
+      "column_name": "meta",
+      "total_rows": 1,
+      "null_rows": 1,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "events",
+      "column_name": "meta",
+      "total_rows": 232,
+      "null_rows": 26,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "events_policy",
+      "column_name": "policy_json",
+      "total_rows": 13,
+      "null_rows": 0,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "generation_log",
+      "column_name": "temperature_json",
+      "total_rows": 286,
+      "null_rows": 0,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "operator_experiences",
+      "column_name": "forbidden_rules",
+      "total_rows": 2,
+      "null_rows": 0,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "operator_experiences",
+      "column_name": "scene_config",
+      "total_rows": 2,
+      "null_rows": 0,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "policy_documents",
+      "column_name": "applicable_scenarios",
+      "total_rows": 3,
+      "null_rows": 0,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "policy_documents",
+      "column_name": "policy_content",
+      "total_rows": 3,
+      "null_rows": 0,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "retrieval_snapshot",
+      "column_name": "grounding_json",
+      "total_rows": 269,
+      "null_rows": 0,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "context_json",
+      "total_rows": 643,
+      "null_rows": 0,
+      "invalid_rows": 0
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "message_history",
+      "total_rows": 643,
+      "null_rows": 0,
+      "invalid_rows": 0
+    }
+  ],
+  "table_collations": [
+    {
+      "table_name": "audit_log",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_memory",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_profiles",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_tags",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "creator_aliases",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "creators",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "event_periods",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "events",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "events_policy",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "generation_log",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "joinbrands_link",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "keeper_link",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "manual_match",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_experiences",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "policy_documents",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "retrieval_snapshot",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_feedback",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sync_log",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "training_log",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "wa_crm_data",
+      "table_collation": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "wa_messages",
+      "table_collation": "utf8mb4_unicode_ci"
+    }
+  ],
+  "column_collations": [
+    {
+      "table_name": "audit_log",
+      "column_name": "action",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "audit_log",
+      "column_name": "ip_address",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "audit_log",
+      "column_name": "operator",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "audit_log",
+      "column_name": "table_name",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "audit_log",
+      "column_name": "user_agent",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_memory",
+      "column_name": "client_id",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_memory",
+      "column_name": "memory_key",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_memory",
+      "column_name": "memory_type",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_memory",
+      "column_name": "memory_value",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_profiles",
+      "column_name": "client_id",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_profiles",
+      "column_name": "stage",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_profiles",
+      "column_name": "summary",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_tags",
+      "column_name": "client_id",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_tags",
+      "column_name": "source",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "client_tags",
+      "column_name": "tag",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "creator_aliases",
+      "column_name": "alias_type",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "creator_aliases",
+      "column_name": "alias_value",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "creators",
+      "column_name": "keeper_username",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "creators",
+      "column_name": "primary_name",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "creators",
+      "column_name": "source",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "creators",
+      "column_name": "wa_owner",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "creators",
+      "column_name": "wa_phone",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "event_periods",
+      "column_name": "status",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "events",
+      "column_name": "event_key",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "events",
+      "column_name": "event_type",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "events",
+      "column_name": "owner",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "events",
+      "column_name": "status",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "events",
+      "column_name": "trigger_source",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "events",
+      "column_name": "trigger_text",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "events_policy",
+      "column_name": "event_key",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "events_policy",
+      "column_name": "owner",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "generation_log",
+      "column_name": "ab_bucket",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "generation_log",
+      "column_name": "client_id",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "generation_log",
+      "column_name": "error_message",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "generation_log",
+      "column_name": "model",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "generation_log",
+      "column_name": "operator",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "generation_log",
+      "column_name": "prompt_version",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "generation_log",
+      "column_name": "provider",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "generation_log",
+      "column_name": "route",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "generation_log",
+      "column_name": "scene",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "generation_log",
+      "column_name": "status",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "joinbrands_link",
+      "column_name": "creator_name_jb",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "joinbrands_link",
+      "column_name": "invite_code_jb",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "joinbrands_link",
+      "column_name": "jb_next_action",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "joinbrands_link",
+      "column_name": "jb_priority",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "joinbrands_link",
+      "column_name": "jb_status",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "keeper_link",
+      "column_name": "keeper_card_rate",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "keeper_link",
+      "column_name": "keeper_order_rate",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "keeper_link",
+      "column_name": "keeper_username",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "manual_match",
+      "column_name": "joinbrands_name",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "manual_match",
+      "column_name": "keeper_username",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "manual_match",
+      "column_name": "matched_by",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "manual_match",
+      "column_name": "wa_phone",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "column_name": "marketing_channel",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "column_name": "match_strategy",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "column_name": "operator",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "column_name": "raw_handle",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "column_name": "raw_keeper_name",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "column_name": "raw_name",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "column_name": "raw_poc",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "column_name": "session_id",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_creator_roster",
+      "column_name": "source_file",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_experiences",
+      "column_name": "description",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_experiences",
+      "column_name": "display_name",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_experiences",
+      "column_name": "operator",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "operator_experiences",
+      "column_name": "system_prompt_base",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "policy_documents",
+      "column_name": "policy_key",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "policy_documents",
+      "column_name": "policy_version",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "retrieval_snapshot",
+      "column_name": "client_id",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "retrieval_snapshot",
+      "column_name": "conversation_summary",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "retrieval_snapshot",
+      "column_name": "operator",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "retrieval_snapshot",
+      "column_name": "rich_context",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "retrieval_snapshot",
+      "column_name": "scene",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "retrieval_snapshot",
+      "column_name": "snapshot_hash",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "retrieval_snapshot",
+      "column_name": "system_prompt_version",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "retrieval_snapshot",
+      "column_name": "topic_context",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_feedback",
+      "column_name": "client_id",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_feedback",
+      "column_name": "detail",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_feedback",
+      "column_name": "feedback_type",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_feedback",
+      "column_name": "final_output",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_feedback",
+      "column_name": "input_text",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_feedback",
+      "column_name": "opt1",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_feedback",
+      "column_name": "opt2",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_feedback",
+      "column_name": "reject_reason",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_feedback",
+      "column_name": "scene",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "chosen_output",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "client_id_hash",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "human_output",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "human_output_hash",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "human_reason",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "human_selected",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "input_text_hash",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "model_opt1",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "model_opt2",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "model_predicted",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "model_rejected",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "rejected_output",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "reviewed_by",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "scene",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "status",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sft_memory",
+      "column_name": "system_prompt_version",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sync_log",
+      "column_name": "bot_name",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sync_log",
+      "column_name": "note",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "sync_log",
+      "column_name": "status",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "training_log",
+      "column_name": "detail",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "training_log",
+      "column_name": "export_path",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "training_log",
+      "column_name": "month_label",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "training_log",
+      "column_name": "status",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "training_log",
+      "column_name": "triggered_by",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "wa_crm_data",
+      "column_name": "beta_program_type",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "wa_crm_data",
+      "column_name": "beta_status",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "wa_crm_data",
+      "column_name": "monthly_fee_status",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "wa_crm_data",
+      "column_name": "next_action",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "wa_crm_data",
+      "column_name": "priority",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "wa_messages",
+      "column_name": "message_hash",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "wa_messages",
+      "column_name": "operator",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "wa_messages",
+      "column_name": "role",
+      "data_type": "varchar",
+      "collation_name": "utf8mb4_unicode_ci"
+    },
+    {
+      "table_name": "wa_messages",
+      "column_name": "text",
+      "data_type": "text",
+      "collation_name": "utf8mb4_unicode_ci"
+    }
+  ],
+  "training_log_dependency": {
+    "table_exists": true,
+    "code_references": [
+      "/Users/depp/wa-bot/wa-crm-v2/server/routes/training.js",
+      "/Users/depp/wa-bot/wa-crm-v2/server/workers/trainingWorker.js",
+      "/Users/depp/wa-bot/wa-crm-v2/docs/SFT_RLHF_PIPELINE.md"
+    ]
+  },
+  "notes": [
+    "training_log is an extra table versus latest schema.sql and is referenced by training routes and worker.",
+    "sft_memory currently lacks system_prompt_used according to prior schema diff analysis.",
+    "creators.wa_phone still allows NULL in current DB, while latest schema.sql expects NOT NULL UNIQUE."
+  ]
+}

@@ -1,0 +1,263 @@
+{
+  "generated_at": "2026-04-11T15:09:50.445Z",
+  "since": "2026-04-11 00:00:00",
+  "min_repeat": 3,
+  "legacy_timestamp_rows": 0,
+  "same_creator_exact_duplicate_groups": 0,
+  "operator_role_skew": [
+    {
+      "operator": "Beau",
+      "role": "me",
+      "cnt": 17
+    },
+    {
+      "operator": "Beau",
+      "role": "user",
+      "cnt": 65
+    },
+    {
+      "operator": "Jiawen",
+      "role": "user",
+      "cnt": 54
+    },
+    {
+      "operator": "Yiyun",
+      "role": "user",
+      "cnt": 159
+    }
+  ],
+  "repeat_group_count": 22,
+  "recent_per_creator": [
+    {
+      "operator": "Jiawen",
+      "creator_id": 989,
+      "cnt": 51
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1074,
+      "cnt": 28
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1071,
+      "cnt": 23
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1152,
+      "cnt": 20
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 932,
+      "cnt": 17
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1072,
+      "cnt": 16
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1215,
+      "cnt": 15
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 983,
+      "cnt": 11
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 1131,
+      "cnt": 11
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1036,
+      "cnt": 11
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 964,
+      "cnt": 9
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 953,
+      "cnt": 8
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1025,
+      "cnt": 7
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1027,
+      "cnt": 6
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1031,
+      "cnt": 5
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1033,
+      "cnt": 5
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1082,
+      "cnt": 5
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1113,
+      "cnt": 5
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1102,
+      "cnt": 4
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 2417,
+      "cnt": 3
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1194,
+      "cnt": 3
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1223,
+      "cnt": 3
+    },
+    {
+      "operator": "Yiyun",
+      "creator_id": 1227,
+      "cnt": 3
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 927,
+      "cnt": 2
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 939,
+      "cnt": 2
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 957,
+      "cnt": 2
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 937,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 942,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 944,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 951,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 956,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 963,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 974,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 975,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 986,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 989,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 991,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 995,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 996,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 1002,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 1083,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 1975,
+      "cnt": 1
+    },
+    {
+      "operator": "Beau",
+      "creator_id": 1996,
+      "cnt": 1
+    },
+    {
+      "operator": "Jiawen",
+      "creator_id": 944,
+      "cnt": 1
+    },
+    {
+      "operator": "Jiawen",
+      "creator_id": 2317,
+      "cnt": 1
+    },
+    {
+      "operator": "Jiawen",
+      "creator_id": 2417,
+      "cnt": 1
+    }
+  ],
+  "text_repeat_group_count": 22
+}

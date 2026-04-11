@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-04-11T15:17:21.423Z",
+  "operator": "Yiyun",
+  "apply": true,
+  "window_start": "2026-04-10 00:00:00",
+  "window_end": null,
+  "min_repeat": 3,
+  "groups": 64,
+  "duplicate_rows": 322,
+  "deleted_rows": 322,
+  "updated_role_rows": 0,
+  "role_resolved_from_history": 0,
+  "unresolved_groups": 64
+}

@@ -1,0 +1,40 @@
+{
+  "session_id": "beau",
+  "updated_at": "2026-04-11T16:12:01.817Z",
+  "ready": true,
+  "hasQr": false,
+  "error": null,
+  "configured_owner": "Beau",
+  "owner": "Beau",
+  "owner_source": "phone_map",
+  "account_phone": "+18459534090",
+  "account_pushname": "Beau | Moras AI",
+  "operator_profile": {
+    "operator": "Beau",
+    "real_name": "yifan",
+    "wa_note": "Beau",
+    "phones": [
+      "+18459534090"
+    ]
+  },
+  "qr_refresh_count": 0,
+  "last_qr_at": null,
+  "qr_value": null,
+  "worker": {
+    "phase": "live",
+    "totalChats": 108,
+    "processedChats": 108,
+    "newMessages": 17,
+    "errors": [],
+    "lastPollAt": "2026-04-11T16:10:28.156Z",
+    "clientReady": true,
+    "clientError": null,
+    "owner": "Beau",
+    "sessionId": "beau",
+    "resolvedOwner": "Beau",
+    "uptime": 3253669
+  },
+  "pid": 75876,
+  "api_base": "http://127.0.0.1:3000",
+  "running": true
+}

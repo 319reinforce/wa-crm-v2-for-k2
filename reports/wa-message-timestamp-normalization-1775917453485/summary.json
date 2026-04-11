@@ -1,0 +1,10 @@
+{
+  "generated_at": "2026-04-11T14:24:13.482Z",
+  "apply": false,
+  "delete_candidates": 6438,
+  "update_candidates": 1600,
+  "deleted_rows": 0,
+  "updated_rows": 0,
+  "collision_deleted_rows": 0,
+  "remaining_legacy_rows": 8038
+}
