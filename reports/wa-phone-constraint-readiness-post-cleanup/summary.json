@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-04-11T11:06:56.188Z",
+  "database": "wa_crm_v2",
+  "summary": {
+    "total_creators": 218,
+    "null_phone_creators": 0,
+    "active_creators": 202,
+    "active_null_phone_creators": 0,
+    "roster_total": 107,
+    "roster_null_phone_creators": 0,
+    "normalized_phone_duplicate_groups": 0
+  },
+  "relation_counts": {
+    "null_phone_with_messages": 0,
+    "null_phone_with_aliases": 0,
+    "null_phone_with_wacrm": 0,
+    "null_phone_with_keeper_link": 0,
+    "null_phone_with_joinbrands_link": 0,
+    "null_phone_with_events": 0,
+    "null_phone_with_any_related": 0,
+    "null_phone_with_no_related": 0
+  },
+  "recommendation": [
+    "Current roster is already safe: all 107 primary roster creators have non-null wa_phone.",
+    "Directly enforcing NOT NULL on creators.wa_phone would fail because 1187 historical creator rows still have NULL/blank wa_phone.",
+    "320 null-phone creators appear to be pure shells with no related rows and are the safest first cleanup bucket.",
+    "867 null-phone creators still carry related rows (aliases / wa_crm_data / keeper_link / joinbrands_link), so they need staged cleanup or archival before enforcing NOT NULL.",
+    "Because normalized phone duplicate groups are already 0, the blocker is NULL cleanup rather than uniqueness collisions."
+  ]
+}

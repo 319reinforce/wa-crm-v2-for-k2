@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-04-11T15:28:52.177Z",
+  "operator": "Beau",
+  "apply": false,
+  "window_start": "2026-04-11 14:00:00",
+  "window_end": null,
+  "min_repeat": 3,
+  "groups": 4,
+  "duplicate_rows": 8,
+  "deleted_rows": 0,
+  "updated_role_rows": 0,
+  "role_resolved_from_history": 0,
+  "unresolved_groups": 0
+}

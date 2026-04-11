@@ -1,0 +1,443 @@
+{
+  "input": "/Users/depp/Downloads/WA未对应消息审核表_消息审核_表格.csv",
+  "total_rows": 50,
+  "status_counts": {
+    "录入": 29,
+    "不录入": 19,
+    "和上一轮可能重复": 2
+  },
+  "kept": [
+    {
+      "creator_id": 2317,
+      "primary_name": "ice.findz",
+      "wa_phone": "18137770367",
+      "wa_owner": "Jiawen",
+      "session_id": "jiawen",
+      "msg_count": 1
+    },
+    {
+      "creator_id": 982,
+      "primary_name": "Melanie Warrick",
+      "wa_phone": "15022963767",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 18
+    },
+    {
+      "creator_id": 973,
+      "primary_name": "Mani.therealbigleo",
+      "wa_phone": "12024206116",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 24
+    },
+    {
+      "creator_id": 999,
+      "primary_name": "bricklynnnn",
+      "wa_phone": "19088015657",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 12
+    },
+    {
+      "creator_id": 1003,
+      "primary_name": "Tanya Oard",
+      "wa_phone": "19899652312",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 50
+    },
+    {
+      "creator_id": 988,
+      "primary_name": "PO Box Girl",
+      "wa_phone": "17049631726",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 54
+    },
+    {
+      "creator_id": 1048,
+      "primary_name": "Faateh",
+      "wa_phone": "14703121274",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 44
+    },
+    {
+      "creator_id": 1041,
+      "primary_name": "Simon",
+      "wa_phone": "12087609262",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 16
+    },
+    {
+      "creator_id": 980,
+      "primary_name": "Reather",
+      "wa_phone": "14072276841",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 58
+    },
+    {
+      "creator_id": 1034,
+      "primary_name": "dgcfamily(daynagirlworld",
+      "wa_phone": "19192369006",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 32
+    },
+    {
+      "creator_id": 1035,
+      "primary_name": "(Nalini) 🌸ĎĨÀÑÀ🌸ŠB🔐 blushedbeauty25",
+      "wa_phone": "19292188050",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 195
+    },
+    {
+      "creator_id": 978,
+      "primary_name": "SmileyJoy2",
+      "wa_phone": "13613630646",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 18
+    },
+    {
+      "creator_id": 977,
+      "primary_name": "Mareeyah",
+      "wa_phone": "13082355846",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 60
+    },
+    {
+      "creator_id": 992,
+      "primary_name": "Tayo Akinwale",
+      "wa_phone": "17345964832",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 17
+    },
+    {
+      "creator_id": 1045,
+      "primary_name": "Tricia(tricia.g.rutledge)",
+      "wa_phone": "14056647385",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 168
+    },
+    {
+      "creator_id": 1011,
+      "primary_name": "Joshua(zilchpov",
+      "wa_phone": "12147382115",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 20
+    },
+    {
+      "creator_id": 1017,
+      "primary_name": "yvonnecarolina（Yvonne 🦋",
+      "wa_phone": "14108123788",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 170
+    },
+    {
+      "creator_id": 1012,
+      "primary_name": "leiry2024(Leiry_Gonzlez",
+      "wa_phone": "12676906506",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 225
+    },
+    {
+      "creator_id": 1033,
+      "primary_name": "jomairagaxi",
+      "wa_phone": "19092461886",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 10
+    },
+    {
+      "creator_id": 975,
+      "primary_name": "ChaseThePeekapoo",
+      "wa_phone": "12515543438",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 18
+    },
+    {
+      "creator_id": 986,
+      "primary_name": "Kellie",
+      "wa_phone": "16622421921",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 22
+    },
+    {
+      "creator_id": 1071,
+      "primary_name": "Yandra（prettyfxce_yandra Santana",
+      "wa_phone": "19294366864",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 32
+    },
+    {
+      "creator_id": 1031,
+      "primary_name": "2hotfu（",
+      "wa_phone": "18627771927",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 24
+    },
+    {
+      "creator_id": 1025,
+      "primary_name": "tiktokfonds9867（Wilson_Conrad",
+      "wa_phone": "16026865932",
+      "wa_owner": "Yiyun",
+      "session_id": "yiyun",
+      "msg_count": 28
+    },
+    {
+      "creator_id": 996,
+      "primary_name": "Kellie",
+      "wa_phone": "18287665655",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 35
+    },
+    {
+      "creator_id": 983,
+      "primary_name": "Alissa Aviles",
+      "wa_phone": "15626734669",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 47
+    },
+    {
+      "creator_id": 995,
+      "primary_name": "Kolton",
+      "wa_phone": "18016966799",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 39
+    },
+    {
+      "creator_id": 991,
+      "primary_name": "Claudia",
+      "wa_phone": "17248123049",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 63
+    },
+    {
+      "creator_id": 989,
+      "primary_name": "beautybyblair1011",
+      "wa_phone": "17147467359",
+      "wa_owner": "Beau",
+      "session_id": "beau",
+      "msg_count": 82
+    }
+  ],
+  "deleted": [
+    {
+      "creator_id": 1055,
+      "primary_name": "doratheexplorer068",
+      "wa_phone": "17066916775",
+      "wa_owner": "Yiyun",
+      "msg_count": 16,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages|all_messages_irrelevant|stale_over_week"
+    },
+    {
+      "creator_id": 1004,
+      "primary_name": "+601136221898",
+      "wa_phone": "601136221898",
+      "wa_owner": "Beau",
+      "msg_count": 20,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages|all_messages_irrelevant|stale_over_week"
+    },
+    {
+      "creator_id": 391,
+      "primary_name": "Dessi",
+      "wa_phone": "13136971010",
+      "wa_owner": "Yiyun",
+      "msg_count": 24,
+      "source": "keeper",
+      "review_reasons": ""
+    },
+    {
+      "creator_id": 1059,
+      "primary_name": "glowgettergina",
+      "wa_phone": "17247131190",
+      "wa_owner": "Yiyun",
+      "msg_count": 26,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages|stale_over_week"
+    },
+    {
+      "creator_id": 1060,
+      "primary_name": "Sham",
+      "wa_phone": "17543006995",
+      "wa_owner": "Yiyun",
+      "msg_count": 46,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages|stale_over_week"
+    },
+    {
+      "creator_id": 224,
+      "primary_name": "Unknown",
+      "wa_phone": "16512178555",
+      "wa_owner": "Beau",
+      "msg_count": 16,
+      "source": "keeper",
+      "review_reasons": "non_roster_with_messages|stale_over_week"
+    },
+    {
+      "creator_id": 1047,
+      "primary_name": "diamond_in_the_rough412",
+      "wa_phone": "14128158784",
+      "wa_owner": "Yiyun",
+      "msg_count": 14,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages|stale_over_week"
+    },
+    {
+      "creator_id": 976,
+      "primary_name": "Syna Dhawan",
+      "wa_phone": "12819674682",
+      "wa_owner": "Beau",
+      "msg_count": 38,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages|stale_over_week"
+    },
+    {
+      "creator_id": 1042,
+      "primary_name": "momminanmakeup",
+      "wa_phone": "12346006238",
+      "wa_owner": "Yiyun",
+      "msg_count": 12,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages|stale_over_week"
+    },
+    {
+      "creator_id": 1050,
+      "primary_name": "meganrenee7821",
+      "wa_phone": "15132659034",
+      "wa_owner": "Yiyun",
+      "msg_count": 16,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages|stale_over_week"
+    },
+    {
+      "creator_id": 359,
+      "primary_name": "Bizzle",
+      "wa_phone": "17085527779",
+      "wa_owner": "Yiyun",
+      "msg_count": 20,
+      "source": "keeper",
+      "review_reasons": "non_roster_with_messages|stale_over_week"
+    },
+    {
+      "creator_id": 1044,
+      "primary_name": "love_paradise12 (Boujee)",
+      "wa_phone": "13526820921",
+      "wa_owner": "Yiyun",
+      "msg_count": 40,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages|stale_over_week"
+    },
+    {
+      "creator_id": 1008,
+      "primary_name": "Waqar Khadim",
+      "wa_phone": "923044779043",
+      "wa_owner": "Beau",
+      "msg_count": 100,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages|stale_over_week"
+    },
+    {
+      "creator_id": 1040,
+      "primary_name": "juanitabeltran1",
+      "wa_phone": "12025496220",
+      "wa_owner": "Yiyun",
+      "msg_count": 6,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages"
+    },
+    {
+      "creator_id": 1043,
+      "primary_name": "mystical_juju",
+      "wa_phone": "13055423811",
+      "wa_owner": "Yiyun",
+      "msg_count": 9,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages"
+    },
+    {
+      "creator_id": 1057,
+      "primary_name": "‪+17178846579‬",
+      "wa_phone": "17178846579",
+      "wa_owner": "Yiyun",
+      "msg_count": 16,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages"
+    },
+    {
+      "creator_id": 1063,
+      "primary_name": "Marissa",
+      "wa_phone": "18648718233",
+      "wa_owner": "Yiyun",
+      "msg_count": 40,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages"
+    },
+    {
+      "creator_id": 1052,
+      "primary_name": "‪+16072065868‬",
+      "wa_phone": "16072065868",
+      "wa_owner": "Yiyun",
+      "msg_count": 50,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages"
+    },
+    {
+      "creator_id": 1061,
+      "primary_name": "dasweetesttee2",
+      "wa_phone": "18045250442",
+      "wa_owner": "Yiyun",
+      "msg_count": 67,
+      "source": "wa_crm",
+      "review_reasons": "non_roster_with_messages"
+    }
+  ],
+  "duplicate_merged": [],
+  "duplicate_unresolved": [
+    {
+      "creator_id": 1000,
+      "primary_name": "Kris",
+      "wa_phone": "19142676009",
+      "wa_owner": "Beau",
+      "msg_count": 220,
+      "review_reasons": "non_roster_with_messages|stale_over_week"
+    },
+    {
+      "creator_id": 993,
+      "primary_name": "Ashley",
+      "wa_phone": "17405255368",
+      "wa_owner": "Beau",
+      "msg_count": 166,
+      "review_reasons": "non_roster_with_messages"
+    }
+  ],
+  "missing_creator_rows": [],
+  "files": {
+    "kept_csv": "/Users/depp/wa-bot/wa-crm-v2/reports/review-apply-2026-04-11T08-19-53-705Z/kept.csv",
+    "deleted_csv": "/Users/depp/wa-bot/wa-crm-v2/reports/review-apply-2026-04-11T08-19-53-705Z/deleted.csv",
+    "duplicate_merged_csv": "/Users/depp/wa-bot/wa-crm-v2/reports/review-apply-2026-04-11T08-19-53-705Z/duplicate-merged.csv",
+    "duplicate_unresolved_csv": "/Users/depp/wa-bot/wa-crm-v2/reports/review-apply-2026-04-11T08-19-53-705Z/duplicate-unresolved.csv",
+    "missing_creator_csv": "/Users/depp/wa-bot/wa-crm-v2/reports/review-apply-2026-04-11T08-19-53-705Z/missing-creators.csv"
+  }
+}

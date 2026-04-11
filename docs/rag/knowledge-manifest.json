@@ -1,0 +1,79 @@
+{
+  "version": "2026-04-11",
+  "owner": "wa-crm-ops",
+  "sources": [
+    {
+      "id": "policy-trial-pack-v1",
+      "title": "Trial Package Policy",
+      "type": "policy",
+      "format": "md",
+      "path": "docs/rag/sources/policy-trial-pack-v1.md",
+      "scene": [
+        "trial_intro",
+        "trial_followup"
+      ],
+      "priority": 1,
+      "sensitivity": "internal",
+      "status": "approved",
+      "updated_at": "2026-04-11",
+      "effective_from": "2026-04-15",
+      "rule_version": "2026-04-15"
+    },
+    {
+      "id": "sop-creator-outreach-mar-2026-v1",
+      "title": "Creator Outreach SOP (March 2026)",
+      "type": "sop",
+      "format": "md",
+      "path": "docs/rag/sources/sop-creator-outreach-mar-2026-v1.md",
+      "scene": [
+        "trial_intro",
+        "follow_up",
+        "payment_intro",
+        "payment_issue",
+        "gmv_inquiry"
+      ],
+      "priority": 1,
+      "sensitivity": "internal",
+      "status": "approved",
+      "updated_at": "2026-04-11",
+      "effective_from": "2026-04-15",
+      "rule_version": "2026-04-15"
+    },
+    {
+      "id": "sop-violation-appeal-and-risk-control-v1",
+      "title": "Violation Appeal And Risk Control SOP",
+      "type": "sop",
+      "format": "md",
+      "path": "docs/rag/sources/sop-violation-appeal-and-risk-control-v1.md",
+      "scene": [
+        "payment_issue",
+        "follow_up",
+        "gmv_inquiry"
+      ],
+      "priority": 1,
+      "sensitivity": "internal",
+      "status": "approved",
+      "updated_at": "2026-04-11",
+      "effective_from": "2026-04-15",
+      "rule_version": "2026-04-15"
+    },
+    {
+      "id": "sop-product-selection-and-posting-safety-v1",
+      "title": "Product Selection And Posting Safety SOP",
+      "type": "sop",
+      "format": "md",
+      "path": "docs/rag/sources/sop-product-selection-and-posting-safety-v1.md",
+      "scene": [
+        "follow_up",
+        "gmv_inquiry",
+        "trial_intro"
+      ],
+      "priority": 1,
+      "sensitivity": "internal",
+      "status": "approved",
+      "updated_at": "2026-04-11",
+      "effective_from": "2026-04-15",
+      "rule_version": "2026-04-15"
+    }
+  ]
+}

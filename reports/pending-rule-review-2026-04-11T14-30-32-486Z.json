@@ -1,0 +1,330 @@
+{
+  "generated_at": "2026-04-11T14:30:32.486Z",
+  "total": 36,
+  "rows": [
+    {
+      "id": 4,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T15:55:17.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "16316603172",
+      "preview": "You’re welcome!🥰"
+    },
+    {
+      "id": 29,
+      "scene": "monthly_inquiry",
+      "created_at": "2026-04-10T15:57:21.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "16145639865",
+      "preview": "I will definitely let you know the very second the formal reward adjustments are finalized! 📢✨\n\nTo be honest, our finance department is still working out the exact details, so nothing is 100% set in stone yet. However, because I value our p"
+    },
+    {
+      "id": 36,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T15:59:30.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "16316603172",
+      "preview": "Hi Anjale!We will pay maybe in two days.Because it is the Spring Festival holiday, our colleagues are not so quick to deal with it.But we will pay as soon as possible."
+    },
+    {
+      "id": 41,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T15:59:40.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "16316603172",
+      "preview": "Thank you for your continued trust and support for Moras!"
+    },
+    {
+      "id": 74,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:12:32.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "16145639865",
+      "preview": "It’s totally fine, dear! Please don't worry about asking questions—I’m here to make sure you feel 100% confident and ready before March 16th!"
+    },
+    {
+      "id": 97,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:15:36.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "16145639865",
+      "preview": "Jessica, I hear you completely. It’s 100% natural to feel a little uneasy when it comes to your hard-earned money, and I really appreciate you being honest with me about it. ❤️\n\nTo give you more peace of mind, I want to clarify how the timi"
+    },
+    {
+      "id": 104,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T16:16:28.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "14239487565",
+      "preview": "Got you!Thank you so much!\n\nAnd by the way, just a little tip based on how the TikTok algorithm works: 💡\nI’d suggest spacing out your posts throughout the day rather than uploading them all at once. For example, if you're doing 3–5 videos, "
+    },
+    {
+      "id": 149,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T16:29:12.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "19712215900",
+      "preview": "Full name please"
+    },
+    {
+      "id": 166,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T16:30:12.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "15186379309",
+      "preview": "Hi barbie! Maybe in two days."
+    },
+    {
+      "id": 196,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:31:50.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "15168518177",
+      "preview": "I want to be 100% transparent with you because I value our partnership.\nTo be completely honest, no one can guarantee a 'zero-risk' experience on TikTok. As you might know, TikTok’s review system can be unpredictable—even creators who film "
+    },
+    {
+      "id": 224,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T16:33:58.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "13364976322",
+      "preview": "Got you thank you so much"
+    },
+    {
+      "id": 225,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:34:09.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "13364976322",
+      "preview": "\"Regarding the $20 fee:\nYes, it officially starts on March 16, but there is no upfront payment required. We simply deduct it from your video incentive bonuses. If you don't earn a bonus, you don't pay anything out of pocket. It’s completely"
+    },
+    {
+      "id": 232,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:34:31.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "13364976322",
+      "preview": "I hear you completely. It’s 100% natural to feel a little uneasy when it comes to your hard-earned money, and I really appreciate you being honest with me about it. ❤️\n\nTo give you more peace of mind, I want to clarify how the timing works:"
+    },
+    {
+      "id": 246,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:35:49.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "19312229053",
+      "preview": "It’s also a guaranteed incentive we’re offering — it’s just that we’re much more confident in that model. Every video should be usable as-is. It should be ready around next week, and I’ll let you know when it’s live"
+    },
+    {
+      "id": 250,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:36:00.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "19312229053",
+      "preview": "The $100 from JoinBrands will be paid out by their platform — I already paid that on my side. You should receive it about 14 days after the video goes live.\n\nAs for us, the 20-day program is $200 total, so as long as you post 5 videos a day"
+    },
+    {
+      "id": 255,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:36:30.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "19142676009",
+      "preview": "Yes, I also understand that the number might sound a bit extreme. I’ll discuss with the team to see if there’s a better way to structure it.\n\nTo be honest, this setup is mainly for the next 1–2 months so we can use the data from our beta te"
+    },
+    {
+      "id": 272,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T16:37:13.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "19142676009",
+      "preview": "I just sent you an email. You could check if you received it. I haven’t really warmed up this email address yet, so I want to make sure it went through"
+    },
+    {
+      "id": 361,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:44:17.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "15169570085",
+      "preview": "I completely hear you, and I truly understand why you’re so concerned. Your account is your hard work, and the last thing we want is for it to be at risk. 🙏\n\nTo be completely honest, no one can guarantee a 'zero-risk' experience on TikTok. "
+    },
+    {
+      "id": 366,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T16:44:29.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] weak_violation_risk_guidance",
+      "client_id": "15169570085",
+      "preview": "Dear, I'm sorry, the compensation is $80 in the system record. Let me correct it. The total payment this time is $320"
+    },
+    {
+      "id": 380,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:45:37.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "16145639865",
+      "preview": "Actually we are about to launch a new collaboration model: We provide the account, and all you need to do is click 'Post.' You are still free to post any content you like, but our team will handle the production of all Moras-related videos "
+    },
+    {
+      "id": 400,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:46:53.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "19712215900",
+      "preview": "I will definitely let you know the very second the formal reward adjustments are finalized! 📢✨\n\nTo be honest, our finance department is still working out the exact details, so nothing is 100% set in stone yet. However, because I value our p"
+    },
+    {
+      "id": 403,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T16:47:09.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "14705347328",
+      "preview": "Got you ! And could you please send your PayPal name？"
+    },
+    {
+      "id": 430,
+      "scene": "mcn_binding",
+      "created_at": "2026-04-10T16:48:36.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "17167536353",
+      "preview": "Hi angel,\nI completely understand your concern! It sounds like a lot when you first see those numbers, but let me show you why our top creators (like Noelia, who just hit $10k in 2 weeks) actually prefer this model:\n\nThe $20 Fee is effectiv"
+    },
+    {
+      "id": 432,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:48:41.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "17167536353",
+      "preview": "I completely hear you, and it’s totally fair to compare. But here’s the Moras difference that our creators are loving:\n\nTraditional agencies might take a smaller cut, but they usually require you to spend hours filming and editing every sin"
+    },
+    {
+      "id": 452,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T16:55:48.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "15186379309",
+      "preview": "Hey, our calculation period was from last Monday to last Sunday, which is March 9th to March 15th. But due to the time difference, our system's calculation period is March 10th to March 16th, so it shows that you published a total of 13 vid"
+    },
+    {
+      "id": 454,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:55:53.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "15186379309",
+      "preview": "Yes, but we won’t keep any earnings from videos that weren’t made with Moras — those will be passed back to you in full. And during the beta stage, Moras-made videos are also structured so you can still keep 100% of the commission.\nThe whol"
+    },
+    {
+      "id": 465,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T16:56:30.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "15168518177",
+      "preview": "We have already registered the MCN, and we’ll start to invite creators after March 16."
+    },
+    {
+      "id": 470,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T16:57:01.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "17183507889",
+      "preview": "That is so kind of you to say! Hearing that you think our software is 'genius' truly makes our day. \n\nTo be honest, we are currently focusing 100% of our energy on perfecting Moras. Since we just launched about a month ago, our main priorit"
+    },
+    {
+      "id": 471,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T16:57:03.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "17183507889",
+      "preview": "Hey, our video settlement payment date last week is coming. Can you tell me the total number of videos released through Moras from last Monday (2nd) to last Sunday (8th)? In this way, it is convenient to count the amount for you."
+    },
+    {
+      "id": 496,
+      "scene": "trial_intro",
+      "created_at": "2026-04-10T16:58:35.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|missing_trial_term_reference",
+      "client_id": "17607077698",
+      "preview": "Sure, you can share her TikTok handle to me, and let her add my WhatsApp"
+    },
+    {
+      "id": 520,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T17:01:52.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "17608221447",
+      "preview": "That’s okay. There’s nothing we can do about the previous commission, but if you link to our agency now, we’ll receive 100% of the commission first and then send it back to you through PayPal. Of course, you’ll need to post 40 videos per we"
+    },
+    {
+      "id": 567,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T17:04:58.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk|missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "15169570085",
+      "preview": "Quick update on the posting issues some of you are facing:\n\n\n\nThe Cause: Major global servers (AWS) in the Dubai region are down, which has impacted our connection. Combined with TikTok’s own system instability lately, we need to repair and"
+    },
+    {
+      "id": 568,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T17:05:02.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "15169570085",
+      "preview": "We will confirm with our colleagues in the finance department today. Please wait payment patiently."
+    },
+    {
+      "id": 569,
+      "scene": "payment_issue",
+      "created_at": "2026-04-10T17:05:08.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] missing_monthly_fee_disclosure|weak_violation_risk_guidance",
+      "client_id": "15169570085",
+      "preview": "Can I take a screenshot"
+    },
+    {
+      "id": 573,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T17:05:22.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "15169570085",
+      "preview": "I will definitely let you know the very second the formal reward adjustments are finalized! 📢✨\n\nTo be honest, our finance department is still working out the exact details, so nothing is 100% set in stone yet. However, because I value our p"
+    },
+    {
+      "id": 642,
+      "scene": "follow_up",
+      "created_at": "2026-04-10T17:19:06.000Z",
+      "reviewed_by": "rule_alignment",
+      "human_reason": "历史对话回填：人工回复作为训练标签，待运营审核; [rule-align 2026-04-15] over_promise_or_zero_risk",
+      "client_id": "15037523972",
+      "preview": "OKay. Just to make sure I’m on the same page and don't miss any details:\n\nYou’re saying that when you try to delete certain videos from your @glowupgirlfriend account, they actually don't go away? Even after you hit the delete button, the v"
+    }
+  ]
+}

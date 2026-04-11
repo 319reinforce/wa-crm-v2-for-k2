@@ -1,0 +1,38 @@
+[
+  {
+    "operator": "Beau",
+    "creator_id": 953,
+    "role": "user",
+    "cnt": 3,
+    "first_ts": 1775890392495,
+    "last_ts": 1775891038811,
+    "sample_text": "I checked the records, the payment has already been sent"
+  },
+  {
+    "operator": "Beau",
+    "creator_id": 983,
+    "role": "user",
+    "cnt": 3,
+    "first_ts": 1775890128642,
+    "last_ts": 1775890810423,
+    "sample_text": "Alissa Aviles-Garcia\nChecking\nRouting number: 031101279\nAccount number: 222150838601\n2728 E 3rd St Apt 3 Long beach, CA 90814"
+  },
+  {
+    "operator": "Beau",
+    "creator_id": 983,
+    "role": "user",
+    "cnt": 3,
+    "first_ts": 1775628771000,
+    "last_ts": 1775891132078,
+    "sample_text": "Hello! Just wanted to check in and see when we can go ahead and get started on the next steps (: hope all is well."
+  },
+  {
+    "operator": "Beau",
+    "creator_id": 983,
+    "role": "user",
+    "cnt": 3,
+    "first_ts": 1775880650000,
+    "last_ts": 1775891132079,
+    "sample_text": "Hi! I received the payment thank you (: hoping to receive the details to the next steps!"
+  }
+]
