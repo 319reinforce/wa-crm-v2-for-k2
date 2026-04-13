@@ -9,10 +9,10 @@ const db = require('../../db');
 const { extractAndSaveMemories } = require('../services/memoryExtractionService');
 const { normalizeOperatorName } = require('../utils/operator');
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 灰度路由辅助 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 灰度路由辅助 ==========
 
 function shouldUseFinetuned() {
-    if (process.env.USE_FINETUNED !***REMOVED*** 'true') return false;
+    if (process.env.USE_FINETUNED !== 'true') return false;
     const model = String(process.env.FINETUNED_MODEL || '').trim();
     if (!model) return false;
     const ratio = parseFloat(process.env.AB_RATIO || '0.1');
@@ -25,7 +25,7 @@ function resolveFinetunedBase(rawBase) {
     try {
         const url = new URL(input);
         // OpenAI root API URL compatibility: /v1 -> /v1/chat/completions
-        if (url.hostname ***REMOVED***= 'api.openai.com' && /^\/v1\/?$/.test(url.pathname)) {
+        if (url.hostname === 'api.openai.com' && /^\/v1\/?$/.test(url.pathname)) {
             return `${url.origin}/v1/chat/completions`;
         }
         return input;
@@ -42,17 +42,17 @@ function resolveFinetunedModel(baseUrl) {
 
 function normalizeMessagesForMemory(messages = []) {
     return messages
-        .filter(m => m && m.role !***REMOVED*** 'system')
+        .filter(m => m && m.role !== 'system')
         .map((m) => {
-            const normalizedRole = (m.role ***REMOVED***= 'assistant' || m.role ***REMOVED***= 'me') ? 'me' : 'user';
+            const normalizedRole = (m.role === 'assistant' || m.role === 'me') ? 'me' : 'user';
             let text = '';
-            if (typeof m.text ***REMOVED***= 'string') {
+            if (typeof m.text === 'string') {
                 text = m.text;
-            } else if (typeof m.content ***REMOVED***= 'string') {
+            } else if (typeof m.content === 'string') {
                 text = m.content;
             } else if (Array.isArray(m.content)) {
                 text = m.content
-                    .map((part) => typeof part ***REMOVED***= 'string' ? part : (part?.text || ''))
+                    .map((part) => typeof part === 'string' ? part : (part?.text || ''))
                     .filter(Boolean)
                     .join('\n');
             }
@@ -62,13 +62,13 @@ function normalizeMessagesForMemory(messages = []) {
 }
 
 function extractResponseText(payload) {
-    if (typeof payload?.choices?.[0]?.message?.content ***REMOVED***= 'string') {
+    if (typeof payload?.choices?.[0]?.message?.content === 'string') {
         return payload.choices[0].message.content.trim();
     }
 
     if (Array.isArray(payload?.choices?.[0]?.message?.content)) {
         return payload.choices[0].message.content
-            .map((part) => typeof part ***REMOVED***= 'string' ? part : (part?.text || ''))
+            .map((part) => typeof part === 'string' ? part : (part?.text || ''))
             .filter(Boolean)
             .join('\n')
             .trim();
@@ -76,17 +76,17 @@ function extractResponseText(payload) {
 
     if (Array.isArray(payload?.content)) {
         return payload.content
-            .map((part) => typeof part ***REMOVED***= 'string' ? part : (part?.text || ''))
+            .map((part) => typeof part === 'string' ? part : (part?.text || ''))
             .filter(Boolean)
             .join('\n')
             .trim();
     }
 
-    if (payload?.content && typeof payload.content ***REMOVED***= 'object') {
+    if (payload?.content && typeof payload.content === 'object') {
         return String(payload.content.text || '').trim();
     }
 
-    if (typeof payload?.content ***REMOVED***= 'string') {
+    if (typeof payload?.content === 'string') {
         return payload.content.trim();
     }
 
@@ -103,15 +103,15 @@ function toRequestError(label, response, payload) {
 async function settleCandidateRequests(requests) {
     const settled = await Promise.allSettled(requests);
     const successes = settled
-        .filter((item) => item.status ***REMOVED***= 'fulfilled' && item.value?.text)
+        .filter((item) => item.status === 'fulfilled' && item.value?.text)
         .map((item) => item.value);
 
-    if (successes.length ***REMOVED***= 0) {
-        const failure = settled.find((item) => item.status ***REMOVED***= 'rejected');
+    if (successes.length === 0) {
+        const failure = settled.find((item) => item.status === 'rejected');
         throw failure?.reason || new Error('All candidate requests failed');
     }
 
-    if (successes.length ***REMOVED***= 1) {
+    if (successes.length === 1) {
         return [successes[0], successes[0]];
     }
 
@@ -209,7 +209,7 @@ router.post('/minimax', async (req, res) => {
             }
         }
 
-        // ***REMOVED***= 灰度路由：AB_RATIO 流量走微调模型 ***REMOVED***=
+        // === 灰度路由：AB_RATIO 流量走微调模型 ===
         if (shouldUseFinetuned()) {
             const FINETUNED_BASE = resolveFinetunedBase(process.env.FINETUNED_BASE);
             const FINETUNED_KEY = process.env.FINETUNED_API_KEY || 'EMPTY';
@@ -259,7 +259,7 @@ router.post('/minimax', async (req, res) => {
                         content_opt1: [{ type: 'text', text: opt1Candidate.text }],
                         content_opt2: [{ type: 'text', text: opt2Candidate.text }],
                     };
-                    // ***REMOVED***= client_memory 自动积累：Finetuned 路由 AI 生成成功后 ***REMOVED***=
+                    // === client_memory 自动积累：Finetuned 路由 AI 生成成功后 ===
                     if (client_id) {
                         const msgs = normalizeMessagesForMemory(messages);
                         const ownerRow = await db.getDb().prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
@@ -298,15 +298,15 @@ router.post('/minimax', async (req, res) => {
             // Finetuned 失败后继续走下方 OpenAI / MiniMax 默认链路
         }
 
-        if (process.env.USE_OPENAI ***REMOVED***= 'true') {
+        if (process.env.USE_OPENAI === 'true') {
             // OpenAI 路由
             const { generateCandidates } = require('../utils/openai');
-            const systemPrompt = messages.find(m => m.role ***REMOVED***= 'system')?.content || '';
-            const userMsgs = messages.filter(m => m.role !***REMOVED*** 'system');
+            const systemPrompt = messages.find(m => m.role === 'system')?.content || '';
+            const userMsgs = messages.filter(m => m.role !== 'system');
             const temps = Array.isArray(temperature) ? temperature : [0.8, 0.4];
             const { opt1, opt2 } = await generateCandidates(systemPrompt, userMsgs, temps);
             const latency = Date.now() - startTs;
-            // ***REMOVED***= client_memory 自动积累：仅在 Finetuned 未触发时执行 ***REMOVED***=
+            // === client_memory 自动积累：仅在 Finetuned 未触发时执行 ===
             if (client_id && !finetunedHookFired) {
                 const msgs = normalizeMessagesForMemory(messages);
                 const ownerRow = await db.getDb().prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
@@ -396,7 +396,7 @@ router.post('/minimax', async (req, res) => {
             });
         }
         const latency = Date.now() - startTs;
-        // ***REMOVED***= client_memory 自动积累：MiniMax 路由 AI 生成成功后 ***REMOVED***=
+        // === client_memory 自动积累：MiniMax 路由 AI 生成成功后 ===
         if (client_id) {
             const msgs = normalizeMessagesForMemory(messages);
             const ownerRow = await db.getDb().prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
@@ -434,7 +434,7 @@ router.post('/minimax', async (req, res) => {
         await writeGenerationLog({
             client_id: req.body?.client_id || null,
             retrieval_snapshot_id: req.body?.retrieval_snapshot_id || null,
-            provider: process.env.USE_OPENAI ***REMOVED***= 'true' ? 'openai' : 'minimax',
+            provider: process.env.USE_OPENAI === 'true' ? 'openai' : 'minimax',
             model: req.body?.model || null,
             route: 'minimax',
             ab_bucket: null,
@@ -472,7 +472,7 @@ router.post('/ai/system-prompt', async (req, res) => {
 
         const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
         const retrievalQueryText = [query_text, latest_user_message, topicContext, richContext, conversationSummary]
-            .filter((item) => typeof item ***REMOVED***= 'string' && item.trim())
+            .filter((item) => typeof item === 'string' && item.trim())
             .join('\n\n');
 
         // Determine operator (from client_id lookup or explicit override)
@@ -551,8 +551,8 @@ router.post('/translate', async (req, res) => {
         const { texts } = req.body;
 
         // 单条翻译
-        if (text !***REMOVED*** undefined) {
-            if (process.env.USE_OPENAI ***REMOVED***= 'true') {
+        if (text !== undefined) {
+            if (process.env.USE_OPENAI === 'true') {
                 const OPENAI_KEY = process.env.OPENAI_API_KEY;
                 const OPENAI_BASE = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
                 const openaiRes = await fetch(`${OPENAI_BASE}/chat/completions`, {
@@ -599,26 +599,26 @@ router.post('/translate', async (req, res) => {
                 const data = await response.json();
                 let raw = '';
                 if (data.content && Array.isArray(data.content)) {
-                    raw = data.content.find(item => item.type ***REMOVED***= 'text')?.text || '';
+                    raw = data.content.find(item => item.type === 'text')?.text || '';
                 } else {
                     raw = data.content?.text || data.content || '';
                 }
-                const translation = (typeof raw ***REMOVED***= 'string' ? raw.trim() : '') || text;
+                const translation = (typeof raw === 'string' ? raw.trim() : '') || text;
                 return res.json({ translation, timestamp });
             }
         }
 
         // 批量翻译
-        if (!Array.isArray(texts) || texts.length ***REMOVED***= 0) {
+        if (!Array.isArray(texts) || texts.length === 0) {
             return res.json([]);
         }
 
         const combined = texts
-            .map((t, i) => `[${i + 1}] ${t.role ***REMOVED***= 'me' ? '我' : '达人'}: ${t.text}`)
+            .map((t, i) => `[${i + 1}] ${t.role === 'me' ? '我' : '达人'}: ${t.text}`)
             .join('\n');
 
         let raw;
-        if (process.env.USE_OPENAI ***REMOVED***= 'true') {
+        if (process.env.USE_OPENAI === 'true') {
             const OPENAI_KEY = process.env.OPENAI_API_KEY;
             const OPENAI_BASE = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
             const openaiRes = await fetch(`${OPENAI_BASE}/chat/completions`, {
@@ -662,7 +662,7 @@ router.post('/translate', async (req, res) => {
             });
             const data = await response.json();
             if (data.content && Array.isArray(data.content)) {
-                raw = data.content.find(item => item.type ***REMOVED***= 'text')?.text || '';
+                raw = data.content.find(item => item.type === 'text')?.text || '';
             } else {
                 raw = data.content?.text || data.content || '';
             }
@@ -692,7 +692,7 @@ router.post('/ai/generate', async (req, res) => {
             return res.status(400).json({ success: false, error: 'messages is required and must be an array' });
         }
 
-        if (process.env.USE_OPENAI !***REMOVED*** 'true') {
+        if (process.env.USE_OPENAI !== 'true') {
             return res.status(503).json({
                 success: false,
                 error: 'OpenAI not enabled. Set USE_OPENAI=true in .env to enable.',

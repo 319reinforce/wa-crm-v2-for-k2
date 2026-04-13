@@ -59,7 +59,7 @@ async function main() {
             max_tokens: 120,
             temperature: 0.4,
             client_id: c.wa_phone,
-            scene: i % 2 ***REMOVED***= 0 ? 'follow_up' : 'content_request',
+            scene: i % 2 === 0 ? 'follow_up' : 'content_request',
             operator: c.wa_owner || 'Beau',
             prompt_version: 'v2',
         };

@@ -23,7 +23,7 @@ const {
     toTimestampMs,
 } = require('./services/messageDedupService');
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 配置 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 配置 ==================
 
 function parsePollIntervalMs(rawValue) {
     const parsed = parseInt(rawValue || '', 10);
@@ -32,7 +32,7 @@ function parsePollIntervalMs(rawValue) {
 }
 
 function formatPollInterval(intervalMs) {
-    if (intervalMs % (60 * 1000) ***REMOVED***= 0) {
+    if (intervalMs % (60 * 1000) === 0) {
         return `${intervalMs / 60 / 1000} 分钟`;
     }
     return `${Math.round(intervalMs / 1000)} 秒`;
@@ -47,12 +47,13 @@ const WA_SESSION_ID = String(process.env.WA_SESSION_ID || process.env.PORT || '3
 const BASE_URL = process.env.WA_API_BASE || `http://localhost:${process.env.PORT || 3000}`; // 画像服务调用地址
 const WORKER_TAG = `${WA_SESSION_ID}`;
 const LOG_PREFIX = `[WA Worker:${WA_OWNER}/${WORKER_TAG}]`;
+const DIRECT_CHAT_SUFFIXES = ['@c.us', '@lid'];
 
 function resolveCurrentOwner() {
     return normalizeOperatorName(getResolvedOwner(), WA_OWNER);
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 达人准入过滤 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 达人准入过滤 ==================
 
 function mapMessagesForEligibility(messages = []) {
     return (messages || []).map((message) => ({
@@ -71,6 +72,101 @@ function phoneToChatId(phone) {
     return cleanPhone.startsWith('+')
         ? `${cleanPhone.slice(1)}@c.us`
         : `${cleanPhone}@c.us`;
+}
+
+function extractSerializedChatId(entity) {
+    return String(
+        entity?.id?._serialized
+        || entity?.id?.SerializedString
+        || entity?.chatId?._serialized
+        || entity?.chatId?.SerializedString
+        || entity?.chat?.id?._serialized
+        || entity?.chat?.id?.SerializedString
+        || entity?.from
+        || entity?.to
+        || entity?._data?.id?.remote
+        || entity?.rawData?.id?.remote
+        || ''
+    );
+}
+
+function isDirectChatId(chatId) {
+    const normalized = String(chatId || '').trim().toLowerCase();
+    if (!normalized) return false;
+    if (normalized.endsWith('@g.us')) return false;
+    if (normalized.endsWith('@broadcast')) return false;
+    if (normalized === 'status@broadcast') return false;
+    return DIRECT_CHAT_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+}
+
+function isDirectChat(chat) {
+    if (!chat) return false;
+    if (chat?.isGroup === true) return false;
+    return isDirectChatId(extractSerializedChatId(chat));
+}
+
+function isDirectMessage(message, chat = null) {
+    const candidates = [
+        extractSerializedChatId(message),
+        message?.author,
+        message?._data?.author,
+        message?.rawData?.author,
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+        const value = String(candidate).toLowerCase();
+        if (value.endsWith('@g.us') || value.endsWith('@broadcast')) return false;
+        if (isDirectChatId(value)) return true;
+    }
+
+    return isDirectChat(chat);
+}
+
+function getChatRecencyTs(chat) {
+    const raw = chat?.timestamp
+        ?? chat?._data?.t
+        ?? chat?.lastMessage?.timestamp
+        ?? chat?.lastMessage?._data?.t
+        ?? 0;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return n > 1e12 ? Math.floor(n) : Math.floor(n * 1000);
+}
+
+function pickPreferredChatEntry(current, candidate) {
+    if (!current) return candidate;
+    const currentTs = Number(current.recencyTs || 0);
+    const candidateTs = Number(candidate.recencyTs || 0);
+    if (candidateTs > currentTs) return candidate;
+    if (candidateTs < currentTs) return current;
+
+    const currentId = String(current.chatId || '');
+    const candidateId = String(candidate.chatId || '');
+    if (!currentId) return candidate;
+    if (!candidateId) return current;
+    return candidateId > currentId ? candidate : current;
+}
+
+async function buildDirectChatEntries(client) {
+    const chats = await client.getChats();
+    const byPhone = new Map();
+    for (const chat of chats || []) {
+        if (!isDirectChat(chat)) continue;
+        const contact = await chat.getContact().catch(() => null);
+        if (!contact?.number) continue;
+        const phone = normalizePhone(contact.number || '');
+        if (!phone) continue;
+        const entry = {
+            chat,
+            contact,
+            phone,
+            name: contact.name || contact.pushname || chat.name || 'Unknown',
+            recencyTs: getChatRecencyTs(chat),
+            chatId: extractSerializedChatId(chat),
+        };
+        byPhone.set(phone, pickPreferredChatEntry(byPhone.get(phone), entry));
+    }
+    return [...byPhone.values()];
 }
 
 function buildRosterIndex(rows = []) {
@@ -105,7 +201,7 @@ function getEligibilityForRealtime(phone, name, messages = []) {
     return analyzeCreatorEligibility(phone, name, mapMessagesForEligibility(messages), { mode: 'realtime' });
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 消息去重缓存 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 消息去重缓存 ==================
 // Key: `${chatId}|${msgId}|${timestamp}`，10分钟自动过期
 // 防止实时 handler 和轮询同时拉取同一条消息
 const dedupCache = new Map();
@@ -135,7 +231,7 @@ function getWaMessageRole(message) {
         message?.data?.id?.fromMe,
     ];
     for (const candidate of boolCandidates) {
-        if (typeof candidate ***REMOVED***= 'boolean') return candidate ? 'me' : 'user';
+        if (typeof candidate === 'boolean') return candidate ? 'me' : 'user';
     }
 
     const directionCandidates = [
@@ -147,8 +243,8 @@ function getWaMessageRole(message) {
         message?.rawData?.selfDir,
     ];
     for (const candidate of directionCandidates) {
-        if (candidate ***REMOVED***= 'out') return 'me';
-        if (candidate ***REMOVED***= 'in') return 'user';
+        if (candidate === 'out') return 'me';
+        if (candidate === 'in') return 'user';
     }
 
     return 'user';
@@ -161,7 +257,7 @@ function isBinaryLikePayload(text) {
     if (/^data:[^;]+;base64,[A-Za-z0-9+/=\s]+$/i.test(value)) return true;
     const compact = value.replace(/\s+/g, '');
     if (/^\/9j\/[A-Za-z0-9+/=]{64,}$/.test(compact)) return true;
-    if (/^[A-Za-z0-9+/=]{512,}$/.test(compact) && compact.length % 4 ***REMOVED***= 0) return true;
+    if (/^[A-Za-z0-9+/=]{512,}$/.test(compact) && compact.length % 4 === 0) return true;
     return false;
 }
 
@@ -182,7 +278,7 @@ function buildMessageHash(role, text, timestampMs) {
 function dedupKey(msg) {
     const ts = getWaMessageTimestampMs(msg);
     const chatId = msg.chat?.id?._serialized || msg.chat?.id?.SerializedString || msg.from || '';
-    const messageId = typeof msg.id ***REMOVED***= 'string'
+    const messageId = typeof msg.id === 'string'
         ? msg.id
         : msg.id?._serialized || msg.id?.id || JSON.stringify(msg.id || '');
     return `${chatId}||${messageId}||${ts}`;
@@ -197,7 +293,7 @@ function isAlreadyProcessed(msg) {
     return false;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 进度追踪 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 进度追踪 ==================
 
 const progress = {
     phase: 'idle',          // idle | init | sync | live
@@ -213,13 +309,13 @@ const progress = {
     sessionId: WA_SESSION_ID,
 
     progressPct() {
-        if (this.phase ***REMOVED***= 'init') return 5;
-        if (this.phase ***REMOVED***= 'sync') {
+        if (this.phase === 'init') return 5;
+        if (this.phase === 'sync') {
             return this.totalChats > 0
                 ? Math.round(5 + (this.processedChats / this.totalChats) * 85)
                 : 5;
         }
-        if (this.phase ***REMOVED***= 'live') return 100;
+        if (this.phase === 'live') return 100;
         return 0;
     },
     bar() {
@@ -236,10 +332,10 @@ const progress = {
     }
 };
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 消息写入 MySQL ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 消息写入 MySQL ==================
 
 async function insertMessages(creatorId, messages) {
-    if (!messages || messages.length ***REMOVED***= 0) return 0;
+    if (!messages || messages.length === 0) return 0;
     const db2 = getDb();
     const normalizedMessages = messages.map((m) => {
         const role = m.role || getWaMessageRole(m);
@@ -270,7 +366,7 @@ async function insertMessages(creatorId, messages) {
         return [creatorId, m.role, m.operator, m.text, m.timestamp, messageHash];
     }).filter(([, , , text, timestampMs]) => text && timestampMs > 0);
     const placeholders = ops.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
-    if (ops.length ***REMOVED***= 0) return 0;
+    if (ops.length === 0) return 0;
     try {
         await db2.prepare(
             `INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash)
@@ -289,7 +385,7 @@ async function fetchMessagesViaStore(chat, limit = HISTORY_MSG_LIMIT) {
     if (!c?.pupPage || !chatId) return [];
 
     try {
-        if (typeof chat.syncHistory ***REMOVED***= 'function') {
+        if (typeof chat.syncHistory === 'function') {
             await chat.syncHistory().catch(() => false);
         }
     } catch (_) {}
@@ -312,8 +408,18 @@ async function fetchMessagesViaStore(chat, limit = HISTORY_MSG_LIMIT) {
 }
 
 async function fetchMessagesWithFallback(chat, limit = HISTORY_MSG_LIMIT) {
+    const minExpected = Math.min(Math.max(Math.floor(limit * 0.35), 20), limit);
     try {
-        return await chat.fetchMessages({ limit });
+        const primary = await chat.fetchMessages({ limit });
+        if (Array.isArray(primary) && primary.length >= minExpected) {
+            return primary;
+        }
+        const secondary = await fetchMessagesViaStore(chat, limit);
+        if (Array.isArray(secondary) && secondary.length > (primary?.length || 0)) {
+            console.warn(`${LOG_PREFIX} fetchMessages hydrated via Store.Chat for ${chat?.name || chat?.id?._serialized || 'unknown chat'} (${primary?.length || 0} -> ${secondary.length})`);
+            return secondary;
+        }
+        return primary;
     } catch (e) {
         const message = String(e?.message || '');
         if (!message.includes('waitForChatLoading')) {
@@ -325,7 +431,20 @@ async function fetchMessagesWithFallback(chat, limit = HISTORY_MSG_LIMIT) {
 }
 
 async function resolveChatByPhone(client, phone) {
-    const chatId = phoneToChatId(phone);
+    const normalizedTarget = normalizePhone(phone || '');
+    if (!normalizedTarget) return null;
+
+    try {
+        const chatEntries = await buildDirectChatEntries(client);
+        const matched = chatEntries
+            .filter((entry) => entry.phone === normalizedTarget)
+            .sort((a, b) => Number(b.recencyTs || 0) - Number(a.recencyTs || 0));
+        if (matched.length > 0) {
+            return matched[0].chat;
+        }
+    } catch (_) {}
+
+    const chatId = phoneToChatId(normalizedTarget);
     if (!chatId) return null;
 
     let resolvedChatId = chatId;
@@ -337,7 +456,12 @@ async function resolveChatByPhone(client, phone) {
     } catch (_) {}
 
     try {
-        return await client.getChatById(resolvedChatId);
+        const chat = await client.getChatById(resolvedChatId);
+        if (!isDirectChat(chat)) return null;
+        const contact = await chat.getContact().catch(() => null);
+        const chatPhone = normalizePhone(contact?.number || '');
+        if (chatPhone && chatPhone !== normalizedTarget) return null;
+        return chat;
     } catch (_) {
         return null;
     }
@@ -347,7 +471,7 @@ async function syncRosterCreatorHistory(client, assignment, chat = null) {
     if (!assignment?.creator_id || !assignment?.wa_phone) return 0;
 
     const targetChat = chat || await resolveChatByPhone(client, assignment.wa_phone);
-    if (!targetChat || targetChat.isGroup) return 0;
+    if (!isDirectChat(targetChat)) return 0;
 
     const contact = await targetChat.getContact().catch(() => null);
     const name = contact?.name || contact?.pushname || assignment.primary_name || assignment.raw_name || 'Unknown';
@@ -375,7 +499,7 @@ async function syncRosterCreatorHistory(client, assignment, chat = null) {
     return inserted;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 获取或创建达人 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 获取或创建达人 ==================
 
 async function touchCreator(creatorId) {
     try {
@@ -434,7 +558,7 @@ async function getOrCreateCreator(phone, name) {
     return result.lastInsertRowid;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 历史同步 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 历史同步 ==================
 
 async function syncHistory(client) {
     progress.phase = 'sync';
@@ -444,31 +568,31 @@ async function syncHistory(client) {
     progress.errors = [];
 
     const rosterIndex = await loadRosterIndex();
-    let chats;
+    let chatEntries;
     try {
-        chats = await client.getChats();
+        chatEntries = await buildDirectChatEntries(client);
     } catch (e) {
         console.error(`${LOG_PREFIX} getChats failed:`, e.message);
         progress.clientError = e.message;
         return;
     }
 
-    const privateChats = chats.filter(c => !c.isGroup);
     const processedRosterPhones = new Set();
-    progress.totalChats = privateChats.length;
-    console.log(`${LOG_PREFIX} 发现 ${privateChats.length} 个私聊，开始同步...`);
+    progress.totalChats = chatEntries.length;
+    console.log(`${LOG_PREFIX} 发现 ${chatEntries.length} 个私聊，开始同步...`);
 
-    for (let i = 0; i < privateChats.length; i++) {
-        const chat = privateChats[i];
-        const pct = Math.round((i / privateChats.length) * 100);
-        process.stdout.write(`\r${LOG_PREFIX} ${progress.bar()} ${pct}% (${i}/${privateChats.length})  `);
+    for (let i = 0; i < chatEntries.length; i++) {
+        const entry = chatEntries[i];
+        const chat = entry.chat;
+        const pct = Math.round((i / chatEntries.length) * 100);
+        process.stdout.write(`\r${LOG_PREFIX} ${progress.bar()} ${pct}% (${i}/${chatEntries.length})  `);
 
         try {
-            const contact = await chat.getContact().catch(() => null);
+            const contact = entry.contact || await chat.getContact().catch(() => null);
             if (!contact) { progress.processedChats++; continue; }
 
-            const phone = normalizePhone(contact.number || '');
-            const name = contact.name || contact.pushname || 'Unknown';
+            const phone = entry.phone || normalizePhone(contact.number || '');
+            const name = entry.name || contact.name || contact.pushname || 'Unknown';
 
             const rosterAssignment = rosterIndex.byPhone.get(phone) || null;
             let wamessages;
@@ -545,7 +669,7 @@ async function syncHistory(client) {
     console.log(`\n${LOG_PREFIX} 历史同步完成: +${progress.newMessages} 条消息`);
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 实时消息监听 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 实时消息监听 ==================
 
 let messageHandlers = [];
 
@@ -555,7 +679,8 @@ function registerMessageHandler(fn) {
 
 async function handleIncomingMessage(msg) {
     try {
-        if (msg.chat?.isGroup) return;
+        const msgChat = await msg.getChat().catch(() => msg.chat || null);
+        if (!isDirectMessage(msg, msgChat)) return;
         if (isAlreadyProcessed(msg)) return;  // 防止与轮询重复
 
         const contact = await msg.getContact().catch(() => null);
@@ -569,7 +694,8 @@ async function handleIncomingMessage(msg) {
         if (!existingCreator) {
             let recentMsgs = [];
             try {
-                const chat = await msg.getChat();
+                const chat = msgChat || await msg.getChat().catch(() => null);
+                if (!isDirectChat(chat)) return;
                 recentMsgs = chat ? await fetchMessagesWithFallback(chat, 8) : [];
             } catch (_) {}
 
@@ -610,34 +736,31 @@ async function handleIncomingMessage(msg) {
     }
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 增量轮询 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 增量轮询 ==================
 
 let pollInterval = null;
 
 async function pollOnce(client) {
     try {
-        const chats = await client.getChats();
+        const chatEntries = await buildDirectChatEntries(client);
         let newTotal = 0;
         const rosterIndex = await loadRosterIndex();
 
         // 构建 WhatsApp 当前聊天列表的 phone 集合
         const chatPhones = new Set();
-        for (const chat of chats) {
-            if (chat.isGroup) continue;
-            const contact = await chat.getContact().catch(() => null);
-            if (!contact?.number) continue;
-            const phone = normalizePhone(contact.number || '');
+        for (const entry of chatEntries) {
+            const phone = entry.phone;
+            if (!phone) continue;
             chatPhones.add(phone);
         }
 
         // 轮询 WhatsApp 聊天列表中的达人
-        for (const chat of chats) {
-            if (chat.isGroup) continue;
-            const contact = await chat.getContact().catch(() => null);
-            if (!contact) continue;
-
-            const phone = normalizePhone(contact.number || '');
-            const name = contact.name || contact.pushname || 'Unknown';
+        for (const entry of chatEntries) {
+            const chat = entry.chat;
+            const contact = entry.contact;
+            const phone = entry.phone;
+            const name = entry.name;
+            if (!phone) continue;
             const rosterAssignment = rosterIndex.byPhone.get(phone) || null;
             const phoneEligibility = rosterAssignment
                 ? { eligible: true, reasons: ['roster_whitelist'], metrics: {} }
@@ -713,7 +836,7 @@ async function pollOnce(client) {
         });
         for (const assignment of targetedRosterAssignments) {
             const chat = await resolveChatByPhone(client, assignment.wa_phone);
-            if (!chat || chat.isGroup) continue;
+            if (!isDirectChat(chat)) continue;
 
             const lastRow = await db2.prepare(
                 'SELECT timestamp FROM wa_messages WHERE creator_id = ? ORDER BY timestamp DESC LIMIT 1'
@@ -733,7 +856,7 @@ async function pollOnce(client) {
                 return ts > toTimestampMs(lastRow?.timestamp || 0);
             });
 
-            if (newer.length ***REMOVED***= 0) continue;
+            if (newer.length === 0) continue;
 
             const inserted = await insertMessages(assignment.creator_id, newer.map((m) => ({
                 role: getWaMessageRole(m),
@@ -764,7 +887,7 @@ function startPolling(client) {
     console.log(`${LOG_PREFIX} 增量轮询已启动 (每${formatPollInterval(POLL_INTERVAL_MS)})`);
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Worker 启动 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== Worker 启动 ==================
 
 let started = false;
 let startRetryTimer = null;
@@ -822,7 +945,7 @@ async function start(options = {}) {
     c.on('message', (msg) => handleIncomingMessage(msg));
 
     // 历史同步
-    if (options.syncHistory !***REMOVED*** false) {
+    if (options.syncHistory !== false) {
         await syncHistory(c);
     }
 
@@ -868,6 +991,6 @@ function getProgress() {
     };
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 导出 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 导出 ==================
 
 module.exports = { start, stop, getProgress, registerMessageHandler };

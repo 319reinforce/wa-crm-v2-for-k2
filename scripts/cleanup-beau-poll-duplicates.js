@@ -70,7 +70,7 @@ async function main() {
                 `).all(group.creator_id, group.text, keepRow.id, WINDOW_START);
 
                 let resolvedRole = keepRow.role;
-                if (historicalRoles.length ***REMOVED***= 1) {
+                if (historicalRoles.length === 1) {
                     resolvedRole = historicalRoles[0].role;
                     summary.role_resolved_from_history += 1;
                 } else if (historicalRoles.length > 1) {
@@ -80,7 +80,7 @@ async function main() {
                     summary.unresolved_groups += 1;
                 }
 
-                if (resolvedRole !***REMOVED*** keepRow.role) {
+                if (resolvedRole !== keepRow.role) {
                     await tx.prepare('UPDATE wa_messages SET role = ? WHERE id = ?').run(resolvedRole, keepRow.id);
                     summary.updated_role_rows += 1;
                 }

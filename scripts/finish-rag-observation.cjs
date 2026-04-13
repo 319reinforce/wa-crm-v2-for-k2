@@ -27,14 +27,14 @@ function parseArgs() {
     for (const arg of args) {
         if (arg.startsWith('--owner=')) out.owner = arg.slice('--owner='.length);
         if (arg.startsWith('--hours=')) out.hours = parseInt(arg.slice('--hours='.length), 10);
-        if (arg ***REMOVED***= '--from-launch') out.fromLaunch = true;
+        if (arg === '--from-launch') out.fromLaunch = true;
     }
     return out;
 }
 
 function parseJsonSafe(value, fallback = null) {
-    if (value ***REMOVED***= null || value ***REMOVED***= undefined) return fallback;
-    if (typeof value ***REMOVED***= 'object') return value;
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'object') return value;
     try {
         return JSON.parse(value);
     } catch (_) {
@@ -217,7 +217,7 @@ async function main() {
     ]);
 
     const generationTotal = generationRows.length;
-    const generationSuccess = generationRows.filter((r) => r.status ***REMOVED***= 'success').length;
+    const generationSuccess = generationRows.filter((r) => r.status === 'success').length;
     const withSnapshot = generationRows.filter((r) => !!r.retrieval_snapshot_id);
     const ragHitRows = withSnapshot.filter((r) => (r.rag?.hit_count || 0) > 0);
     const avgRagHits = withSnapshot.length
@@ -225,8 +225,8 @@ async function main() {
         : 0;
 
     const sftTotal = sftRows.length;
-    const rewriteCount = sftRows.filter((r) => r.human_selected ***REMOVED***= 'custom').length;
-    const adoptedCount = sftRows.filter((r) => r.human_selected ***REMOVED***= 'opt1' || r.human_selected ***REMOVED***= 'opt2').length;
+    const rewriteCount = sftRows.filter((r) => r.human_selected === 'custom').length;
+    const adoptedCount = sftRows.filter((r) => r.human_selected === 'opt1' || r.human_selected === 'opt2').length;
     const retrievalLinked = sftRows.filter((row) => {
         const ctx = parseJsonSafe(row.context_json, {});
         return !!ctx?.retrieval_snapshot_id;

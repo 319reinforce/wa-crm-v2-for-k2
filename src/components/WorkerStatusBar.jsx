@@ -71,8 +71,8 @@ export function WorkerStatusBar() {
                 const res = await fetchAppAuth(`${API_BASE}/wa-worker/status`)
                 const data = await res.json()
                 setStatus(data)
-                setVisible(data.phase !***REMOVED*** 'idle')
-                if (data.phase ***REMOVED***= 'live') pollTickRef.current = 0
+                setVisible(data.phase !== 'idle')
+                if (data.phase === 'live') pollTickRef.current = 0
             } catch (_) {}
         }
         fetchStatus()
@@ -122,7 +122,7 @@ export function WorkerStatusBar() {
 
     // 每秒递增 tick（用于倒计时）
     useEffect(() => {
-        if (!visible || !status || status.phase !***REMOVED*** 'live') return
+        if (!visible || !status || status.phase !== 'live') return
         const id = setInterval(() => {
             pollTickRef.current += 1
         }, 1000)
@@ -165,7 +165,7 @@ export function WorkerStatusBar() {
 
     // status 允许为 null（初始化阶段），所有引用加 optional chaining 或默认值
     const safeStatus = status || {}
-    const pct = typeof safeStatus.progressPct ***REMOVED***= 'function' ? safeStatus.progressPct() : (safeStatus.progressPct || 0)
+    const pct = typeof safeStatus.progressPct === 'function' ? safeStatus.progressPct() : (safeStatus.progressPct || 0)
     const color = status ? phaseColor(status.phase) : '#94a3b8'
 
     const effectivePollIntervalMs = status?.pollIntervalMs || DEFAULT_POLL_INTERVAL_MS
@@ -177,7 +177,7 @@ export function WorkerStatusBar() {
         secondsUntilNextPoll = Math.max(0, Math.round(effectivePollIntervalMs / 1000) - secondsSinceLastPoll)
     }
 
-    // ***REMOVED***= 收缩形态：小方块 ***REMOVED***=
+    // === 收缩形态：小方块 ===
     if (!expanded) {
         return (
             <div
@@ -219,7 +219,7 @@ export function WorkerStatusBar() {
         )
     }
 
-    // ***REMOVED***= 展开形态：完整面板 ***REMOVED***=
+    // === 展开形态：完整面板 ===
     return (
         <div
             style={{
@@ -327,7 +327,7 @@ export function WorkerStatusBar() {
                 </div>
 
                 {/* 增量轮询倒计时 */}
-                {status?.phase ***REMOVED***= 'live' && secondsUntilNextPoll != null && (
+                {status?.phase === 'live' && secondsUntilNextPoll != null && (
                     <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ flex: 1, height: 4, background: '#f3f4f6', borderRadius: 2, overflow: 'hidden' }}>
                             <div style={{

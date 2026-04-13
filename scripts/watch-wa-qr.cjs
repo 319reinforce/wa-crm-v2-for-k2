@@ -16,36 +16,36 @@ function parseArgs(argv) {
     apiBase: 'http://127.0.0.1:3000',
   };
 
-  if (argv[0] ***REMOVED***= 'single' || argv[0] ***REMOVED***= 'batch') {
+  if (argv[0] === 'single' || argv[0] === 'batch') {
     args.mode = argv[0];
     argv = argv.slice(1);
   }
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = String(argv[i] || '');
-    if (token ***REMOVED***= '--mode' || token ***REMOVED***= '-m') {
+    if (token === '--mode' || token === '-m') {
       const next = String(argv[i + 1] || '').trim().toLowerCase();
-      if (next ***REMOVED***= 'single' || next ***REMOVED***= 'batch') args.mode = next;
+      if (next === 'single' || next === 'batch') args.mode = next;
       i += 1;
       continue;
     }
-    if (token ***REMOVED***= '--session' || token ***REMOVED***= '-s') {
+    if (token === '--session' || token === '-s') {
       args.session = String(argv[i + 1] || '').trim() || args.session;
       i += 1;
       continue;
     }
-    if (token ***REMOVED***= '--interval' || token ***REMOVED***= '-i') {
+    if (token === '--interval' || token === '-i') {
       const ms = Number(argv[i + 1]);
       if (Number.isFinite(ms) && ms >= 300) args.intervalMs = ms;
       i += 1;
       continue;
     }
-    if (token ***REMOVED***= '--start') {
+    if (token === '--start') {
       args.start = String(argv[i + 1] || '').trim() || args.start;
       i += 1;
       continue;
     }
-    if (token ***REMOVED***= '--api-base') {
+    if (token === '--api-base') {
       args.apiBase = String(argv[i + 1] || '').trim() || args.apiBase;
       i += 1;
       continue;
@@ -76,7 +76,7 @@ function acquireSingleLock(sessionId) {
     if (Number.isInteger(pid) && pid > 0) {
       try {
         process.kill(pid, 0);
-        if (pid !***REMOVED*** process.pid) {
+        if (pid !== process.pid) {
           console.error(`[watch-wa-qr] another renderer is running for session=${sessionId} (pid=${pid})`);
           process.exit(1);
         }
@@ -91,7 +91,7 @@ function releaseSingleLock() {
   if (!activeLockPath) return;
   try {
     const raw = fs.readFileSync(activeLockPath, 'utf8').trim();
-    if (Number(raw) ***REMOVED***= process.pid) {
+    if (Number(raw) === process.pid) {
       fs.unlinkSync(activeLockPath);
     }
   } catch (_) {}
@@ -157,7 +157,7 @@ function runSingle({ session, intervalMs }) {
     const renderKey = status
       ? `${status.qr_value || ''}|${status.ready ? 1 : 0}|${status.hasQr ? 1 : 0}|${status.error || ''}`
       : 'missing';
-    if (renderKey !***REMOVED*** lastRenderKey) {
+    if (renderKey !== lastRenderKey) {
       lastRenderKey = renderKey;
       renderState(status, session);
     }
@@ -210,7 +210,7 @@ function runBatch({ start, apiBase, intervalMs }) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  if (args.mode ***REMOVED***= 'batch') {
+  if (args.mode === 'batch') {
     runBatch(args);
     return;
   }

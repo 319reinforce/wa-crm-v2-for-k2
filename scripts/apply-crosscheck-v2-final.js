@@ -17,8 +17,8 @@ function splitCsvLine(line) {
     let inQuotes = false;
     for (let i = 0; i < line.length; i += 1) {
         const ch = line[i];
-        if (ch ***REMOVED***= '"') {
-            if (inQuotes && line[i + 1] ***REMOVED***= '"') {
+        if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') {
                 current += '"';
                 i += 1;
             } else {
@@ -26,7 +26,7 @@ function splitCsvLine(line) {
             }
             continue;
         }
-        if (ch ***REMOVED***= ',' && !inQuotes) {
+        if (ch === ',' && !inQuotes) {
             values.push(current);
             current = '';
             continue;
@@ -145,7 +145,7 @@ async function main() {
 
         const existingPhoneCreator = await getCreatorByPhone(row.phone);
 
-        if (!existingPhoneCreator || Number(existingPhoneCreator.id) ***REMOVED***= Number(row.creatorId)) {
+        if (!existingPhoneCreator || Number(existingPhoneCreator.id) === Number(row.creatorId)) {
             await attachPhoneToCreator(row.creatorId, row.phone, row.operator || creator.wa_owner || null);
             report.attached_phone.push({
                 creator_id: row.creatorId,
@@ -155,8 +155,8 @@ async function main() {
             continue;
         }
 
-        const existingHasWeight = Number(existingPhoneCreator.msg_count || 0) > 0 || Number(existingPhoneCreator.in_roster || 0) ***REMOVED***= 1;
-        const currentHasWeight = Number(creator.msg_count || 0) > 0 || Number(creator.in_roster || 0) ***REMOVED***= 1;
+        const existingHasWeight = Number(existingPhoneCreator.msg_count || 0) > 0 || Number(existingPhoneCreator.in_roster || 0) === 1;
+        const currentHasWeight = Number(creator.msg_count || 0) > 0 || Number(creator.in_roster || 0) === 1;
 
         if (existingHasWeight && (!currentHasWeight || Number(existingPhoneCreator.msg_count || 0) >= Number(creator.msg_count || 0))) {
             const merged = await mergeDuplicateCreatorIntoCanonical({

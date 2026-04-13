@@ -87,14 +87,14 @@ function mergeChronologicalMessages(existing = [], incoming = []) {
 
     return Array.from(merged.values()).sort((a, b) => {
         const tsDiff = toTimestampMs(a?.timestamp) - toTimestampMs(b?.timestamp);
-        if (tsDiff !***REMOVED*** 0) return tsDiff;
+        if (tsDiff !== 0) return tsDiff;
         return Number(a?.id || 0) - Number(b?.id || 0);
     });
 }
 
 function getLatestIncomingMessage(messages = []) {
     const latest = messages[messages.length - 1];
-    return latest?.role ***REMOVED***= 'user' ? latest : null;
+    return latest?.role === 'user' ? latest : null;
 }
 
 function getConversationStatusMeta(creator) {
@@ -102,7 +102,7 @@ function getConversationStatusMeta(creator) {
     const wacrm = full.wacrm || {};
     const joinbrands = full.joinbrands || {};
     const urgencyLevel = Number(wacrm.urgency_level || 0);
-    const isUrgent = wacrm.priority ***REMOVED***= 'urgent' || urgencyLevel >= 8 || !!joinbrands.ev_churned;
+    const isUrgent = wacrm.priority === 'urgent' || urgencyLevel >= 8 || !!joinbrands.ev_churned;
     const isAgencyProspect = !isUrgent && !wacrm.agency_bound && !joinbrands.ev_agency_bound;
 
     if (isUrgent) {
@@ -142,7 +142,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     const [pickerError, setPickerError] = useState(null);
     const [pickerCollapsed, setPickerCollapsed] = useState(false);
     const [isMobileViewport, setIsMobileViewport] = useState(() => {
-        if (typeof window ***REMOVED***= 'undefined') return false;
+        if (typeof window === 'undefined') return false;
         return window.innerWidth < 768;
     });
     const [pendingImage, setPendingImage] = useState(null); // { file, previewUrl, fileName, mimeType, size }
@@ -176,7 +176,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         touchStartX.current = e.touches[0].clientX;
     };
     const handleTouchEnd = (e) => {
-        if (touchStartX.current ***REMOVED***= null) return;
+        if (touchStartX.current === null) return;
         const deltaX = e.changedTouches[0].clientX - touchStartX.current;
         if (deltaX < -50) {
             onSwipeLeft?.();
@@ -328,11 +328,11 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 fetchUnboundAgencyStrategies(),
             ]);
             // 检查：期间是否切换过达人？
-            if (cancelled || currentRace !***REMOVED*** generationRaceRef.current) return;
+            if (cancelled || currentRace !== generationRaceRef.current) return;
             setPolicyDocs(docs);
             setClientMemory(mem || []);
             setAgencyStrategies(strategyConfig);
-            setActiveEvents((evtData.events || []).filter(e => e.status ***REMOVED***= 'active'));
+            setActiveEvents((evtData.events || []).filter(e => e.status === 'active'));
 
             // 等 policyDocs 加载后再生成
             try {
@@ -345,11 +345,11 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 setLoadedServerCount(msgs.length);
                 const latestTs = getLatestMessageTimestamp(msgs);
                 if (latestTs > 0) lastActivityRef.current = latestTs;
-                if (cancelled || currentRace !***REMOVED*** generationRaceRef.current || msgs.length ***REMOVED***= 0) return;
+                if (cancelled || currentRace !== generationRaceRef.current || msgs.length === 0) return;
                 const lastMsg = getLatestIncomingMessage(msgs);
                 if (!lastMsg) return;
                 const result = await generateForIncoming(lastMsg);
-                if (result && currentRace ***REMOVED***= generationRaceRef.current) {
+                if (result && currentRace === generationRaceRef.current) {
                     pushPicker(result);
                 }
             } catch (e) {
@@ -443,7 +443,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
 
     // 自动话题检测：messages 变化时重新推断（仅在无手动话题时更新显示）
     useEffect(() => {
-        if (messages.length ***REMOVED***= 0) return;
+        if (messages.length === 0) return;
         const detected = inferAutoTopic({ messages, activeEvents });
         setAutoDetectedTopic(detected);
     }, [messages, activeEvents]);
@@ -621,7 +621,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         }).catch(() => []);
         const freshMsgs = Array.isArray(msgsData) ? msgsData : (msgsData.messages || []);
 
-        const incomingMsgs = freshMsgs.filter(m => m.role ***REMOVED***= 'user');
+        const incomingMsgs = freshMsgs.filter(m => m.role === 'user');
         const latestMsg = incomingMsgs[incomingMsgs.length - 1];
         if (!latestMsg) return;
 
@@ -667,7 +667,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     // 翻译最近20条消息（一次批量请求），翻译结果显示在对应气泡下方
     const handleTranslate = async () => {
         const last20 = messages.slice(-20);
-        if (last20.length ***REMOVED***= 0) return;
+        if (last20.length === 0) return;
         // 如果已有翻译，先清除（切换时重新翻译）
         if (Object.keys(translationMap).length > 0) {
             setTranslationMap({});
@@ -717,7 +717,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     // 重新生成（picker 内部的刷新按钮）
     const handleRegenerate = async () => {
         const incomingMsg = activePicker?.incomingMsg || (() => {
-            const incomingMsgs = messages.filter(m => m.role ***REMOVED***= 'user');
+            const incomingMsgs = messages.filter(m => m.role === 'user');
             return incomingMsgs[incomingMsgs.length - 1];
         })();
         if (!incomingMsg) return;
@@ -764,11 +764,11 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         const sourceText = pickerCustom.trim();
         if (!sourceText) return;
 
-        const toolKey = mode ***REMOVED***= 'translate' ? 'translate' : 'emoji';
+        const toolKey = mode === 'translate' ? 'translate' : 'emoji';
         setPickerError(null);
         setCustomToolLoading(prev => ({ ...prev, [toolKey]: true }));
         try {
-            const systemPrompt = mode ***REMOVED***= 'translate'
+            const systemPrompt = mode === 'translate'
                 ? [
                     '你是 WhatsApp 客服翻译助手。',
                     '任务：翻译输入文本，保持原意和礼貌语气。',
@@ -807,7 +807,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
             setPickerCustom(transformed || sourceText);
         } catch (e) {
             console.error('[customTool] error:', e);
-            setPickerError(`自定义${mode ***REMOVED***= 'translate' ? '翻译' : 'Emoji润色'}失败：${e.message || '未知错误'}`);
+            setPickerError(`自定义${mode === 'translate' ? '翻译' : 'Emoji润色'}失败：${e.message || '未知错误'}`);
         } finally {
             setCustomToolLoading(prev => ({ ...prev, [toolKey]: false }));
         }
@@ -867,7 +867,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 { signal: AbortSignal.timeout(20000) }
             );
             const { msgs, total } = unpackMessageResponse(data);
-            if (msgs.length ***REMOVED***= 0) {
+            if (msgs.length === 0) {
                 setMessageTotal(total);
                 return;
             }
@@ -1064,9 +1064,9 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     const handleSelectCandidate = async (selectedOpt) => {
         if (!activePicker) return;
 
-        const sentText = selectedOpt ***REMOVED***= 'opt1'
+        const sentText = selectedOpt === 'opt1'
             ? activePicker.candidates.opt1
-            : selectedOpt ***REMOVED***= 'opt2'
+            : selectedOpt === 'opt2'
                 ? activePicker.candidates.opt2
                 : pickerCustom.trim();
 
@@ -1083,16 +1083,16 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         const sim2 = computeSimilarity(activePicker.candidates.opt2, sentText);
         const bestSim = Math.max(sim1, sim2);
         const bestOpt = sim1 >= sim2 ? 'opt1' : 'opt2';
-        const resolvedHumanSelected = selectedOpt ***REMOVED***= 'custom' ? 'custom' : selectedOpt;
-        const isCustomSelection = selectedOpt ***REMOVED***= 'custom' || bestSim < 85;
+        const resolvedHumanSelected = selectedOpt === 'custom' ? 'custom' : selectedOpt;
+        const isCustomSelection = selectedOpt === 'custom' || bestSim < 85;
 
         const diffAnalysis = {
             model_predicted: bestSim >= 85 ? activePicker.candidates[bestOpt] : null,
-            model_rejected: bestSim >= 85 ? activePicker.candidates[bestOpt ***REMOVED***= 'opt1' ? 'opt2' : 'opt1'] : null,
+            model_rejected: bestSim >= 85 ? activePicker.candidates[bestOpt === 'opt1' ? 'opt2' : 'opt1'] : null,
             is_custom: isCustomSelection,
             human_reason: isCustomSelection
                 ? `人工编辑发送（与AI候选最高相似度${bestSim}%）`
-                : `直接采用方案${selectedOpt ***REMOVED***= 'opt1' ? 'A' : 'B'}（相似度${bestSim}%）`,
+                : `直接采用方案${selectedOpt === 'opt1' ? 'A' : 'B'}（相似度${bestSim}%）`,
             similarity: bestSim
         };
 
@@ -1240,7 +1240,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     msgsToShow.forEach((msg, index) => {
         const normalizedTimestamp = toTimestampMs(msg.timestamp);
         const date = formatDate(normalizedTimestamp);
-        if (date !***REMOVED*** lastDate) {
+        if (date !== lastDate) {
             groupedMessages.push({ type: 'date', date, id: 'date_' + date });
             lastDate = date;
         }
@@ -1303,7 +1303,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
 
     // 键盘弹出时通过 visualViewport 动态调整输入框位置
     useEffect(() => {
-        if (typeof window ***REMOVED***= 'undefined' || !window.visualViewport) return;
+        if (typeof window === 'undefined' || !window.visualViewport) return;
         const handler = () => {
             const vp = window.visualViewport;
             // 当键盘弹出时，visualViewport.height < window.innerHeight，offset 为正
@@ -1319,7 +1319,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     }, []);
 
     useEffect(() => {
-        if (typeof window ***REMOVED***= 'undefined') return undefined;
+        if (typeof window === 'undefined') return undefined;
         const onResize = () => setIsMobileViewport(window.innerWidth < 768);
         window.addEventListener('resize', onResize);
         return () => window.removeEventListener('resize', onResize);
@@ -1352,14 +1352,14 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                 <span
                                     className="text-xs px-2 py-0.5 rounded-full shrink-0"
                                     style={{
-                                        background: autoDetectedTopic.confidence ***REMOVED***= 'high'
+                                        background: autoDetectedTopic.confidence === 'high'
                                             ? 'rgba(16,185,129,0.2)'
-                                            : autoDetectedTopic.confidence ***REMOVED***= 'medium'
+                                            : autoDetectedTopic.confidence === 'medium'
                                                 ? 'rgba(245,158,11,0.2)'
                                                 : 'rgba(255,255,255,0.08)',
-                                        color: autoDetectedTopic.confidence ***REMOVED***= 'high'
+                                        color: autoDetectedTopic.confidence === 'high'
                                             ? '#6ee7b7'
-                                            : autoDetectedTopic.confidence ***REMOVED***= 'medium'
+                                            : autoDetectedTopic.confidence === 'medium'
                                                 ? '#fcd34d'
                                                 : 'rgba(255,255,255,0.45)',
                                     }}
@@ -1442,14 +1442,14 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                         <span
                                             className="text-xs px-1.5 py-0.5 rounded-full"
                                             style={{
-                                                background: autoDetectedTopic.confidence ***REMOVED***= 'high'
+                                                background: autoDetectedTopic.confidence === 'high'
                                                     ? 'rgba(16,185,129,0.2)'
-                                                    : autoDetectedTopic.confidence ***REMOVED***= 'medium'
+                                                    : autoDetectedTopic.confidence === 'medium'
                                                         ? 'rgba(245,158,11,0.2)'
                                                         : 'rgba(255,255,255,0.08)',
-                                                color: autoDetectedTopic.confidence ***REMOVED***= 'high'
+                                                color: autoDetectedTopic.confidence === 'high'
                                                     ? '#6ee7b7'
-                                                    : autoDetectedTopic.confidence ***REMOVED***= 'medium'
+                                                    : autoDetectedTopic.confidence === 'medium'
                                                         ? '#fcd34d'
                                                         : 'rgba(255,255,255,0.45)',
                                             }}
@@ -1523,7 +1523,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 )}
 
                 {/* Translation Progress Bar */}
-                {translating && translateProgress && typeof translateProgress ***REMOVED***= 'string' && (
+                {translating && translateProgress && typeof translateProgress === 'string' && (
                     <div className="px-4 py-2 flex items-center gap-3" style={{ background: 'rgba(0,168,132,0.15)', borderBottom: `1px solid rgba(0,168,132,0.3)` }}>
                         <span className="text-xs" style={{ color: WA.teal }}>🌐 翻译中</span>
                         <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(0,168,132,0.2)' }}>
@@ -1594,7 +1594,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                     </div>
 
                     {groupedMessages.map((item) => {
-                        if (item.type ***REMOVED***= 'date') {
+                        if (item.type === 'date') {
                             return (
                                 <div key={item.id} className="flex justify-center my-4">
                                     <div className="text-xs px-4 py-1.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.06)', color: WA.textMuted }}>
@@ -1604,7 +1604,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                             );
                         }
 
-                        const isMe = item.role ***REMOVED***= 'me';
+                        const isMe = item.role === 'me';
                         return (
                             <div key={item.uiKey} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                 <div
@@ -1771,13 +1771,13 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                         }}
                                         className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2"
                                         style={{
-                                            color: currentTopic?.topic_key ***REMOVED***= key ? '#93c5fd' : 'rgba(255,255,255,0.75)',
-                                            background: currentTopic?.topic_key ***REMOVED***= key ? 'rgba(59,130,246,0.2)' : 'transparent',
+                                            color: currentTopic?.topic_key === key ? '#93c5fd' : 'rgba(255,255,255,0.75)',
+                                            background: currentTopic?.topic_key === key ? 'rgba(59,130,246,0.2)' : 'transparent',
                                         }}
                                         onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-                                        onMouseLeave={e => e.currentTarget.style.background = currentTopic?.topic_key ***REMOVED***= key ? 'rgba(59,130,246,0.2)' : 'transparent'}
+                                        onMouseLeave={e => e.currentTarget.style.background = currentTopic?.topic_key === key ? 'rgba(59,130,246,0.2)' : 'transparent'}
                                     >
-                                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: currentTopic?.topic_key ***REMOVED***= key ? '#60a5fa' : 'rgba(255,255,255,0.3)' }} />
+                                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: currentTopic?.topic_key === key ? '#60a5fa' : 'rgba(255,255,255,0.3)' }} />
                                         {label}
                                     </button>
                                 ))}
@@ -1824,7 +1824,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                             className="flex-1 bg-transparent text-sm text-white placeholder-slate-400 focus:outline-none resize-none"
                             style={{ maxHeight: '240px' }}
                             onKeyDown={e => {
-                                if (e.key ***REMOVED***= 'Enter' && !e.shiftKey) {
+                                if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
                                     if (pendingImage) {
                                         handleDirectSendMedia();
@@ -1907,7 +1907,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     );
 }
 
-// ***REMOVED******REMOVED******REMOVED*** EventPill（悬浮事件标签）***REMOVED******REMOVED******REMOVED***
+// ====== EventPill（悬浮事件标签）======
 function EventPill({ label, color, bg }) {
     return (
         <span

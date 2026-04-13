@@ -29,8 +29,8 @@ const maxIssuesPreview = maxIssuesArg ? Math.max(parseInt(maxIssuesArg.split('='
 const DRY_RUN = dryRunExplicit || !APPLY;
 
 function parseJsonSafe(value, fallback = null) {
-    if (value ***REMOVED***= null || value ***REMOVED***= undefined) return fallback;
-    if (typeof value ***REMOVED***= 'object') return value;
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'object') return value;
     try {
         return JSON.parse(value);
     } catch (_) {
@@ -39,7 +39,7 @@ function parseJsonSafe(value, fallback = null) {
 }
 
 function toIso(inputDate) {
-    if (!inputDate || typeof inputDate !***REMOVED*** 'string') return null;
+    if (!inputDate || typeof inputDate !== 'string') return null;
     if (/^\d{4}-\d{2}-\d{2}$/.test(inputDate)) {
         return new Date(`${inputDate}T00:00:00.000+08:00`).toISOString();
     }
@@ -54,7 +54,7 @@ function loadApprovedSourceIds() {
         const sources = Array.isArray(payload?.sources) ? payload.sources : [];
         return {
             manifest_version: payload?.version || null,
-            source_ids: sources.filter((s) => s?.status ***REMOVED***= 'approved').map((s) => s.id).filter(Boolean),
+            source_ids: sources.filter((s) => s?.status === 'approved').map((s) => s.id).filter(Boolean),
         };
     } catch (_) {
         return { manifest_version: null, source_ids: [] };
@@ -76,10 +76,10 @@ function evaluateRuleAlignment(row) {
     if (sceneTrialOrPayment && !/(\$?\s*20\b|20\/month|20 per month|month fee|月费.{0,3}20|20美金|20美元)/i.test(text)) {
         issues.push('missing_monthly_fee_disclosure');
     }
-    if (scene ***REMOVED***= 'trial_intro' && !/(7[\s-]?day|7天|trial|试用)/i.test(textLower)) {
+    if (scene === 'trial_intro' && !/(7[\s-]?day|7天|trial|试用)/i.test(textLower)) {
         issues.push('missing_trial_term_reference');
     }
-    if (scene ***REMOVED***= 'payment_issue' && !/(appeal|violation|risk|申诉|违规|风控)/i.test(textLower)) {
+    if (scene === 'payment_issue' && !/(appeal|violation|risk|申诉|违规|风控)/i.test(textLower)) {
         issues.push('weak_violation_risk_guidance');
     }
 
@@ -155,7 +155,7 @@ async function main() {
             knowledge_source_ids: snapshot.source_ids,
         };
 
-        if (evalResult.shouldPendingReview && row.status ***REMOVED***= 'approved') {
+        if (evalResult.shouldPendingReview && row.status === 'approved') {
             const reason = mergeReason(row.human_reason, `[rule-align ${targetRule}] ${evalResult.issues.join('|')}`);
             const res = await db.prepare(`
                 UPDATE sft_memory

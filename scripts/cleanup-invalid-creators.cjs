@@ -37,7 +37,7 @@ async function main() {
         );
         const normalizedOwner = normalizeCreatorOwner(creator.wa_owner);
 
-        if (normalizedOwner !***REMOVED*** creator.wa_owner) {
+        if (normalizedOwner !== creator.wa_owner) {
             ownerFixes.push({ id: creator.id, from: creator.wa_owner, to: normalizedOwner });
         }
 

@@ -40,7 +40,7 @@ async function main() {
                 name: candidate.primary_name,
             });
 
-            if (!resolved || Number(resolved.creatorId) ***REMOVED***= Number(candidate.id)) {
+            if (!resolved || Number(resolved.creatorId) === Number(candidate.id)) {
                 stats.unchanged += 1;
                 continue;
             }

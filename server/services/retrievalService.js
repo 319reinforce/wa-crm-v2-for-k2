@@ -7,8 +7,8 @@ const { normalizeOperatorName } = require('../utils/operator');
 const { searchVectorStore } = require('../utils/openaiVectorStore');
 
 function parseJsonSafe(value, fallback) {
-    if (value ***REMOVED***= null || value ***REMOVED***= undefined) return fallback;
-    if (typeof value ***REMOVED***= 'object') return value;
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'object') return value;
     try {
         return JSON.parse(value);
     } catch (_) {
@@ -67,7 +67,7 @@ async function getGroundingContext({ clientId = null, scene = 'unknown', operato
     }));
     const scenePolicies = policyDocs.filter((doc) => (doc.applicable_scenarios || []).includes(scene));
 
-    const OPENAI_RAG_ENABLED = process.env.OPENAI_RAG_ENABLED ***REMOVED***= 'true';
+    const OPENAI_RAG_ENABLED = process.env.OPENAI_RAG_ENABLED === 'true';
     const OPENAI_VECTOR_STORE_ID = process.env.OPENAI_VECTOR_STORE_ID || '';
     const OPENAI_RAG_TOP_K = parseInt(process.env.OPENAI_RAG_TOP_K || '8', 10);
 

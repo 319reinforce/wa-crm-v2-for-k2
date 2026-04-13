@@ -7,8 +7,8 @@ const router = express.Router();
 const db = require('../../db');
 
 function parseJsonSafe(value, fallback = null) {
-    if (value ***REMOVED***= null || value ***REMOVED***= undefined) return fallback;
-    if (typeof value ***REMOVED***= 'object') return value;
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'object') return value;
     try {
         return JSON.parse(value);
     } catch (_) {
@@ -99,8 +99,8 @@ async function fetchGenerationRows({ startAt = null, endAt = null, owner = null,
 
 function buildGenerationSummary(rows) {
     const total = rows.length;
-    const successCount = rows.filter((r) => r.status ***REMOVED***= 'success').length;
-    const failedCount = rows.filter((r) => r.status ***REMOVED***= 'failed').length;
+    const successCount = rows.filter((r) => r.status === 'success').length;
+    const failedCount = rows.filter((r) => r.status === 'failed').length;
     const withSnapshot = rows.filter((r) => !!r.retrieval_snapshot_id);
     const withHits = withSnapshot.filter((r) => (r.rag?.hit_count || 0) > 0);
     const avgHitCount = withSnapshot.length
@@ -193,8 +193,8 @@ async function fetchSkipCount({ startAt = null, endAt = null, owner = null, hour
 
 function buildSftSummary(rows, skipCount) {
     const total = rows.length;
-    const custom = rows.filter((r) => r.human_selected ***REMOVED***= 'custom').length;
-    const adopted = rows.filter((r) => r.human_selected ***REMOVED***= 'opt1' || r.human_selected ***REMOVED***= 'opt2').length;
+    const custom = rows.filter((r) => r.human_selected === 'custom').length;
+    const adopted = rows.filter((r) => r.human_selected === 'opt1' || r.human_selected === 'opt2').length;
     const retrievalLinked = rows.filter((row) => {
         const ctx = parseJsonSafe(row.context_json, {});
         return !!ctx?.retrieval_snapshot_id;
@@ -229,13 +229,13 @@ router.get('/audit-log', async (req, res) => {
         res.json(rows.map(r => ({
             ...r,
             after_value: (() => {
-                if (r.after_value ***REMOVED*** null) return null;
-                if (typeof r.after_value !***REMOVED*** 'string') return r.after_value;
+                if (r.after_value == null) return null;
+                if (typeof r.after_value !== 'string') return r.after_value;
                 try { return JSON.parse(r.after_value); } catch (_) { return r.after_value; }
             })(),
             before_value: (() => {
-                if (r.before_value ***REMOVED*** null) return null;
-                if (typeof r.before_value !***REMOVED*** 'string') return r.before_value;
+                if (r.before_value == null) return null;
+                if (typeof r.before_value !== 'string') return r.before_value;
                 try { return JSON.parse(r.before_value); } catch (_) { return r.before_value; }
             })(),
         })));

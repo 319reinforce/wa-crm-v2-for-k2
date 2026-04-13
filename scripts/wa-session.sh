@@ -84,7 +84,7 @@ next_sid_in_order() {
   local current="${1:-}"
   local i
   for ((i = 0; i < ${#SESSION_ORDER[@]}; i++)); do
-    if [[ "${SESSION_ORDER[$i]}" ***REMOVED*** "$current" ]]; then
+    if [[ "${SESSION_ORDER[$i]}" == "$current" ]]; then
       if (( i + 1 < ${#SESSION_ORDER[@]} )); then
         echo "${SESSION_ORDER[$((i + 1))]}"
       else
@@ -289,7 +289,7 @@ route_sid() {
     return 1
   fi
 
-  if [[ "$sid" ***REMOVED*** "$target_sid" ]]; then
+  if [[ "$sid" == "$target_sid" ]]; then
     append_route_map "$sid" "$detected_owner" "$detected_phone" "$target_sid" "aligned"
     LAST_ROUTE_TARGET_SID="$target_sid"
     LAST_ROUTE_DETECTED_OWNER="$detected_owner"
@@ -358,7 +358,7 @@ wait_for_ready_event() {
       const p=process.argv[1];
       try{
         const s=JSON.parse(fs.readFileSync(p,"utf8"));
-        process.exit(s && s.ready***REMOVED***=true ? 0 : 1);
+        process.exit(s && s.ready === true ? 0 : 1);
       }catch(_){ process.exit(1); }
     ' "$status_file"; then
       return 0
@@ -380,7 +380,7 @@ wait_for_ready_event() {
       return 2
     fi
 
-    if [[ "$QR_RENDER_ENABLED" != "1" ]] && (( elapsed > 0 )) && (( elapsed % 15 ***REMOVED*** 0 )); then
+    if [[ "$QR_RENDER_ENABLED" != "1" ]] && (( elapsed > 0 )) && (( elapsed % 15 == 0 )); then
       echo "[wa-session] ${sid}: 已等待 ${elapsed}s，继续等待扫码..."
     fi
 
@@ -401,7 +401,7 @@ auto_scan_and_route_once() {
   start_sid "$sid" "" "$api_base" || return 1
   log_file="$(log_file_for "$sid")"
 
-  if [[ "$QR_RENDER_ENABLED" ***REMOVED*** "1" ]] && [[ -f "$QR_RENDER_SCRIPT" ]]; then
+  if [[ "$QR_RENDER_ENABLED" == "1" ]] && [[ -f "$QR_RENDER_SCRIPT" ]]; then
     echo "[wa-session] ${sid}: 启用二维码变化渲染（扫码成功后会自动 route）"
     node "$QR_RENDER_SCRIPT" single --session "$sid" --interval "$QR_RENDER_INTERVAL_MS" &
     qr_pid=$!
@@ -570,7 +570,7 @@ start_auto_route_flow() {
       prompt_after_failure "$current_sid"
     fi
 
-    if [[ "$MENU_RESULT" ***REMOVED*** "__END__" ]]; then
+    if [[ "$MENU_RESULT" == "__END__" ]]; then
       echo "[auto-route] 已结束。"
       return 0
     fi
@@ -593,7 +593,7 @@ remap_all() {
     rm -f "/tmp/wa-session-route-${sid}.tmp"
   done
 
-  if [[ "$any_change" ***REMOVED*** "false" ]]; then
+  if [[ "$any_change" == "false" ]]; then
     echo "[wa-session] remap-all: 未检测到可重映射项"
   fi
 }

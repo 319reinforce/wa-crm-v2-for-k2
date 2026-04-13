@@ -30,8 +30,8 @@ export function extractKeywords(text) {
 
 // 计算两个关键词集合的Jaccard相似度
 export function computeJaccardSimilarity(set1, set2) {
-    if (set1.size ***REMOVED***= 0 && set2.size ***REMOVED***= 0) return 1;
-    if (set1.size ***REMOVED***= 0 || set2.size ***REMOVED***= 0) return 0;
+    if (set1.size === 0 && set2.size === 0) return 1;
+    if (set1.size === 0 || set2.size === 0) return 0;
     const intersection = new Set([...set1].filter(w => set2.has(w)));
     const union = new Set([...set1, ...set2]);
     return intersection.size / union.size;
@@ -72,7 +72,7 @@ export function inferAutoTopic({ messages, activeEvents }) {
             referral: 'referral',
         };
         const mapped = keyMap[key] || key;
-        if (scores[mapped] !***REMOVED*** undefined) scores[mapped] += 3;
+        if (scores[mapped] !== undefined) scores[mapped] += 3;
     }
 
     const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
@@ -111,7 +111,7 @@ export function shouldSwitchTopic({ currentTopic, newText, messages, lastMsgTime
     if (currentTopic?.topic_key) {
         const prevKey = currentTopic.topic_key;
         const newKey = inferTopicKey(newText);
-        if (prevKey !***REMOVED*** newKey && newKey !***REMOVED*** 'general') {
+        if (prevKey !== newKey && newKey !== 'general') {
             return { shouldSwitch: true, trigger: 'keyword', reason: `话题从${TOPIC_LABELS[prevKey] || prevKey}切换到${TOPIC_LABELS[newKey] || newKey}` };
         }
     }

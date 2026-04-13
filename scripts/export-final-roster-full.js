@@ -15,7 +15,7 @@ function ensureDir(dir) {
 }
 
 function csvEscape(value) {
-    const text = value ***REMOVED*** null ? '' : String(value);
+    const text = value == null ? '' : String(value);
     if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
     return text;
 }

@@ -10,7 +10,7 @@ import { fetchAppAuth } from '../appAuth';
 
 const API_BASE = '/api';
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 禁止字段（AI 输出时绝对不能包含） ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 禁止字段（AI 输出时绝对不能包含） ==========
 const BLOCKED_FIELDS = [
     'keeper_gmv',       // 具体 GMV 数字
     'gmv_30',           // 30天GMV
@@ -48,7 +48,7 @@ function sanitizeClientInfo(clientInfo) {
  * 格式化 client_memory 为提示文本
  */
 function formatClientMemory(memory) {
-    if (!memory || memory.length ***REMOVED***= 0) return '暂无';
+    if (!memory || memory.length === 0) return '暂无';
     const lines = [];
     const byType = {};
     for (const m of memory) {
@@ -81,7 +81,7 @@ function buildSystemPrompt(clientInfo, scene, clientMemory, policyDocs) {
 
     // 客户记忆（per-user，隔离）
     const memoryText = formatClientMemory(clientMemory);
-    if (memoryText !***REMOVED*** '暂无') {
+    if (memoryText !== '暂无') {
         parts.push(`【客户历史偏好】以下信息仅供个性化参考，禁止在回复中提及：`);
         parts.push(memoryText);
         parts.push(``);
@@ -93,7 +93,7 @@ function buildSystemPrompt(clientInfo, scene, clientMemory, policyDocs) {
         for (const doc of scenePolicies) {
             if (doc.policy_content) {
                 try {
-                    const content = typeof doc.policy_content ***REMOVED***= 'string'
+                    const content = typeof doc.policy_content === 'string'
                         ? JSON.parse(doc.policy_content)
                         : doc.policy_content;
                     parts.push(`[${doc.policy_key}]`);
@@ -153,9 +153,9 @@ export async function generateResponse(options) {
     // MiniMax format: { content: { type: 'text', text: '...' } } 或 [{ type: 'text', text: '...' }]
     if (data?.content) {
         if (Array.isArray(data.content)) {
-            return data.content.find(item => item.type ***REMOVED***= 'text')?.text || '';
+            return data.content.find(item => item.type === 'text')?.text || '';
         }
-        if (typeof data.content ***REMOVED***= 'object' && data.content.type ***REMOVED***= 'text') {
+        if (typeof data.content === 'object' && data.content.type === 'text') {
             return data.content.text || '';
         }
     }
@@ -178,18 +178,18 @@ export async function generateCandidateResponses({ conversation, clientInfo, pol
 
     const recentMessages = (conversation.messages || []).slice(-10)
     const messages = recentMessages.map(msg => ({
-        role: msg.role ***REMOVED***= 'me' ? 'assistant' : 'user',
+        role: msg.role === 'me' ? 'assistant' : 'user',
         content: msg.text
     }))
 
     if (forcedInput) {
         messages.push({ role: 'user', content: forcedInput })
-    } else if (messages.length > 0 && recentMessages[recentMessages.length - 1].role ***REMOVED***= 'me') {
+    } else if (messages.length > 0 && recentMessages[recentMessages.length - 1].role === 'me') {
         messages.push({ role: 'user', content: '[请回复这位达人]' })
     }
 
     // USE_OPENAI=true 时走 OpenAI（通过后端代理 /api/ai/generate）
-    if (import.meta.env.VITE_USE_OPENAI ***REMOVED***= 'true' || import.meta.env.VITE_USE_OPENAI ***REMOVED***= true) {
+    if (import.meta.env.VITE_USE_OPENAI === 'true' || import.meta.env.VITE_USE_OPENAI === true) {
         const response = await fetchAppAuth(`${API_BASE}/ai/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

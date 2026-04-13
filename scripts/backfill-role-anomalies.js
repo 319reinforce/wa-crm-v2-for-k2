@@ -101,7 +101,7 @@ async function main() {
                 before: row || null,
             });
 
-            if (APPLY && row && row.role !***REMOVED*** rule.expectedRole) {
+            if (APPLY && row && row.role !== rule.expectedRole) {
                 await tx.prepare('UPDATE wa_messages SET role = ? WHERE id = ?').run(rule.expectedRole, rule.id);
                 summary.updated_rows += 1;
             }

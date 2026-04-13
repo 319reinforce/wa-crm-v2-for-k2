@@ -15,7 +15,7 @@ const { generateCandidates: generateOpenAICandidates } = require('../server/util
 
 const API_KEY = process.env.MINIMAX_API_KEY;
 const API_BASE = process.env.MINIMAX_API_BASE || 'https://api.minimaxi.com/anthropic';
-const USE_OPENAI = process.env.USE_OPENAI ***REMOVED***= 'true';
+const USE_OPENAI = process.env.USE_OPENAI === 'true';
 const MAX_RETRY = Math.max(parseInt(process.env.SFT_BACKFILL_MAX_RETRY || '4', 10) || 4, 1);
 const BASE_RETRY_DELAY_MS = Math.max(parseInt(process.env.SFT_BACKFILL_RETRY_MS || '800', 10) || 800, 200);
 const BETWEEN_PAIR_DELAY_MS = Math.max(parseInt(process.env.SFT_BACKFILL_PAIR_DELAY_MS || '700', 10) || 700, 200);
@@ -43,7 +43,7 @@ function sha256(text) {
 }
 
 function isQualityHumanReply(text) {
-    if (!text || typeof text !***REMOVED*** 'string') return false;
+    if (!text || typeof text !== 'string') return false;
     const trimmed = text.trim();
     if (trimmed.length < 3) return false;
     if (/^[\u{1F300}-\u{1FAFF}\u2600-\u27BF]+$/u.test(trimmed)) return false;
@@ -63,7 +63,7 @@ function inferScene(text, betaStatus, messageCount = 0) {
     if (/\b(gmv|sales|订单|销售|收入|earnings)\b/.test(lowerText)) return 'gmv_inquiry';
     if (/\b(payment|paypal|付款|收款|转账|汇款|没收到|没到账)\b/.test(lowerText)) return 'payment_issue';
     if (/\b(violation|appeal|申诉|违规|flagged|strike|封号|banned|suspended)\b/.test(lowerText)) return 'violation_appeal';
-    if (betaStatus ***REMOVED***= 'introduced' && messageCount > 3) return 'follow_up';
+    if (betaStatus === 'introduced' && messageCount > 3) return 'follow_up';
     return messageCount <= 1 ? 'first_contact' : 'follow_up';
 }
 
@@ -77,7 +77,7 @@ function sleep(ms) {
 }
 
 function parseDateArg(input, endOfDay = false) {
-    if (!input || typeof input !***REMOVED*** 'string') return null;
+    if (!input || typeof input !== 'string') return null;
     const trimmed = input.trim();
     if (!trimmed) return null;
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
@@ -103,7 +103,7 @@ function loadKnowledgeSnapshot() {
         const payload = JSON.parse(require('fs').readFileSync(manifestPath, 'utf8'));
         const approved = Array.isArray(payload?.sources)
             ? payload.sources
-                .filter((item) => item?.status ***REMOVED***= 'approved')
+                .filter((item) => item?.status === 'approved')
                 .map((item) => item.id)
                 .filter(Boolean)
             : [];
@@ -144,15 +144,15 @@ async function generateResponse(messages, temperature) {
     }
 
     const data = await response.json();
-    return data.content?.find((item) => item.type ***REMOVED***= 'text')?.text || '';
+    return data.content?.find((item) => item.type === 'text')?.text || '';
 }
 
 async function generateCandidates(systemPrompt, conversationMsgs) {
     const messages = conversationMsgs.map((item) => ({
-        role: item.role ***REMOVED***= 'me' ? 'assistant' : 'user',
+        role: item.role === 'me' ? 'assistant' : 'user',
         content: item.text,
     }));
-    if (messages.length > 0 && messages[messages.length - 1].role ***REMOVED***= 'assistant') {
+    if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
         messages.push({ role: 'user', content: '[请回复这位达人]' });
     }
     if (USE_OPENAI) {
@@ -160,7 +160,7 @@ async function generateCandidates(systemPrompt, conversationMsgs) {
             try {
                 return await generateOpenAICandidates(systemPrompt, messages, [0.8, 0.4]);
             } catch (err) {
-                if (!isRateLimitError(err) || attempt ***REMOVED***= MAX_RETRY) throw err;
+                if (!isRateLimitError(err) || attempt === MAX_RETRY) throw err;
                 const waitMs = BASE_RETRY_DELAY_MS * attempt;
                 process.stdout.write(`  [retry] openai rate-limit, wait ${waitMs}ms (attempt ${attempt}/${MAX_RETRY})\n`);
                 await sleep(waitMs);
@@ -232,8 +232,8 @@ async function main() {
         const pairs = [];
         for (let index = 0; index < messages.length - 1; index++) {
             if (
-                messages[index].role ***REMOVED***= 'user' &&
-                messages[index + 1].role ***REMOVED***= 'me' &&
+                messages[index].role === 'user' &&
+                messages[index + 1].role === 'me' &&
                 inRange(messages[index].timestamp, sinceMs, untilMs)
             ) {
                 pairs.push({ userMsg: messages[index], humanReply: messages[index + 1] });

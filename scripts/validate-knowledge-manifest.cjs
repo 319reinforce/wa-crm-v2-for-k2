@@ -32,9 +32,9 @@ function validateSource(source, idx, rootDir) {
 
     requiredFields.forEach((field) => {
         if (
-            source[field] ***REMOVED***= undefined
-            || source[field] ***REMOVED***= null
-            || (typeof source[field] ***REMOVED***= 'string' && source[field].trim() ***REMOVED***= '')
+            source[field] === undefined
+            || source[field] === null
+            || (typeof source[field] === 'string' && source[field].trim() === '')
         ) {
             errors.push(`${label}.${field} is required`);
         }
@@ -50,19 +50,19 @@ function validateSource(source, idx, rootDir) {
 
     if (source.scene && !Array.isArray(source.scene)) {
         errors.push(`${label}.scene must be an array`);
-    } else if (Array.isArray(source.scene) && source.scene.length ***REMOVED***= 0) {
+    } else if (Array.isArray(source.scene) && source.scene.length === 0) {
         errors.push(`${label}.scene must not be empty`);
     }
 
     if (Array.isArray(source.scene)) {
         source.scene.forEach((item, sceneIdx) => {
-            if (typeof item !***REMOVED*** 'string' || item.trim() ***REMOVED***= '') {
+            if (typeof item !== 'string' || item.trim() === '') {
                 errors.push(`${label}.scene[${sceneIdx}] must be a non-empty string`);
             }
         });
     }
 
-    if (source.path && typeof source.path ***REMOVED***= 'string') {
+    if (source.path && typeof source.path === 'string') {
         if (!source.path.startsWith('docs/rag/sources/')) {
             warnings.push(`${label}.path should be under docs/rag/sources/: ${source.path}`);
         }
@@ -74,10 +74,10 @@ function validateSource(source, idx, rootDir) {
         }
     }
 
-    if (source.format && source.path && typeof source.path ***REMOVED***= 'string') {
+    if (source.format && source.path && typeof source.path === 'string') {
         const ext = path.extname(source.path).replace('.', '').toLowerCase();
         const fmt = String(source.format).toLowerCase();
-        if (ext && fmt && ext !***REMOVED*** fmt) {
+        if (ext && fmt && ext !== fmt) {
             warnings.push(`${label}.format (${fmt}) not match file ext (${ext})`);
         }
     }
@@ -88,7 +88,7 @@ function validateSource(source, idx, rootDir) {
     if (source.effective_from && !/^\d{4}-\d{2}-\d{2}$/.test(String(source.effective_from))) {
         errors.push(`${label}.effective_from must be YYYY-MM-DD`);
     }
-    if (source.rule_version && typeof source.rule_version !***REMOVED*** 'string') {
+    if (source.rule_version && typeof source.rule_version !== 'string') {
         errors.push(`${label}.rule_version must be string`);
     }
 
@@ -116,7 +116,7 @@ function main() {
     const errors = [];
     const warnings = [];
 
-    if (!payload || typeof payload !***REMOVED*** 'object') {
+    if (!payload || typeof payload !== 'object') {
         errors.push('manifest root must be an object');
     }
 

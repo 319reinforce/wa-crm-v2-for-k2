@@ -94,7 +94,7 @@ export function EventPanel() {
     start_at: toLocalDateTimeInputValue(),
     end_at: '',
   })
-  const selectedCreator = creators.find(c => String(c.id) ***REMOVED***= String(createForm.creator_id))
+  const selectedCreator = creators.find(c => String(c.id) === String(createForm.creator_id))
   const selectedAgencyBound = Boolean(
     selectedCreator?.wacrm?.agency_bound
       ?? selectedCreator?._full?.wacrm?.agency_bound
@@ -182,7 +182,7 @@ export function EventPanel() {
         signal: AbortSignal.timeout(15000),
       })
       fetchEvents(true)
-      if (selectedEvent?.id ***REMOVED***= eventId) {
+      if (selectedEvent?.id === eventId) {
         const data = await fetchJsonOrThrow(`${API_BASE}/events/${eventId}`, { signal: AbortSignal.timeout(15000) })
         setSelectedEvent(data)
       }
@@ -201,7 +201,7 @@ export function EventPanel() {
       const periodEnd = now.toISOString()
 
       // 尝试从 event_periods 获取 video_count，或者弹窗让用户输入
-      const event = events.find(e => e.id ***REMOVED***= eventId)
+      const event = events.find(e => e.id === eventId)
       let meta = {};
       try { if (event?.meta) meta = JSON.parse(event.meta); } catch (_) {}
       const videoCount = meta.video_count || 0
@@ -317,11 +317,11 @@ export function EventPanel() {
       <div className="flex-1 overflow-hidden flex">
         {/* Event list */}
         <div className="flex-1 overflow-y-auto">
-          {loading && events.length ***REMOVED***= 0 ? (
+          {loading && events.length === 0 ? (
             <div className="flex items-center justify-center py-16" style={{ color: WA.textMuted }}>
               <span>⏳ 加载中...</span>
             </div>
-          ) : events.length ***REMOVED***= 0 ? (
+          ) : events.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
               <span className="text-3xl">📋</span>
               <span className="text-sm">暂无事件</span>
@@ -331,7 +331,7 @@ export function EventPanel() {
               const typeInfo = EVENT_TYPE_LABELS[event.event_key] || { label: event.event_key, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
               const statusInfo = STATUS_LABELS[event.status] || { label: event.status, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
               const ownerColor = getOwnerColor(event.owner)
-              const isSelected = selectedEvent?.id ***REMOVED***= event.id
+              const isSelected = selectedEvent?.id === event.id
 
               return (
                 <div
@@ -364,7 +364,7 @@ export function EventPanel() {
                         {event.creator_name || `达人 #${event.creator_id}`}
                       </div>
                       <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>
-                        {event.trigger_source ***REMOVED***= 'semantic_auto' ? '🤖 语义自动' : event.trigger_source ***REMOVED***= 'gmv_crosscheck' ? '📊 GMV核对' : '✏️ 手动'}
+                        {event.trigger_source === 'semantic_auto' ? '🤖 语义自动' : event.trigger_source === 'gmv_crosscheck' ? '📊 GMV核对' : '✏️ 手动'}
                         {event.start_at ? ` · ${formatDateCN(event.start_at)}` : ''}
                       </div>
                     </div>
@@ -472,8 +472,8 @@ export function EventPanel() {
                           <span className="text-xs font-medium" style={{ color: WA.textMuted }}>
                             {formatDateCN(p.period_start)} – {formatDateCN(p.period_end)}
                           </span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${p.status ***REMOVED***= 'settled' ? 'text-green-600 bg-green-50' : 'text-yellow-600 bg-yellow-50'}`}>
-                            {p.status ***REMOVED***= 'settled' ? '✓ 已结算' : '⏳ 待结算'}
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${p.status === 'settled' ? 'text-green-600 bg-green-50' : 'text-yellow-600 bg-yellow-50'}`}>
+                            {p.status === 'settled' ? '✓ 已结算' : '⏳ 待结算'}
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -514,20 +514,20 @@ export function EventPanel() {
               {/* Actions */}
               <div className="space-y-2 pt-2">
                 {/* Status actions */}
-                {selectedEvent.status ***REMOVED***= 'pending' && (
+                {selectedEvent.status === 'pending' && (
                   <>
                     <ActionBtn label="✅ 确认激活" color="#10b981" onClick={() => handleStatusChange(selectedEvent.id, 'active')} />
                     <ActionBtn label="❌ 取消" color="#ef4444" onClick={() => handleStatusChange(selectedEvent.id, 'cancelled')} />
                   </>
                 )}
-                {selectedEvent.status ***REMOVED***= 'active' && (
+                {selectedEvent.status === 'active' && (
                   <>
                     <ActionBtn label="📊 判定 Bonus" color="#f59e0b" onClick={() => handleJudge(selectedEvent.id)} loading={judging} />
                     <ActionBtn label="🏁 标记完成" color="#8b5cf6" onClick={() => handleStatusChange(selectedEvent.id, 'completed')} />
                     <ActionBtn label="❌ 取消" color="#ef4444" onClick={() => handleStatusChange(selectedEvent.id, 'cancelled')} />
                   </>
                 )}
-                {selectedEvent.status ***REMOVED***= 'active' && (
+                {selectedEvent.status === 'active' && (
                   <div className="pt-2">
                     <div className="text-xs font-semibold mb-2" style={{ color: WA.textMuted }}>快速判定</div>
                     <JudgeQuickForm

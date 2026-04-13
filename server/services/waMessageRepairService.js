@@ -12,7 +12,7 @@ function isBinaryLikePayload(text) {
     if (/^data:[^;]+;base64,[A-Za-z0-9+/=\s]+$/i.test(value)) return true;
     const compact = value.replace(/\s+/g, '');
     if (/^\/9j\/[A-Za-z0-9+/=]{64,}$/.test(compact)) return true;
-    if (/^[A-Za-z0-9+/=]{512,}$/.test(compact) && compact.length % 4 ***REMOVED***= 0) return true;
+    if (/^[A-Za-z0-9+/=]{512,}$/.test(compact) && compact.length % 4 === 0) return true;
     return false;
 }
 
@@ -31,7 +31,7 @@ function normalizeRawMessages(rawMessages = []) {
     const dedup = new Set();
     return (Array.isArray(rawMessages) ? rawMessages : [])
         .map((message) => {
-            const role = message?.role ***REMOVED***= 'me' ? 'me' : 'user';
+            const role = message?.role === 'me' ? 'me' : 'user';
             const text = normalizeMessageText(message?.text);
             const timestamp = Number(message?.timestamp) || 0;
             const messageId = String(message?.message_id || '').trim() || null;
@@ -77,7 +77,7 @@ async function reconcileCreatorMessagesFromRaw({
     dryRun = false,
 }) {
     const normalizedRaw = normalizeRawMessages(rawMessages);
-    if (normalizedRaw.length ***REMOVED***= 0) {
+    if (normalizedRaw.length === 0) {
         return {
             creator_id: creatorId,
             creator_name: creatorName,
@@ -115,7 +115,7 @@ async function reconcileCreatorMessagesFromRaw({
     for (const rawMessage of normalizedRaw) {
         const sameRoleNear = findNearest(
             existingRows,
-            (row) => row.role ***REMOVED***= rawMessage.role && row.normalizedText ***REMOVED***= rawMessage.normalizedText,
+            (row) => row.role === rawMessage.role && row.normalizedText === rawMessage.normalizedText,
             rawMessage,
             matchedIds
         );
@@ -132,12 +132,12 @@ async function reconcileCreatorMessagesFromRaw({
 
         const diffRoleNear = existingRows.filter((row) =>
             !matchedIds.has(row.id)
-            && row.role !***REMOVED*** rawMessage.role
-            && row.normalizedText ***REMOVED***= rawMessage.normalizedText
+            && row.role !== rawMessage.role
+            && row.normalizedText === rawMessage.normalizedText
             && Math.abs(row.timestamp - rawMessage.timestamp) <= NEAR_WINDOW_MS
         );
 
-        if (diffRoleNear.length ***REMOVED***= 1) {
+        if (diffRoleNear.length === 1) {
             const candidate = diffRoleNear[0];
             matchedIds.add(candidate.id);
             roleUpdates.push({
@@ -169,7 +169,7 @@ async function reconcileCreatorMessagesFromRaw({
     for (const row of existingRows) {
         if (matchedIds.has(row.id)) continue;
         const supportedByRaw = effectiveRows.some((effective) =>
-            effective.normalizedText ***REMOVED***= row.normalizedText
+            effective.normalizedText === row.normalizedText
             && Math.abs(effective.timestamp - row.timestamp) <= NEAR_WINDOW_MS
         );
         if (!supportedByRaw) continue;
@@ -238,7 +238,7 @@ async function syncCreatorMessagesFromRaw({
     dryRun = false,
 }) {
     const normalizedRaw = normalizeRawMessages(rawMessages);
-    if (normalizedRaw.length ***REMOVED***= 0) {
+    if (normalizedRaw.length === 0) {
         return {
             creator_id: creatorId,
             creator_name: creatorName,
@@ -261,7 +261,7 @@ async function syncCreatorMessagesFromRaw({
     `).all(creatorId, minTs, maxTs);
 
     const existingKeys = new Set(existingRows.map((row) => {
-        const role = row?.role ***REMOVED***= 'me' ? 'me' : 'user';
+        const role = row?.role === 'me' ? 'me' : 'user';
         const text = normalizeMessageText(row?.text);
         const timestamp = Number(row?.timestamp) || 0;
         return `${role}\u0000${text}\u0000${timestamp}`;

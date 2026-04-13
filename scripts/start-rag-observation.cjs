@@ -31,7 +31,7 @@ async function main() {
     const marker = {
         started_at: nowIso(),
         openai_vector_store_id: process.env.OPENAI_VECTOR_STORE_ID || null,
-        openai_rag_enabled: process.env.OPENAI_RAG_ENABLED ***REMOVED***= 'true',
+        openai_rag_enabled: process.env.OPENAI_RAG_ENABLED === 'true',
         baseline: {
             generation_log_max_id: glRow?.max_id || 0,
             sft_memory_max_id: sftRow?.max_id || 0,

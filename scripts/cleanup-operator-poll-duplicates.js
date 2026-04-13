@@ -88,7 +88,7 @@ async function main() {
                     summary.unresolved_groups += 1;
                 }
 
-                if (resolvedRole !***REMOVED*** keepRow.role) {
+                if (resolvedRole !== keepRow.role) {
                     await tx.prepare('UPDATE wa_messages SET role = ? WHERE id = ?').run(resolvedRole, keepRow.id);
                     summary.updated_role_rows += 1;
                 }

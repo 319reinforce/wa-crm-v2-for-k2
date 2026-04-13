@@ -29,13 +29,13 @@ export function buildEventPushText(event, policy, phase) {
         referral: '推荐新用户',
     }[event.event_key] || event.event_key;
 
-    if (event.event_key ***REMOVED***= 'trial_7day' || event.event_key ***REMOVED***= 'monthly_challenge') {
+    if (event.event_key === 'trial_7day' || event.event_key === 'monthly_challenge') {
         const latestPeriod = event.periods?.[0];
         const currentCount = latestPeriod?.video_count || 0;
 
-        if (phase ***REMOVED***= 'phase1') {
+        if (phase === 'phase1') {
             return `你现在已经成功加入【${eventLabel}】！本周目标${target}条视频，完成后可得 $${bonus}/条 Bonus，加油💪`;
-        } else if (phase ***REMOVED***= 'phase3') {
+        } else if (phase === 'phase3') {
             const needed = Math.max(0, target - currentCount);
             return `${eventLabel}即将结束！本周你已发布${currentCount}条，差${needed}条达成目标，加油冲刺！`;
         } else {
@@ -43,16 +43,16 @@ export function buildEventPushText(event, policy, phase) {
         }
     }
 
-    if (event.event_key ***REMOVED***= 'agency_bound') {
+    if (event.event_key === 'agency_bound') {
         return `你已经完成Agency签约！接下来可以解锁GMV激励任务和推荐奖励，有什么想了解的吗？`;
     }
 
-    if (event.event_key ***REMOVED***= 'gmv_milestone') {
+    if (event.event_key === 'gmv_milestone') {
         const gmv = event.meta ? JSON.parse(event.meta).gmv_current : null;
         return `恭喜你的GMV达到${gmv ? '$' + gmv.toLocaleString() : '里程碑'}！相关奖励会尽快发放，继续保持💪`;
     }
 
-    if (event.event_key ***REMOVED***= 'referral') {
+    if (event.event_key === 'referral') {
         return `每推荐一位新达人加入，可获得$10-$15奖励。推荐成功后会额外通知你，记得来告诉我哦～`;
     }
 
@@ -61,7 +61,7 @@ export function buildEventPushText(event, policy, phase) {
 
 // 构建事件推进段落（用于 system prompt）
 export function buildEventPushSection(activeEvents, owner) {
-    if (!activeEvents || activeEvents.length ***REMOVED***= 0) {
+    if (!activeEvents || activeEvents.length === 0) {
         return `
 【当前无进行中事件】
 如达人有加入意向，可介绍7天试用任务（目标35条/周，完成后$5/条）或月度挑战。`;

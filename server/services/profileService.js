@@ -78,14 +78,14 @@ async function refreshProfileSummary(clientId) {
 
         if (!response.ok) return;
         const data = await response.json();
-        const textItem = data.content?.find(item => item.type ***REMOVED***= 'text');
+        const textItem = data.content?.find(item => item.type === 'text');
         const summary = textItem?.text?.trim();
 
         if (summary) {
             const updated = await db2.prepare(
                 'UPDATE client_profiles SET summary = ?, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?'
             ).run(summary, clientId);
-            if (updated.changes ***REMOVED***= 0) {
+            if (updated.changes === 0) {
                 await db2.prepare(
                     'INSERT INTO client_profiles (client_id, summary) VALUES (?, ?)'
                 ).run(clientId, summary);

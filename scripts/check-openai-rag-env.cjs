@@ -42,16 +42,16 @@ function main() {
     print('KNOWLEDGE_MANIFEST_PATH', KNOWLEDGE_MANIFEST_PATH);
 
     if (!OPENAI_API_KEY) required.push('OPENAI_API_KEY');
-    if (USE_OPENAI !***REMOVED*** 'true') required.push('USE_OPENAI=true');
+    if (USE_OPENAI !== 'true') required.push('USE_OPENAI=true');
     if (!AI_PROXY_TOKEN) required.push('AI_PROXY_TOKEN (or WA_ADMIN_TOKEN)');
-    if (OPENAI_RAG_ENABLED ***REMOVED***= 'true' && !OPENAI_VECTOR_STORE_ID) {
+    if (OPENAI_RAG_ENABLED === 'true' && !OPENAI_VECTOR_STORE_ID) {
         required.push('OPENAI_VECTOR_STORE_ID (when OPENAI_RAG_ENABLED=true)');
     }
 
-    if (OPENAI_MODEL ***REMOVED***= 'gpt-4o') {
+    if (OPENAI_MODEL === 'gpt-4o') {
         warnings.push('你当前使用 gpt-4o，可按成本/速度改成 gpt-4.1-mini');
     }
-    if (OPENAI_API_BASE !***REMOVED*** 'https://api.openai.com/v1') {
+    if (OPENAI_API_BASE !== 'https://api.openai.com/v1') {
         warnings.push('OPENAI_API_BASE 非官方默认地址，请确认是你的网关地址');
     }
 

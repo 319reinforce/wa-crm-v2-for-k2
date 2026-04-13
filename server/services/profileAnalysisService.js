@@ -1,5 +1,6 @@
 const db = require('../../db');
 const { publishSse } = require('./realtimeBus');
+const { rebuildReplyStrategyForClient } = require('./replyStrategyService');
 
 const STRONG_SIGNAL_REGEX = /\b(how|can i|price|try)\b/i;
 const TRIGGER_THRESHOLD = 5;
@@ -608,8 +609,18 @@ async function reviewChange({ changeEventId, action, reviewedBy = 'operator', no
         WHERE id = ?
     `).run(finalStatus, reviewedBy, note || null, changeEventId);
 
+    let strategyRebuild = null;
     if (finalStatus === 'accepted' || finalStatus === 'edited') {
         await applySnapshotToClientProfile(event.client_id, finalSnapshotId);
+        try {
+            strategyRebuild = await rebuildReplyStrategyForClient({
+                clientId: event.client_id,
+                trigger: finalStatus === 'edited' ? 'profile_change_edited' : 'profile_change_accepted',
+                allowSoftAdjust: true,
+            });
+        } catch (e) {
+            strategyRebuild = { ok: false, reason: e.message };
+        }
     }
 
     publishSse('profile-change-reviewed', {
@@ -619,7 +630,7 @@ async function reviewChange({ changeEventId, action, reviewedBy = 'operator', no
         reviewed_by: reviewedBy,
     });
 
-    return { ok: true, status: finalStatus, snapshot_id: finalSnapshotId };
+    return { ok: true, status: finalStatus, snapshot_id: finalSnapshotId, reply_strategy: strategyRebuild };
 }
 
 module.exports = {

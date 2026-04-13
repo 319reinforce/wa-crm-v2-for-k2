@@ -20,7 +20,7 @@ function parseCsv(content) {
         .replace(/^\uFEFF/, '')
         .split(/\r?\n/)
         .filter(Boolean);
-    if (lines.length ***REMOVED***= 0) return [];
+    if (lines.length === 0) return [];
     const headers = splitCsvLine(lines[0]);
     return lines.slice(1).map((line) => {
         const values = splitCsvLine(line);
@@ -38,8 +38,8 @@ function splitCsvLine(line) {
     let inQuotes = false;
     for (let i = 0; i < line.length; i += 1) {
         const ch = line[i];
-        if (ch ***REMOVED***= '"') {
-            if (inQuotes && line[i + 1] ***REMOVED***= '"') {
+        if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') {
                 current += '"';
                 i += 1;
             } else {
@@ -47,7 +47,7 @@ function splitCsvLine(line) {
             }
             continue;
         }
-        if (ch ***REMOVED***= ',' && !inQuotes) {
+        if (ch === ',' && !inQuotes) {
             result.push(current);
             current = '';
             continue;
@@ -70,7 +70,7 @@ async function main() {
     const args = process.argv.slice(2);
     const apply = args.includes('--apply');
     const fileArgs = args.filter(arg => !arg.startsWith('--'));
-    if (fileArgs.length ***REMOVED***= 0) {
+    if (fileArgs.length === 0) {
         console.error('Usage: node scripts/sync-owners-from-csv.cjs [--apply] Owner=/abs/path.csv ...');
         process.exit(1);
     }
@@ -121,7 +121,7 @@ async function main() {
             let resolved = null;
             for (const candidate of getRowCandidates(row)) {
                 const ids = [...(index.get(normalizeText(candidate.raw)) || [])];
-                if (ids.length ***REMOVED***= 1) {
+                if (ids.length === 1) {
                     resolved = { creatorId: ids[0], reason: `exact:${candidate.label}`, raw: candidate.raw };
                     break;
                 }
@@ -132,7 +132,7 @@ async function main() {
             }
             matched += 1;
             const creator = creatorById.get(String(resolved.creatorId));
-            if (creator && creator.wa_owner !***REMOVED*** owner) {
+            if (creator && creator.wa_owner !== owner) {
                 updates.push({
                     id: Number(resolved.creatorId),
                     from: creator.wa_owner,

@@ -28,8 +28,8 @@ function parseArgs() {
         createStoreName: '',
     };
     for (const arg of args) {
-        if (arg ***REMOVED***= '--dry-run') out.dryRun = true;
-        else if (arg ***REMOVED***= '--include-draft') out.includeDraft = true;
+        if (arg === '--dry-run') out.dryRun = true;
+        else if (arg === '--include-draft') out.includeDraft = true;
         else if (arg.startsWith('--manifest=')) out.manifestPath = arg.slice('--manifest='.length);
         else if (arg.startsWith('--state=')) out.statePath = arg.slice('--state='.length);
         else if (arg.startsWith('--create-store=')) out.createStoreName = arg.slice('--create-store='.length);
@@ -146,8 +146,8 @@ async function pollVectorStoreFile(vectorStoreId, fileId, timeoutMs = 120000, in
     while (Date.now() < deadline) {
         last = await getVectorStoreFile(vectorStoreId, fileId);
         const status = String(last?.status || '');
-        if (status ***REMOVED***= 'completed') return last;
-        if (status ***REMOVED***= 'failed' || status ***REMOVED***= 'cancelled') return last;
+        if (status === 'completed') return last;
+        if (status === 'failed' || status === 'cancelled') return last;
         await delay(intervalMs);
     }
     return last || { status: 'timeout' };
@@ -180,9 +180,9 @@ function buildMetaSignature(source, manifestVersion) {
 }
 
 function shouldSyncSource(source, includeDraft) {
-    if (!source || typeof source !***REMOVED*** 'object') return false;
-    if (source.status ***REMOVED***= 'approved') return true;
-    if (includeDraft && source.status ***REMOVED***= 'draft') return true;
+    if (!source || typeof source !== 'object') return false;
+    if (source.status === 'approved') return true;
+    if (includeDraft && source.status === 'draft') return true;
     return false;
 }
 
@@ -241,10 +241,10 @@ async function main() {
         const old = state.files[source.id];
         const metaSignature = buildMetaSignature(source, manifest.version || '');
         const unchanged = old
-            && old.sha256 ***REMOVED***= hash
-            && old.status ***REMOVED***= 'completed'
-            && old.vector_store_id ***REMOVED***= vectorStoreId
-            && old.meta_signature ***REMOVED***= metaSignature;
+            && old.sha256 === hash
+            && old.status === 'completed'
+            && old.vector_store_id === vectorStoreId
+            && old.meta_signature === metaSignature;
 
         if (unchanged) {
             console.log(`[skip] unchanged: ${source.id} (${relPath})`);
@@ -257,7 +257,7 @@ async function main() {
         if (args.dryRun) continue;
 
         try {
-            if (old?.file_id && old.vector_store_id ***REMOVED***= vectorStoreId) {
+            if (old?.file_id && old.vector_store_id === vectorStoreId) {
                 try {
                     await deleteVectorStoreFile(vectorStoreId, old.file_id);
                     console.log(`[cleanup] removed previous file: ${old.file_id}`);
@@ -286,7 +286,7 @@ async function main() {
                 uploaded_at: new Date().toISOString(),
             };
 
-            if (status ***REMOVED***= 'completed') {
+            if (status === 'completed') {
                 uploaded += 1;
                 console.log(`[ok] completed: ${source.id} file_id=${fileId}`);
             } else {

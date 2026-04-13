@@ -9,7 +9,7 @@ function getCreatorStatusMeta(creator) {
   const wacrm = full.wacrm || {}
   const joinbrands = full.joinbrands || {}
   const urgencyLevel = Number(wacrm.urgency_level || 0)
-  const isUrgent = wacrm.priority ***REMOVED***= 'urgent' || urgencyLevel >= 8 || !!joinbrands.ev_churned
+  const isUrgent = wacrm.priority === 'urgent' || urgencyLevel >= 8 || !!joinbrands.ev_churned
   const recentMessagesText = getCreatorMessages(creator).slice(-12).map(m => m?.text || '').join(' ').toLowerCase()
   const isAgencyProspect = !isUrgent && !wacrm.agency_bound && !joinbrands.ev_agency_bound && (
     !!wacrm.agency_bound_at ||

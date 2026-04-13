@@ -63,10 +63,10 @@ function normalizeMessagesForTimeline(messages = []) {
     });
 
     normalized.sort((a, b) => {
-        if (a.timestamp !***REMOVED*** b.timestamp) return a.timestamp - b.timestamp;
+        if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
         const aId = Number(a.id || 0);
         const bId = Number(b.id || 0);
-        if (aId !***REMOVED*** bId) return aId - bId;
+        if (aId !== bId) return aId - bId;
         return String(a.message_key).localeCompare(String(b.message_key));
     });
 
@@ -137,7 +137,7 @@ router.post('/', async (req, res) => {
             windowMs: 15 * 60 * 1000,
             minTextLength: 12,
         });
-        if (kept.length ***REMOVED***= 0) {
+        if (kept.length === 0) {
             return res.json({ ok: true, id: creatorId, timestamp: ts, blocked: true, reason: 'short_window_duplicate' });
         }
         const safe = kept[0];

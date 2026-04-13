@@ -15,7 +15,7 @@ function ensureDir(dir) {
 }
 
 function csvEscape(value) {
-    const text = value ***REMOVED*** null ? '' : String(value);
+    const text = value == null ? '' : String(value);
     if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
     return text;
 }
@@ -54,7 +54,7 @@ function parseAliasBlob(blob) {
         .split(' | ')
         .map((entry) => {
             const idx = entry.indexOf(':');
-            if (idx ***REMOVED***= -1) return null;
+            if (idx === -1) return null;
             return {
                 aliasType: entry.slice(0, idx),
                 aliasValue: entry.slice(idx + 1),
@@ -82,7 +82,7 @@ function levenshtein(a, b) {
     for (let j = 1; j <= right.length; j += 1) dp[0][j] = j;
     for (let i = 1; i <= left.length; i += 1) {
         for (let j = 1; j <= right.length; j += 1) {
-            const cost = left[i - 1] ***REMOVED***= right[j - 1] ? 0 : 1;
+            const cost = left[i - 1] === right[j - 1] ? 0 : 1;
             dp[i][j] = Math.min(
                 dp[i - 1][j] + 1,
                 dp[i][j - 1] + 1,
@@ -137,7 +137,7 @@ function scoreCandidate(roster, candidate) {
             const rightCompact = compactText(right.raw);
             const rightTokens = tokenize(right.raw);
 
-            if (leftCompact && rightCompact && leftCompact ***REMOVED***= rightCompact) {
+            if (leftCompact && rightCompact && leftCompact === rightCompact) {
                 score = Math.max(score, 1000);
                 reasons.push(`exact:${left.source}->${right.source}`);
                 continue;
@@ -166,7 +166,7 @@ function scoreCandidate(roster, candidate) {
         }
     }
 
-    if (candidate.wa_owner ***REMOVED***= roster.operator) {
+    if (candidate.wa_owner === roster.operator) {
         score += 60;
         reasons.push('same_operator');
     }
@@ -230,7 +230,7 @@ async function main() {
 
     const rows = rosterRows.map((roster) => {
         const scored = candidates
-            .filter((candidate) => Number(candidate.id) !***REMOVED*** Number(roster.creator_id))
+            .filter((candidate) => Number(candidate.id) !== Number(roster.creator_id))
             .map((candidate) => {
                 const scoredCandidate = scoreCandidate(roster, candidate);
                 return { ...candidate, ...scoredCandidate };

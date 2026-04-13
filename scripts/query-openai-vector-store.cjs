@@ -65,15 +65,15 @@ async function main() {
     items.forEach((item, idx) => {
         const content = (Array.isArray(item.content) ? item.content : [])
             .map((part) => {
-                if (typeof part?.text ***REMOVED***= 'string') return part.text;
-                if (typeof part?.content ***REMOVED***= 'string') return part.content;
-                if (typeof part ***REMOVED***= 'string') return part;
+                if (typeof part?.text === 'string') return part.text;
+                if (typeof part?.content === 'string') return part.content;
+                if (typeof part === 'string') return part;
                 return '';
             })
             .filter(Boolean)
             .join('\n')
             .slice(0, 300);
-        const score = typeof item.score ***REMOVED***= 'number' ? item.score.toFixed(3) : 'n/a';
+        const score = typeof item.score === 'number' ? item.score.toFixed(3) : 'n/a';
         console.log(`${idx + 1}. file=${item.filename || 'unknown'} score=${score}`);
         if (item.attributes && Object.keys(item.attributes).length > 0) {
             console.log(`   attrs=${JSON.stringify(item.attributes)}`);

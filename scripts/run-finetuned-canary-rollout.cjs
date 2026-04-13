@@ -32,14 +32,14 @@ function main() {
     const proxyToken = process.env.AI_PROXY_TOKEN || process.env.WA_ADMIN_TOKEN || '';
     const blockers = [];
     if (!proxyToken) blockers.push('AI_PROXY_TOKEN (or WA_ADMIN_TOKEN) is missing');
-    if (process.env.USE_FINETUNED !***REMOVED*** 'true') blockers.push('USE_FINETUNED is not true');
+    if (process.env.USE_FINETUNED !== 'true') blockers.push('USE_FINETUNED is not true');
     if (!String(process.env.FINETUNED_MODEL || '').trim()) blockers.push('FINETUNED_MODEL is not set');
 
     const readiness = runNode('/Users/depp/wa-bot/wa-crm-v2/scripts/ab-takeover-readiness.cjs');
     if (!readiness.canary_ready) blockers.push(...(readiness.blockers || []));
 
     let smoke = null;
-    if (blockers.length ***REMOVED***= 0) {
+    if (blockers.length === 0) {
         smoke = runNode(
             '/Users/depp/wa-bot/wa-crm-v2/scripts/finetuned-canary-smoke.cjs',
             [`--api-base=${apiBase}`, `--requests=${requests}`],
@@ -50,7 +50,7 @@ function main() {
         if (!smoke.finetuned_seen) blockers.push('no finetuned rows observed in generation_log');
     }
 
-    const passed = blockers.length ***REMOVED***= 0;
+    const passed = blockers.length === 0;
     const result = {
         timestamp: new Date().toISOString(),
         input: {

@@ -20,7 +20,7 @@ function showProgress(current, total, label) {
     const filled = Math.round(ratio * BAR_WIDTH);
     const bar = '█'.repeat(filled) + '░'.repeat(BAR_WIDTH - filled);
     process.stdout.write(`\r[${bar}] ${current}/${total} ${label}`);
-    if (current ***REMOVED***= total) {
+    if (current === total) {
         console.log('\n');
     }
 }

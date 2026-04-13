@@ -36,7 +36,7 @@ async function main() {
         }
 
         // 检查是否已有 idx_feedback_dedup
-        const hasDedup = indexes.some(r => r.INDEX_NAME ***REMOVED***= 'idx_feedback_dedup');
+        const hasDedup = indexes.some(r => r.INDEX_NAME === 'idx_feedback_dedup');
         if (hasDedup) {
             console.log('[migrate-sft-feedback-uniq] idx_feedback_dedup already exists, nothing to do.');
             return;

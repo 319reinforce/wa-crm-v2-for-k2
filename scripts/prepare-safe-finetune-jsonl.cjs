@@ -18,7 +18,7 @@ const crypto = require('crypto');
 const DEFAULT_MAX_USER = Math.max(parseInt(process.env.FT_SAFE_MAX_USER_LEN || '1200', 10) || 1200, 100);
 const DEFAULT_MAX_ASSISTANT = Math.max(parseInt(process.env.FT_SAFE_MAX_ASSISTANT_LEN || '2200', 10) || 2200, 200);
 const DEFAULT_MIN_ASSISTANT = Math.max(parseInt(process.env.FT_SAFE_MIN_ASSISTANT_LEN || '6', 10) || 6, 1);
-const DEFAULT_DROP_RISKY = process.env.FT_SAFE_DROP_RISKY !***REMOVED*** 'false';
+const DEFAULT_DROP_RISKY = process.env.FT_SAFE_DROP_RISKY !== 'false';
 
 const RISKY_PATTERN = /\b(porn|nude|naked|escort|sex|sexual|rape|suicide|self-harm|kill|murder|bomb|weapon|cocaine|meth|heroin|terror)\b|黄色|裸聊|约炮|强奸|自杀|炸弹|毒品|仇恨|种族灭绝/i;
 const PLACEHOLDER_USER_PATTERNS = [
@@ -28,9 +28,9 @@ const PLACEHOLDER_USER_PATTERNS = [
 ];
 
 function boolFromArg(value, fallback) {
-    if (value ***REMOVED***= undefined || value ***REMOVED***= null || value ***REMOVED***= '') return fallback;
-    if (value ***REMOVED***= true || value ***REMOVED***= 'true' || value ***REMOVED***= '1' || value ***REMOVED***= 'yes') return true;
-    if (value ***REMOVED***= false || value ***REMOVED***= 'false' || value ***REMOVED***= '0' || value ***REMOVED***= 'no') return false;
+    if (value === undefined || value === null || value === '') return fallback;
+    if (value === true || value === 'true' || value === '1' || value === 'yes') return true;
+    if (value === false || value === 'false' || value === '0' || value === 'no') return false;
     return fallback;
 }
 
@@ -39,7 +39,7 @@ function parseArgs(argv) {
     for (const item of argv) {
         if (!item.startsWith('--')) continue;
         const eq = item.indexOf('=');
-        if (eq ***REMOVED***= -1) {
+        if (eq === -1) {
             map[item.slice(2)] = 'true';
         } else {
             map[item.slice(2, eq)] = item.slice(eq + 1);
@@ -69,7 +69,7 @@ function isPlaceholderUser(text) {
 }
 
 function sanitizeText(input, redactStats) {
-    if (typeof input !***REMOVED*** 'string') return '';
+    if (typeof input !== 'string') return '';
     let text = input;
 
     // Normalize line breaks and remove hidden control chars.
@@ -103,10 +103,10 @@ function sanitizeText(input, redactStats) {
 
 function parseScene(record, messages) {
     const metadataScene = record?.metadata?.scene;
-    if (typeof metadataScene ***REMOVED***= 'string' && metadataScene.trim()) {
+    if (typeof metadataScene === 'string' && metadataScene.trim()) {
         return metadataScene.trim();
     }
-    const systemMsg = (messages || []).find((m) => m?.role ***REMOVED***= 'system' && typeof m.content ***REMOVED***= 'string');
+    const systemMsg = (messages || []).find((m) => m?.role === 'system' && typeof m.content === 'string');
     const match = systemMsg?.content?.match(/场景[:：]\s*([a-zA-Z_]+)/);
     return match ? match[1] : 'follow_up';
 }
@@ -117,14 +117,14 @@ function buildFallbackUserPrompt(scene) {
 
 function toMinimalRecord(rawRecord, options, redactStats) {
     const messages = Array.isArray(rawRecord?.messages) ? rawRecord.messages : [];
-    if (messages.length ***REMOVED***= 0) {
+    if (messages.length === 0) {
         return { ok: false, reason: 'empty_messages' };
     }
 
     let assistant = '';
     for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
-        if (msg?.role ***REMOVED***= 'assistant' && typeof msg.content ***REMOVED***= 'string' && msg.content.trim()) {
+        if (msg?.role === 'assistant' && typeof msg.content === 'string' && msg.content.trim()) {
             assistant = msg.content;
             break;
         }
@@ -136,7 +136,7 @@ function toMinimalRecord(rawRecord, options, redactStats) {
     let user = '';
     for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
-        if (msg?.role !***REMOVED*** 'user' || typeof msg.content !***REMOVED*** 'string') continue;
+        if (msg?.role !== 'user' || typeof msg.content !== 'string') continue;
         if (isPlaceholderUser(msg.content)) continue;
         if (!msg.content.trim()) continue;
         user = msg.content;
@@ -225,7 +225,7 @@ function prepareDataset({
 
         const normalized = toMinimalRecord(parsed, options, redactStats);
         if (!normalized.ok) {
-            const reason = dropped[normalized.reason] !***REMOVED*** undefined ? normalized.reason : 'other';
+            const reason = dropped[normalized.reason] !== undefined ? normalized.reason : 'other';
             dropped[reason] += 1;
             if (droppedSamples.length < 40) {
                 droppedSamples.push({
@@ -300,7 +300,7 @@ function main() {
     }, null, 2));
 }
 
-if (require.main ***REMOVED***= module) {
+if (require.main === module) {
     try {
         main();
     } catch (err) {

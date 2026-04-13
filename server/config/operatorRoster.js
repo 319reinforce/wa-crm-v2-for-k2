@@ -41,7 +41,7 @@ function findByPhone(phone) {
         for (const p of item.phones || []) {
             const pd = normalizeDigits(p);
             if (!pd) continue;
-            if (digits ***REMOVED***= pd) return item;
+            if (digits === pd) return item;
             if (digits.endsWith(pd) || pd.endsWith(digits)) return item;
         }
     }

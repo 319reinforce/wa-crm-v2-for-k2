@@ -21,12 +21,12 @@ export function getAppAuthHeaders(extraHeaders = {}) {
 
 export function buildAppAuthUrl(url) {
   const token = getAppAuthToken()
-  if (!token || typeof window ***REMOVED***= 'undefined') return url
+  if (!token || typeof window === 'undefined') return url
 
   try {
     const resolved = new URL(url, window.location.origin)
     resolved.searchParams.set('token', token)
-    return resolved.origin ***REMOVED***= window.location.origin
+    return resolved.origin === window.location.origin
       ? `${resolved.pathname}${resolved.search}${resolved.hash}`
       : resolved.toString()
   } catch (_) {

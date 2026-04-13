@@ -5,7 +5,7 @@
 
 const { getGroundingContext } = require('./server/services/retrievalService');
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Reply Style（前后端共用）***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== Reply Style（前后端共用）==========
 
 const REPLY_STYLE = `【回复风格 — 严格遵守】
 - 语气自然亲切，像朋友间发消息，不要生硬刻板
@@ -105,8 +105,8 @@ async function buildFullSystemPrompt(clientId, scene, messages = [], opts = {}) 
  * 编译完整的 system prompt（operator 已知时使用）
  */
 function compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs, exp, externalKnowledge = []) {
-	const sceneConfig = (exp.scene_config && typeof exp.scene_config ***REMOVED***= 'object') ? exp.scene_config : {};
-	const forbiddenRules = (exp.forbidden_rules && typeof exp.forbidden_rules ***REMOVED***= 'object') ? exp.forbidden_rules : [];
+	const sceneConfig = (exp.scene_config && typeof exp.scene_config === 'object') ? exp.scene_config : {};
+	const forbiddenRules = (exp.forbidden_rules && typeof exp.forbidden_rules === 'object') ? exp.forbidden_rules : [];
 
 	let prompt = exp.system_prompt_base.replace('[BASE_PROMPT]', `
 你是一个专业的达人运营助手，帮助运营人员与 WhatsApp 达人沟通。
@@ -138,7 +138,7 @@ ${clientInfo.next_action ? `- 运营计划: ${clientInfo.next_action}` : ''}
 		for (const doc of scenePolicies) {
 			if (doc.policy_content) {
 				try {
-					const content = typeof doc.policy_content ***REMOVED***= 'string'
+					const content = typeof doc.policy_content === 'string'
 						? JSON.parse(doc.policy_content)
 						: doc.policy_content;
 					prompt += '\n[' + doc.policy_key + ']';
@@ -196,7 +196,7 @@ function buildBasePrompt(clientInfo, scene, externalKnowledge = []) {
 ${clientInfo.next_action ? `- 运营计划: ${clientInfo.next_action}` : ''}
 `.trim();
 
-	if (scene && scene !***REMOVED*** 'unknown') {
+	if (scene && scene !== 'unknown') {
 		prompt += '\n\n【场景适配】场景: ' + scene;
 	}
 
@@ -222,7 +222,7 @@ ${clientInfo.next_action ? `- 运营计划: ${clientInfo.next_action}` : ''}
 }
 
 function formatClientMemory(memory) {
-	if (!memory || memory.length ***REMOVED***= 0) return '暂无';
+	if (!memory || memory.length === 0) return '暂无';
 	const lines = [];
 	const byType = {};
 	for (const m of memory) {
@@ -246,7 +246,7 @@ function formatExternalKnowledge(items) {
 	return items
 		.map((item, index) => {
 			const sourceId = item?.attributes?.source_id ? ` source_id=${item.attributes.source_id}` : '';
-			const score = (typeof item.score ***REMOVED***= 'number') ? ` score=${item.score.toFixed(3)}` : '';
+			const score = (typeof item.score === 'number') ? ` score=${item.score.toFixed(3)}` : '';
 			const text = String(item.content || '').trim().replace(/\n{2,}/g, '\n');
 			return `${index + 1}. [${item.filename || 'unknown'}]${sourceId}${score}\n${text}`;
 		})

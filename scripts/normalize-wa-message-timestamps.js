@@ -77,7 +77,7 @@ async function main() {
     if (apply) {
         await db.transaction(async (tx) => {
             for (const ids of chunk(deleteCandidates.map((row) => row.id), 500)) {
-                if (ids.length ***REMOVED***= 0) continue;
+                if (ids.length === 0) continue;
                 const placeholders = ids.map(() => '?').join(', ');
                 await tx.prepare(`DELETE FROM wa_messages WHERE id IN (${placeholders})`).run(...ids);
                 summary.deleted_rows += ids.length;

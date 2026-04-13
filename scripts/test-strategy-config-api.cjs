@@ -30,7 +30,7 @@ async function request(path, { method = 'GET', body, expectedStatus } = {}) {
     json = { raw: text };
   }
   if (Number.isInteger(expectedStatus)) {
-    if (res.status !***REMOVED*** expectedStatus) {
+    if (res.status !== expectedStatus) {
       throw new Error(`${method} ${path} expected HTTP ${expectedStatus}, got ${res.status} ${JSON.stringify(json)}`);
     }
     return json;
@@ -54,7 +54,7 @@ async function main() {
   console.log('[strategy-api] BASE =', BASE);
   console.log('[strategy-api] AUTH =', AUTH_TOKEN ? 'Bearer <set>' : 'none');
   const before = await request('/strategy-config/unbound-agency');
-  if (!Array.isArray(before.strategies) || before.strategies.length ***REMOVED***= 0) {
+  if (!Array.isArray(before.strategies) || before.strategies.length === 0) {
     throw new Error('strategy list is empty');
   }
 
@@ -62,7 +62,7 @@ async function main() {
   const payload = toPutPayload(before);
   payload.policy_version = `it_${Date.now()}`;
   payload.strategies = payload.strategies.map((item, idx) => (
-    idx ***REMOVED***= 0
+    idx === 0
       ? { ...item, short_desc: `${item.short_desc || ''}${marker}`.trim() }
       : item
   ));
@@ -84,7 +84,7 @@ async function main() {
     if (!updated.ok) throw new Error('PUT response missing ok=true');
 
     const after = await request('/strategy-config/unbound-agency');
-    if (after.policy_version !***REMOVED*** payload.policy_version) {
+    if (after.policy_version !== payload.policy_version) {
       throw new Error(`policy_version mismatch: expected ${payload.policy_version}, got ${after.policy_version}`);
     }
     const first = Array.isArray(after.strategies) ? after.strategies[0] : null;

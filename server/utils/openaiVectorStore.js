@@ -37,14 +37,14 @@ async function openaiRequest(path, init = {}) {
 
 function extractContentText(item) {
     if (!item) return '';
-    if (typeof item.text ***REMOVED***= 'string') return item.text;
-    if (typeof item.content ***REMOVED***= 'string') return item.content;
+    if (typeof item.text === 'string') return item.text;
+    if (typeof item.content === 'string') return item.content;
     if (Array.isArray(item.content)) {
         return item.content
             .map((part) => {
-                if (typeof part ***REMOVED***= 'string') return part;
-                if (typeof part?.text ***REMOVED***= 'string') return part.text;
-                if (typeof part?.content ***REMOVED***= 'string') return part.content;
+                if (typeof part === 'string') return part;
+                if (typeof part?.text === 'string') return part.text;
+                if (typeof part?.content === 'string') return part.content;
                 return '';
             })
             .filter(Boolean)
@@ -73,7 +73,7 @@ async function searchVectorStore({ vectorStoreId, query, topK = 8 }) {
         return {
             file_id: item?.file_id || null,
             filename: item?.filename || null,
-            score: typeof item?.score ***REMOVED***= 'number' ? item.score : null,
+            score: typeof item?.score === 'number' ? item.score : null,
             attributes: item?.attributes || {},
             content: contentText,
         };

@@ -5,7 +5,7 @@
 const db = require('../../db');
 const { sha256 } = require('../utils/crypto');
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 验证规则 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 验证规则 ==========
 
 const EMOJI_ONLY_REGEX = /^[🔶✅❌👍👎💬📋✨🎉🙏👏🎊⭐️🎯💡🔔📌📎🎬🗣️👀✅☑️✔️❤️🧡💛💚💙💜🤎🖤🤍]+$/;
 const PUNCT_ONLY_REGEX = /^[.,!?。，！?、：:;；\-—_=+*#]+$/;
@@ -18,7 +18,7 @@ function validateHumanOutput(humanOutput) {
     return { valid: true };
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** SFT Memory ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== SFT Memory ==========
 
 function parseJsonSafe(jsonStr, fallback = null) {
     try { return jsonStr ? JSON.parse(jsonStr) : fallback; } catch (_) { return fallback; }
@@ -80,7 +80,7 @@ async function createSftMemory({
     let status = 'approved';
     if (diff_analysis?.is_custom) {
         status = similarity >= 85 ? 'approved' : 'pending_review';
-    } else if (similarity !***REMOVED*** null && similarity < 85) {
+    } else if (similarity !== null && similarity < 85) {
         status = 'pending_review';
     }
 
@@ -94,11 +94,11 @@ async function createSftMemory({
     const opt2 = model_candidates?.opt2 || null;
     let chosen_output = null;
     let rejected_output = null;
-    if (human_selected ***REMOVED***= 'opt1') {
+    if (human_selected === 'opt1') {
         chosen_output = opt1; rejected_output = opt2;
-    } else if (human_selected ***REMOVED***= 'opt2') {
+    } else if (human_selected === 'opt2') {
         chosen_output = opt2; rejected_output = opt1;
-    } else if (human_selected ***REMOVED***= 'custom') {
+    } else if (human_selected === 'custom') {
         chosen_output = human_output; rejected_output = opt1;
     }
 
@@ -108,7 +108,7 @@ async function createSftMemory({
     `).get(client_id_hash, input_text_hash, human_output_hash, created_date);
 
     if (existing) {
-        const newStatus = status ***REMOVED***= 'approved' ? existing.status || status : status;
+        const newStatus = status === 'approved' ? existing.status || status : status;
         await db2.prepare(`
             UPDATE sft_memory SET
                 human_output = ?,
@@ -152,12 +152,12 @@ async function reviewSftMemory(id, action, comment = null) {
         err.status = 400;
         throw err;
     }
-    const newStatus = action ***REMOVED***= 'approve' ? 'approved' : 'rejected';
+    const newStatus = action === 'approve' ? 'approved' : 'rejected';
     const result = await db2.prepare(`
         UPDATE sft_memory SET status = ?, reviewed_by = ?, human_reason = COALESCE(?, human_reason)
         WHERE id = ?
     `).run(newStatus, 'human_review', comment, parseInt(id));
-    if (result.changes ***REMOVED***= 0) {
+    if (result.changes === 0) {
         const err = new Error('Record not found');
         err.status = 404;
         throw err;
@@ -230,7 +230,7 @@ async function getSftMemoryTrends(days = 30) {
     return { dates, volumes, opt1_rate, opt2_rate, custom_rate, skip_rate };
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** SFT Feedback ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== SFT Feedback ==========
 
 async function createSftFeedback({ client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail, reject_reason }) {
     if (!['skip', 'reject', 'edit'].includes(feedback_type)) {

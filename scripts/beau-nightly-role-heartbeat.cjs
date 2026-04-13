@@ -23,8 +23,8 @@ function parseArgs(argv) {
         fetchLimit: FETCH_LIMIT,
     };
     for (const arg of argv) {
-        if (arg ***REMOVED***= '--dry-run') out.dryRun = true;
-        if (arg ***REMOVED***= '--no-notify') out.notify = false;
+        if (arg === '--dry-run') out.dryRun = true;
+        if (arg === '--no-notify') out.notify = false;
         if (arg.startsWith('--batch-size=')) out.batchSize = Math.max(1, parseInt(arg.slice('--batch-size='.length), 10) || BATCH_SIZE);
         if (arg.startsWith('--fetch-limit=')) out.fetchLimit = Math.max(20, parseInt(arg.slice('--fetch-limit='.length), 10) || FETCH_LIMIT);
     }
@@ -78,7 +78,7 @@ async function fetchBatchCreators(db, cursor, batchSize) {
         GROUP BY c.id, c.primary_name, c.wa_phone, c.wa_owner, c.updated_at, c.created_at
         ORDER BY COALESCE(MAX(m.timestamp), UNIX_TIMESTAMP(c.updated_at) * 1000, UNIX_TIMESTAMP(c.created_at) * 1000) DESC, c.id ASC
     `).all(OPERATOR);
-    if (rows.length ***REMOVED***= 0) return { creators: [], nextCursor: 0, total: 0 };
+    if (rows.length === 0) return { creators: [], nextCursor: 0, total: 0 };
 
     const safeCursor = Number.isInteger(cursor) && cursor >= 0 ? cursor % rows.length : 0;
     const creators = [];
@@ -123,7 +123,7 @@ function runCommand(command, args) {
 
 function sendReportToReinforce(report) {
     const search = runCommand('lark-cli', ['im', '+chat-search', '--as', 'user', '--query', 'reinforce', '--format', 'json']);
-    if (search.status !***REMOVED*** 0) {
+    if (search.status !== 0) {
         throw new Error(search.stderr || search.stdout || 'chat search failed');
     }
     const parsed = JSON.parse(search.stdout || '{}');
@@ -162,7 +162,7 @@ function sendReportToReinforce(report) {
         '--markdown',
         markdown,
     ]);
-    if (send.status !***REMOVED*** 0) {
+    if (send.status !== 0) {
         throw new Error(send.stderr || send.stdout || 'message send failed');
     }
     return send.stdout.trim();

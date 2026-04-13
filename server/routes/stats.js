@@ -14,7 +14,7 @@ const {
 router.get('/stats', async (req, res) => {
     try {
         const db2 = db.getDb();
-        const rosterOnly = req.query.roster ***REMOVED***= 'all' ? false : await hasRosterAssignments();
+        const rosterOnly = req.query.roster === 'all' ? false : await hasRosterAssignments();
         const rosterJoin = rosterOnly
             ? `INNER JOIN ${ROSTER_TABLE} ocr ON ocr.creator_id = c.id AND ocr.is_primary = 1`
             : '';
