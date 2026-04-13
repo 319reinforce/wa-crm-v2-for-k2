@@ -1,6 +1,6 @@
 {
   "session_id": "yiyun",
-  "updated_at": "2026-04-13T09:58:46.858Z",
+  "updated_at": "2026-04-13T09:59:00.863Z",
   "ready": true,
   "hasQr": false,
   "error": null,
@@ -33,7 +33,7 @@
     "sessionId": "yiyun",
     "resolvedOwner": "Yiyun",
     "pollIntervalMs": 60000,
-    "uptime": 12126018
+    "uptime": 12140023
   },
   "pid": 50516,
   "api_base": "http://127.0.0.1:3000",
