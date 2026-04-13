@@ -2,10 +2,10 @@
 set -e
 set -u
 
-echo "***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***"
+echo "============================================================"
 echo "  WA CRM v2 全自动安装脚本"
 echo "  支持 macOS / Ubuntu / Debian"
-echo "***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***"
+echo "============================================================"
 
 # 颜色
 RED='\033[0;31m'
@@ -19,7 +19,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # 检测系统
 detect_os() {
-    if [[ "$OSTYPE" ***REMOVED*** "darwin"* ]]; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
         echo "macOS"
     elif [[ -f /etc/debian_version ]]; then
         echo "Debian/Ubuntu"
@@ -30,7 +30,7 @@ detect_os() {
     fi
 }
 
-# ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 1. 安装 Git ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+# ===== 1. 安装 Git =====
 install_git() {
     log_info "[1/7] 检查 Git..."
     if command -v git &> /dev/null; then
@@ -38,7 +38,7 @@ install_git() {
     else
         log_warn "Git 未安装，正在安装..."
         OS=$(detect_os)
-        if [[ "$OS" ***REMOVED*** "macOS" ]]; then
+        if [[ "$OS" == "macOS" ]]; then
             if command -v brew &> /dev/null; then
                 brew install git
             else
@@ -52,7 +52,7 @@ install_git() {
     fi
 }
 
-# ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 2. 安装 Docker ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+# ===== 2. 安装 Docker =====
 install_docker() {
     log_info "[2/7] 检查 Docker..."
     if command -v docker &> /dev/null; then
@@ -60,14 +60,14 @@ install_docker() {
     else
         log_warn "Docker 未安装，正在安装..."
         OS=$(detect_os)
-        if [[ "$OS" ***REMOVED*** "macOS" ]]; then
+        if [[ "$OS" == "macOS" ]]; then
             if command -v brew &> /dev/null; then
                 brew install --cask docker
             else
                 log_error "请先安装 Homebrew: https://brew.sh"
                 exit 1
             fi
-        elif [[ "$OS" ***REMOVED*** "Debian/Ubuntu" ]]; then
+        elif [[ "$OS" == "Debian/Ubuntu" ]]; then
             curl -fsSL https://get.docker.com | sh
             sudo usermod -aG docker $USER
         else
@@ -79,7 +79,7 @@ install_docker() {
 
     # 启动 Docker（macOS 需要手动启动）
     OS=$(detect_os)
-    if [[ "$OS" ***REMOVED*** "macOS" ]]; then
+    if [[ "$OS" == "macOS" ]]; then
         if pgrep -x "Docker" &> /dev/null; then
             log_info "Docker Desktop 已运行"
         else
@@ -101,7 +101,7 @@ install_docker() {
     log_info "Docker 运行正常"
 }
 
-# ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 3. 配置 SSH Key ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+# ===== 3. 配置 SSH Key =====
 setup_ssh() {
     log_info "[3/7] 检查 SSH Key..."
 
@@ -125,7 +125,7 @@ setup_ssh() {
     read -p "添加完成后按回车继续... "
 }
 
-# ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 4. 克隆/更新代码 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+# ===== 4. 克隆/更新代码 =====
 clone_repo() {
     log_info "[4/7] 克隆代码仓库..."
 
@@ -141,7 +141,7 @@ clone_repo() {
     log_info "代码准备完成"
 }
 
-# ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 5. 配置环境变量 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+# ===== 5. 配置环境变量 =====
 setup_env() {
     log_info "[5/7] 配置环境变量..."
 
@@ -181,13 +181,13 @@ EOF
     fi
 }
 
-# ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 6. 构建 Docker 镜像 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+# ===== 6. 构建 Docker 镜像 =====
 build_docker() {
     log_info "[6/7] 构建 Docker 镜像..."
     docker compose build --no-cache
 }
 
-# ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 7. 启动 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+# ===== 7. 启动 =====
 start_services() {
     log_info "[7/7] 启动容器..."
     docker compose up -d
@@ -203,7 +203,7 @@ start_services() {
     fi
 }
 
-# ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 主流程 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+# ===== 主流程 =====
 main() {
     cd ~ || exit 1
 
@@ -216,13 +216,13 @@ main() {
     start_services
 
     echo ""
-    echo "***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***"
+    echo "============================================================"
     echo -e "${GREEN}  安装完成！${NC}"
-    echo "***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***"
+    echo "============================================================"
     echo "  访问地址: http://localhost:3000"
     echo "  查看日志: docker compose logs -f"
     echo "  停止服务: docker compose down"
-    echo "***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***"
+    echo "============================================================"
 }
 
 main "$@"

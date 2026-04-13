@@ -1216,7 +1216,7 @@ python -m vllm.entrypoints.openai.api_server \
 **API 兼容层**（server.js 改动）：
 ```javascript
 // server.js 或 routes/experience.js
-const USE_FINETUNED = process.env.USE_FINETUNED ***REMOVED***= 'true';
+const USE_FINETUNED = process.env.USE_FINETUNED === 'true';
 const FINETUNED_BASE = process.env.FINETUNED_BASE || 'http://localhost:8000/v1/messages';
 
 async function generateResponse(messages, temperature) {
@@ -1512,7 +1512,7 @@ Response Format (return ONLY valid JSON):
 }`;
 
   const conversationText = messages.map(m => {
-    const role = m.role ***REMOVED***= 'me' ? `${owner}` : 'Creator';
+    const role = m.role === 'me' ? `${owner}` : 'Creator';
     return `[${role}]: ${m.text}`;
   }).join('\n');
 

@@ -282,7 +282,7 @@ document.getElementById('statBeau').textContent = stats.by_owner.Beau || 0;
 
 | # | 问题 | 修复方案 |
 |---|------|---------|
-| P2-1 | 静态文件目录直接暴露 `/public` | 仅在 `NODE_ENV !***REMOVED*** 'production'` 时启用静态文件服务 |
+| P2-1 | 静态文件目录直接暴露 `/public` | 仅在 `NODE_ENV !== 'production'` 时启用静态文件服务 |
 | P2-2 | JSON body 无大小限制 | `express.json({ limit: '3mb' })` |
 | P2-3 | 无请求超时配置 | `req.setTimeout(15000)` + `res.setTimeout(15000)` |
 | P2-4 | 无 graceful shutdown | `process.on('SIGTERM/SIGINT')` → 关闭 server + `db.closeDb()` |

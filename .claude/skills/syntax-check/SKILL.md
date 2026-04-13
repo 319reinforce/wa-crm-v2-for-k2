@@ -31,7 +31,7 @@ for f in server/index.cjs \
     server/utils/*.js \
     server/constants/*.js \
     server/waWorker.js; do
-  echo "***REMOVED***= $f ***REMOVED***="
+  echo "=== $f ==="
   node -c "$f" 2>&1
 done
 ```
@@ -42,7 +42,7 @@ cd /Users/depp/wa-bot/wa-crm-v2
 for f in src/App.jsx \
     src/components/*.jsx \
     src/utils/*.js; do
-  echo "***REMOVED***= $f ***REMOVED***="
+  echo "=== $f ==="
   node -c "$f" 2>&1 || echo "FAIL"
 done
 ```
