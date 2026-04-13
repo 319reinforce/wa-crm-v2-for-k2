@@ -1,6 +1,6 @@
 {
   "session_id": "jiawen",
-  "updated_at": "2026-04-13T09:56:42.721Z",
+  "updated_at": "2026-04-13T09:58:46.783Z",
   "ready": true,
   "hasQr": false,
   "error": null,
@@ -33,7 +33,7 @@
     "sessionId": "jiawen",
     "resolvedOwner": "Jiawen",
     "pollIntervalMs": 60000,
-    "uptime": 12001960
+    "uptime": 12126023
   },
   "pid": 50514,
   "api_base": "http://127.0.0.1:3000",
