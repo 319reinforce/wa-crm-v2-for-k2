@@ -1,6 +1,7 @@
 /**
  * extractors.js — 文本/上下文提取工具函数（纯函数，无 React 依赖）
  */
+import { isAgencyBoundStatus, resolveUnboundAgencyStrategy } from '../../../utils/unboundAgencyStrategies.js';
 
 // 推断消息语言（简单关键词检测）
 export function detectLanguage(text) {
@@ -53,7 +54,7 @@ export function computeSimilarity(text1, text2) {
 }
 
 // 构建丰富的 context 对象
-export function buildRichContext({ incomingMsg, client, creator, policyDocs, clientMemory, messages }) {
+export function buildRichContext({ incomingMsg, client, creator, policyDocs, clientMemory, agencyStrategies, messages }) {
     const msgs = messages || [];
     const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
     const lastTimestampMs = lastMsg?.timestamp
@@ -65,7 +66,13 @@ export function buildRichContext({ incomingMsg, client, creator, policyDocs, cli
     const now = new Date();
     const tone = detectClientTone(msgs);
     const lang = detectLanguage(incomingMsg?.text || '');
-    const wacrm = creator?.wacrm || client?.wacrm || {};
+    const fullCreator = creator?._full || creator || {};
+    const wacrm = fullCreator?.wacrm || creator?.wacrm || client?.wacrm || {};
+    const joinbrands = fullCreator?.joinbrands || creator?.joinbrands || {};
+    const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands);
+    const agencyStrategy = !isAgencyBound
+        ? resolveUnboundAgencyStrategy({ clientMemory, nextAction: wacrm?.next_action || '', strategies: agencyStrategies })
+        : null;
     const scene = inferScene(incomingMsg?.text || '', wacrm, msgs.length);
 
     const policyTags = (policyDocs || [])
@@ -85,8 +92,15 @@ export function buildRichContext({ incomingMsg, client, creator, policyDocs, cli
         keeper_username: wacrm?.keeper_username || creator?.keeper_username || null,
         beta_status: wacrm?.beta_status || 'unknown',
         priority: wacrm?.priority || 'normal',
-        agency_bound: !!wacrm?.agency_bound,
+        agency_bound: isAgencyBound,
         next_action: wacrm?.next_action || null,
+        agency_strategy: agencyStrategy ? {
+            id: agencyStrategy.id,
+            name: agencyStrategy.name,
+            name_en: agencyStrategy.nameEn,
+            hint: agencyStrategy.promptHint,
+            hint_en: agencyStrategy.promptHintEn,
+        } : null,
         conversion_stage: client.conversion_stage || 'unknown',
         days_since_last_msg: daysSinceLast,
         total_messages: msgs.length,

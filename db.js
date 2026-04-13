@@ -293,6 +293,8 @@ async function getAllCreators(filters = {}) {
 async function getCreatorFull(creatorId) {
     const row = await db.prepare(`
         SELECT c.*,
+               (SELECT COUNT(*) FROM wa_messages WHERE creator_id = c.id) AS msg_count,
+               (SELECT MAX(timestamp) FROM wa_messages WHERE creator_id = c.id) AS last_active,
                wc.priority as wc_priority,
                wc.beta_status as wc_beta_status,
                wc.monthly_fee_status,
@@ -332,7 +334,9 @@ async function getCreatorFull(creatorId) {
     const creator = {
         id: row.id, primary_name: row.primary_name, wa_phone: row.wa_phone,
         keeper_username: row.keeper_username, wa_owner: row.wa_owner, source: row.source,
-        is_active: row.is_active, created_at: row.created_at, updated_at: row.updated_at
+        is_active: row.is_active, created_at: row.created_at, updated_at: row.updated_at,
+        msg_count: row.msg_count || 0,
+        last_active: row.last_active || null,
     };
 
     const wacrm = (row.wc_priority !***REMOVED*** undefined) ? {

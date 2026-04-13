@@ -81,17 +81,26 @@ router.get('/', async (req, res) => {
         const offset = parseInt(req.query.offset) || 0;
         const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 100;
         const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
+        const dbConn = db.getDb();
 
-        // MySQL prepared statements may reject LIMIT/OFFSET placeholders in some driver paths.
-        // These values are validated integers, so inline them and keep creator_id parameterized.
-        const messages = await db.getDb().prepare(
-            `SELECT * FROM wa_messages WHERE creator_id = ? ORDER BY timestamp ASC LIMIT ${safeLimit} OFFSET ${safeOffset}`
-        ).all(creatorId);
-        const normalizedMessages = normalizeMessagesForTimeline(messages);
-
-        const { total } = await db.getDb().prepare(
+        const { total } = await dbConn.prepare(
             'SELECT COUNT(*) as total FROM wa_messages WHERE creator_id = ?'
         ).get(creatorId);
+
+        // Return the latest window by default so the chat pane matches the left list's
+        // "last conversation" ordering while still rendering messages chronologically.
+        // MySQL prepared statements may reject LIMIT/OFFSET placeholders in some driver paths.
+        // These values are validated integers, so inline them and keep creator_id parameterized.
+        const messages = await dbConn.prepare(
+            `SELECT * FROM (
+                SELECT * FROM wa_messages
+                WHERE creator_id = ?
+                ORDER BY timestamp DESC, id DESC
+                LIMIT ${safeLimit} OFFSET ${safeOffset}
+            ) recent
+            ORDER BY timestamp ASC, id ASC`
+        ).all(creatorId);
+        const normalizedMessages = normalizeMessagesForTimeline(messages);
 
         res.json({
             messages: normalizedMessages,

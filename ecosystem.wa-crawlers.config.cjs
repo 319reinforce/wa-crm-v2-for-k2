@@ -21,6 +21,7 @@ module.exports = {
         WA_SESSION_ID: 'beau',
         WA_OWNER: 'Beau',
         WA_API_BASE: 'http://127.0.0.1:3000',
+        WA_POLL_INTERVAL_MS: '60000',
       },
     },
     {
@@ -42,6 +43,7 @@ module.exports = {
         WA_SESSION_ID: 'yiyun',
         WA_OWNER: 'Yiyun',
         WA_API_BASE: 'http://127.0.0.1:3000',
+        WA_POLL_INTERVAL_MS: '60000',
       },
     },
     {
@@ -63,6 +65,7 @@ module.exports = {
         WA_SESSION_ID: 'youke',
         WA_OWNER: 'WangYouKe',
         WA_API_BASE: 'http://127.0.0.1:3000',
+        WA_POLL_INTERVAL_MS: '60000',
       },
     },
     {
@@ -84,6 +87,7 @@ module.exports = {
         WA_SESSION_ID: 'jiawen',
         WA_OWNER: 'Jiawen',
         WA_API_BASE: 'http://127.0.0.1:3000',
+        WA_POLL_INTERVAL_MS: '60000',
       },
     },
   ],

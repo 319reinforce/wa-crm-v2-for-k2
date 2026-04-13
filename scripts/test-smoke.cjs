@@ -75,6 +75,17 @@ function main() {
   const buildOk = runStep('npm run build', npmCmd, ['run', 'build']);
   if (!buildOk) failed = true;
 
+  const unitOk = runStep('npm run test:unit', npmCmd, ['run', 'test:unit']);
+  if (!unitOk) failed = true;
+
+  const includeApiIT = process.env.SMOKE_INCLUDE_API_IT ***REMOVED***= '1';
+  if (includeApiIT) {
+    const apiItOk = runStep('npm run test:api:strategy', npmCmd, ['run', 'test:api:strategy']);
+    if (!apiItOk) failed = true;
+  } else {
+    process.stdout.write('\n[SMOKE] skip api integration (set SMOKE_INCLUDE_API_IT=1 to enable)\n');
+  }
+
   if (failed) {
     console.error('\n[SMOKE] FAILED');
     process.exit(1);

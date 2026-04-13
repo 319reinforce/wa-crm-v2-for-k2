@@ -41,6 +41,41 @@ async function getAssignmentByCreatorId(creatorId) {
     );
 }
 
+async function getPrimaryAssignmentsByOperator(operator) {
+    const normalized = normalizeOperatorName(operator, operator);
+    if (!normalized) return [];
+    try {
+        return await db.getDb().prepare(
+            `SELECT
+                r.id,
+                r.creator_id,
+                r.operator,
+                r.session_id,
+                r.source_file,
+                r.raw_poc,
+                r.raw_name,
+                r.raw_handle,
+                r.raw_keeper_name,
+                r.marketing_channel,
+                r.match_strategy,
+                r.score,
+                r.is_primary,
+                r.created_at,
+                r.updated_at,
+                c.wa_phone,
+                c.primary_name,
+                c.wa_owner
+             FROM ${TABLE} r
+             JOIN creators c ON c.id = r.creator_id
+             WHERE r.is_primary = 1 AND r.operator = ?
+             ORDER BY c.id ASC`
+        ).all(normalized);
+    } catch (err) {
+        if (err?.code ***REMOVED***= 'ER_NO_SUCH_TABLE') return [];
+        throw err;
+    }
+}
+
 function applyAssignmentToCreator(creator, assignment) {
     if (!creator) return creator;
     const operator = assignment?.operator || normalizeOperatorName(creator.wa_owner, creator.wa_owner);
@@ -57,5 +92,6 @@ module.exports = {
     getSessionIdForOperator,
     hasRosterAssignments,
     getAssignmentByCreatorId,
+    getPrimaryAssignmentsByOperator,
     applyAssignmentToCreator,
 };

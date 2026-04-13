@@ -1,0 +1,9 @@
+{
+  "id": "1776008974435-5fbde360f89b",
+  "session_id": "jiawen",
+  "completed_at": "2026-04-13T04:03:02.221Z",
+  "ok": false,
+  "error": "Cannot read properties of undefined (reading 'getChats')",
+  "routed_session_id": "jiawen",
+  "routed_operator": "Jiawen"
+}

@@ -38,12 +38,12 @@ router.get('/', async (req, res) => {
     if (creator_id) { sql += ` AND e.creator_id = ?`; params.push(creator_id); }
     if (event_key) { sql += ` AND e.event_key = ?`; params.push(event_key); }
 
-    sql += ` ORDER BY e.created_at DESC LIMIT ? OFFSET ?`;
+    sql += ` ORDER BY e.created_at DESC LIMIT ${limit} OFFSET ${offset}`;
 
     const countSql = `SELECT COUNT(*) as count FROM events e WHERE 1=1${status ? ' AND e.status = ?' : ''}${owner ? ' AND e.owner = ?' : ''}${creator_id ? ' AND e.creator_id = ?' : ''}${event_key ? ' AND e.event_key = ?' : ''}`;
 
     const [events, total] = await Promise.all([
-      db2.prepare(sql).all(...params, limit, offset),
+      db2.prepare(sql).all(...params),
       db2.prepare(countSql).get(...params),
     ]);
 
@@ -95,10 +95,11 @@ router.post('/', async (req, res) => {
       return res.status(409).json({ error: '同一达人已有相同事件处于 active 状态', existing_id: existing.id });
     }
 
+    const safeEndAt = end_at ?? null;
     const result = await db2.prepare(`
       INSERT INTO events (creator_id, event_key, event_type, owner, status, trigger_source, trigger_text, start_at, end_at, meta)
       VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
-    `).run(creator_id, event_key, event_type, normOwner, trigger_source, trigger_text, start_at || new Date().toISOString(), end_at, JSON.stringify(meta));
+    `).run(creator_id, event_key, event_type, normOwner, trigger_source, trigger_text, start_at || new Date().toISOString(), safeEndAt, JSON.stringify(meta));
 
     // ***REMOVED***= client_memory 自动积累：事件创建后异步提取记忆 ***REMOVED***=
     const eventId = result.lastInsertRowid;

@@ -1,0 +1,127 @@
+{
+  "generated_at": "2026-04-11T18:34:28.801Z",
+  "dry_run": false,
+  "batch": {
+    "session_id": "beau",
+    "operator": "Beau",
+    "batch_size": 5,
+    "fetch_limit": 120,
+    "batch_index": 4,
+    "total_batches_estimate": 20,
+    "creators": [
+      {
+        "id": 2318,
+        "primary_name": "Rose Schaaf",
+        "wa_phone": "19088127447"
+      },
+      {
+        "id": 2372,
+        "primary_name": "Taha Zargar",
+        "wa_phone": "995571101158"
+      },
+      {
+        "id": 2371,
+        "primary_name": "Meltem",
+        "wa_phone": "16509338818"
+      },
+      {
+        "id": 2411,
+        "primary_name": "Waqar Khadim",
+        "wa_phone": "923044779043"
+      },
+      {
+        "id": 2370,
+        "primary_name": "柯正義",
+        "wa_phone": "886932920351"
+      }
+    ]
+  },
+  "summary": {
+    "inserted_total": 5,
+    "updated_total": 0,
+    "error_count": 0
+  },
+  "results": [
+    {
+      "creator_id": 2318,
+      "creator_name": "Rose Schaaf",
+      "checked_messages": 1,
+      "inserted_count": 1,
+      "updated_count": 0,
+      "inserted_samples": [
+        {
+          "role": "user",
+          "text": "Ok that’s I certainly understand",
+          "timestamp": 1775786387000,
+          "message_id": "false_146424796807340@lid_3C57D9AF272F281D604E"
+        }
+      ],
+      "updated_samples": []
+    },
+    {
+      "creator_id": 2372,
+      "creator_name": "Taha Zargar",
+      "checked_messages": 1,
+      "inserted_count": 1,
+      "updated_count": 0,
+      "inserted_samples": [
+        {
+          "role": "user",
+          "text": "I have requested a payout when will I get my money",
+          "timestamp": 1747742588000,
+          "message_id": "false_995571101158@c.us_3A014B447A5CAAC3C7DB"
+        }
+      ],
+      "updated_samples": []
+    },
+    {
+      "creator_id": 2371,
+      "creator_name": "Meltem",
+      "checked_messages": 1,
+      "inserted_count": 1,
+      "updated_count": 0,
+      "inserted_samples": [
+        {
+          "role": "me",
+          "text": "Sorry you can find Max to help",
+          "timestamp": 1747931890000,
+          "message_id": "true_16509338818@c.us_3A7F9208D11AB95ED05B"
+        }
+      ],
+      "updated_samples": []
+    },
+    {
+      "creator_id": 2411,
+      "creator_name": "Waqar Khadim",
+      "checked_messages": 1,
+      "inserted_count": 1,
+      "updated_count": 0,
+      "inserted_samples": [
+        {
+          "role": "user",
+          "text": "Please let me know when I should start working on the next project. Also, regarding the screenshots, I had shared suggestions about how the design should be done—if you want them updated now, let me know, and I can design them for you and send them over.",
+          "timestamp": 1774986144000,
+          "message_id": "false_161628611977226@lid_AC5E3FB143439C51B8662897B78E099C"
+        }
+      ],
+      "updated_samples": []
+    },
+    {
+      "creator_id": 2370,
+      "creator_name": "柯正義",
+      "checked_messages": 1,
+      "inserted_count": 1,
+      "updated_count": 0,
+      "inserted_samples": [
+        {
+          "role": "me",
+          "text": "您好",
+          "timestamp": 1749765906000,
+          "message_id": "true_886932920351@c.us_3A7782CAF0AA8F385C5B"
+        }
+      ],
+      "updated_samples": []
+    }
+  ],
+  "report_path": "/Users/depp/wa-bot/wa-crm-v2/reports/beau-nightly-role-heartbeat/2026-04-11T18-34-28-801Z"
+}

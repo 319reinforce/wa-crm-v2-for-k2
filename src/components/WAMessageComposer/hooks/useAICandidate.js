@@ -14,6 +14,7 @@ export function useAICandidate({
     creator,
     policyDocs,
     clientMemory,
+    agencyStrategies,
     setPickerLoading,
     setActivePicker,
     setPendingCandidates,
@@ -55,6 +56,7 @@ export function useAICandidate({
                 creator,
                 policyDocs,
                 clientMemory,
+                agencyStrategies,
                 currentTopic,
                 autoDetectedTopic,
                 setCurrentTopic,
@@ -72,7 +74,7 @@ export function useAICandidate({
         } finally {
             setPickerLoading(false);
         }
-    }, [client, creator, policyDocs, clientMemory, setPickerLoading, currentTopic, autoDetectedTopic, setCurrentTopic]);
+    }, [client, creator, policyDocs, clientMemory, agencyStrategies, setPickerLoading, currentTopic, autoDetectedTopic, setCurrentTopic]);
 
     return { generateForIncoming, pushPicker };
 }

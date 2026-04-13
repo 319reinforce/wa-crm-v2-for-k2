@@ -1,0 +1,24 @@
+{
+  "id": "1776009394443-207de96912b5",
+  "session_id": "jiawen",
+  "completed_at": "2026-04-13T04:03:28.383Z",
+  "ok": true,
+  "phone": "19413234319",
+  "name": "melinda_joy_ Hanks",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Any news on those products uploaded? I have the brands chomping at the bit to ad spend :)) yay!!! I sold my 3rd e-bike too!!!!! Whoohoooooo",
+      "timestamp": 1775951271000,
+      "message_id": "false_174217077219508@lid_3A0DF67A9B053BC2CBB7"
+    },
+    {
+      "role": "me",
+      "text": "I think they’ve been uploaded 😊 you can go ahead and check them!",
+      "timestamp": 1776049504000,
+      "message_id": "true_174217077219508@lid_3EB0A577A091F5DE9A4A22"
+    }
+  ],
+  "routed_session_id": "jiawen",
+  "routed_operator": "Jiawen"
+}

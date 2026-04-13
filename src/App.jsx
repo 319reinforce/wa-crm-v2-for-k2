@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { WAMessageComposer } from './components/WAMessageComposer'
 import { SFTDashboard } from './components/SFTDashboard'
 import { EventPanel } from './components/EventPanel'
+import { StrategyConfigPanel } from './components/StrategyConfigPanel'
 import { WorkerStatusBar } from './components/WorkerStatusBar'
 import { CreatorDetail } from './components/CreatorDetail'
 import { MobileEventTagsBar } from './components/MobileEventTagsBar'
@@ -63,6 +64,12 @@ function App() {
   const [waQrData, setWaQrData] = useState(null)  // WA QR code data URL
   const [detailPanelExpanded, setDetailPanelExpanded] = useState(false)
   const [detailPanelPinned, setDetailPanelPinned] = useState(false)
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualSaving, setManualSaving] = useState(false)
+  const [manualError, setManualError] = useState('')
+  const [manualForm, setManualForm] = useState({ name: '', phone: '', owner: 'Yiyun' })
+  const [manualCheckLoading, setManualCheckLoading] = useState(false)
+  const [manualCheck, setManualCheck] = useState(null)
 
   // 轮询 WhatsApp 状态和二维码
   useEffect(() => {
@@ -246,6 +253,80 @@ function App() {
     })
   }, [])
 
+  const openManualModal = useCallback(() => {
+    const suggestedOwner = filterOwner && filterOwner !***REMOVED*** '' ? filterOwner : (selectedCreator?.wa_owner || 'Yiyun')
+    setManualForm({ name: '', phone: '', owner: suggestedOwner })
+    setManualCheck(null)
+    setManualError('')
+    setManualOpen(true)
+  }, [filterOwner, selectedCreator?.wa_owner])
+
+  const closeManualModal = useCallback(() => {
+    if (manualSaving) return
+    setManualOpen(false)
+    setManualError('')
+    setManualCheck(null)
+  }, [manualSaving])
+
+  useEffect(() => {
+    if (!manualOpen) return
+    const name = (manualForm.name || '').trim()
+    const phone = (manualForm.phone || '').trim()
+    if (!name && !phone) {
+      setManualCheck(null)
+      return
+    }
+    const timer = setTimeout(async () => {
+      setManualCheckLoading(true)
+      try {
+        const params = new URLSearchParams()
+        if (name) params.set('name', name)
+        if (phone) params.set('phone', phone)
+        if (manualForm.owner) params.set('owner', manualForm.owner)
+        const data = await fetchJsonOrThrow(`${API_BASE}/creators/manual-check?${params.toString()}`)
+        setManualCheck(data)
+      } catch (e) {
+        setManualCheck({ ok: false, error: e.message || '去重检查失败' })
+      } finally {
+        setManualCheckLoading(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [manualOpen, manualForm.name, manualForm.phone, manualForm.owner])
+
+  const saveManualCreator = useCallback(async () => {
+    const payload = {
+      primary_name: (manualForm.name || '').trim(),
+      wa_phone: (manualForm.phone || '').trim(),
+      wa_owner: manualForm.owner || 'Yiyun',
+      source: 'manual',
+    }
+    if (!payload.primary_name || !payload.wa_phone) {
+      setManualError('请填写达人姓名和手机号')
+      return
+    }
+    setManualSaving(true)
+    setManualError('')
+    try {
+      const result = await fetchJsonOrThrow(`${API_BASE}/creators/manual`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      setManualOpen(false)
+      await loadData()
+      if (result?.creator?.id) {
+        const detail = await fetchJsonOrThrow(`${API_BASE}/creators/${result.creator.id}`)
+        const vm = buildCreatorViewModel(detail, result.creator)
+        setSelectedCreator(vm)
+      }
+    } catch (e) {
+      setManualError(e.message || '录入失败')
+    } finally {
+      setManualSaving(false)
+    }
+  }, [manualForm, loadData])
+
   const filteredCreators = useMemo(() => creators.filter(c => {
     if (search) {
       const s = search.toLowerCase()
@@ -299,6 +380,13 @@ function App() {
                 </div>
               </div>
               <div className="flex gap-2">
+                <button
+                  onClick={openManualModal}
+                  className="text-white/70 hover:text-white text-base"
+                  title="手动录入达人"
+                >
+                  ＋
+                </button>
                 <button
                   onClick={() => loadData()}
                   disabled={loading}
@@ -360,6 +448,14 @@ function App() {
               </div>
             </div>
             <div className="flex gap-1.5">
+              <button
+                onClick={openManualModal}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                style={{ background: 'rgba(255,255,255,0.12)', color: 'white' }}
+                title="手动录入达人"
+              >
+                + 录入
+              </button>
               <button onClick={() => setActiveTab('creators')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab ***REMOVED***= 'creators' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab ***REMOVED***= 'creators' ? 'white' : 'rgba(255,255,255,0.55)' }}>
                 达人
               </button>
@@ -368,6 +464,9 @@ function App() {
               </button>
               <button onClick={() => setActiveTab('events')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab ***REMOVED***= 'events' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab ***REMOVED***= 'events' ? 'white' : 'rgba(255,255,255,0.55)' }}>
                 事件
+              </button>
+              <button onClick={() => setActiveTab('strategy')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab ***REMOVED***= 'strategy' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab ***REMOVED***= 'strategy' ? 'white' : 'rgba(255,255,255,0.55)' }}>
+                策略
               </button>
             </div>
           </div>
@@ -515,6 +614,8 @@ function App() {
               )
             ) : activeTab ***REMOVED***= 'events' ? (
               <EventPanel />
+            ) : activeTab ***REMOVED***= 'strategy' ? (
+              <StrategyConfigPanel />
             ) : (
               <SFTDashboard compact />
             )}
@@ -552,6 +653,7 @@ function App() {
               creator={selectedCreator}
               onClose={() => setSelectedCreator(null)}
               onMessageSent={handleCreatorMessageSent}
+              onCreatorUpdated={handleCreatorUpdated}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center" style={{ background: WA.chatBg }}>
@@ -650,11 +752,148 @@ function App() {
               onClose={() => setSelectedCreator(null)}
               onSwipeLeft={() => setMobileSidebarOpen(true)}
               onMessageSent={handleCreatorMessageSent}
+              onCreatorUpdated={handleCreatorUpdated}
               asPanel
             />
           </div>
         </div>
       )}
+
+      <ManualCreatorModal
+        open={manualOpen}
+        form={manualForm}
+        onFormChange={setManualForm}
+        onClose={closeManualModal}
+        onSave={saveManualCreator}
+        saving={manualSaving}
+        checkLoading={manualCheckLoading}
+        checkResult={manualCheck}
+        error={manualError}
+      />
+    </div>
+  )
+}
+
+function ManualCreatorModal({
+  open,
+  form,
+  onFormChange,
+  onClose,
+  onSave,
+  saving,
+  checkLoading,
+  checkResult,
+  error,
+}) {
+  if (!open) return null
+
+  const samePhone = checkResult?.conflicts?.same_phone || []
+  const sameName = checkResult?.conflicts?.same_name || []
+  const hasPhoneConflict = samePhone.length > 0
+  const hasNameConflict = sameName.length > 0
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/45" onClick={onClose} />
+      <div className="relative w-full max-w-xl rounded-2xl border shadow-2xl p-5 space-y-4" style={{ background: WA.white, borderColor: WA.borderLight }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-base font-semibold" style={{ color: WA.textDark }}>手动录入达人</div>
+            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>录入前自动检查同号与重名，防止重复建档</div>
+          </div>
+          <button onClick={onClose} className="text-lg px-2 py-1 rounded-lg" style={{ color: WA.textMuted }}>✕</button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <label className="md:col-span-2 text-xs space-y-1">
+            <span style={{ color: WA.textMuted }}>达人姓名</span>
+            <input
+              value={form.name}
+              onChange={e => onFormChange(prev => ({ ...prev, name: e.target.value }))}
+              placeholder="如：Katie"
+              className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+              style={{ borderColor: WA.borderLight, color: WA.textDark }}
+            />
+          </label>
+          <label className="text-xs space-y-1">
+            <span style={{ color: WA.textMuted }}>负责人</span>
+            <select
+              value={form.owner}
+              onChange={e => onFormChange(prev => ({ ...prev, owner: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+              style={{ borderColor: WA.borderLight, color: WA.textDark }}
+            >
+              <option value="Yiyun">Yiyun</option>
+              <option value="Beau">Beau</option>
+              <option value="Jiawen">Jiawen</option>
+              <option value="WangYouKe">WangYouKe</option>
+            </select>
+          </label>
+          <label className="md:col-span-3 text-xs space-y-1">
+            <span style={{ color: WA.textMuted }}>WhatsApp 手机号</span>
+            <input
+              value={form.phone}
+              onChange={e => onFormChange(prev => ({ ...prev, phone: e.target.value }))}
+              placeholder="如：+1 (318) 701-2419"
+              className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+              style={{ borderColor: WA.borderLight, color: WA.textDark }}
+            />
+          </label>
+        </div>
+
+        <div className="rounded-xl border p-3 text-xs space-y-2" style={{ borderColor: WA.borderLight, background: WA.lightBg }}>
+          {checkLoading ? (
+            <div style={{ color: WA.textMuted }}>去重检查中...</div>
+          ) : checkResult?.ok ***REMOVED***= false ? (
+            <div style={{ color: '#ef4444' }}>去重检查失败：{checkResult.error || 'unknown error'}</div>
+          ) : (
+            <>
+              <div style={{ color: hasPhoneConflict ? '#ef4444' : '#10b981' }}>
+                同号检查：{hasPhoneConflict ? `发现 ${samePhone.length} 条重复（将复用现有达人）` : '未发现重复手机号'}
+              </div>
+              <div style={{ color: hasNameConflict ? '#f59e0b' : WA.textMuted }}>
+                重名检查：{hasNameConflict ? `发现 ${sameName.length} 条相似姓名` : '未发现相似姓名'}
+              </div>
+              {(hasPhoneConflict || hasNameConflict) && (
+                <div className="max-h-28 overflow-y-auto space-y-1 pr-1">
+                  {[...samePhone, ...sameName.filter(item => !samePhone.some(sp => sp.id ***REMOVED***= item.id))]
+                    .slice(0, 6)
+                    .map(item => (
+                      <div key={item.id} className="px-2 py-1 rounded" style={{ background: WA.white, color: WA.textDark }}>
+                        #{item.id} · {item.primary_name || 'Unknown'} · {item.wa_phone || '-'} · {item.wa_owner || '-'}
+                      </div>
+                    ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {error && (
+          <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>
+            {error}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-3 py-2 rounded-lg text-sm border"
+            style={{ borderColor: WA.borderLight, color: WA.textMuted }}
+          >
+            取消
+          </button>
+          <button
+            onClick={onSave}
+            disabled={saving || !form.name?.trim() || !form.phone?.trim()}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+            style={{ background: WA.teal }}
+          >
+            {saving ? '保存中...' : '保存并建档'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -895,7 +1134,11 @@ function buildCreatorViewModel(detail, previous = {}) {
     keeper,
     keeper_gmv: keeper.keeper_gmv ?? previous.keeper_gmv ?? 0,
     keeper_gmv30: keeper.keeper_gmv30 ?? previous.keeper_gmv30 ?? 0,
-    msg_count: Array.isArray(detail.messages) ? detail.messages.length : previous.msg_count ?? 0,
+    msg_count: Number.isFinite(Number(detail.msg_count))
+      ? Number(detail.msg_count)
+      : Array.isArray(detail.messages)
+        ? detail.messages.length
+        : previous.msg_count ?? 0,
     ev_replied: detail.ev_replied ?? previous.ev_replied,
     updated_at: detail.updated_at ?? previous.updated_at,
     last_active: detail.last_active ?? previous.last_active ?? 0,

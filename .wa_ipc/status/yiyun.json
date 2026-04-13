@@ -1,34 +1,41 @@
 {
   "session_id": "yiyun",
-  "updated_at": "2026-04-11T13:26:14.901Z",
-  "ready": false,
+  "updated_at": "2026-04-13T09:56:42.801Z",
+  "ready": true,
   "hasQr": false,
-  "error": "SIGINT shutdown",
+  "error": null,
   "configured_owner": "Yiyun",
   "owner": "Yiyun",
-  "owner_source": "env",
-  "account_phone": null,
-  "account_pushname": null,
-  "operator_profile": null,
+  "owner_source": "phone_map",
+  "account_phone": "+8613699226259",
+  "account_pushname": "Alice l Moras",
+  "operator_profile": {
+    "operator": "Yiyun",
+    "real_name": "yiyun",
+    "wa_note": "Alice",
+    "phones": [
+      "+8613699226259"
+    ]
+  },
   "qr_refresh_count": 0,
   "last_qr_at": null,
   "qr_value": null,
   "worker": {
-    "phase": "idle",
-    "totalChats": 0,
-    "processedChats": 0,
-    "newMessages": 0,
+    "phase": "live",
+    "totalChats": 100,
+    "processedChats": 100,
+    "newMessages": 6,
     "errors": [],
-    "lastPollAt": null,
-    "clientReady": false,
-    "clientError": "The browser is already running for /Users/depp/wa-bot/wa-crm-v2/.wwebjs_auth/session-yiyun/session. Use a different `userDataDir` or stop the running browser first.",
+    "lastPollAt": "2026-04-13T07:01:00.880Z",
+    "clientReady": true,
+    "clientError": null,
     "owner": "Yiyun",
     "sessionId": "yiyun",
     "resolvedOwner": "Yiyun",
-    "uptime": 9249
+    "pollIntervalMs": 60000,
+    "uptime": 12001961
   },
-  "pid": 47065,
+  "pid": 50516,
   "api_base": "http://127.0.0.1:3000",
-  "running": false,
-  "stopped_at": "2026-04-11T13:26:14.901Z"
+  "running": true
 }

@@ -1,7 +1,7 @@
 /**
  * WhatsApp Service — 单账号版本（Beau）
  */
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const { EventEmitter } = require('events');
 const path = require('path');
 const fs = require('fs');
@@ -211,6 +211,56 @@ async function sendMessage(phone, text) {
     }
 }
 
+async function resolveMediaPayload({ media_path, media_url, mime_type, file_name, data_base64 }) {
+    if (data_base64 && mime_type) {
+        return new MessageMedia(mime_type, String(data_base64), file_name || 'image');
+    }
+    if (media_path) {
+        return MessageMedia.fromFilePath(String(media_path));
+    }
+    if (media_url) {
+        return await MessageMedia.fromUrl(String(media_url), {
+            unsafeMime: true,
+            filename: file_name || undefined,
+        });
+    }
+    throw new Error('media payload missing: provide media_path, media_url, or data_base64');
+}
+
+function extractMessageId(result) {
+    if (!result) return null;
+    if (typeof result ***REMOVED***= 'string') return result;
+    return result?.id?._serialized || result?.id?.id || result?.id || null;
+}
+
+async function sendMedia(phone, media = {}) {
+    if (!client || !ready) {
+        return { ok: false, error: 'WhatsApp 未就绪，请先扫码认证' };
+    }
+    try {
+        const cleanPhone = String(phone || '').replace(/[^\d+]/g, '');
+        const chatId = cleanPhone.startsWith('+')
+            ? cleanPhone.substring(1) + '@c.us'
+            : cleanPhone + '@c.us';
+        const preparedMedia = await resolveMediaPayload(media);
+        const sendOptions = {};
+        if (media.caption && String(media.caption).trim()) {
+            sendOptions.caption = String(media.caption).trim();
+        }
+        const sent = await client.sendMessage(chatId, preparedMedia, sendOptions);
+        const messageId = extractMessageId(sent);
+        if (VERBOSE_LOGS) {
+            console.log(`[WA Service:${WA_SESSION_ID}] 图片发送成功 → ${maskPhone(phone)} msg=${messageId || 'n/a'}`);
+        }
+        return { ok: true, messageId };
+    } catch (err) {
+        const rawMessage = String(err?.message || '').trim();
+        const safeMessage = rawMessage.length <= 1 ? 'WhatsApp rejected media send' : rawMessage;
+        console.error(`[WA Service:${WA_SESSION_ID}] 图片发送失败 → ${maskPhone(phone)}:`, safeMessage);
+        return { ok: false, error: safeMessage };
+    }
+}
+
 function getStatus() {
     return {
         ready,
@@ -283,6 +333,7 @@ function stop() {
 
 module.exports = {
     sendMessage,
+    sendMedia,
     getStatus,
     getQrValue,
     getResolvedOwner,

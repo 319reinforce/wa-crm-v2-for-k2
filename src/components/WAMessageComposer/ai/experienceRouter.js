@@ -21,6 +21,7 @@ const API_BASE = '/api';
  * @param {object} params.creator — creator state
  * @param {object} params.policyDocs — policy docs
  * @param {object} params.clientMemory — client memory
+ * @param {Array} params.agencyStrategies — 未绑定Agency策略配置
  * @param {object} params.currentTopic — 当前话题 state
  * @param {object} params.autoDetectedTopic — 自动检测话题 state
  * @param {function} params.setCurrentTopic — React setState for topic
@@ -35,6 +36,7 @@ export async function generateViaExperienceRouter({
     creator,
     policyDocs,
     clientMemory,
+    agencyStrategies,
     currentTopic,
     autoDetectedTopic,
     setCurrentTopic,
@@ -83,14 +85,29 @@ export async function generateViaExperienceRouter({
     // 方向三：差异化 Prompt — 同一话题用简短版，新话题用完整版
     const isSameTopic = effectiveTopic?.trigger ***REMOVED***= 'auto';
     const topicContext = effectiveTopic
-        ? buildTopicContext({ topic: effectiveTopic, creator, activeEvents, mode: isSameTopic ? 'same_topic' : 'new_topic' })
+        ? buildTopicContext({
+            topic: effectiveTopic,
+            creator,
+            activeEvents,
+            clientMemory,
+            agencyStrategies,
+            mode: isSameTopic ? 'same_topic' : 'new_topic',
+        })
         : '';
 
     // 构建完整的 richCtx（buildRichContextParagraph 依赖多个字段）
     const lastIncoming = allMsgs.length > 0
         ? { text: lastIncomingText, timestamp: lastMsgTimestamp }
         : null;
-    const richCtx = buildRichContext({ incomingMsg: lastIncoming, client, creator, policyDocs, clientMemory, messages: allMsgs });
+    const richCtx = buildRichContext({
+        incomingMsg: lastIncoming,
+        client,
+        creator,
+        policyDocs,
+        clientMemory,
+        agencyStrategies,
+        messages: allMsgs
+    });
     const effectiveScene = scene || richCtx.scene || 'unknown';
     const richContextParagraph = buildRichContextParagraph(richCtx);
 

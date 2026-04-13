@@ -1,34 +1,41 @@
 {
   "session_id": "jiawen",
-  "updated_at": "2026-04-11T13:26:15.162Z",
-  "ready": false,
+  "updated_at": "2026-04-13T09:56:42.721Z",
+  "ready": true,
   "hasQr": false,
-  "error": "SIGINT shutdown",
+  "error": null,
   "configured_owner": "Jiawen",
   "owner": "Jiawen",
-  "owner_source": "env",
-  "account_phone": null,
-  "account_pushname": null,
-  "operator_profile": null,
+  "owner_source": "phone_map",
+  "account_phone": "+8617641210103",
+  "account_pushname": "Sybil | Moras",
+  "operator_profile": {
+    "operator": "Jiawen",
+    "real_name": "jiawen",
+    "wa_note": "Sybil",
+    "phones": [
+      "+8617641210103"
+    ]
+  },
   "qr_refresh_count": 0,
   "last_qr_at": null,
   "qr_value": null,
   "worker": {
-    "phase": "idle",
-    "totalChats": 0,
-    "processedChats": 0,
-    "newMessages": 0,
+    "phase": "live",
+    "totalChats": 62,
+    "processedChats": 62,
+    "newMessages": 1,
     "errors": [],
-    "lastPollAt": null,
-    "clientReady": false,
-    "clientError": "The browser is already running for /Users/depp/wa-bot/wa-crm-v2/.wwebjs_auth/session-jiawen/session. Use a different `userDataDir` or stop the running browser first.",
+    "lastPollAt": "2026-04-13T07:00:56.169Z",
+    "clientReady": true,
+    "clientError": null,
     "owner": "Jiawen",
     "sessionId": "jiawen",
     "resolvedOwner": "Jiawen",
-    "uptime": 9483
+    "pollIntervalMs": 60000,
+    "uptime": 12001960
   },
-  "pid": 47071,
+  "pid": 50514,
   "api_base": "http://127.0.0.1:3000",
-  "running": false,
-  "stopped_at": "2026-04-11T13:26:15.161Z"
+  "running": true
 }

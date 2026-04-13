@@ -1,8 +1,9 @@
 /**
  * systemPromptBuilder.js — System Prompt 构建（纯函数）
  */
-import { buildEventPushSection } from './eventPushBuilder';
-import { TOPIC_LABELS } from '../constants/topicLabels';
+import { buildEventPushSection } from './eventPushBuilder.js';
+import { TOPIC_LABELS } from '../constants/topicLabels.js';
+import { isAgencyBoundStatus, resolveUnboundAgencyStrategy } from '../../../utils/unboundAgencyStrategies.js';
 
 // 构建 System Prompt（双模式：响应模式 vs 推进模式）
 export function buildSystemPrompt({ lastMsgRole, activeEvents, client, creator }) {
@@ -60,10 +61,16 @@ ${replyStyle}
 }
 
 // 构建话题上下文段落（注入 System Prompt）
-export function buildTopicContext({ topic, creator, activeEvents, mode = 'new_topic' }) {
-    const wacrm = creator?._full?.wacrm || {};
+export function buildTopicContext({ topic, creator, activeEvents, clientMemory, agencyStrategies, mode = 'new_topic' }) {
+    const fullCreator = creator?._full || creator || {};
+    const wacrm = fullCreator?.wacrm || creator?.wacrm || {};
+    const joinbrands = fullCreator?.joinbrands || creator?.joinbrands || {};
     const owner = creator?.wa_owner || '未知';
     const stage = wacrm.beta_status || '未知';
+    const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands);
+    const strategy = !isAgencyBound
+        ? resolveUnboundAgencyStrategy({ clientMemory, nextAction: wacrm?.next_action || '', strategies: agencyStrategies })
+        : null;
 
     const topicLabel = TOPIC_LABELS[topic?.topic_key] || TOPIC_LABELS.general;
     const triggerLabel = { manual: '运营手动标记', time: '48小时无互动', keyword: '关键词变化', auto: '自动检测', new: '新对话' }[topic?.trigger] || '新对话';
@@ -84,7 +91,10 @@ export function buildTopicContext({ topic, creator, activeEvents, mode = 'new_to
     // ***REMOVED***= 同一话题模式（manual/auto）：简短版 ***REMOVED***=
     if (mode ***REMOVED***= 'same_topic') {
         const eventSummary = eventLines.length > 0 ? eventLines.join(' | ') : '暂无进行中事件';
-        return `【当前话题】${topicLabel}（${triggerLabel}）| ${eventSummary}`;
+        const strategyLabel = (!isAgencyBound && strategy)
+            ? ` | 未绑定策略:${strategy.name}/${strategy.nameEn}`
+            : '';
+        return `【当前话题】${topicLabel}（${triggerLabel}）| ${eventSummary}${strategyLabel}`;
     }
 
     // ***REMOVED***= 新话题模式（keyword/time）：完整版 ***REMOVED***=
@@ -113,6 +123,16 @@ export function buildTopicContext({ topic, creator, activeEvents, mode = 'new_to
         fullEventSummary = lines.join('\n');
     }
 
+    const strategyBlock = !isAgencyBound && strategy
+        ? `
+
+【未绑定Agency专属策略】
+- 当前策略: ${strategy.name} / ${strategy.nameEn}
+- 中文执行要点: ${strategy.promptHint}
+- English playbook: ${strategy.promptHintEn}
+- 本轮目标: 只推进一个具体动作，并给出明确时间点或确认问题`
+        : '';
+
     return `【当前话题】
 - 话题: ${topicLabel}
 - 开始: ${detectedAt}（${triggerLabel}）
@@ -125,7 +145,7 @@ ${fullEventSummary}
 - 有进行中事件 → 优先推进事件进展，末尾加推进语句
 - 首次接触新客户 → 友好问候+介绍支持
 - 问题咨询 → 直接清晰回答
-- 严禁在回复中提及具体GMV数字和其他达人信息`;
+- 严禁在回复中提及具体GMV数字和其他达人信息${strategyBlock}`;
 }
 
 // 早期消息摘要（用于同一话题 > 10 条时）
@@ -183,9 +203,12 @@ export function buildRichContextParagraph(richCtx) {
     const nextActionBlock = richCtx.next_action
         ? `\n- 运营计划: ${richCtx.next_action}`
         : '';
+    const agencyStrategyBlock = richCtx.agency_strategy
+        ? `\n- 未绑定Agency策略: ${richCtx.agency_strategy.name} | ${richCtx.agency_strategy.hint}\n- English playbook: ${richCtx.agency_strategy.hint_en}`
+        : '';
 
     return `【当前对话上下文】
 - 场景: ${sceneLabel}
 - 客户语气: ${toneLabel} | 语言: ${langLabel} | 总消息: ${total_messages}条 | 上次互动: ${timeHint}
-- 时间: 周${day_of_week}${hour_of_day >= 9 && hour_of_day <= 21 ? '（工作时间）' : '（非工作时间）'}${memoryBlock}${policyBlock}${nextActionBlock}`;
+- 时间: 周${day_of_week}${hour_of_day >= 9 && hour_of_day <= 21 ? '（工作时间）' : '（非工作时间）'}${memoryBlock}${policyBlock}${nextActionBlock}${agencyStrategyBlock}`;
 }

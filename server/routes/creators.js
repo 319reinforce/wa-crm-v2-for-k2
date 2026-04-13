@@ -16,6 +16,34 @@ const {
     hasRosterAssignments,
 } = require('../services/operatorRosterService');
 
+function normalizeManualPhone(value) {
+    return String(value || '').replace(/\D/g, '').trim();
+}
+
+async function findPhoneConflictRows(dbConn, normalizedPhone) {
+    if (!normalizedPhone) return [];
+    return await dbConn.prepare(`
+        SELECT id, primary_name, wa_phone, wa_owner, created_at
+        FROM creators
+        WHERE wa_phone = ?
+           OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(wa_phone, '+', ''), ' ', ''), '-', ''), '(', ''), ')', '') = ?
+        ORDER BY id DESC
+        LIMIT 10
+    `).all(normalizedPhone, normalizedPhone);
+}
+
+async function findNameConflictRows(dbConn, normalizedName) {
+    if (!normalizedName) return [];
+    return await dbConn.prepare(`
+        SELECT id, primary_name, wa_phone, wa_owner, created_at
+        FROM creators
+        WHERE LOWER(TRIM(primary_name)) = LOWER(TRIM(?))
+           OR LOWER(primary_name) LIKE LOWER(?)
+        ORDER BY id DESC
+        LIMIT 10
+    `).all(normalizedName, `%${normalizedName}%`);
+}
+
 // GET /api/creators — 获取所有达人
 router.get('/', async (req, res) => {
     try {
@@ -131,6 +159,136 @@ router.get('/', async (req, res) => {
     } catch (err) {
         console.error('Error fetching creators:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/creators/manual-check — 手动录入前去重检查（同号/重名）
+router.get('/manual-check', async (req, res) => {
+    try {
+        const dbConn = db.getDb();
+        const rawName = String(req.query.name || '').trim();
+        const rawPhone = String(req.query.phone || '').trim();
+        const normalizedPhone = normalizeManualPhone(rawPhone);
+        const normalizedName = rawName.replace(/\s+/g, ' ').trim();
+        const operator = normalizeOperatorName(req.query.owner, req.query.owner || 'Yiyun');
+
+        const [samePhone, sameName] = await Promise.all([
+            findPhoneConflictRows(dbConn, normalizedPhone),
+            findNameConflictRows(dbConn, normalizedName),
+        ]);
+
+        const dedupById = new Map();
+        for (const row of [...samePhone, ...sameName]) dedupById.set(row.id, row);
+        const suggestions = [...dedupById.values()].slice(0, 10);
+
+        res.json({
+            ok: true,
+            normalized: {
+                phone: normalizedPhone,
+                name: normalizedName,
+                owner: operator,
+            },
+            conflicts: {
+                same_phone_count: samePhone.length,
+                same_name_count: sameName.length,
+                same_phone: samePhone,
+                same_name: sameName,
+            },
+            suggestions,
+            can_create: normalizedPhone.length > 0 && samePhone.length ***REMOVED***= 0,
+        });
+    } catch (err) {
+        console.error('GET /api/creators/manual-check error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// POST /api/creators/manual — 手动录入达人（同号自动复用）
+router.post('/manual', async (req, res) => {
+    try {
+        const dbConn = db.getDb();
+        const rawName = String(req.body?.primary_name || req.body?.name || '').trim();
+        const rawPhone = String(req.body?.wa_phone || req.body?.phone || '').trim();
+        const operator = normalizeOperatorName(req.body?.wa_owner || req.body?.owner, 'Yiyun');
+        const source = String(req.body?.source || 'manual').trim() || 'manual';
+        const normalizedPhone = normalizeManualPhone(rawPhone);
+        const normalizedName = rawName.replace(/\s+/g, ' ').trim();
+
+        if (!normalizedName) {
+            return res.status(400).json({ ok: false, error: 'primary_name required' });
+        }
+        if (!normalizedPhone) {
+            return res.status(400).json({ ok: false, error: 'wa_phone required' });
+        }
+
+        const samePhoneRows = await findPhoneConflictRows(dbConn, normalizedPhone);
+        const sameNameRows = await findNameConflictRows(dbConn, normalizedName);
+        const reused = samePhoneRows.length > 0;
+
+        const resultPayload = await dbConn.transaction(async (txDb) => {
+            const upsertCreator = await txDb.prepare(`
+                INSERT INTO creators (primary_name, wa_phone, wa_owner, source)
+                VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    id = LAST_INSERT_ID(id),
+                    primary_name = VALUES(primary_name),
+                    wa_owner = VALUES(wa_owner),
+                    source = VALUES(source),
+                    updated_at = CURRENT_TIMESTAMP
+            `).run(normalizedName, normalizedPhone, operator, source);
+            const creatorId = Number(upsertCreator.lastInsertRowid || 0);
+            const sessionId = getSessionIdForOperator(operator) || String(operator || '').toLowerCase();
+
+            await txDb.prepare(`
+                INSERT INTO ${ROSTER_TABLE}
+                    (creator_id, operator, session_id, source_file, raw_name, match_strategy, score, is_primary)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                ON DUPLICATE KEY UPDATE
+                    operator = VALUES(operator),
+                    session_id = VALUES(session_id),
+                    source_file = VALUES(source_file),
+                    raw_name = VALUES(raw_name),
+                    match_strategy = VALUES(match_strategy),
+                    score = VALUES(score),
+                    is_primary = 1,
+                    updated_at = CURRENT_TIMESTAMP
+            `).run(creatorId, operator, sessionId, 'manual', normalizedName, 'manual', 100);
+
+            await txDb.prepare('INSERT IGNORE INTO wa_crm_data (creator_id) VALUES (?)').run(creatorId);
+
+            const creator = await txDb.prepare(`
+                SELECT id, primary_name, wa_phone, wa_owner, source, is_active, created_at, updated_at
+                FROM creators
+                WHERE id = ?
+                LIMIT 1
+            `).get(creatorId);
+
+            await writeAudit('creator_manual_upsert', 'creators', creatorId, null, {
+                action: reused ? 'reuse_existing_by_phone' : 'create_new',
+                primary_name: normalizedName,
+                wa_phone: normalizedPhone,
+                wa_owner: operator,
+                source,
+                same_phone_count: samePhoneRows.length,
+                same_name_count: sameNameRows.length,
+            }, req);
+
+            return {
+                ok: true,
+                reused,
+                creator,
+                dedup: {
+                    same_phone_count: samePhoneRows.length,
+                    same_name_count: sameNameRows.length,
+                    same_phone: samePhoneRows,
+                    same_name: sameNameRows,
+                },
+            };
+        });
+        res.json(resultPayload);
+    } catch (err) {
+        console.error('POST /api/creators/manual error:', err);
+        res.status(500).json({ ok: false, error: err.message });
     }
 });
 

@@ -12,13 +12,29 @@ const WA = {
 
 export default function MobileChatScreen() {
   const { id } = useParams()
-  const { creator, loading } = useCreatorDetail(id)
+  const { creator, loading, error, reload } = useCreatorDetail(id)
   const nav = useNavigate()
 
-  if (loading || !creator) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: WA.chatBg, color: WA.textMuted }}>
         加载中...
+      </div>
+    )
+  }
+
+  if (!creator) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: WA.chatBg }}>
+        <div className="text-sm" style={{ color: WA.textMuted }}>{error || '达人详情加载失败'}</div>
+        <div className="flex gap-2">
+          <button onClick={() => reload()} className="px-3 py-1.5 rounded-lg text-sm text-white" style={{ background: WA.teal }}>
+            重试
+          </button>
+          <button onClick={() => nav('/m')} className="px-3 py-1.5 rounded-lg text-sm" style={{ background: '#e2e8f0', color: '#334155' }}>
+            返回列表
+          </button>
+        </div>
       </div>
     )
   }

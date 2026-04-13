@@ -5,6 +5,9 @@ ROOT="/Users/depp/wa-bot/wa-crm-v2"
 API_BASE_DEFAULT="http://127.0.0.1:3000"
 ROUTE_MAP_FILE="$ROOT/.wwebjs_auth/session-route.map"
 DEFAULT_AUTO_WAIT_SEC="${WA_AUTO_ROUTE_WAIT_SEC:-300}"
+QR_RENDER_ENABLED="${WA_QR_RENDER_ENABLED:-1}"
+QR_RENDER_INTERVAL_MS="${WA_QR_RENDER_INTERVAL_MS:-20000}"
+QR_RENDER_SCRIPT="$ROOT/scripts/watch-wa-qr.cjs"
 SESSION_ORDER=(beau yiyun youke jiawen)
 LAST_ROUTE_TARGET_SID=""
 LAST_ROUTE_DETECTED_OWNER=""
@@ -345,12 +348,30 @@ wait_for_ready_event() {
   local timeout_sec="${2:-$DEFAULT_AUTO_WAIT_SEC}"
   local elapsed=0
 
-  if extract_latest_ready_from_log "$sid" >/dev/null 2>&1; then
+  is_ready_by_status() {
+    local status_file="$ROOT/.wa_ipc/status/${sid}.json"
+    if [[ ! -f "$status_file" ]]; then
+      return 1
+    fi
+    if node -e '
+      const fs=require("fs");
+      const p=process.argv[1];
+      try{
+        const s=JSON.parse(fs.readFileSync(p,"utf8"));
+        process.exit(s && s.ready***REMOVED***=true ? 0 : 1);
+      }catch(_){ process.exit(1); }
+    ' "$status_file"; then
+      return 0
+    fi
+    return 1
+  }
+
+  if is_ready_by_status || extract_latest_ready_from_log "$sid" >/dev/null 2>&1; then
     return 0
   fi
 
   while (( elapsed < timeout_sec )); do
-    if extract_latest_ready_from_log "$sid" >/dev/null 2>&1; then
+    if is_ready_by_status || extract_latest_ready_from_log "$sid" >/dev/null 2>&1; then
       return 0
     fi
 
@@ -359,7 +380,7 @@ wait_for_ready_event() {
       return 2
     fi
 
-    if (( elapsed > 0 )) && (( elapsed % 15 ***REMOVED*** 0 )); then
+    if [[ "$QR_RENDER_ENABLED" != "1" ]] && (( elapsed > 0 )) && (( elapsed % 15 ***REMOVED*** 0 )); then
       echo "[wa-session] ${sid}: 已等待 ${elapsed}s，继续等待扫码..."
     fi
 
@@ -375,14 +396,20 @@ auto_scan_and_route_once() {
   local sid="$1"
   local api_base="${2:-$API_BASE_DEFAULT}"
   local timeout_sec="${3:-$DEFAULT_AUTO_WAIT_SEC}"
-  local log_file tail_pid wait_rc
+  local log_file tail_pid wait_rc qr_pid=""
 
   start_sid "$sid" "" "$api_base" || return 1
   log_file="$(log_file_for "$sid")"
 
-  echo "[wa-session] ${sid}: 输出实时日志（扫码成功后会自动路由）"
-  tail -n 120 -f "$log_file" &
-  tail_pid=$!
+  if [[ "$QR_RENDER_ENABLED" ***REMOVED*** "1" ]] && [[ -f "$QR_RENDER_SCRIPT" ]]; then
+    echo "[wa-session] ${sid}: 启用二维码变化渲染（扫码成功后会自动 route）"
+    node "$QR_RENDER_SCRIPT" single --session "$sid" --interval "$QR_RENDER_INTERVAL_MS" &
+    qr_pid=$!
+  else
+    echo "[wa-session] ${sid}: 输出实时日志（扫码成功后会自动路由）"
+    tail -n 120 -f "$log_file" &
+    tail_pid=$!
+  fi
 
   if wait_for_ready_event "$sid" "$timeout_sec"; then
     wait_rc=0
@@ -390,8 +417,13 @@ auto_scan_and_route_once() {
     wait_rc=$?
   fi
 
-  kill "$tail_pid" >/dev/null 2>&1 || true
-  wait "$tail_pid" >/dev/null 2>&1 || true
+  if [[ -n "${qr_pid:-}" ]]; then
+    kill "$qr_pid" >/dev/null 2>&1 || true
+    wait "$qr_pid" >/dev/null 2>&1 || true
+  else
+    kill "$tail_pid" >/dev/null 2>&1 || true
+    wait "$tail_pid" >/dev/null 2>&1 || true
+  fi
 
   if [[ "$wait_rc" -ne 0 ]]; then
     return "$wait_rc"

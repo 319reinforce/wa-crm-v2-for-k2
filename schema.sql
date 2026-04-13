@@ -252,6 +252,60 @@ CREATE INDEX idx_gl_status_created ON generation_log(status, created_at);
 CREATE INDEX idx_gl_snapshot ON generation_log(retrieval_snapshot_id);
 
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- Media Assets — 图片素材资产
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+CREATE TABLE IF NOT EXISTS media_assets (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NULL,
+    operator            VARCHAR(32) NULL,
+    uploaded_by         VARCHAR(64) NULL,
+    storage_provider    VARCHAR(16) NOT NULL DEFAULT 'local' COMMENT 'local|s3|r2|oss',
+    storage_key         VARCHAR(255) NOT NULL COMMENT '对象存储 key 或逻辑 key',
+    file_path           TEXT NULL COMMENT '本地路径（仅 local）',
+    file_url            TEXT NULL COMMENT '可访问 URL（对象存储/CDN）',
+    file_name           VARCHAR(255) NOT NULL,
+    mime_type           VARCHAR(64) NOT NULL,
+    file_size           BIGINT NOT NULL,
+    sha256_hash         VARCHAR(64) NOT NULL,
+    status              VARCHAR(16) NOT NULL DEFAULT 'active' COMMENT 'active|deleted|blocked',
+    meta_json           JSON NULL,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_media_assets_creator ON media_assets(creator_id);
+CREATE INDEX idx_media_assets_status ON media_assets(status);
+CREATE INDEX idx_media_assets_hash ON media_assets(sha256_hash);
+
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- Media Send Log — 图片发送日志
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+CREATE TABLE IF NOT EXISTS media_send_log (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    media_asset_id      BIGINT NOT NULL,
+    creator_id          INT NULL,
+    phone               VARCHAR(32) NOT NULL,
+    session_id          VARCHAR(64) NULL,
+    operator            VARCHAR(32) NULL,
+    caption             TEXT NULL,
+    status              VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT 'pending|success|failed',
+    error_message       TEXT NULL,
+    wa_message_id       VARCHAR(255) NULL,
+    routed_session_id   VARCHAR(64) NULL,
+    routed_operator     VARCHAR(32) NULL,
+    sent_by             VARCHAR(64) NULL,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sent_at             DATETIME NULL,
+    FOREIGN KEY (media_asset_id) REFERENCES media_assets(id) ON DELETE RESTRICT,
+    FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_media_send_creator_created ON media_send_log(creator_id, created_at);
+CREATE INDEX idx_media_send_status_created ON media_send_log(status, created_at);
+CREATE INDEX idx_media_send_asset ON media_send_log(media_asset_id);
+
+-- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 -- SFT Feedback — Skip/Reject/Edit 反馈记录
 -- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 CREATE TABLE IF NOT EXISTS sft_feedback (
