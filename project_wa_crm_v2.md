@@ -27,7 +27,7 @@
 
 | # | 问题 | 修复方案 | 文件 |
 |---|------|---------|------|
-| P2-1 | 静态文件直接暴露 `/public` | 仅 `NODE_ENV !***REMOVED*** 'production'` 时启用 | `server.js` |
+| P2-1 | 静态文件直接暴露 `/public` | 仅 `NODE_ENV !== 'production'` 时启用 | `server.js` |
 | P2-2 | JSON body 无大小限制 | `express.json({ limit: '3mb' })` | `server.js` |
 | P2-3 | 无请求超时 | `req/res.setTimeout(15000)` | `server.js` |
 | P2-4 | 无 graceful shutdown | `SIGTERM/SIGINT` → `server.close()` + `db.closeDb()` | `server.js` |

@@ -219,7 +219,7 @@ MiniMax/OpenAI 返回 → extractText() → pushPicker({ opt1, opt2 })
 
 ### 触发C：话题类型发生变化
 
-- **条件**：`inferTopicKey(newText) !***REMOVED*** currentTopic.topic_key && newKey !***REMOVED*** 'general'`
+- **条件**：`inferTopicKey(newText) !== currentTopic.topic_key && newKey !== 'general'`
 - **实现**：正则匹配关键词，映射到 `topic_key`
 - **触发时**：自动切换话题，`trigger: 'keyword'`
 
@@ -285,11 +285,11 @@ MiniMax/OpenAI 返回 → extractText() → pushPicker({ opt1, opt2 })
 
 ### 触发条件：最后一条消息的发送者 role
 
-**模式一：推进模式（`lastMsgRole ***REMOVED***= 'assistant'`）**
+**模式一：推进模式（`lastMsgRole === 'assistant'`）**
 - 基础 system prompt + 【当前进行中事件】段落 + 【推进规则】
 - 在回复末尾追加推进语句
 
-**模式二：响应模式（`lastMsgRole ***REMOVED***= 'user'`）**
+**模式二：响应模式（`lastMsgRole === 'user'`）**
 - 基础 system prompt + 回复要求
 - 直接回答客户问题
 

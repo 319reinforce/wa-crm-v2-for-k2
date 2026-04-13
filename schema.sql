@@ -5,9 +5,9 @@
 CREATE DATABASE IF NOT EXISTS wa_crm_v2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE wa_crm_v2;
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- 达人主表
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS creators (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     primary_name    TEXT,
@@ -27,9 +27,9 @@ CREATE INDEX idx_creators_is_active ON creators(is_active);
 CREATE INDEX idx_creators_created_at ON creators(created_at);
 CREATE INDEX idx_creators_owner_active ON creators(wa_owner, is_active);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- 别名映射表
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS creator_aliases (
     id           INT AUTO_INCREMENT PRIMARY KEY,
     creator_id   INT NOT NULL,
@@ -43,9 +43,9 @@ CREATE TABLE IF NOT EXISTS creator_aliases (
 
 CREATE INDEX idx_aliases_creator ON creator_aliases(creator_id);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- WA 消息表
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS wa_messages (
     id          BIGINT AUTO_INCREMENT PRIMARY KEY,
     creator_id  INT NOT NULL,
@@ -63,9 +63,9 @@ CREATE INDEX idx_messages_timestamp ON wa_messages(timestamp);
 CREATE UNIQUE INDEX idx_messages_dedup_hash ON wa_messages(creator_id, message_hash);
 CREATE INDEX idx_messages_creator_timestamp ON wa_messages(creator_id, timestamp DESC);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- WA CRM 扩展数据
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS wa_crm_data (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
     creator_id          INT NOT NULL UNIQUE,
@@ -94,9 +94,9 @@ CREATE INDEX idx_crm_creator ON wa_crm_data(creator_id);
 CREATE INDEX idx_crm_priority ON wa_crm_data(priority);
 CREATE INDEX idx_crm_urgency ON wa_crm_data(urgency_level);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Keeper 系统关联
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS keeper_link (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
     creator_id          INT NOT NULL UNIQUE,
@@ -118,9 +118,9 @@ CREATE TABLE IF NOT EXISTS keeper_link (
 CREATE INDEX idx_keeper_creator ON keeper_link(creator_id);
 CREATE INDEX idx_keeper_username ON keeper_link(keeper_username);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- JoinBrands 系统关联
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS joinbrands_link (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     creator_id      INT NOT NULL UNIQUE,
@@ -154,9 +154,9 @@ CREATE INDEX idx_jb_creator ON joinbrands_link(creator_id);
 CREATE INDEX idx_jb_ev_joined ON joinbrands_link(ev_joined);
 CREATE INDEX idx_jb_ev_churned ON joinbrands_link(ev_churned);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- 手工匹配记录
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS manual_match (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     creator_id      INT,
@@ -169,9 +169,9 @@ CREATE TABLE IF NOT EXISTS manual_match (
     FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- SFT Memory — SFT 训练语料
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS sft_memory (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
     model_opt1          TEXT,
@@ -205,9 +205,9 @@ CREATE UNIQUE INDEX idx_sft_dedup ON sft_memory(client_id_hash, input_text_hash,
 CREATE INDEX idx_sft_scene ON sft_memory(scene);
 CREATE INDEX idx_sft_client_hash ON sft_memory(client_id_hash);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Retrieval Snapshot — 每次生成的检索上下文快照
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS retrieval_snapshot (
     id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
     client_id           VARCHAR(64),
@@ -225,9 +225,9 @@ CREATE TABLE IF NOT EXISTS retrieval_snapshot (
 CREATE INDEX idx_rs_client_scene ON retrieval_snapshot(client_id, scene, created_at);
 CREATE INDEX idx_rs_hash ON retrieval_snapshot(snapshot_hash);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Generation Log — 模型生成日志（用于AB评估与追溯）
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS generation_log (
     id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
     client_id           VARCHAR(64),
@@ -251,9 +251,9 @@ CREATE INDEX idx_gl_client_created ON generation_log(client_id, created_at);
 CREATE INDEX idx_gl_status_created ON generation_log(status, created_at);
 CREATE INDEX idx_gl_snapshot ON generation_log(retrieval_snapshot_id);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Media Assets — 图片素材资产
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS media_assets (
     id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
     creator_id          INT NULL,
@@ -278,9 +278,9 @@ CREATE INDEX idx_media_assets_creator ON media_assets(creator_id);
 CREATE INDEX idx_media_assets_status ON media_assets(status);
 CREATE INDEX idx_media_assets_hash ON media_assets(sha256_hash);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Media Send Log — 图片发送日志
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS media_send_log (
     id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
     media_asset_id      BIGINT NOT NULL,
@@ -305,9 +305,9 @@ CREATE INDEX idx_media_send_creator_created ON media_send_log(creator_id, create
 CREATE INDEX idx_media_send_status_created ON media_send_log(status, created_at);
 CREATE INDEX idx_media_send_asset ON media_send_log(media_asset_id);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- SFT Feedback — Skip/Reject/Edit 反馈记录
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS sft_feedback (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     client_id       VARCHAR(64) NOT NULL,
@@ -326,9 +326,9 @@ CREATE INDEX idx_feedback_type_scene ON sft_feedback(feedback_type, scene);
 CREATE INDEX idx_feedback_client ON sft_feedback(client_id);
 CREATE INDEX idx_feedback_created ON sft_feedback(created_at);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Client Memory — 客户单独记忆
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS client_memory (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
     client_id           VARCHAR(64) NOT NULL,
@@ -345,9 +345,9 @@ CREATE TABLE IF NOT EXISTS client_memory (
 CREATE INDEX idx_cm_client ON client_memory(client_id);
 CREATE INDEX idx_cm_memory_type ON client_memory(memory_type);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Policy Documents — 政策文档
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS policy_documents (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
     policy_key          VARCHAR(128) NOT NULL UNIQUE,
@@ -359,9 +359,9 @@ CREATE TABLE IF NOT EXISTS policy_documents (
     updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Sync Log — 同步日志
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS sync_log (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     bot_name        VARCHAR(32) NOT NULL,
@@ -374,9 +374,9 @@ CREATE TABLE IF NOT EXISTS sync_log (
 CREATE INDEX idx_sync_bot ON sync_log(bot_name);
 CREATE INDEX idx_sync_status ON sync_log(status);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Training Log — SFT 训练执行日志
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS training_log (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     month_label     VARCHAR(16) NOT NULL COMMENT 'YYYY-MM',
@@ -388,9 +388,9 @@ CREATE TABLE IF NOT EXISTS training_log (
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Audit Log — 审计日志
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS audit_log (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     action          VARCHAR(64) NOT NULL,
@@ -408,9 +408,9 @@ CREATE INDEX idx_audit_action ON audit_log(action);
 CREATE INDEX idx_audit_created ON audit_log(created_at);
 CREATE INDEX idx_audit_table_record ON audit_log(table_name, record_id);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Client Profiles — 客户独立画像
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS client_profiles (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
     client_id           VARCHAR(64) NOT NULL UNIQUE,
@@ -426,9 +426,9 @@ CREATE TABLE IF NOT EXISTS client_profiles (
 CREATE INDEX idx_cp_client ON client_profiles(client_id);
 CREATE INDEX idx_cp_stage ON client_profiles(stage);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Client Tags — 动态标签
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS client_tags (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     client_id       VARCHAR(64) NOT NULL,
@@ -443,9 +443,9 @@ CREATE INDEX idx_ct_client ON client_tags(client_id);
 CREATE INDEX idx_ct_tag ON client_tags(tag);
 CREATE INDEX idx_ct_source ON client_tags(source);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Operator Experiences — AI 体验配置
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS operator_experiences (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
     operator            VARCHAR(32) NOT NULL UNIQUE,
@@ -492,9 +492,9 @@ INSERT IGNORE INTO operator_experiences (operator, display_name, description, sy
  '["不提Beta program","不说guarantee/definitely","不攻击其他MCN","不发超过3条连续消息","不在北京时间23:00后主动联系"]',
  2);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Events — 事件表
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS events (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     creator_id      INT NOT NULL,
@@ -518,9 +518,9 @@ CREATE INDEX idx_events_owner ON events(owner);
 CREATE INDEX idx_events_event_type ON events(event_type);
 CREATE UNIQUE INDEX idx_events_unique_active ON events(creator_id, event_key, status, (IF(status='active',0,1)));
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Event Periods — 事件周期记录
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS event_periods (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     event_id        INT NOT NULL,
@@ -538,9 +538,9 @@ CREATE TABLE IF NOT EXISTS event_periods (
 CREATE INDEX idx_periods_event ON event_periods(event_id);
 CREATE INDEX idx_periods_status ON event_periods(status);
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Events Policy — 事件策略配置
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS events_policy (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     owner           VARCHAR(32) NOT NULL,
@@ -551,9 +551,9 @@ CREATE TABLE IF NOT EXISTS events_policy (
     UNIQUE KEY uk_policy (owner, event_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 -- Operator Creator Roster — 93 人精准归属表
--- ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+-- ============================================================
 CREATE TABLE IF NOT EXISTS operator_creator_roster (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
     creator_id          INT NOT NULL,
