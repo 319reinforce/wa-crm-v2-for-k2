@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { WAMessageComposer } from './components/WAMessageComposer'
 import { SFTDashboard } from './components/SFTDashboard'
 import { EventPanel } from './components/EventPanel'
+import { LifecycleConfigPanel } from './components/LifecycleConfigPanel'
 import { StrategyConfigPanel } from './components/StrategyConfigPanel'
 import { WorkerStatusBar } from './components/WorkerStatusBar'
 import { CreatorDetail } from './components/CreatorDetail'
@@ -35,6 +36,25 @@ const EVENT_FILTER_FIELD_MAP = {
   churned: ['ev_churned'],
 }
 
+const LIFECYCLE_FILTER_OPTIONS = [
+  { key: '', label: '生命周期' },
+  { key: 'acquisition', label: '获取' },
+  { key: 'activation', label: '激活' },
+  { key: 'retention', label: '留存' },
+  { key: 'revenue', label: '收入' },
+  { key: 'referral', label: '传播' },
+  { key: 'terminated', label: '终止池' },
+]
+
+const LIFECYCLE_BADGE_META = {
+  acquisition: { label: '获取', color: '#2563eb', bg: 'rgba(37,99,235,0.12)' },
+  activation: { label: '激活', color: '#7c3aed', bg: 'rgba(124,58,237,0.12)' },
+  retention: { label: '留存', color: '#0f766e', bg: 'rgba(15,118,110,0.12)' },
+  revenue: { label: '收入', color: '#b45309', bg: 'rgba(180,83,9,0.12)' },
+  referral: { label: '传播', color: '#0d9488', bg: 'rgba(13,148,136,0.12)' },
+  terminated: { label: '终止池', color: '#dc2626', bg: 'rgba(220,38,38,0.12)' },
+}
+
 const KANBAN_COLUMNS = [
   { key: 'new', label: '🆕 新建', color: '#94a3b8', filter: c => !c.msg_count },
   { key: 'active', label: '🔥 活跃', color: '#10b981', filter: c => c.msg_count > 5 },
@@ -56,8 +76,11 @@ function App() {
   const [filterPriority, setFilterPriority] = useState('')
   const [filterAgency, setFilterAgency] = useState('')
   const [filterEvent, setFilterEvent] = useState('')
+  const [filterLifecycle, setFilterLifecycle] = useState('')
   const [search, setSearch] = useState('')
   const [selectedCreator, setSelectedCreator] = useState(null)
+  const [selectedCreatorIds, setSelectedCreatorIds] = useState([])
+  const [batchApplyingOption0, setBatchApplyingOption0] = useState(false)
   const [unreadCounts, setUnreadCounts] = useState({}) // creatorId -> unread count
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [tagsVisible, setTagsVisible] = useState(true)
@@ -131,7 +154,7 @@ function App() {
       const clientX = e.touches ? e.touches[0].clientX : e.clientX
       setPanelWidths(prev => {
         const next = { ...prev }
-        if (dragging ***REMOVED***= 'list-detail') {
+        if (dragging === 'list-detail') {
           next.list = Math.min(Math.max(200, clientX), 500)
         }
         try { localStorage.setItem('wa_panel_widths', JSON.stringify(next)) } catch (_) {}
@@ -223,7 +246,7 @@ function App() {
     if (!creatorId) return
     setUnreadCounts(prev => ({ ...prev, [creatorId]: 0 }))
     setCreators(prev => prev.map(c => {
-      if (c.id !***REMOVED*** creatorId) return c
+      if (c.id !== creatorId) return c
       return {
         ...c,
         ev_replied: 1,
@@ -231,7 +254,7 @@ function App() {
       }
     }))
     setSelectedCreator(prev => {
-      if (!prev || prev.id !***REMOVED*** creatorId) return prev
+      if (!prev || prev.id !== creatorId) return prev
       return {
         ...prev,
         ev_replied: 1,
@@ -243,18 +266,18 @@ function App() {
   const handleCreatorUpdated = useCallback((updatedDetail) => {
     if (!updatedDetail?.id) return
     setCreators(prev => {
-      const next = prev.map(c => c.id ***REMOVED***= updatedDetail.id ? buildCreatorViewModel(updatedDetail, c) : c)
+      const next = prev.map(c => c.id === updatedDetail.id ? buildCreatorViewModel(updatedDetail, c) : c)
       next.sort((a, b) => getCreatorLastConversationTs(b) - getCreatorLastConversationTs(a))
       return next
     })
     setSelectedCreator(prev => {
-      if (!prev || prev.id !***REMOVED*** updatedDetail.id) return prev
+      if (!prev || prev.id !== updatedDetail.id) return prev
       return buildCreatorViewModel(updatedDetail, prev)
     })
   }, [])
 
   const openManualModal = useCallback(() => {
-    const suggestedOwner = filterOwner && filterOwner !***REMOVED*** '' ? filterOwner : (selectedCreator?.wa_owner || 'Yiyun')
+    const suggestedOwner = filterOwner && filterOwner !== '' ? filterOwner : (selectedCreator?.wa_owner || 'Yiyun')
     setManualForm({ name: '', phone: '', owner: suggestedOwner })
     setManualCheck(null)
     setManualError('')
@@ -327,6 +350,21 @@ function App() {
     }
   }, [manualForm, loadData])
 
+  useEffect(() => {
+    setSelectedCreatorIds(prev => prev.filter(id => creators.some(c => c.id === id)))
+  }, [creators])
+
+  const toggleCreatorSelection = useCallback((creatorId) => {
+    setSelectedCreatorIds(prev => prev.includes(creatorId)
+      ? prev.filter(id => id !== creatorId)
+      : [...prev, creatorId]
+    )
+  }, [])
+
+  const clearSelectedCreators = useCallback(() => {
+    setSelectedCreatorIds([])
+  }, [])
+
   const filteredCreators = useMemo(() => creators.filter(c => {
     if (search) {
       const s = search.toLowerCase()
@@ -334,17 +372,18 @@ function App() {
           !(c.wa_phone || '').includes(s) &&
           !(c.keeper_username || '').toLowerCase().includes(s)) return false
     }
-    if (filterBeta && c._full?.wacrm?.beta_status !***REMOVED*** filterBeta) return false
-    if (filterPriority && c._full?.wacrm?.priority !***REMOVED*** filterPriority) return false
-    if (filterAgency ***REMOVED***= 'yes' && !c._full?.wacrm?.agency_bound) return false
-    if (filterAgency ***REMOVED***= 'no' && c._full?.wacrm?.agency_bound) return false
+    if (filterBeta && c._full?.wacrm?.beta_status !== filterBeta) return false
+    if (filterPriority && c._full?.wacrm?.priority !== filterPriority) return false
+    if (filterAgency === 'yes' && !c._full?.wacrm?.agency_bound) return false
+    if (filterAgency === 'no' && c._full?.wacrm?.agency_bound) return false
     if (filterEvent) {
       const evKeys = EVENT_FILTER_FIELD_MAP[filterEvent] || [`ev_${filterEvent}`]
       const matched = evKeys.some(key => c._full?.joinbrands?.[key])
       if (!matched) return false
     }
+    if (filterLifecycle && c.lifecycle?.stage_key !== filterLifecycle) return false
     return true
-  }), [creators, search, filterBeta, filterPriority, filterAgency, filterEvent])
+  }), [creators, search, filterBeta, filterPriority, filterAgency, filterEvent, filterLifecycle])
 
   const ownerOptions = useMemo(() => {
     return buildOwnerOptions([
@@ -355,7 +394,57 @@ function App() {
     ], { includeAll: true })
   }, [creators, stats, selectedCreator?.wa_owner, filterOwner])
 
-  const activeFilterCount = [filterBeta, filterPriority, filterAgency, filterEvent].filter(Boolean).length
+  const visibleCreatorIds = useMemo(() => filteredCreators.map(c => c.id), [filteredCreators])
+  const selectedVisibleCreatorIds = useMemo(
+    () => visibleCreatorIds.filter(id => selectedCreatorIds.includes(id)),
+    [selectedCreatorIds, visibleCreatorIds]
+  )
+  const selectedVisibleCount = selectedVisibleCreatorIds.length
+  const allVisibleSelected = visibleCreatorIds.length > 0 && selectedVisibleCount === visibleCreatorIds.length
+
+  useEffect(() => {
+    setSelectedCreatorIds(prev => prev.filter(id => visibleCreatorIds.includes(id)))
+  }, [visibleCreatorIds])
+
+  const applyBatchLifecycleOption0 = useCallback(async () => {
+    if (selectedVisibleCreatorIds.length === 0) return
+    setBatchApplyingOption0(true)
+    try {
+      const result = await fetchJsonOrThrow(`${API_BASE}/creators/batch-next-action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          creator_ids: selectedVisibleCreatorIds,
+          mode: 'lifecycle_option0',
+        }),
+      })
+      await loadData()
+      if (selectedCreator?.id && selectedVisibleCreatorIds.includes(selectedCreator.id)) {
+        const detail = await fetchJsonOrThrow(`${API_BASE}/creators/${selectedCreator.id}`)
+        setSelectedCreator(buildCreatorViewModel(detail, selectedCreator))
+      }
+      setSelectedCreatorIds([])
+      window.alert(`已按生命周期 Option0 回填 ${result?.updated_count || 0} 位达人`)
+    } catch (e) {
+      window.alert(e.message || '批量写入 Option0 失败')
+    } finally {
+      setBatchApplyingOption0(false)
+    }
+  }, [loadData, selectedCreator, selectedVisibleCreatorIds])
+
+  const toggleSelectAllVisible = useCallback(() => {
+    if (visibleCreatorIds.length === 0) return
+    setSelectedCreatorIds(prev => {
+      if (visibleCreatorIds.every(id => prev.includes(id))) {
+        return prev.filter(id => !visibleCreatorIds.includes(id))
+      }
+      const next = new Set(prev)
+      for (const id of visibleCreatorIds) next.add(id)
+      return [...next]
+    })
+  }, [visibleCreatorIds])
+
+  const activeFilterCount = [filterBeta, filterPriority, filterAgency, filterEvent, filterLifecycle].filter(Boolean).length
   const selectedCreatorStatusMeta = getCreatorStatusMeta(selectedCreator)
   const isDetailPanelOpen = !!selectedCreator && (detailPanelExpanded || detailPanelPinned)
   const detailPanelWidth = selectedCreator
@@ -364,7 +453,7 @@ function App() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* ***REMOVED******REMOVED***= Mobile Sidebar Overlay ***REMOVED******REMOVED***= */}
+      {/* ===== Mobile Sidebar Overlay ===== */}
       {mobileSidebarOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileSidebarOpen(false)} />
@@ -417,8 +506,15 @@ function App() {
               {/* Owner tabs */}
               <div className="flex items-center gap-1 px-3 py-2 border-b overflow-x-auto" style={{ borderColor: WA.borderLight }}>
                 {ownerOptions.map(o => (
-                  <button key={o} onClick={() => setFilterOwner(o)} className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" style={{ background: filterOwner ***REMOVED***= o ? WA.teal : 'transparent', color: filterOwner ***REMOVED***= o ? 'white' : WA.textMuted }}>{o ***REMOVED***= '' ? '全部' : o}</button>
+                  <button key={o} onClick={() => setFilterOwner(o)} className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" style={{ background: filterOwner === o ? WA.teal : 'transparent', color: filterOwner === o ? 'white' : WA.textMuted }}>{o === '' ? '全部' : o}</button>
                 ))}
+              </div>
+              <div className="px-3 py-2 border-b" style={{ borderColor: WA.borderLight }}>
+                <FilterSelect value={filterLifecycle} onChange={setFilterLifecycle} placeholder="生命周期">
+                  {LIFECYCLE_FILTER_OPTIONS.map(option => (
+                    <option key={option.key || 'all'} value={option.key}>{option.label}</option>
+                  ))}
+                </FilterSelect>
               </div>
               {/* Creator list */}
               <div>
@@ -431,7 +527,7 @@ function App() {
         </div>
       )}
 
-      {/* ***REMOVED******REMOVED***= Desktop: Three-Panel Layout ***REMOVED******REMOVED***= */}
+      {/* ===== Desktop: Three-Panel Layout ===== */}
       <div className="hidden md:flex h-screen overflow-hidden" style={{ background: WA.lightBg }}>
 
         {/* Panel 1: Contact List */}
@@ -456,16 +552,16 @@ function App() {
               >
                 + 录入
               </button>
-              <button onClick={() => setActiveTab('creators')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab ***REMOVED***= 'creators' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab ***REMOVED***= 'creators' ? 'white' : 'rgba(255,255,255,0.55)' }}>
+              <button onClick={() => setActiveTab('creators')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab === 'creators' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab === 'creators' ? 'white' : 'rgba(255,255,255,0.55)' }}>
                 达人
               </button>
-              <button onClick={() => setActiveTab('sft')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab ***REMOVED***= 'sft' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab ***REMOVED***= 'sft' ? 'white' : 'rgba(255,255,255,0.55)' }}>
+              <button onClick={() => setActiveTab('sft')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab === 'sft' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab === 'sft' ? 'white' : 'rgba(255,255,255,0.55)' }}>
                 SFT
               </button>
-              <button onClick={() => setActiveTab('events')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab ***REMOVED***= 'events' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab ***REMOVED***= 'events' ? 'white' : 'rgba(255,255,255,0.55)' }}>
+              <button onClick={() => setActiveTab('events')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab === 'events' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab === 'events' ? 'white' : 'rgba(255,255,255,0.55)' }}>
                 事件
               </button>
-              <button onClick={() => setActiveTab('strategy')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab ***REMOVED***= 'strategy' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab ***REMOVED***= 'strategy' ? 'white' : 'rgba(255,255,255,0.55)' }}>
+              <button onClick={() => setActiveTab('strategy')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab === 'strategy' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab === 'strategy' ? 'white' : 'rgba(255,255,255,0.55)' }}>
                 策略
               </button>
             </div>
@@ -497,17 +593,17 @@ function App() {
                   onClick={() => setFilterOwner(o)}
                   className="shrink-0 px-3 py-2 rounded-xl text-sm font-semibold transition-all"
                   style={{
-                    background: filterOwner ***REMOVED***= o ? WA.teal : 'transparent',
-                    color: filterOwner ***REMOVED***= o ? 'white' : WA.textMuted,
+                    background: filterOwner === o ? WA.teal : 'transparent',
+                    color: filterOwner === o ? 'white' : WA.textMuted,
                     fontSize: '13px'
                   }}
                 >
-                  {o ***REMOVED***= '' ? '全部' : o}
+                  {o === '' ? '全部' : o}
                 </button>
               ))}
             </div>
             <button
-              onClick={() => setActiveTab(prev => prev ***REMOVED***= 'creators' ? 'creators' : prev)}
+              onClick={() => setActiveTab(prev => prev === 'creators' ? 'creators' : prev)}
               className="relative px-3 py-2 rounded-xl text-sm font-medium transition-all"
               style={{
                 background: activeFilterCount > 0 ? WA.teal + '18' : 'transparent',
@@ -551,9 +647,17 @@ function App() {
                 <option value="churned">已流失</option>
               </FilterSelect>
             </div>
-            {(filterBeta || filterPriority || filterAgency || filterEvent) && (
+            <div className="flex gap-1.5">
+              <FilterSelect value={filterLifecycle} onChange={setFilterLifecycle} placeholder="生命周期">
+                {LIFECYCLE_FILTER_OPTIONS.map(option => (
+                  <option key={option.key || 'all'} value={option.key}>{option.label}</option>
+                ))}
+              </FilterSelect>
+              <div className="flex-1" />
+            </div>
+            {(filterBeta || filterPriority || filterAgency || filterEvent || filterLifecycle) && (
               <button
-                onClick={() => { setFilterBeta(''); setFilterPriority(''); setFilterAgency(''); setFilterEvent('') }}
+                onClick={() => { setFilterBeta(''); setFilterPriority(''); setFilterAgency(''); setFilterEvent(''); setFilterLifecycle('') }}
                 className="w-full text-xs py-1.5 rounded-lg text-center font-medium"
                 style={{ color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}
               >
@@ -571,51 +675,92 @@ function App() {
               <button
                 onClick={() => setViewMode('list')}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                style={{ background: viewMode ***REMOVED***= 'list' ? WA.white : 'transparent', color: viewMode ***REMOVED***= 'list' ? WA.teal : WA.textMuted, boxShadow: viewMode ***REMOVED***= 'list' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none' }}
+                style={{ background: viewMode === 'list' ? WA.white : 'transparent', color: viewMode === 'list' ? WA.teal : WA.textMuted, boxShadow: viewMode === 'list' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none' }}
               >
                 ☰
               </button>
               <button
                 onClick={() => setViewMode('kanban')}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                style={{ background: viewMode ***REMOVED***= 'kanban' ? WA.white : 'transparent', color: viewMode ***REMOVED***= 'kanban' ? WA.teal : WA.textMuted, boxShadow: viewMode ***REMOVED***= 'kanban' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none' }}
+                style={{ background: viewMode === 'kanban' ? WA.white : 'transparent', color: viewMode === 'kanban' ? WA.teal : WA.textMuted, boxShadow: viewMode === 'kanban' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none' }}
               >
                 ⊞
               </button>
             </div>
           </div>
 
+          {activeTab === 'creators' && viewMode === 'list' && filteredCreators.length > 0 && (
+            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b" style={{ borderColor: WA.borderLight, background: WA.white }}>
+              <label className="flex items-center gap-2 text-xs" style={{ color: WA.textMuted }}>
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={toggleSelectAllVisible}
+                />
+                <span>全选当前 {visibleCreatorIds.length} 位</span>
+                {selectedVisibleCount > 0 && (
+                  <span style={{ color: WA.textDark }}>已选 {selectedVisibleCount}</span>
+                )}
+              </label>
+              <div className="flex items-center gap-2">
+                {selectedVisibleCount > 0 && (
+                  <button
+                    onClick={clearSelectedCreators}
+                    className="px-2.5 py-1.5 rounded-lg text-xs"
+                    style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
+                  >
+                    清空
+                  </button>
+                )}
+                <button
+                  onClick={applyBatchLifecycleOption0}
+                  disabled={selectedVisibleCount === 0 || batchApplyingOption0}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
+                  style={{ background: batchApplyingOption0 ? '#9ca3af' : WA.teal }}
+                >
+                  {batchApplyingOption0 ? '写入中...' : `批量写入 Option0${selectedVisibleCount > 0 ? ` (${selectedVisibleCount})` : ''}`}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* List / Kanban content */}
           <div className="flex-1 overflow-y-auto">
-            {activeTab ***REMOVED***= 'creators' ? (
-              loading && creators.length ***REMOVED***= 0 ? (
+            {activeTab === 'creators' ? (
+              loading && creators.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
                   <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: WA.teal, borderTopColor: 'transparent' }} />
                   <span className="text-xs">加载中...</span>
                 </div>
-              ) : filteredCreators.length ***REMOVED***= 0 ? (
+              ) : filteredCreators.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
                   <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: WA.lightBg }}>
                     <span className="text-xl">🔍</span>
                   </div>
                   <span className="text-sm">没有找到达人</span>
                 </div>
-              ) : viewMode ***REMOVED***= 'list' ? (
+              ) : viewMode === 'list' ? (
                 filteredCreators.map(c => (
                   <ChatListItem
                     key={c.id}
                     creator={c}
                     unread={unreadCounts[c.id] || 0}
+                    selectable
+                    selected={selectedCreatorIds.includes(c.id)}
+                    onToggleSelect={toggleCreatorSelection}
                     onClick={() => handleSelectCreator(c)}
                   />
                 ))
               ) : (
                 <KanbanView creators={filteredCreators} onCreatorClick={c => handleSelectCreator(c)} />
               )
-            ) : activeTab ***REMOVED***= 'events' ? (
+            ) : activeTab === 'events' ? (
               <EventPanel />
-            ) : activeTab ***REMOVED***= 'strategy' ? (
-              <StrategyConfigPanel />
+            ) : activeTab === 'strategy' ? (
+              <div className="h-full overflow-y-auto p-3 space-y-3" style={{ background: WA.lightBg }}>
+                <LifecycleConfigPanel embedded />
+                <StrategyConfigPanel embedded />
+              </div>
             ) : (
               <SFTDashboard compact />
             )}
@@ -625,7 +770,7 @@ function App() {
         {/* 分隔线 1：列表 ↔ 详情 */}
         <div
           className="w-1.5 shrink-0 cursor-col-resize group relative z-10"
-          style={{ background: dragging ***REMOVED***= 'list-detail' ? WA.teal : 'transparent' }}
+          style={{ background: dragging === 'list-detail' ? WA.teal : 'transparent' }}
           onMouseDown={startDrag('list-detail')}
           onTouchStart={startDrag('list-detail')}
         >
@@ -709,7 +854,7 @@ function App() {
 
       <WorkerStatusBar />
 
-      {/* ***REMOVED******REMOVED***= Mobile: Full-screen Chat (shown when creator selected) ***REMOVED******REMOVED***= */}
+      {/* ===== Mobile: Full-screen Chat (shown when creator selected) ===== */}
       {selectedCreator && (
         <div className="flex-1 flex flex-col md:hidden" style={{ background: WA.chatBg }}>
           {/* Mobile top bar */}
@@ -844,7 +989,7 @@ function ManualCreatorModal({
         <div className="rounded-xl border p-3 text-xs space-y-2" style={{ borderColor: WA.borderLight, background: WA.lightBg }}>
           {checkLoading ? (
             <div style={{ color: WA.textMuted }}>去重检查中...</div>
-          ) : checkResult?.ok ***REMOVED***= false ? (
+          ) : checkResult?.ok === false ? (
             <div style={{ color: '#ef4444' }}>去重检查失败：{checkResult.error || 'unknown error'}</div>
           ) : (
             <>
@@ -856,7 +1001,7 @@ function ManualCreatorModal({
               </div>
               {(hasPhoneConflict || hasNameConflict) && (
                 <div className="max-h-28 overflow-y-auto space-y-1 pr-1">
-                  {[...samePhone, ...sameName.filter(item => !samePhone.some(sp => sp.id ***REMOVED***= item.id))]
+                  {[...samePhone, ...sameName.filter(item => !samePhone.some(sp => sp.id === item.id))]
                     .slice(0, 6)
                     .map(item => (
                       <div key={item.id} className="px-2 py-1 rounded" style={{ background: WA.white, color: WA.textDark }}>
@@ -898,7 +1043,7 @@ function ManualCreatorModal({
   )
 }
 
-// ***REMOVED******REMOVED******REMOVED*** Kanban Board ***REMOVED******REMOVED******REMOVED***
+// ====== Kanban Board ======
 function KanbanView({ creators, onCreatorClick }) {
   return (
     <div className="flex gap-3 p-3 overflow-x-auto h-full">
@@ -914,7 +1059,7 @@ function KanbanView({ creators, onCreatorClick }) {
               {colCreators.map(c => (
                 <KanbanCard key={c.id} creator={c} color={col.color} onClick={() => onCreatorClick(c)} />
               ))}
-              {colCreators.length ***REMOVED***= 0 && (
+              {colCreators.length === 0 && (
                 <div className="text-center py-8 text-xs" style={{ color: WA.textMuted }}>无</div>
               )}
             </div>
@@ -933,8 +1078,8 @@ function KanbanCard({ creator, color, onClick }) {
       onClick={onClick}
       className="bg-white rounded-xl p-4 cursor-pointer hover:shadow-lg transition-all"
       style={{
-        borderLeft: `4px solid ${statusMeta.accent ***REMOVED***= 'transparent' ? color : statusMeta.accent}`,
-        background: statusMeta.bg ***REMOVED***= 'transparent' ? WA.white : `linear-gradient(180deg, ${statusMeta.bg} 0%, ${WA.white} 72%)`,
+        borderLeft: `4px solid ${statusMeta.accent === 'transparent' ? color : statusMeta.accent}`,
+        background: statusMeta.bg === 'transparent' ? WA.white : `linear-gradient(180deg, ${statusMeta.bg} 0%, ${WA.white} 72%)`,
       }}
     >
       <div className="flex items-center gap-3 mb-3">
@@ -963,7 +1108,7 @@ function KanbanCard({ creator, color, onClick }) {
   )
 }
 
-// ***REMOVED******REMOVED******REMOVED*** Filter components ***REMOVED******REMOVED******REMOVED***
+// ====== Filter components ======
 function FilterSelect({ value, onChange, placeholder, children }) {
   return (
     <select
@@ -982,7 +1127,7 @@ function FilterSelect({ value, onChange, placeholder, children }) {
   )
 }
 
-// ***REMOVED******REMOVED******REMOVED*** Relative time formatter ***REMOVED******REMOVED******REMOVED***
+// ====== Relative time formatter ======
 function formatChatListTime(ts) {
   if (!ts) return null
   return new Date(ts).toLocaleString('zh-CN', {
@@ -997,9 +1142,9 @@ function formatChatListTime(ts) {
 const TOPIC_STALE_MS = 48 * 3600 * 1000
 
 function normalizeChatTimestamp(value) {
-  if (value ***REMOVED*** null || value ***REMOVED***= '') return 0
-  if (typeof value ***REMOVED***= 'number') return value > 1e12 ? value : value * 1000
-  if (typeof value ***REMOVED***= 'string' && /^\d+$/.test(value)) {
+  if (value == null || value === '') return 0
+  if (typeof value === 'number') return value > 1e12 ? value : value * 1000
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
     const n = Number(value)
     return n > 1e12 ? n : n * 1000
   }
@@ -1025,7 +1170,7 @@ function getCreatorLastConversationTs(creator) {
 function isTopicExpired(creator) {
   const messages = getCreatorMessages(creator)
   const lastUserTs = messages
-    .filter(m => m?.role ***REMOVED***= 'user')
+    .filter(m => m?.role === 'user')
     .map(m => normalizeChatTimestamp(m?.timestamp))
     .filter(Boolean)
     .reduce((max, ts) => Math.max(max, ts), 0)
@@ -1042,8 +1187,8 @@ function shouldShowUnread(creator) {
     for (const msg of messages) {
       const ts = normalizeChatTimestamp(msg?.timestamp)
       if (!ts) continue
-      if (msg?.role ***REMOVED***= 'user') lastUserTs = Math.max(lastUserTs, ts)
-      if (msg?.role ***REMOVED***= 'me') lastMeTs = Math.max(lastMeTs, ts)
+      if (msg?.role === 'user') lastUserTs = Math.max(lastUserTs, ts)
+      if (msg?.role === 'me') lastMeTs = Math.max(lastMeTs, ts)
     }
     if (!lastUserTs) return false
     if (lastMeTs >= lastUserTs) return false
@@ -1058,7 +1203,9 @@ function shouldShowUnread(creator) {
 
 function flattenJoinbrandsFlags(joinbrands = {}) {
   return {
+    ev_trial_7day: !!joinbrands.ev_trial_7day,
     ev_trial_active: !!joinbrands.ev_trial_active,
+    ev_monthly_invited: !!joinbrands.ev_monthly_invited,
     ev_monthly_started: !!joinbrands.ev_monthly_started,
     ev_monthly_joined: !!joinbrands.ev_monthly_joined,
     ev_whatsapp_shared: !!joinbrands.ev_whatsapp_shared,
@@ -1076,7 +1223,9 @@ function buildCreatorListFull(detail = {}) {
     ...(detail.joinbrands || {}),
     ev_joined: detail.ev_joined ?? detail.joinbrands?.ev_joined,
     ev_ready_sent: detail.ev_ready_sent ?? detail.joinbrands?.ev_ready_sent,
+    ev_trial_7day: detail.ev_trial_7day ?? detail.joinbrands?.ev_trial_7day,
     ev_trial_active: detail.ev_trial_active ?? detail.joinbrands?.ev_trial_active,
+    ev_monthly_invited: detail.ev_monthly_invited ?? detail.joinbrands?.ev_monthly_invited,
     ev_monthly_started: detail.ev_monthly_started ?? detail.joinbrands?.ev_monthly_started,
     ev_monthly_joined: detail.ev_monthly_joined ?? detail.joinbrands?.ev_monthly_joined,
     ev_whatsapp_shared: detail.ev_whatsapp_shared ?? detail.joinbrands?.ev_whatsapp_shared,
@@ -1152,25 +1301,25 @@ function buildCreatorViewModel(detail, previous = {}) {
 
 function getPriorityBadgeMeta(priority) {
   if (!priority) return null
-  if (priority ***REMOVED***= 'urgent') {
+  if (priority === 'urgent') {
     return {
       label: '高优先级',
       style: { background: 'rgba(245,158,11,0.16)', color: '#f59e0b' }
     }
   }
-  if (priority ***REMOVED***= 'high') {
+  if (priority === 'high') {
     return {
       label: '高优先级',
       style: { background: 'rgba(245,158,11,0.10)', color: '#d97706', border: '1px solid rgba(245,158,11,0.18)' }
     }
   }
-  if (priority ***REMOVED***= 'medium') {
+  if (priority === 'medium') {
     return {
       label: '中优先级',
       style: { background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }
     }
   }
-  if (priority ***REMOVED***= 'normal' || priority ***REMOVED***= 'low') {
+  if (priority === 'normal' || priority === 'low') {
     return {
       label: '低优先级',
       style: { background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }
@@ -1179,14 +1328,16 @@ function getPriorityBadgeMeta(priority) {
   return null
 }
 
-// ***REMOVED******REMOVED******REMOVED*** Chat List Item ***REMOVED******REMOVED******REMOVED***
-function ChatListItem({ creator, onClick, unread }) {
+// ====== Chat List Item ======
+function ChatListItem({ creator, onClick, unread, selectable = false, selected = false, onToggleSelect }) {
   const ownerColor = getOwnerColor(creator.wa_owner, WA.textMuted)
   const full = creator._full || {}
   const wacrm = full.wacrm || {}
   const joinbrands = full.joinbrands || {}
   const statusMeta = getCreatorStatusMeta(creator)
   const priorityMeta = getPriorityBadgeMeta(wacrm.priority)
+  const lifecycle = creator.lifecycle || full.lifecycle || null
+  const lifecycleMeta = lifecycle?.stage_key ? LIFECYCLE_BADGE_META[lifecycle.stage_key] : null
 
   const lastActiveTs = getCreatorLastConversationTs(creator)
   const lastActiveLabel = lastActiveTs ? formatChatListTime(lastActiveTs) : null
@@ -1210,6 +1361,16 @@ function ChatListItem({ creator, onClick, unread }) {
       onMouseEnter={e => e.currentTarget.style.background = statusMeta.hoverBg}
       onMouseLeave={e => e.currentTarget.style.background = statusMeta.bg}
     >
+      {selectable && (
+        <div className="shrink-0" onClick={e => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect?.(creator.id)}
+          />
+        </div>
+      )}
+
       {/* Avatar + unread dot */}
       <div className="relative shrink-0">
         <div className="rounded-full flex items-center justify-center text-white font-medium" style={{ background: ownerColor, width: 48, height: 48, fontSize: 16 }}>
@@ -1257,11 +1418,16 @@ function ChatListItem({ creator, onClick, unread }) {
         </div>
 
         {/* Tags row */}
-        {(activeEvents.length > 0 || priorityMeta || wacrm.agency_bound > 0 || creator.keeper_gmv > 0 || statusMeta.label) && (
+        {(activeEvents.length > 0 || priorityMeta || lifecycleMeta || wacrm.agency_bound > 0 || creator.keeper_gmv > 0 || statusMeta.label) && (
           <div className="flex flex-wrap gap-1 mt-1">
             {statusMeta.label && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: statusMeta.bg ***REMOVED***= 'transparent' ? 'rgba(0,0,0,0.05)' : statusMeta.bg, color: statusMeta.accent }}>
+              <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: statusMeta.bg === 'transparent' ? 'rgba(0,0,0,0.05)' : statusMeta.bg, color: statusMeta.accent }}>
                 {statusMeta.label}
+              </span>
+            )}
+            {lifecycleMeta && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: lifecycleMeta.bg, color: lifecycleMeta.color }}>
+                {lifecycleMeta.label}
               </span>
             )}
             {activeEvents.map(e => (
@@ -1289,7 +1455,7 @@ function ChatListItem({ creator, onClick, unread }) {
   )
 }
 
-// ***REMOVED******REMOVED******REMOVED*** Empty State ***REMOVED******REMOVED******REMOVED***
+// ====== Empty State ======
 function EmptyState({ viewMode }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center" style={{ background: WA.chatBg }}>
@@ -1309,7 +1475,7 @@ function EmptyState({ viewMode }) {
   )
 }
 
-// ***REMOVED******REMOVED******REMOVED*** Panel 2 空状态：显示全局统计 ***REMOVED******REMOVED******REMOVED***
+// ====== Panel 2 空状态：显示全局统计 ======
 function Panel2Empty({ stats, creators }) {
   if (!stats) {
     return (
@@ -1321,7 +1487,7 @@ function Panel2Empty({ stats, creators }) {
   const totalCreators = creators.length
   const totalMessages = stats.total_messages || 0
   const activeCreators = creators.filter(c => c.msg_count > 0).length
-  const betaCount = creators.filter(c => c.beta_status ***REMOVED***= 'introduced' || c.beta_status ***REMOVED***= 'joined').length
+  const betaCount = creators.filter(c => c.beta_status === 'introduced' || c.beta_status === 'joined').length
 
   return (
     <div className="flex-1 flex flex-col" style={{ background: WA.chatBg }}>

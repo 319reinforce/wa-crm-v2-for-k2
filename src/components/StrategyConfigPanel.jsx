@@ -68,20 +68,20 @@ function emptyDraftStrategy() {
   }
 }
 
-export function StrategyConfigPanel() {
+export function StrategyConfigPanel({ embedded = false }) {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [savedAt, setSavedAt] = useState('')
   const [loaded, setLoaded] = useState(null)
-  const [draft, setDraft] = useState({
-    policy_key: 'strategy.unbound_agency',
-    policy_version: 'v1',
-    applicable_scenarios_text: 'mcn_binding, follow_up',
-    is_active: true,
-    source: 'default',
-    strategies: [],
-  })
+    const [draft, setDraft] = useState({
+      policy_key: 'strategy.unbound_agency',
+      policy_version: 'v1',
+      applicable_scenarios_text: 'mcn_binding, follow_up',
+      is_active: true,
+      source: 'default',
+      strategies: [],
+    })
 
   const loadConfig = useCallback(async () => {
     setLoading(true)
@@ -93,7 +93,7 @@ export function StrategyConfigPanel() {
         policy_key: data?.policy_key || 'strategy.unbound_agency',
         policy_version: data?.policy_version || 'v1',
         applicable_scenarios_text: Array.isArray(data?.applicable_scenarios) ? data.applicable_scenarios.join(', ') : '',
-        is_active: true,
+        is_active: data?.is_active === undefined ? true : !!data.is_active,
         source: data?.source || 'default',
         updated_at: data?.updated_at || null,
         strategies: normalized.map(toDraftStrategy),
@@ -115,7 +115,7 @@ export function StrategyConfigPanel() {
 
   const validate = useMemo(() => {
     const list = draft.strategies || []
-    if (list.length ***REMOVED***= 0) return '至少保留一条策略'
+    if (list.length === 0) return '至少保留一条策略'
     const ids = new Set()
     const keys = new Set()
     for (const item of list) {
@@ -185,7 +185,7 @@ export function StrategyConfigPanel() {
   }, [loadConfig])
 
   return (
-    <div className="h-full overflow-y-auto p-3 space-y-3" style={{ background: WA.lightBg }}>
+    <div className={embedded ? 'space-y-3' : 'h-full overflow-y-auto p-3 space-y-3'} style={embedded ? undefined : { background: WA.lightBg }}>
       <div className="rounded-xl p-3 space-y-2" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -230,6 +230,14 @@ export function StrategyConfigPanel() {
               className="mt-1 w-full rounded-lg px-2 py-1.5 text-xs"
               style={{ border: `1px solid ${WA.borderLight}`, background: WA.white, color: WA.textDark }}
             />
+          </label>
+          <label className="flex items-center gap-2 text-xs" style={{ color: WA.textMuted }}>
+            <input
+              type="checkbox"
+              checked={!!draft.is_active}
+              onChange={(e) => setDraft((prev) => ({ ...prev, is_active: e.target.checked }))}
+            />
+            启用策略（灰度/临时关闭时可取消勾选）
           </label>
           <label className="text-xs" style={{ color: WA.textMuted }}>
             applicable_scenarios (逗号分隔)

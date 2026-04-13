@@ -14,7 +14,47 @@ import WA from '../utils/waTheme'
 
 const API_BASE = '/api'
 
-// ***REMOVED******REMOVED******REMOVED*** Creator Detail Panel ***REMOVED******REMOVED******REMOVED***
+function buildEditFormSnapshot(creator) {
+  const jb = creator?.joinbrands || {}
+  const w = creator?.wacrm || {}
+  const k = creator?.keeper || {}
+  return {
+    primary_name: creator?.primary_name || '',
+    wa_phone: creator?.wa_phone || '',
+    wa_owner: creator?.wa_owner || '',
+    keeper_username: creator?.keeper_username || '',
+    beta_status: w.beta_status || 'not_introduced',
+    priority: w.priority || 'normal',
+    agency_bound: w.agency_bound ? '1' : '0',
+    video_count: w.video_count || 0,
+    video_target: w.video_target || 35,
+    monthly_fee_status: w.monthly_fee_status || 'pending',
+    monthly_fee_amount: w.monthly_fee_amount || 0,
+    next_action: w.next_action || '',
+    keeper_gmv: k.keeper_gmv || 0,
+    keeper_gmv30: k.keeper_gmv30 || 0,
+    keeper_orders: k.keeper_orders || 0,
+    keeper_videos: k.keeper_videos || 0,
+    keeper_videos_posted: k.keeper_videos_posted || 0,
+    keeper_videos_sold: k.keeper_videos_sold || 0,
+    keeper_card_rate: k.keeper_card_rate || '',
+    keeper_order_rate: k.keeper_order_rate || '',
+    keeper_reg_time: k.keeper_reg_time || 0,
+    keeper_activate_time: k.keeper_activate_time || 0,
+    ev_trial_active: !!jb.ev_trial_active,
+    ev_monthly_started: !!jb.ev_monthly_started,
+    ev_monthly_joined: !!jb.ev_monthly_joined,
+    ev_whatsapp_shared: !!jb.ev_whatsapp_shared,
+    ev_gmv_1k: !!jb.ev_gmv_1k,
+    ev_gmv_2k: !!jb.ev_gmv_2k,
+    ev_gmv_5k: !!jb.ev_gmv_5k,
+    ev_gmv_10k: !!jb.ev_gmv_10k,
+    ev_agency_bound: !!jb.ev_agency_bound,
+    ev_churned: !!jb.ev_churned,
+  }
+}
+
+// ====== Creator Detail Panel ======
 function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreatorUpdated, asPanel, collapsed = false, pinned = false, onTogglePin, onExpand }) {
   const [creator, setCreator] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -130,79 +170,32 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   // 当 creator 变化时，同步 editForm（用于内联编辑）
   useEffect(() => {
     if (!creator || showEdit) return
-    const jb = creator.joinbrands || {};
-    const w = creator.wacrm || {};
-    const k = creator.keeper || {};
-    setEditForm({
-      primary_name: creator.primary_name || '',
-      wa_phone: creator.wa_phone || '',
-      wa_owner: creator.wa_owner || '',
-      keeper_username: creator.keeper_username || '',
-      beta_status: w.beta_status || 'not_introduced',
-      priority: w.priority || 'normal',
-      agency_bound: w.agency_bound ? '1' : '0',
-      video_count: w.video_count || 0,
-      video_target: w.video_target || 35,
-      monthly_fee_status: w.monthly_fee_status || 'pending',
-      monthly_fee_amount: w.monthly_fee_amount || 0,
-      keeper_gmv: k.keeper_gmv || 0,
-      keeper_gmv30: k.keeper_gmv30 || 0,
-      keeper_orders: k.keeper_orders || 0,
-      ev_trial_active: !!jb.ev_trial_active,
-      ev_monthly_started: !!jb.ev_monthly_started,
-      ev_monthly_joined: !!jb.ev_monthly_joined,
-      ev_whatsapp_shared: !!jb.ev_whatsapp_shared,
-      ev_gmv_1k: !!jb.ev_gmv_1k,
-      ev_gmv_2k: !!jb.ev_gmv_2k,
-      ev_gmv_5k: !!jb.ev_gmv_5k,
-      ev_gmv_10k: !!jb.ev_gmv_10k,
-      ev_agency_bound: !!jb.ev_agency_bound,
-      ev_churned: !!jb.ev_churned,
-    })
+    setEditForm(buildEditFormSnapshot(creator))
   }, [creator, showEdit])
 
   const handleRefresh = () => fetchCreator(false)
 
   const handleEditOpen = () => {
-    const jb = creator?.joinbrands || {};
-    const w = creator?.wacrm || {};
-    const k = creator?.keeper || {};
-    const initial = {
-      primary_name: creator.primary_name || '',
-      wa_phone: creator.wa_phone || '',
-      wa_owner: creator.wa_owner || '',
-      keeper_username: creator.keeper_username || '',
-      beta_status: w.beta_status || 'not_introduced',
-      priority: w.priority || 'normal',
-      agency_bound: w.agency_bound ? '1' : '0',
-      video_count: w.video_count || 0,
-      video_target: w.video_target || 35,
-      monthly_fee_status: w.monthly_fee_status || 'pending',
-      monthly_fee_amount: w.monthly_fee_amount || 0,
-      next_action: w.next_action || '',
-      keeper_gmv: k.keeper_gmv || 0,
-      keeper_gmv30: k.keeper_gmv30 || 0,
-      keeper_orders: k.keeper_orders || 0,
-      keeper_videos: k.keeper_videos || 0,
-      keeper_videos_posted: k.keeper_videos_posted || 0,
-      keeper_videos_sold: k.keeper_videos_sold || 0,
-      keeper_card_rate: k.keeper_card_rate || '',
-      keeper_order_rate: k.keeper_order_rate || '',
-      keeper_reg_time: k.keeper_reg_time || 0,
-      keeper_activate_time: k.keeper_activate_time || 0,
-      ev_trial_active: !!jb.ev_trial_active,
-      ev_monthly_started: !!jb.ev_monthly_started,
-      ev_gmv_1k: !!jb.ev_gmv_1k,
-      ev_gmv_2k: !!jb.ev_gmv_2k,
-      ev_gmv_5k: !!jb.ev_gmv_5k,
-      ev_gmv_10k: !!jb.ev_gmv_10k,
-      ev_agency_bound: !!jb.ev_agency_bound,
-      ev_churned: !!jb.ev_churned,
-    }
+    const initial = buildEditFormSnapshot(creator)
     setEditForm(initial)
     setEditFormInitial(initial)
     setActiveManageTab('edit')
     // 如需保留弹窗模式，可在这里重新启用
+  }
+
+  const handleApplyLifecycleOption0 = () => {
+    const nextActionTemplate = creator?.lifecycle?.option0?.next_action_template
+    if (!nextActionTemplate) return
+    const initial = buildEditFormSnapshot(creator)
+    const hasDraft = activeManageTab === 'edit' && Object.keys(editForm || {}).length > 0
+    if (!hasDraft || Object.keys(editFormInitial || {}).length === 0) {
+      setEditFormInitial(initial)
+    }
+    setEditForm(prev => ({
+      ...(hasDraft ? prev : initial),
+      next_action: nextActionTemplate,
+    }))
+    setActiveManageTab('edit')
   }
 
   const handleEditSave = async () => {
@@ -300,6 +293,46 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   const displayKeeperUsername = displayCreator?.keeper_username || '-'
   const displayOwner = displayCreator?.wa_owner || '-'
   const displayKeeper = displayCreator?.keeper || {}
+  const lifecycle = creator?.lifecycle || displayCreator?.lifecycle || null
+  const lifecycleOption0 = lifecycle?.option0 || null
+  const lifecycleEntrySignals = Array.isArray(lifecycle?.entry_signals)
+    ? lifecycle.entry_signals.filter(Boolean)
+    : []
+
+  const lifecyclePanel = lifecycle && (
+    <DetailCard title="生命周期">
+      <InfoRow label="阶段" value={lifecycle.stage_label || '-'} />
+      <InfoRow label="目标" value={lifecycle.goal || '-'} />
+      {lifecycleEntrySignals.length > 0 && (
+        <InfoRow label="进入信号" value={lifecycleEntrySignals.join(' · ')} />
+      )}
+      {lifecycle.exit_signal_hint && (
+        <InfoRow label="退出提示" value={lifecycle.exit_signal_hint} />
+      )}
+      {lifecycleOption0 && (
+        <div className="mt-2 rounded-xl p-2 space-y-1.5" style={{ background: 'rgba(0,168,132,0.06)' }}>
+          <div className="text-[7px] font-semibold tracking-wide" style={{ color: WA.textMuted }}>
+            {lifecycleOption0.label}
+          </div>
+          <div className="text-[7px] leading-4" style={{ color: WA.textDark }}>
+            {lifecycleOption0.next_action_template}
+          </div>
+          {lifecycleOption0.next_action_template_en && (
+            <div className="text-[7px] leading-4" style={{ color: WA.textMuted }}>
+              EN: {lifecycleOption0.next_action_template_en}
+            </div>
+          )}
+          <button
+            onClick={handleApplyLifecycleOption0}
+            className="px-2.5 py-1.5 rounded-lg text-[7px] font-semibold text-white"
+            style={{ background: WA.teal }}
+          >
+            填入下一步
+          </button>
+        </div>
+      )}
+    </DetailCard>
+  )
 
   const profileManagerPanel = profileExpanded && (
     <div
@@ -312,11 +345,6 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
           {clientProfile?.tags?.length > 0 && (
             <span className="text-[7px] px-1.5 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted }}>
               {clientProfile.tags.length} 标签
-            </span>
-          )}
-          {clientProfile?.memory?.filter(m => m.type ***REMOVED***= 'strategy').length > 0 && (
-            <span className="text-[7px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: WA.teal }}>
-              {clientProfile.memory.filter(m => m.type ***REMOVED***= 'strategy').length} 策略
             </span>
           )}
         </div>
@@ -366,67 +394,10 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
         </div>
       </div>
 
-      <div className="border-t pt-2.5" style={{ borderColor: WA.borderLight }}>
-        <div className="text-[7px] font-semibold mb-1" style={{ color: WA.textMuted }}>回复策略</div>
-        {!isAgencyBound && (
-          <div className="mb-2">
-            <div className="text-[7px] font-semibold mb-1" style={{ color: WA.teal }}>未绑定Agency专属策略</div>
-            <div className="flex flex-wrap gap-1.5">
-              {agencyStrategies.map((strategy) => (
-                <button
-                  key={strategy.id}
-                  onClick={() => addStrategyMemory(strategy.memoryKey, strategy.memoryValue)}
-                  className="text-[7px] px-2 py-1 rounded-full border"
-                  style={{ borderColor: WA.teal, color: WA.teal, background: 'rgba(0,168,132,0.08)' }}
-                  title={strategy.shortDesc}
-                >
-                  + {strategy.name}
-                </button>
-              ))}
-            </div>
-            {activeAgencyStrategy && (
-              <div className="text-[7px] mt-1.5" style={{ color: WA.textMuted }}>
-                当前策略：{activeAgencyStrategy.name} / {activeAgencyStrategy.nameEn}
-              </div>
-            )}
-          </div>
-        )}
-        {clientProfile?.memory?.filter(m => m.type ***REMOVED***= 'strategy').length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {clientProfile.memory.filter(m => m.type ***REMOVED***= 'strategy').map((m, i) => (
-              <span key={i} className="flex items-center gap-1 text-[7px] px-2 py-1 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: WA.teal }}>
-                {m.value}
-                <button onClick={() => deleteStrategyMemory(m.key)} className="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>
-              </span>
-            ))}
-          </div>
-        )}
-        <div className="flex flex-wrap gap-1.5">
-          {[
-            ['DRIFTO介绍', '介绍DRIFTO MCN背景、2个月签约期、佣金100%返还机制'],
-            ['价格咨询', '回应月费、Beta激励、套餐价格相关疑问'],
-            ['月费说明', '解释$20月费扣除规则、每周一结算'],
-            ['Beta计划', '介绍20天Beta $200激励、$10/天规则'],
-            ['月度挑战', '邀请开启月度挑战计划、DRIFTO MCN月费权益'],
-            ['流失挽回', '针对流失客户的激活话术、重新建立沟通'],
-            ['视频要求', '说明5个/天最佳、超6个TikTok降权规则'],
-            ['付款说明', '解释PayPal返还、佣金结算周期'],
-          ].map(([key, desc]) => (
-            <button
-              key={key}
-              onClick={() => addStrategyMemory(key, desc)}
-              className="text-[7px] px-2 py-1 rounded-full border"
-              style={{ borderColor: WA.teal, color: WA.textDark, background: 'transparent' }}
-            >
-              + {key}
-            </button>
-          ))}
-        </div>
-      </div>
     </div>
   )
 
-  const financialPanel = activeManageTab ***REMOVED***= 'finance' && (
+  const financialPanel = activeManageTab === 'finance' && (
     <div
       className="mt-2 p-2.5 rounded-2xl space-y-2"
       style={{ background: 'rgba(255,255,255,0.78)', border: `1px solid ${WA.borderLight}`, boxShadow: '0 10px 24px rgba(15,23,42,0.04)' }}
@@ -458,7 +429,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
     </div>
   )
 
-  const keeperPanel = activeManageTab ***REMOVED***= 'keeper' && (
+  const keeperPanel = activeManageTab === 'keeper' && (
     <div
       className="mt-2 p-2.5 rounded-2xl space-y-2"
       style={{ background: 'rgba(255,255,255,0.78)', border: `1px solid ${WA.borderLight}`, boxShadow: '0 10px 24px rgba(15,23,42,0.04)' }}
@@ -494,7 +465,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
     </div>
   )
 
-  const quickEditPanel = activeManageTab ***REMOVED***= 'edit' && (
+  const quickEditPanel = activeManageTab === 'edit' && (
     <div
       className="mt-2 p-2.5 rounded-2xl space-y-2"
       style={{ background: 'rgba(255,255,255,0.78)', border: `1px solid ${WA.borderLight}`, boxShadow: '0 10px 24px rgba(15,23,42,0.04)' }}
@@ -518,6 +489,25 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
           onChange={e => setEditForm(f => ({ ...f, next_action: e.target.value }))}
           placeholder="记录下一步跟进计划..."
         />
+        {lifecycleOption0 && (
+          <div className="mt-1.5 space-y-1">
+            <div className="flex flex-wrap gap-1">
+              <button
+                onClick={handleApplyLifecycleOption0}
+                className="text-[7px] px-2 py-1 rounded-full border"
+                style={{ borderColor: WA.teal, background: 'rgba(0,168,132,0.08)', color: WA.teal }}
+                title={lifecycleOption0.next_action_template_en || ''}
+              >
+                填充：{lifecycleOption0.label}
+              </button>
+            </div>
+            {lifecycleOption0.next_action_template_en && (
+              <div className="text-[7px]" style={{ color: WA.textMuted }}>
+                English playbook: {lifecycleOption0.next_action_template_en}
+              </div>
+            )}
+          </div>
+        )}
         {!isAgencyBound && (
           <div className="mt-1.5 space-y-1">
             <div className="flex flex-wrap gap-1">
@@ -552,8 +542,8 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                 const v = e.target.value
                 setEditForm(f => ({
                   ...f,
-                  ev_trial_active: v ***REMOVED***= 'active',
-                  ev_monthly_started: v ***REMOVED***= 'monthly',
+                  ev_trial_active: v === 'active',
+                  ev_monthly_started: v === 'monthly',
                 }))
               }}
               className="flex-1 text-[7px] px-2 py-1.5 rounded-xl border"
@@ -572,10 +562,10 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                 const v = e.target.value
                 setEditForm(f => ({
                   ...f,
-                  ev_gmv_1k: v ***REMOVED***= '1k',
-                  ev_gmv_2k: v ***REMOVED***= '2k',
-                  ev_gmv_5k: v ***REMOVED***= '5k',
-                  ev_gmv_10k: v ***REMOVED***= '10k',
+                  ev_gmv_1k: v === '1k',
+                  ev_gmv_2k: v === '2k',
+                  ev_gmv_5k: v === '5k',
+                  ev_gmv_10k: v === '10k',
                 }))
               }}
               className="flex-1 text-[7px] px-2 py-1.5 rounded-xl border"
@@ -596,8 +586,8 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                 const v = e.target.value
                 setEditForm(f => ({
                   ...f,
-                  ev_agency_bound: v ***REMOVED***= 'agency',
-                  ev_churned: v ***REMOVED***= 'churned',
+                  ev_agency_bound: v === 'agency',
+                  ev_churned: v === 'churned',
                 }))
               }}
               className="flex-1 text-[7px] px-2 py-1.5 rounded-xl border"
@@ -630,8 +620,69 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
     </div>
   )
 
+  const strategyPanel = (
+    <DetailCard title="回复策略" className="space-y-2">
+      {!isAgencyBound && (
+        <div className="space-y-1.5">
+          <div className="text-[7px] font-semibold" style={{ color: WA.teal }}>未绑定Agency专属策略</div>
+          <div className="flex flex-wrap gap-1.5">
+            {agencyStrategies.map((strategy) => (
+              <button
+                key={strategy.id}
+                onClick={() => addStrategyMemory(strategy.memoryKey, strategy.memoryValue)}
+                className="text-[7px] px-2 py-1 rounded-full border"
+                style={{ borderColor: WA.teal, color: WA.teal, background: 'rgba(0,168,132,0.08)' }}
+                title={strategy.shortDesc}
+              >
+                + {strategy.name}
+              </button>
+            ))}
+          </div>
+          {activeAgencyStrategy && (
+            <div className="text-[7px]" style={{ color: WA.textMuted }}>
+              当前策略：{activeAgencyStrategy.name} / {activeAgencyStrategy.nameEn}
+            </div>
+          )}
+        </div>
+      )}
+
+      {clientProfile?.memory?.filter(m => m.type === 'strategy').length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {clientProfile.memory.filter(m => m.type === 'strategy').map((m, i) => (
+            <span key={i} className="flex items-center gap-1 text-[7px] px-2 py-1 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: WA.teal }}>
+              {m.value}
+              <button onClick={() => deleteStrategyMemory(m.key)} className="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-1.5">
+        {[
+          ['DRIFTO介绍', '介绍DRIFTO MCN背景、2个月签约期、佣金100%返还机制'],
+          ['价格咨询', '回应月费、Beta激励、套餐价格相关疑问'],
+          ['月费说明', '解释$20月费扣除规则、每周一结算'],
+          ['Beta计划', '介绍20天Beta $200激励、$10/天规则'],
+          ['月度挑战', '邀请开启月度挑战计划、DRIFTO MCN月费权益'],
+          ['流失挽回', '针对流失客户的激活话术、重新建立沟通'],
+          ['视频要求', '说明5个/天最佳、超6个TikTok降权规则'],
+          ['付款说明', '解释PayPal返还、佣金结算周期'],
+        ].map(([key, desc]) => (
+          <button
+            key={key}
+            onClick={() => addStrategyMemory(key, desc)}
+            className="text-[7px] px-2 py-1 rounded-full border"
+            style={{ borderColor: WA.teal, color: WA.textDark, background: 'transparent' }}
+          >
+            + {key}
+          </button>
+        ))}
+      </div>
+    </DetailCard>
+  )
+
   const managementTabs = (
-    <div className="mt-2">
+    <div className="mt-2 space-y-2">
       <div className="grid grid-cols-3 gap-1.5">
         {[
           { key: 'edit', label: '编辑达人', icon: '✏️', color: '#3b82f6' },
@@ -640,16 +691,16 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
         ].map(tab => (
           <ManagementTabButton
             key={tab.key}
-            active={activeManageTab ***REMOVED***= tab.key}
+            active={activeManageTab === tab.key}
             label={tab.label}
             icon={tab.icon}
             color={tab.color}
             onClick={() => {
-              if (activeManageTab ***REMOVED***= tab.key) {
+              if (activeManageTab === tab.key) {
                 setActiveManageTab(null)
                 return
               }
-              if (tab.key ***REMOVED***= 'edit') handleEditOpen()
+              if (tab.key === 'edit') handleEditOpen()
               else setActiveManageTab(tab.key)
             }}
           />
@@ -658,6 +709,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
       {quickEditPanel}
       {financialPanel}
       {keeperPanel}
+      {strategyPanel}
     </div>
   )
 
@@ -726,6 +778,8 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
               <MiniStat label="已售出" value={displayKeeper?.keeper_videos_sold || '-'} />
             </div>
 
+            {lifecyclePanel}
+
             <div className="grid grid-cols-2 gap-3 items-stretch">
               <DetailCard title="状态" className="h-full">
                 <InfoRow label="优先级" value={wacrm.priority || '-'} />
@@ -746,7 +800,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
               <ActionPill
                 label={profileExpanded ? '收起画像管理' : '画像管理'}
                 icon={profileExpanded ? '▲' : '👩‍🦰'}
-                color={detailStatusMeta.accent ***REMOVED***= 'transparent' ? WA.teal : detailStatusMeta.accent}
+                color={detailStatusMeta.accent === 'transparent' ? WA.teal : detailStatusMeta.accent}
                 onClick={() => setProfileExpanded(v => !v)}
               />
               {profileManagerPanel}
@@ -786,6 +840,8 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                   <MiniStat label="视频售出" value={displayKeeper?.keeper_videos_sold || '-'} />
                 </div>
 
+                {lifecyclePanel}
+
                 <div className="grid grid-cols-2 gap-3 items-stretch">
                   <DetailCard title="状态" className="h-full">
                     <InfoRow label="优先级" value={wacrm.priority || '-'} />
@@ -806,7 +862,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                   <ActionPill
                     label={profileExpanded ? '收起画像管理' : '画像管理'}
                     icon={profileExpanded ? '▲' : '👩‍🦰'}
-                    color={detailStatusMeta.accent ***REMOVED***= 'transparent' ? WA.teal : detailStatusMeta.accent}
+                    color={detailStatusMeta.accent === 'transparent' ? WA.teal : detailStatusMeta.accent}
                     onClick={() => setProfileExpanded(v => !v)}
                   />
                   {profileManagerPanel}
@@ -998,7 +1054,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
 
 function buildCreatorDraftPreview(creator, editForm = {}) {
   if (!creator) return creator
-  if (!editForm || Object.keys(editForm).length ***REMOVED***= 0) return creator
+  if (!editForm || Object.keys(editForm).length === 0) return creator
   const joinbrands = {
     ...(creator.joinbrands || {}),
     ev_trial_active: !!editForm.ev_trial_active,
@@ -1054,7 +1110,7 @@ function buildCreatorDraftPreview(creator, editForm = {}) {
 function InlineEditField({ label, value, onChange, type = 'text', options = [], compact = false }) {
   const labelClass = compact ? 'text-[7px] mb-0.5 leading-tight' : 'text-[11px] mb-1'
   const fieldClass = compact ? 'w-full text-[7px] px-2 py-1.5 rounded-xl border focus:outline-none focus:ring-2' : 'w-full text-[11px] px-2.5 py-2 rounded-xl border focus:outline-none focus:ring-2'
-  if (type ***REMOVED***= 'select') {
+  if (type === 'select') {
     return (
       <label className="block">
         <div className={labelClass} style={{ color: WA.textMuted }}>{label}</div>

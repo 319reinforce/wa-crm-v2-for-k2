@@ -35,7 +35,7 @@ export function inferScene(text, wacrm, messageCount = 0) {
     if (/\b(gmv|sales|订单|销售|收入|earnings)\b/.test(t)) return 'gmv_inquiry';
     if (/\b(payment|paypal|付款|收款|转账|汇款|转账|没收到|没到账)\b/.test(t)) return 'payment_issue';
     if (/\b(violation|appeal|申诉|违规|flagged|strike|封号|banned|suspended)\b/.test(t)) return 'violation_appeal';
-    if (wacrm?.beta_status ***REMOVED***= 'introduced' && messageCount > 3) return 'follow_up';
+    if (wacrm?.beta_status === 'introduced' && messageCount > 3) return 'follow_up';
     return messageCount <= 1 ? 'first_contact' : 'follow_up';
 }
 
@@ -43,11 +43,11 @@ export function inferScene(text, wacrm, messageCount = 0) {
 export function computeSimilarity(text1, text2) {
     if (!text1 || !text2) return 0;
     const s1 = text1.trim(), s2 = text2.trim();
-    if (s1 ***REMOVED***= s2) return 100;
+    if (s1 === s2) return 100;
     const words1 = new Set(s1.toLowerCase().split(/[\s,.!?;:，。！？；：]+/).filter(w => w.length > 0));
     const words2 = new Set(s2.toLowerCase().split(/[\s,.!?;:，。！？；：]+/).filter(w => w.length > 0));
-    if (words1.size ***REMOVED***= 0 && words2.size ***REMOVED***= 0) return 100;
-    if (words1.size ***REMOVED***= 0 || words2.size ***REMOVED***= 0) return 0;
+    if (words1.size === 0 && words2.size === 0) return 100;
+    if (words1.size === 0 || words2.size === 0) return 0;
     const intersection = new Set([...words1].filter(w => words2.has(w)));
     const union = new Set([...words1, ...words2]);
     return Math.round((intersection.size / union.size) * 100);
@@ -69,6 +69,7 @@ export function buildRichContext({ incomingMsg, client, creator, policyDocs, cli
     const fullCreator = creator?._full || creator || {};
     const wacrm = fullCreator?.wacrm || creator?.wacrm || client?.wacrm || {};
     const joinbrands = fullCreator?.joinbrands || creator?.joinbrands || {};
+    const lifecycle = fullCreator?.lifecycle || creator?.lifecycle || null;
     const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands);
     const agencyStrategy = !isAgencyBound
         ? resolveUnboundAgencyStrategy({ clientMemory, nextAction: wacrm?.next_action || '', strategies: agencyStrategies })
@@ -94,6 +95,14 @@ export function buildRichContext({ incomingMsg, client, creator, policyDocs, cli
         priority: wacrm?.priority || 'normal',
         agency_bound: isAgencyBound,
         next_action: wacrm?.next_action || null,
+        lifecycle: lifecycle ? {
+            stage_key: lifecycle.stage_key,
+            stage_label: lifecycle.stage_label,
+            goal: lifecycle.goal,
+            option0_label: lifecycle.option0?.label || null,
+            option0_next_action: lifecycle.option0?.next_action_template || null,
+            option0_next_action_en: lifecycle.option0?.next_action_template_en || null,
+        } : null,
         agency_strategy: agencyStrategy ? {
             id: agencyStrategy.id,
             name: agencyStrategy.name,
@@ -119,7 +128,7 @@ export function buildRichContext({ incomingMsg, client, creator, policyDocs, cli
 export function buildConversation(messages) {
     return {
         messages: (messages || []).slice(-20).map(m => ({
-            role: m.role ***REMOVED***= 'me' ? 'me' : 'user',
+            role: m.role === 'me' ? 'me' : 'user',
             text: m.text,
             timestamp: m.timestamp ?? null,
         })),

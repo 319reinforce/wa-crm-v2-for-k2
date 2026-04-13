@@ -101,7 +101,7 @@ export function resolveUnboundAgencyStrategy({ clientMemory = [], nextAction = '
     const memoryType = memory?.type || memory?.memory_type;
     const memoryKey = memory?.key || memory?.memory_key;
     const memoryValue = memory?.value || memory?.memory_value;
-    if (memoryType !***REMOVED*** 'strategy') continue;
+    if (memoryType !== 'strategy') continue;
     const byKey = strategyByMemoryKey[memoryKey] || null;
     const byValue = detectByText(memoryValue || '', effectiveStrategies);
     const detected = byKey || byValue;

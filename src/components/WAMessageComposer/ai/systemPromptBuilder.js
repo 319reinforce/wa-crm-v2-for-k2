@@ -10,7 +10,7 @@ export function buildSystemPrompt({ lastMsgRole, activeEvents, client, creator }
     const clientName = client?.name || creator?.primary_name || '未知';
     const owner = client?.wa_owner || creator?.wa_owner || '未知';
     const stage = client?.conversion_stage || creator?._full?.wacrm?.beta_status || '未知';
-    const isPushMode = lastMsgRole ***REMOVED***= 'assistant';
+    const isPushMode = lastMsgRole === 'assistant';
 
     const base = `你是一个专业的达人运营助手，帮助运营人员与 WhatsApp 达人沟通。
 
@@ -65,6 +65,7 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
     const fullCreator = creator?._full || creator || {};
     const wacrm = fullCreator?.wacrm || creator?.wacrm || {};
     const joinbrands = fullCreator?.joinbrands || creator?.joinbrands || {};
+    const lifecycle = fullCreator?.lifecycle || creator?.lifecycle || null;
     const owner = creator?.wa_owner || '未知';
     const stage = wacrm.beta_status || '未知';
     const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands);
@@ -81,23 +82,24 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
         const daysLeft = evt.end_at
             ? Math.ceil((new Date(evt.end_at) - Date.now()) / 86400000)
             : null;
-        const phase = daysLeft ***REMOVED***= null ? '进行中'
+        const phase = daysLeft === null ? '进行中'
             : daysLeft <= 0 ? '已结束'
             : daysLeft <= 3 ? '即将结束'
             : '进行中';
-        return `${TOPIC_LABELS[evt.event_key] || evt.event_key}·${phase}${daysLeft !***REMOVED*** null && daysLeft > 0 ? `·剩${daysLeft}天` : ''}`;
+        return `${TOPIC_LABELS[evt.event_key] || evt.event_key}·${phase}${daysLeft !== null && daysLeft > 0 ? `·剩${daysLeft}天` : ''}`;
     });
 
-    // ***REMOVED***= 同一话题模式（manual/auto）：简短版 ***REMOVED***=
-    if (mode ***REMOVED***= 'same_topic') {
+    // === 同一话题模式（manual/auto）：简短版 ===
+    if (mode === 'same_topic') {
         const eventSummary = eventLines.length > 0 ? eventLines.join(' | ') : '暂无进行中事件';
+        const lifecycleLabel = lifecycle?.stage_label ? ` | 生命周期:${lifecycle.stage_label}` : '';
         const strategyLabel = (!isAgencyBound && strategy)
             ? ` | 未绑定策略:${strategy.name}/${strategy.nameEn}`
             : '';
-        return `【当前话题】${topicLabel}（${triggerLabel}）| ${eventSummary}${strategyLabel}`;
+        return `【当前话题】${topicLabel}（${triggerLabel}）| ${eventSummary}${lifecycleLabel}${strategyLabel}`;
     }
 
-    // ***REMOVED***= 新话题模式（keyword/time）：完整版 ***REMOVED***=
+    // === 新话题模式（keyword/time）：完整版 ===
     const detectedAt = topic?.detected_at
         ? new Date(topic.detected_at).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
         : '未知';
@@ -110,7 +112,7 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
             const daysLeft = evt.end_at
                 ? Math.ceil((new Date(evt.end_at) - Date.now()) / 86400000)
                 : null;
-            const phase = daysLeft ***REMOVED***= null ? '进行中'
+            const phase = daysLeft === null ? '进行中'
                 : daysLeft <= 0 ? '已结束'
                 : daysLeft <= 3 ? '即将结束'
                 : '进行中';
@@ -118,10 +120,21 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
                 + `（${evt.owner}负责）`
                 + `目标${meta.weekly_target || 35}条/周`
                 + `·${phase}`
-                + (daysLeft !***REMOVED*** null && daysLeft > 0 ? `·剩余${daysLeft}天` : '');
+                + (daysLeft !== null && daysLeft > 0 ? `·剩余${daysLeft}天` : '');
         });
         fullEventSummary = lines.join('\n');
     }
+
+    const lifecycleBlock = lifecycle
+        ? `
+
+【生命周期阶段】
+- 当前阶段: ${lifecycle.stage_label}
+- 阶段目标: ${lifecycle.goal}
+- 当前 Option0: ${lifecycle.option0?.label || '未配置'}
+- 中文执行建议: ${lifecycle.option0?.next_action_template || '无'}
+- English playbook: ${lifecycle.option0?.next_action_template_en || 'n/a'}`
+        : '';
 
     const strategyBlock = !isAgencyBound && strategy
         ? `
@@ -141,6 +154,8 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
 【进行中事件】
 ${fullEventSummary}
 
+${lifecycleBlock}
+
 【回复策略提示】
 - 有进行中事件 → 优先推进事件进展，末尾加推进语句
 - 首次接触新客户 → 友好问候+介绍支持
@@ -154,7 +169,7 @@ export function buildConversationSummary(messages) {
     const older = messages.slice(0, -10);
     const recentCount = messages.length - older.length;
     const lines = older.map(m => {
-        const role = m.role ***REMOVED***= 'me' ? '运营' : '达人';
+        const role = m.role === 'me' ? '运营' : '达人';
         const text = (m.text || '').slice(0, 80);
         return `[${role}]: ${text}`;
     });
@@ -171,10 +186,10 @@ export function buildRichContextParagraph(richCtx) {
     const { scene, client_tone, language, days_since_last_msg, memory_summary, policy_tags, total_messages, hour_of_day, day_of_week } = richCtx;
 
     const toneLabel = { friendly: '友好', formal: '正式', casual: '随意', neutral: '中性' }[client_tone] || '未知';
-    const langLabel = language ***REMOVED***= 'zh' ? '中文' : '英文';
-    const timeHint = days_since_last_msg !***REMOVED*** null
-        ? days_since_last_msg ***REMOVED***= 0 ? '今天'
-            : days_since_last_msg ***REMOVED***= 1 ? '昨天'
+    const langLabel = language === 'zh' ? '中文' : '英文';
+    const timeHint = days_since_last_msg !== null
+        ? days_since_last_msg === 0 ? '今天'
+            : days_since_last_msg === 1 ? '昨天'
                 : `${days_since_last_msg}天前`
         : '未知';
 
@@ -203,6 +218,9 @@ export function buildRichContextParagraph(richCtx) {
     const nextActionBlock = richCtx.next_action
         ? `\n- 运营计划: ${richCtx.next_action}`
         : '';
+    const lifecycleBlock = richCtx.lifecycle
+        ? `\n- 生命周期: ${richCtx.lifecycle.stage_label}\n- 阶段目标: ${richCtx.lifecycle.goal}\n- 当前Option0: ${richCtx.lifecycle.option0_label || '未配置'}\n- Option0执行: ${richCtx.lifecycle.option0_next_action || '无'}\n- English playbook: ${richCtx.lifecycle.option0_next_action_en || 'n/a'}`
+        : '';
     const agencyStrategyBlock = richCtx.agency_strategy
         ? `\n- 未绑定Agency策略: ${richCtx.agency_strategy.name} | ${richCtx.agency_strategy.hint}\n- English playbook: ${richCtx.agency_strategy.hint_en}`
         : '';
@@ -210,5 +228,5 @@ export function buildRichContextParagraph(richCtx) {
     return `【当前对话上下文】
 - 场景: ${sceneLabel}
 - 客户语气: ${toneLabel} | 语言: ${langLabel} | 总消息: ${total_messages}条 | 上次互动: ${timeHint}
-- 时间: 周${day_of_week}${hour_of_day >= 9 && hour_of_day <= 21 ? '（工作时间）' : '（非工作时间）'}${memoryBlock}${policyBlock}${nextActionBlock}${agencyStrategyBlock}`;
+- 时间: 周${day_of_week}${hour_of_day >= 9 && hour_of_day <= 21 ? '（工作时间）' : '（非工作时间）'}${memoryBlock}${policyBlock}${nextActionBlock}${lifecycleBlock}${agencyStrategyBlock}`;
 }
