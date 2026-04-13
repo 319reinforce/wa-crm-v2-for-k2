@@ -11,10 +11,10 @@ const DB_PATH = path.join(__dirname, 'crm.db');
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 
-console.log('***REMOVED***= 事件系统迁移 ***REMOVED***=');
+console.log('=== 事件系统迁移 ===');
 console.log('数据库:', DB_PATH);
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 1. 创建 events 表 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 1. 创建 events 表 ==========
 console.log('\n[1/4] 创建 events 表...');
 db.exec(`
 CREATE TABLE IF NOT EXISTS events (
@@ -43,7 +43,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_events_unique_active
 `);
 console.log('✓ events 表创建完成');
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 2. 创建 event_periods 表 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 2. 创建 event_periods 表 ==========
 console.log('\n[2/4] 创建 event_periods 表...');
 db.exec(`
 CREATE TABLE IF NOT EXISTS event_periods (
@@ -64,14 +64,14 @@ CREATE INDEX IF NOT EXISTS idx_periods_status ON event_periods(status);
 `);
 console.log('✓ event_periods 表创建完成');
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 3. 验证表结构 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 3. 验证表结构 ==========
 console.log('\n[3/4] 验证表结构...');
 const eventsCols = db.prepare("PRAGMA table_info(events)").all();
 const periodsCols = db.prepare("PRAGMA table_info(event_periods)").all();
 console.log('events 表字段:', eventsCols.map(c => c.name).join(', '));
 console.log('event_periods 表字段:', periodsCols.map(c => c.name).join(', '));
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 4. 写入初始策略配置 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 4. 写入初始策略配置 ==========
 console.log('\n[4/4] 写入 Beau 事件策略配置...');
 
 // Beau 策略存入 events_policy 表（如果需要独立存储策略的话）
@@ -118,7 +118,7 @@ insertPolicy.run('Beau', 'agency_bound', beauAgencyPolicy);
 
 console.log('✓ Beau 策略配置写入完成');
 
-console.log('\n***REMOVED***= 迁移完成 ***REMOVED***=');
+console.log('\n=== 迁移完成 ===');
 console.log('新建表: events, event_periods, events_policy');
 console.log('状态: 所有表已创建并验证');
 

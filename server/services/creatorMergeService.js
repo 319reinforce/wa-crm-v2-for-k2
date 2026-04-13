@@ -28,17 +28,17 @@ const ROSTER_COLUMNS = [
 ];
 
 function isBlank(value) {
-    return value ***REMOVED***= null || value ***REMOVED***= undefined || value ***REMOVED***= '';
+    return value === null || value === undefined || value === '';
 }
 
 function shouldCopyValue(sourceValue, targetValue) {
     if (isBlank(sourceValue)) return false;
     if (isBlank(targetValue)) return true;
-    if (typeof sourceValue ***REMOVED***= 'number' && typeof targetValue ***REMOVED***= 'number') {
-        if (targetValue ***REMOVED***= 0 && sourceValue !***REMOVED*** 0) return true;
+    if (typeof sourceValue === 'number' && typeof targetValue === 'number') {
+        if (targetValue === 0 && sourceValue !== 0) return true;
         return false;
     }
-    if ((sourceValue ***REMOVED***= 1 || sourceValue ***REMOVED***= true) && (targetValue ***REMOVED***= 0 || targetValue ***REMOVED***= false)) {
+    if ((sourceValue === 1 || sourceValue === true) && (targetValue === 0 || targetValue === false)) {
         return true;
     }
     return false;
@@ -172,7 +172,7 @@ async function mergeDuplicateCreatorIntoCanonical({
     reason = 'duplicate_merge',
     operator = null,
 }) {
-    if (!targetCreatorId || !sourceCreatorId || Number(targetCreatorId) ***REMOVED***= Number(sourceCreatorId)) {
+    if (!targetCreatorId || !sourceCreatorId || Number(targetCreatorId) === Number(sourceCreatorId)) {
         return { merged: false, targetCreatorId, sourceCreatorId, reason: 'noop' };
     }
 
@@ -185,7 +185,7 @@ async function mergeDuplicateCreatorIntoCanonical({
             return { merged: false, targetCreatorId, sourceCreatorId, reason: 'creator_missing' };
         }
 
-        if (!isBlank(target.wa_phone) && !isBlank(source.wa_phone) && String(target.wa_phone) !***REMOVED*** String(source.wa_phone)) {
+        if (!isBlank(target.wa_phone) && !isBlank(source.wa_phone) && String(target.wa_phone) !== String(source.wa_phone)) {
             throw new Error(`merge blocked: conflicting phones target=${target.wa_phone} source=${source.wa_phone}`);
         }
 

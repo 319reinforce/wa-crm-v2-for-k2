@@ -49,18 +49,18 @@ async function main() {
 
     const keyFindings = [];
     const creatorsCols = (await db.getDb().prepare('SHOW COLUMNS FROM creators').all());
-    const creatorsWaPhone = creatorsCols.find((row) => row.Field ***REMOVED***= 'wa_phone');
-    if (creatorsWaPhone && creatorsWaPhone.Null ***REMOVED***= 'YES') {
+    const creatorsWaPhone = creatorsCols.find((row) => row.Field === 'wa_phone');
+    if (creatorsWaPhone && creatorsWaPhone.Null === 'YES') {
         keyFindings.push('creators.wa_phone currently allows NULL, but latest schema.sql expects NOT NULL UNIQUE.');
     }
 
     const profilesCols = (await db.getDb().prepare('SHOW COLUMNS FROM client_profiles').all());
-    const tiktokData = profilesCols.find((row) => row.Field ***REMOVED***= 'tiktok_data');
+    const tiktokData = profilesCols.find((row) => row.Field === 'tiktok_data');
     if (tiktokData && !String(tiktokData.Type || '').toLowerCase().includes('json')) {
         keyFindings.push('client_profiles.tiktok_data is not a native JSON column yet; latest schema expects JSON.');
     }
 
-    const lastInteraction = profilesCols.find((row) => row.Field ***REMOVED***= 'last_interaction');
+    const lastInteraction = profilesCols.find((row) => row.Field === 'last_interaction');
     if (lastInteraction && !String(lastInteraction.Type || '').toLowerCase().includes('datetime')) {
         keyFindings.push('client_profiles.last_interaction type differs from latest schema expectation.');
     }

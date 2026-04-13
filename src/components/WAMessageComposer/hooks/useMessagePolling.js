@@ -53,10 +53,10 @@ export function useMessagePolling({
             const data = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}/messages`, {
                 signal: AbortSignal.timeout(15000),
             });
-            if (activeClientIdRef.current !***REMOVED*** clientId || requestVersionRef.current !***REMOVED*** requestVersion) return;
+            if (activeClientIdRef.current !== clientId || requestVersionRef.current !== requestVersion) return;
             const freshMsgs = Array.isArray(data) ? data : (data.messages || []);
             const total = Array.isArray(data) ? freshMsgs.length : Number(data?.total ?? freshMsgs.length);
-            if (freshMsgs.length ***REMOVED***= 0) return;
+            if (freshMsgs.length === 0) return;
 
             setMessages(freshMsgs);
             setMessageTotal?.(Number.isFinite(total) ? total : freshMsgs.length);
@@ -69,20 +69,20 @@ export function useMessagePolling({
             }
 
             // 仅当最后一条消息来自达人时才自动生成，避免对运营刚发出的消息重复触发
-            if (!latest || latest.role !***REMOVED*** 'user') return;
+            if (!latest || latest.role !== 'user') return;
 
             const latestKey = getMessageKey(latest);
             const activeKey = getMessageKey(activePickerRef?.current?.incomingMsg);
             const pendingRef = pendingCandidatesRef?.current || [];
-            const alreadyQueued = activeKey ***REMOVED***= latestKey
-                || pendingRef.some((item) => getMessageKey(item?.incomingMsg) ***REMOVED***= latestKey);
+            const alreadyQueued = activeKey === latestKey
+                || pendingRef.some((item) => getMessageKey(item?.incomingMsg) === latestKey);
             if (alreadyQueued) return;
 
             const result = await generateForIncoming(latest);
-            if (activeClientIdRef.current !***REMOVED*** clientId || requestVersionRef.current !***REMOVED*** requestVersion) return;
+            if (activeClientIdRef.current !== clientId || requestVersionRef.current !== requestVersion) return;
             if (result) pushPicker(result);
         } catch (e) {
-            if (e?.name ***REMOVED***= 'AbortError') return;
+            if (e?.name === 'AbortError') return;
             console.error('[checkNewMessages] error:', e);
         }
     }, [client?.id, setMessages, generateForIncoming, pushPicker, lastActivityRef, pendingCandidatesRef, activePickerRef]);

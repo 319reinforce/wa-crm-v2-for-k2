@@ -13,13 +13,13 @@ router.get('/policy-documents', async (req, res) => {
         const db2 = db.getDb();
         const { active_only } = req.query;
         let sql = 'SELECT * FROM policy_documents';
-        if (active_only ***REMOVED***= 'true') sql += ' WHERE is_active = 1';
+        if (active_only === 'true') sql += ' WHERE is_active = 1';
         sql += ' ORDER BY policy_key';
         const rows = await db2.prepare(sql).all();
         res.json(rows.map(r => {
             let scenarios = [];
             if (r.applicable_scenarios) {
-                if (typeof r.applicable_scenarios ***REMOVED***= 'string') {
+                if (typeof r.applicable_scenarios === 'string') {
                     try { scenarios = JSON.parse(r.applicable_scenarios); } catch (_) { scenarios = []; }
                 } else {
                     scenarios = Array.isArray(r.applicable_scenarios) ? r.applicable_scenarios : [];

@@ -33,6 +33,7 @@ const WA_OWNER = normalizeOperatorName(process.env.WA_OWNER, 'Beau');
 const WA_SESSION_ID = String(process.env.WA_SESSION_ID || process.env.PORT || '3000').trim();
 const WA_API_BASE = process.env.WA_API_BASE || `http://127.0.0.1:${process.env.PORT || 3000}`;
 const CRAWLER_TAG = `${WA_OWNER}/${WA_SESSION_ID}`;
+const DIRECT_CHAT_SUFFIXES = ['@c.us', '@lid'];
 let statusTimer = null;
 let commandTimer = null;
 let commandInFlight = false;
@@ -77,7 +78,7 @@ function getWaMessageRole(message) {
         message?.data?.id?.fromMe,
     ];
     for (const candidate of boolCandidates) {
-        if (typeof candidate ***REMOVED***= 'boolean') return candidate ? 'me' : 'user';
+        if (typeof candidate === 'boolean') return candidate ? 'me' : 'user';
     }
 
     const directionCandidates = [
@@ -89,8 +90,8 @@ function getWaMessageRole(message) {
         message?.rawData?.selfDir,
     ];
     for (const candidate of directionCandidates) {
-        if (candidate ***REMOVED***= 'out') return 'me';
-        if (candidate ***REMOVED***= 'in') return 'user';
+        if (candidate === 'out') return 'me';
+        if (candidate === 'in') return 'user';
     }
     return 'user';
 }
@@ -102,7 +103,7 @@ function isBinaryLikePayload(text) {
     if (/^data:[^;]+;base64,[A-Za-z0-9+/=\s]+$/i.test(value)) return true;
     const compact = value.replace(/\s+/g, '');
     if (/^\/9j\/[A-Za-z0-9+/=]{64,}$/.test(compact)) return true;
-    if (/^[A-Za-z0-9+/=]{512,}$/.test(compact) && compact.length % 4 ***REMOVED***= 0) return true;
+    if (/^[A-Za-z0-9+/=]{512,}$/.test(compact) && compact.length % 4 === 0) return true;
     return false;
 }
 
@@ -111,13 +112,90 @@ function getWaMessageText(message) {
     return isBinaryLikePayload(text) ? '' : text;
 }
 
+function extractSerializedChatId(entity) {
+    return String(
+        entity?.id?._serialized
+        || entity?.id?.SerializedString
+        || entity?.chatId?._serialized
+        || entity?.chatId?.SerializedString
+        || entity?.chat?.id?._serialized
+        || entity?.chat?.id?.SerializedString
+        || entity?.from
+        || entity?.to
+        || entity?._data?.id?.remote
+        || entity?.rawData?.id?.remote
+        || ''
+    );
+}
+
+function isDirectChatId(chatId) {
+    const normalized = String(chatId || '').trim().toLowerCase();
+    if (!normalized) return false;
+    if (normalized.endsWith('@g.us')) return false;
+    if (normalized.endsWith('@broadcast')) return false;
+    if (normalized === 'status@broadcast') return false;
+    return DIRECT_CHAT_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+}
+
+function isDirectChat(chat) {
+    if (!chat) return false;
+    if (chat?.isGroup === true) return false;
+    return isDirectChatId(extractSerializedChatId(chat));
+}
+
+function getChatRecencyTs(chat) {
+    const raw = chat?.timestamp
+        ?? chat?._data?.t
+        ?? chat?.lastMessage?.timestamp
+        ?? chat?.lastMessage?._data?.t
+        ?? 0;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return n > 1e12 ? Math.floor(n) : Math.floor(n * 1000);
+}
+
+function pickPreferredChatEntry(current, candidate) {
+    if (!current) return candidate;
+    const currentTs = Number(current.recencyTs || 0);
+    const candidateTs = Number(candidate.recencyTs || 0);
+    if (candidateTs > currentTs) return candidate;
+    if (candidateTs < currentTs) return current;
+    const currentId = String(current.chatId || '');
+    const candidateId = String(candidate.chatId || '');
+    if (!currentId) return candidate;
+    if (!candidateId) return current;
+    return candidateId > currentId ? candidate : current;
+}
+
+async function buildDirectChatEntries(client) {
+    const chats = await client.getChats();
+    const byPhone = new Map();
+    for (const chat of chats || []) {
+        if (!isDirectChat(chat)) continue;
+        const contact = await chat.getContact().catch(() => null);
+        if (!contact?.number) continue;
+        const phone = normalizePhone(contact.number || '');
+        if (!phone) continue;
+        const entry = {
+            chat,
+            contact,
+            phone,
+            name: contact.name || contact.pushname || chat.name || 'Unknown',
+            recencyTs: getChatRecencyTs(chat),
+            chatId: extractSerializedChatId(chat),
+        };
+        byPhone.set(phone, pickPreferredChatEntry(byPhone.get(phone), entry));
+    }
+    return [...byPhone.values()];
+}
+
 async function fetchMessagesViaStore(chat, limit = 120) {
     const client = getClient();
     const chatId = chat?.id?._serialized || chat?.id?.SerializedString;
     if (!client?.pupPage || !chatId) return [];
 
     try {
-        if (typeof chat.syncHistory ***REMOVED***= 'function') {
+        if (typeof chat.syncHistory === 'function') {
             await chat.syncHistory().catch(() => false);
         }
     } catch (_) {}
@@ -140,8 +218,18 @@ async function fetchMessagesViaStore(chat, limit = 120) {
 }
 
 async function fetchMessagesWithFallback(chat, limit = 120) {
+    const minExpected = Math.min(Math.max(Math.floor(limit * 0.35), 20), limit);
     try {
-        return await chat.fetchMessages({ limit });
+        const primary = await chat.fetchMessages({ limit });
+        if (Array.isArray(primary) && primary.length >= minExpected) {
+            return primary;
+        }
+        const secondary = await fetchMessagesViaStore(chat, limit);
+        if (Array.isArray(secondary) && secondary.length > (primary?.length || 0)) {
+            console.warn(`[waCrawler:${CRAWLER_TAG}] fetchMessages hydrated via Store.Chat for ${chat?.name || chat?.id?._serialized || 'unknown chat'} (${primary?.length || 0} -> ${secondary.length})`);
+            return secondary;
+        }
+        return primary;
     } catch (e) {
         const message = String(e?.message || '');
         if (isRecoverableFrameError(e)) {
@@ -161,16 +249,14 @@ async function resolveChatByPhone(phone) {
 
     const normalizedTarget = normalizePhone(phone);
     if (!normalizedTarget) return null;
-    const chats = await client.getChats();
-    for (const chat of chats) {
-        if (chat.isGroup) continue;
-        const contact = await chat.getContact().catch(() => null);
-        if (!contact) continue;
-        const chatPhone = normalizePhone(contact.number || '');
-        if (chatPhone && chatPhone ***REMOVED***= normalizedTarget) {
-            return { chat, contact };
+    try {
+        const chatEntries = await buildDirectChatEntries(client);
+        const matched = chatEntries.filter((entry) => entry.phone === normalizedTarget);
+        if (matched.length > 0) {
+            const best = matched.sort((a, b) => Number(b.recencyTs || 0) - Number(a.recencyTs || 0))[0];
+            return { chat: best.chat, contact: best.contact };
         }
-    }
+    } catch (_) {}
 
     const cleanPhone = normalizedTarget.replace(/[^\d+]/g, '');
     if (!cleanPhone) return null;
@@ -182,8 +268,10 @@ async function resolveChatByPhone(phone) {
         const wid = await client.getNumberId(chatId).catch(() => null);
         const resolvedChatId = wid?._serialized || chatId;
         const chat = await client.getChatById(resolvedChatId).catch(() => null);
-        if (!chat || chat.isGroup) return null;
+        if (!isDirectChat(chat)) return null;
         const contact = await chat.getContact().catch(() => null);
+        const chatPhone = normalizePhone(contact?.number || '');
+        if (chatPhone && chatPhone !== normalizedTarget) return null;
         return { chat, contact };
     } catch (_) {
         return null;
@@ -200,7 +288,7 @@ async function fetchAuditMessagesByPhone(phone, limit = 120) {
         try {
             resolved = await resolveChatByPhone(normalizedTarget);
         } catch (error) {
-            if (!isRecoverableFrameError(error) || attempt ***REMOVED***= 3) {
+            if (!isRecoverableFrameError(error) || attempt === 3) {
                 return { ok: false, error: error.message || String(error) };
             }
             console.warn(`[waCrawler:${CRAWLER_TAG}] resolveChat retry for ${normalizedTarget} after frame reset (${attempt}/3)`);
@@ -219,13 +307,13 @@ async function fetchAuditMessagesByPhone(phone, limit = 120) {
                     role: getWaMessageRole(message),
                     text: getWaMessageText(message),
                     timestamp: getWaMessageTimestampMs(message),
-                    message_id: typeof message?.id ***REMOVED***= 'string'
+                    message_id: typeof message?.id === 'string'
                         ? message.id
                         : message?.id?._serialized || message?.id?.id || null,
                 })),
             };
         } catch (error) {
-            if (!isRecoverableFrameError(error) || attempt ***REMOVED***= 3) {
+            if (!isRecoverableFrameError(error) || attempt === 3) {
                 return { ok: false, error: error.message || String(error) };
             }
             console.warn(`[waCrawler:${CRAWLER_TAG}] audit retry for ${normalizedTarget} after frame reset (${attempt}/3)`);
@@ -261,7 +349,7 @@ async function processSessionCommands() {
         if (!claimed) return;
 
         const payload = claimed.command || {};
-        if (payload.type ***REMOVED***= 'send_message') {
+        if (payload.type === 'send_message') {
             const result = await sendMessage(payload.phone, payload.text);
             completeClaimedCommand(claimed, {
                 ...result,
@@ -271,7 +359,7 @@ async function processSessionCommands() {
             publishStatus();
             return;
         }
-        if (payload.type ***REMOVED***= 'send_media') {
+        if (payload.type === 'send_media') {
             const mediaPayload = payload.payload || {};
             const result = await sendMedia(payload.phone, {
                 caption: mediaPayload.caption || payload.caption || '',
@@ -289,7 +377,7 @@ async function processSessionCommands() {
             publishStatus();
             return;
         }
-        if (payload.type ***REMOVED***= 'audit_recent_messages') {
+        if (payload.type === 'audit_recent_messages') {
             const auditPayload = payload.payload || {};
             const result = await withTimeout(
                 fetchAuditMessagesByPhone(
@@ -368,7 +456,7 @@ async function shutdown(signal) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-if (require.main ***REMOVED***= module) {
+if (require.main === module) {
     main().catch(async (err) => {
         console.error(`[waCrawler:${CRAWLER_TAG}] fatal:`, err.message);
         try { await db.closeDb(); } catch (_) {}

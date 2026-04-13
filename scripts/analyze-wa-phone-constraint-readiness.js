@@ -11,7 +11,7 @@ function ensureDir(dirPath) {
 
 function toCsv(rows, columns) {
     const escape = (value) => {
-        if (value ***REMOVED***= null || value ***REMOVED***= undefined) return '';
+        if (value === null || value === undefined) return '';
         const text = String(value);
         if (/[",\n]/.test(text)) {
             return `"${text.replace(/"/g, '""')}"`;

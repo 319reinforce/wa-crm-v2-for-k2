@@ -20,11 +20,11 @@ const http = require('http');
 const DB = require('../../db');
 const { prepareDataset } = require('../../scripts/prepare-safe-finetune-jsonl.cjs');
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 配置 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 配置 ==========
 const EXPORT_LIMIT = parseInt(process.env.TRAINING_EXPORT_LIMIT || '5000');
 const SERVER_HOST = process.env.SERVER_HOST || 'http://localhost:3000';
 const DEEPSKILL_CHAT_ID = 'oc_5a15266d1e682f0ea9eb7a53a45b3303';
-const DRY_RUN = process.env.TRAINING_DRY_RUN ***REMOVED***= 'true';
+const DRY_RUN = process.env.TRAINING_DRY_RUN === 'true';
 const INTERNAL_API_TOKEN = (
     process.env.API_AUTH_TOKEN ||
     process.env.AI_PROXY_TOKEN ||
@@ -32,9 +32,9 @@ const INTERNAL_API_TOKEN = (
     ''
 ).trim();
 const INTERNAL_API_TIMEOUT_MS = Math.max(parseInt(process.env.TRAINING_API_TIMEOUT_MS || '30000', 10) || 30000, 3000);
-const PREPARE_SAFE_DATASET = process.env.TRAINING_PREPARE_SAFE_DATASET !***REMOVED*** 'false';
+const PREPARE_SAFE_DATASET = process.env.TRAINING_PREPARE_SAFE_DATASET !== 'false';
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** HTTP 辅助 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== HTTP 辅助 ==========
 function apiRequest(method, pathWithQuery, body) {
     return new Promise((resolve, reject) => {
         const url = new URL(pathWithQuery, SERVER_HOST);
@@ -44,12 +44,12 @@ function apiRequest(method, pathWithQuery, body) {
         }
         const options = {
             hostname: url.hostname,
-            port: url.port || (url.protocol ***REMOVED***= 'https:' ? 443 : 3000),
+            port: url.port || (url.protocol === 'https:' ? 443 : 3000),
             path: `${url.pathname}${url.search}`,
             method,
             headers,
         };
-        const req = (url.protocol ***REMOVED***= 'https:' ? https : http).request(options, (res) => {
+        const req = (url.protocol === 'https:' ? https : http).request(options, (res) => {
             let data = '';
             res.on('data', d => data += d);
             res.on('end', () => {
@@ -76,7 +76,7 @@ function apiRequest(method, pathWithQuery, body) {
     });
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 飞书通知 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 飞书通知 ==========
 async function notify(message) {
     try {
         const token = process.env.LARK_BOT_TOKEN;
@@ -102,7 +102,7 @@ async function notify(message) {
     }
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 导出 SFT 数据 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 导出 SFT 数据 ==========
 async function exportSFTData(monthLabel) {
     const exportPath = `/tmp/sft-export-${monthLabel}.jsonl`;
     const countPath = `/tmp/sft-export-${monthLabel}.count`;
@@ -112,21 +112,21 @@ async function exportSFTData(monthLabel) {
     console.log(`[Training] 导出 SFT 数据到 ${exportPath}...`);
 
     const res = await apiRequest('GET', `/api/sft-export?format=jsonl&status=approved&limit=${EXPORT_LIMIT}&month=${monthLabel}`, null);
-    if (res.status !***REMOVED*** 200) {
-        const detail = typeof res.data ***REMOVED***= 'string'
+    if (res.status !== 200) {
+        const detail = typeof res.data === 'string'
             ? res.data.slice(0, 240)
             : JSON.stringify(res.data || {}).slice(0, 240);
         throw new Error(`导出失败: HTTP ${res.status}; ${detail}`);
     }
 
-    const records = typeof res.data ***REMOVED***= 'string'
+    const records = typeof res.data === 'string'
         ? res.data.trim().split('\n').filter(Boolean).map(l => JSON.parse(l))
         : (Array.isArray(res.data) ? res.data : []);
 
     const count = records.length;
     console.log(`[Training] 导出 ${count} 条 approved 记录`);
 
-    if (count ***REMOVED***= 0) {
+    if (count === 0) {
         console.warn('[Training] 没有可导出的数据');
         return { count: 0, path: null };
     }
@@ -183,7 +183,7 @@ async function ensureTrainingLogTable() {
     `).run();
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 记录训练元数据 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 记录训练元数据 ==========
 async function logTrainingRun({ monthLabel, recordCount, exportPath, status, detail, triggeredBy }) {
     try {
         const db2 = DB.getDb();
@@ -206,7 +206,7 @@ async function logTrainingRun({ monthLabel, recordCount, exportPath, status, det
     }
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 核心流程 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 核心流程 ==========
 async function runTraining(triggeredBy = 'manual') {
     const now = new Date();
     const monthLabel = now.toISOString().slice(0, 7); // e.g. "2026-04"
@@ -233,7 +233,7 @@ async function runTraining(triggeredBy = 'manual') {
         const rawCount = Number.isFinite(exportResult.raw_count) ? exportResult.raw_count : recordCount;
         const safeReportPath = exportResult.safe_report_path || null;
 
-        if (recordCount ***REMOVED***= 0) {
+        if (recordCount === 0) {
             detail = '无 approved 数据，跳过训练';
             status = 'skipped';
             console.warn(`[Training] ${detail}`);
@@ -278,7 +278,7 @@ async function runTraining(triggeredBy = 'manual') {
     return { status, detail, recordCount, exportPath };
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** HTTP 触发端点（由外部 cron 调用） ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== HTTP 触发端点（由外部 cron 调用） ==========
 // 外部 cron 定时调用:
 //   curl -X POST http://localhost:3000/api/training/trigger
 async function handleTrigger(req, res) {
@@ -287,7 +287,7 @@ async function handleTrigger(req, res) {
     if (!expectedToken) {
         return res.status(503).json({ error: 'TRAINING_TRIGGER_TOKEN not configured' });
     }
-    if (authHeader !***REMOVED*** `Bearer ${expectedToken}`) {
+    if (authHeader !== `Bearer ${expectedToken}`) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     try {
@@ -298,8 +298,8 @@ async function handleTrigger(req, res) {
     }
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** CLI / 直接运行 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
-if (require.main ***REMOVED***= module) {
+// ========== CLI / 直接运行 ==========
+if (require.main === module) {
     runTraining('cli')
         .then(r => { console.log('结果:', r); process.exit(0); })
         .catch(e => { console.error(e); process.exit(1); });

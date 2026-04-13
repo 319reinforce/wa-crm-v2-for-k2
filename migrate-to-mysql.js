@@ -24,7 +24,7 @@ const MYSQL_CONFIG = {
     timezone: '+08:00',
 };
 
-const RESET = process.env.RESET ***REMOVED***= '1';
+const RESET = process.env.RESET === '1';
 
 function log(msg) {
     console.log(`[migrate] ${new Date().toISOString().slice(11, 19)} ${msg}`);
@@ -35,7 +35,7 @@ function logError(msg) {
 }
 
 async function main() {
-    log('***REMOVED***= SQLite → MySQL 迁移开始 ***REMOVED***=');
+    log('=== SQLite → MySQL 迁移开始 ===');
     log(`SQLite: ${SQLITE_PATH}`);
     if (RESET) log('模式: RESET（将清空所有 MySQL 表后重新迁移）');
 
@@ -51,9 +51,9 @@ async function main() {
 
     try {
         function toMysqlVal(val) {
-            if (val ***REMOVED***= null || val ***REMOVED***= undefined || val ***REMOVED***= '') return null;
-            if (typeof val ***REMOVED***= 'number') return val;
-            if (typeof val ***REMOVED***= 'boolean') return val ? 1 : 0;
+            if (val === null || val === undefined || val === '') return null;
+            if (typeof val === 'number') return val;
+            if (typeof val === 'boolean') return val ? 1 : 0;
             return String(val);
         }
 
@@ -93,14 +93,14 @@ async function main() {
         }
 
         async function batchInsert(table, columns, rows) {
-            if (rows.length ***REMOVED***= 0) return;
+            if (rows.length === 0) return;
             const placeholders = rows.map(() => `(${columns.map(() => '?').join(', ')})`).join(', ');
             const values = rows.flatMap(row => columns.map(col => toMysqlVal(row[col])));
             const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES ${placeholders}`;
             await new Promise((resolve, reject) => {
                 mysqlConn.query(sql, values, (err) => {
                     if (err) {
-                        if (err.code ***REMOVED***= 'ER_DUP_ENTRY') {
+                        if (err.code === 'ER_DUP_ENTRY') {
                             log(`  [跳过] ${table} 重复键`);
                             resolve();
                         } else {
@@ -417,7 +417,7 @@ async function main() {
                             priority = VALUES(priority)`,
                         [row.operator, row.display_name, row.description, row.system_prompt_base, row.scene_config, row.forbidden_rules, row.priority],
                         (err) => {
-                            if (err && err.code !***REMOVED*** 'ER_DUP_ENTRY') logError(`operator_experiences: ${err.message}`);
+                            if (err && err.code !== 'ER_DUP_ENTRY') logError(`operator_experiences: ${err.message}`);
                             else resolve();
                         }
                     );
@@ -438,7 +438,7 @@ async function main() {
                 else resolve(rows);
             });
         });
-        log('***REMOVED***= 迁移完成 ***REMOVED***=');
+        log('=== 迁移完成 ===');
         for (const r of counts) {
             log(`  ${r.tbl}: ${r.c} rows`);
         }

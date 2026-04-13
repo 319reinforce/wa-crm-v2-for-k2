@@ -58,7 +58,7 @@ async function resolveSendCreator({ creator_id, phone }) {
         }
         if (normalizedPhone) {
             const creatorPhoneDigits = normalizeDigits(row.wa_phone);
-            if (creatorPhoneDigits && creatorPhoneDigits !***REMOVED*** normalizedPhone) {
+            if (creatorPhoneDigits && creatorPhoneDigits !== normalizedPhone) {
                 return { ok: false, status: 400, error: 'phone does not match creator_id wa_phone' };
             }
         }
@@ -90,7 +90,7 @@ router.post('/send', async (req, res) => {
             return res.status(resolvedCreator.status).json({ ok: false, error: resolvedCreator.error });
         }
 
-        const bypass = req.get('X-WA-Proxy-Bypass') ***REMOVED***= '1';
+        const bypass = req.get('X-WA-Proxy-Bypass') === '1';
         const result = await sendRoutedMessage(
             {
                 phone: resolvedCreator.phone,
@@ -212,7 +212,7 @@ router.post('/media-assets', async (req, res) => {
             dataBase64: data_base64,
             sourceUrl: file_url || '',
             sourceSize: file_size || null,
-            meta: meta && typeof meta ***REMOVED***= 'object' ? meta : {},
+            meta: meta && typeof meta === 'object' ? meta : {},
         });
 
         res.json({
@@ -278,7 +278,7 @@ router.post('/send-media', async (req, res) => {
             sentBy: getRequestActor(req, sent_by),
         });
 
-        const bypass = req.get('X-WA-Proxy-Bypass') ***REMOVED***= '1';
+        const bypass = req.get('X-WA-Proxy-Bypass') === '1';
         const result = await sendRoutedMedia({
             phone,
             caption,
@@ -326,8 +326,8 @@ router.post('/send-media', async (req, res) => {
 
 // GET /api/wa/status
 router.get('/status', async (req, res) => {
-    const localOnly = req.query.local_only ***REMOVED***= '1' || req.get('X-WA-Proxy-Bypass') ***REMOVED***= '1';
-    const all = req.query.all ***REMOVED***= '1' && !localOnly;
+    const localOnly = req.query.local_only === '1' || req.get('X-WA-Proxy-Bypass') === '1';
+    const all = req.query.all === '1' && !localOnly;
     res.json(await getRoutedStatus({
         all,
         session_id: req.query.session_id,
@@ -343,7 +343,7 @@ router.get('/sessions', async (req, res) => {
 
 // GET /api/wa/qr — 返回二维码图片（网页端扫码用）
 router.get('/qr', async (req, res) => {
-    const localOnly = req.query.local_only ***REMOVED***= '1' || req.get('X-WA-Proxy-Bypass') ***REMOVED***= '1';
+    const localOnly = req.query.local_only === '1' || req.get('X-WA-Proxy-Bypass') === '1';
     const rawQr = localOnly
         ? getQrValue()
         : await getRoutedQr({

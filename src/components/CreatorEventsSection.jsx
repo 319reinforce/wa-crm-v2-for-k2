@@ -7,7 +7,7 @@ const DISPLAY_TIME_ZONE = 'Asia/Shanghai'
 
 function parseEventMeta(meta) {
   if (!meta) return {}
-  if (typeof meta ***REMOVED***= 'object') return meta
+  if (typeof meta === 'object') return meta
   try {
     return JSON.parse(meta)
   } catch (_) {
@@ -106,7 +106,7 @@ export function CreatorEventsSection({ creatorId }) {
     )
   }
 
-  if (!summary || events.length ***REMOVED***= 0) {
+  if (!summary || events.length === 0) {
     return (
       <Section title="事件">
         <div className="text-center py-4" style={{ color: WA.textMuted }}>
@@ -130,7 +130,7 @@ export function CreatorEventsSection({ creatorId }) {
           </span>
         )}
         {summary.wa_owner && (
-          <span className="text-[11px] px-2.5 py-1.5 rounded-full font-semibold" style={{ background: summary.wa_owner ***REMOVED***= 'Beau' ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', color: summary.wa_owner ***REMOVED***= 'Beau' ? '#3b82f6' : '#8b5cf6' }}>
+          <span className="text-[11px] px-2.5 py-1.5 rounded-full font-semibold" style={{ background: summary.wa_owner === 'Beau' ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', color: summary.wa_owner === 'Beau' ? '#3b82f6' : '#8b5cf6' }}>
             {summary.wa_owner}
           </span>
         )}
@@ -138,7 +138,7 @@ export function CreatorEventsSection({ creatorId }) {
 
       {(() => {
         const sortedEvents = [...events].sort((a, b) => getEventDateValue(b) - getEventDateValue(a))
-        const latestGmvEvent = sortedEvents.find(evt => evt.event_key ***REMOVED***= 'gmv_milestone')
+        const latestGmvEvent = sortedEvents.find(evt => evt.event_key === 'gmv_milestone')
         const gmvMeta = latestGmvEvent ? parseEventMeta(latestGmvEvent.meta) : {}
         const gmvCurrent = gmvMeta.gmv_current || gmvMeta.gmv || gmvMeta.amount || 0
         const gmvMilestones = latestGmvEvent ? getGmvMilestoneStates(gmvCurrent) : []

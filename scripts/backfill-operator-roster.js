@@ -44,8 +44,8 @@ function splitCsvLine(line) {
     let inQuotes = false;
     for (let i = 0; i < line.length; i += 1) {
         const ch = line[i];
-        if (ch ***REMOVED***= '"') {
-            if (inQuotes && line[i + 1] ***REMOVED***= '"') {
+        if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') {
                 current += '"';
                 i += 1;
             } else {
@@ -53,7 +53,7 @@ function splitCsvLine(line) {
             }
             continue;
         }
-        if (ch ***REMOVED***= ',' && !inQuotes) {
+        if (ch === ',' && !inQuotes) {
             values.push(current);
             current = '';
             continue;
@@ -83,9 +83,9 @@ function parseCsv(file, defaultOwner) {
 function normalizePoc(value) {
     const raw = normalizeText(value);
     if (!raw) return null;
-    if (raw ***REMOVED***= 'alice' || raw ***REMOVED***= 'yiyun') return 'Yiyun';
-    if (raw ***REMOVED***= 'sybil' || raw ***REMOVED***= 'jiawen') return 'Jiawen';
-    if (raw ***REMOVED***= 'beau') return 'Beau';
+    if (raw === 'alice' || raw === 'yiyun') return 'Yiyun';
+    if (raw === 'sybil' || raw === 'jiawen') return 'Jiawen';
+    if (raw === 'beau') return 'Beau';
     return normalizeOperatorName(value, value);
 }
 
@@ -192,23 +192,23 @@ function scoreCandidate(creator, row) {
         score += 80;
         reasons.push('has_aliases');
     }
-    if (creator.source ***REMOVED***= 'wa_crm') {
+    if (creator.source === 'wa_crm') {
         score += 1600;
         reasons.push('source_wa_crm');
-    } else if (creator.source ***REMOVED***= 'joinbrands') {
+    } else if (creator.source === 'joinbrands') {
         score += 1400;
         reasons.push('source_joinbrands');
-    } else if (creator.source ***REMOVED***= 'keeper') {
+    } else if (creator.source === 'keeper') {
         score += 800;
         reasons.push('source_keeper');
     }
 
     const channel = normalizeText(row['营销渠道']);
-    if (channel.includes('joinbrands') && creator.source ***REMOVED***= 'joinbrands') {
+    if (channel.includes('joinbrands') && creator.source === 'joinbrands') {
         score += 600;
         reasons.push('channel_joinbrands');
     }
-    if ((channel.includes('billo') || channel.includes('$')) && creator.source ***REMOVED***= 'wa_crm') {
+    if ((channel.includes('billo') || channel.includes('$')) && creator.source === 'wa_crm') {
         score += 400;
         reasons.push('channel_wa_crm');
     }
@@ -234,7 +234,7 @@ function findCandidates(creators, row) {
             if (handleKeys.some((value) => keys.normalized.has(value) || keys.compact.has(value))) matchedBy.push('handle');
             if (keeperKeys.some((value) => keys.normalized.has(value) || keys.compact.has(value))) matchedBy.push('keeper');
             if (realKeys.some((value) => keys.normalized.has(value) || keys.compact.has(value))) matchedBy.push('real');
-            if (matchedBy.length ***REMOVED***= 0) return null;
+            if (matchedBy.length === 0) return null;
             const scored = scoreCandidate(creator, row);
             return {
                 ...creator,
@@ -304,7 +304,7 @@ async function main() {
     });
 
     const canonicalIds = new Set(resolved.map((item) => item.canonical.id));
-    if (canonicalIds.size !***REMOVED*** rows.length) {
+    if (canonicalIds.size !== rows.length) {
         const repeated = resolved.reduce((acc, item) => {
             acc[item.canonical.id] = (acc[item.canonical.id] || 0) + 1;
             return acc;

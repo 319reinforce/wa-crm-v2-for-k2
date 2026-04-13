@@ -24,8 +24,8 @@ function splitCsvLine(line) {
     let inQuotes = false;
     for (let i = 0; i < line.length; i += 1) {
         const ch = line[i];
-        if (ch ***REMOVED***= '"') {
-            if (inQuotes && line[i + 1] ***REMOVED***= '"') {
+        if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') {
                 current += '"';
                 i += 1;
             } else {
@@ -33,7 +33,7 @@ function splitCsvLine(line) {
             }
             continue;
         }
-        if (ch ***REMOVED***= ',' && !inQuotes) {
+        if (ch === ',' && !inQuotes) {
             values.push(current);
             current = '';
             continue;
@@ -63,7 +63,7 @@ function ensureDir(dir) {
 }
 
 function csvEscape(value) {
-    const text = value ***REMOVED*** null ? '' : String(value);
+    const text = value == null ? '' : String(value);
     if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
     return text;
 }
@@ -270,7 +270,7 @@ async function findSafeDuplicateTarget(row) {
         let reason = '';
         for (const value of strings) {
             const compact = compactText(value);
-            if (nameCompact && compact && nameCompact ***REMOVED***= compact) {
+            if (nameCompact && compact && nameCompact === compact) {
                 score = Math.max(score, 1000);
                 reason = 'exact_compact_name';
             } else if (nameCompact && compact && nameCompact.length >= 5 && (nameCompact.includes(compact) || compact.includes(nameCompact))) {
@@ -287,7 +287,7 @@ async function findSafeDuplicateTarget(row) {
         return { ...candidate, score, reason };
     }).filter((candidate) => candidate.score >= 700);
 
-    if (scored.length !***REMOVED*** 1) return null;
+    if (scored.length !== 1) return null;
     return scored[0];
 }
 
@@ -322,7 +322,7 @@ async function main() {
             continue;
         }
 
-        if (row.status ***REMOVED***= STATUS_KEEP) {
+        if (row.status === STATUS_KEEP) {
             const assignment = await upsertRosterAssignment(row, creator);
             report.kept.push({
                 creator_id: creator.id,
@@ -335,7 +335,7 @@ async function main() {
             continue;
         }
 
-        if (row.status ***REMOVED***= STATUS_DROP) {
+        if (row.status === STATUS_DROP) {
             const snapshot = await snapshotCreator(creator.id);
             await hardDeleteCreator(creator.id);
             report.deleted.push({
@@ -350,7 +350,7 @@ async function main() {
             continue;
         }
 
-        if (row.status ***REMOVED***= STATUS_DUPLICATE) {
+        if (row.status === STATUS_DUPLICATE) {
             const target = await findSafeDuplicateTarget(row);
             if (target) {
                 report.duplicate_merged.push({

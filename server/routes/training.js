@@ -15,7 +15,7 @@ router.post('/trigger', async (req, res) => {
         return res.status(503).json({ error: 'TRAINING_TRIGGER_TOKEN not configured' });
     }
     const auth = req.headers['authorization'] || '';
-    if (auth !***REMOVED*** `Bearer ${token}`) {
+    if (auth !== `Bearer ${token}`) {
         return res.status(401).json({ error: 'Unauthorized: invalid token' });
     }
     try {

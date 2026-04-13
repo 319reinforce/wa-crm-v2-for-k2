@@ -25,7 +25,7 @@ const SESSION_ALIASES = {
 const STATUS_STALE_MS = 15000;
 
 function normalizeSessionId(value) {
-    if (value ***REMOVED***= null || value ***REMOVED***= undefined) return null;
+    if (value === null || value === undefined) return null;
     const raw = String(value).trim();
     if (!raw) return null;
     const safe = sanitizeSessionId(raw, '');
@@ -137,9 +137,9 @@ async function resolveSessionTarget({ sessionId, operator, creatorId, phone, all
 
     const desiredSessionId = explicitSessionId || operatorSessionId;
     const target = desiredSessionId
-        ? registry.find((item) => item.session_id ***REMOVED***= desiredSessionId) || null
+        ? registry.find((item) => item.session_id === desiredSessionId) || null
         : (resolvedOperator
-            ? registry.find((item) => normalizeOperatorName(item.owner, item.owner) ***REMOVED***= resolvedOperator) || null
+            ? registry.find((item) => normalizeOperatorName(item.owner, item.owner) === resolvedOperator) || null
             : null);
 
     const fallback = allowFallback ? (target || registry[0] || null) : null;
@@ -194,7 +194,7 @@ async function sendViaSessionCommand(sessionId, type, payload) {
         operator: payload.operator || null,
         creator_id: payload.creator_id || null,
     });
-    const timeoutMs = type ***REMOVED***= 'audit_recent_messages' ? 60000 : 30000;
+    const timeoutMs = type === 'audit_recent_messages' ? 60000 : 30000;
     return await waitForSessionCommandResult(sessionId, commandId, timeoutMs);
 }
 

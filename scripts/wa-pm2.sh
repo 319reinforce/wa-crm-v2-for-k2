@@ -113,7 +113,7 @@ process.stdin.on("end",()=>{
   const apps=JSON.parse(data||"[]");
   const expected=["wa-crawler-beau","wa-crawler-yiyun","wa-crawler-youke","wa-crawler-jiawen"];
   const rows=expected.map(name=>{
-    const app=apps.find(a=>a.name***REMOVED***=name);
+    const app=apps.find(a=>a.name === name);
     return {
       name,
       status: app?.pm2_env?.status || "missing",
@@ -122,7 +122,7 @@ process.stdin.on("end",()=>{
     }
   });
   console.table(rows);
-  const unhealthy=rows.filter(r=>r.status!***REMOVED***"online");
+  const unhealthy=rows.filter(r=>r.status !== "online");
   if(unhealthy.length){
     process.exitCode=2;
   }

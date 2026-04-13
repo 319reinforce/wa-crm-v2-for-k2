@@ -7,7 +7,7 @@ async function fetchJsonOrThrow(url, options = {}) {
     let message = `HTTP ${res.status}`
     try {
       const data = await res.json()
-      if (typeof data?.error ***REMOVED***= 'string' && data.error.trim()) message = data.error.trim()
+      if (typeof data?.error === 'string' && data.error.trim()) message = data.error.trim()
     } catch (_) {}
     throw new Error(message)
   }
@@ -21,7 +21,7 @@ async function fetchOkOrThrow(url, options = {}) {
     let message = `HTTP ${res.status}`
     try {
       const data = await res.json()
-      if (typeof data?.error ***REMOVED***= 'string' && data.error.trim()) message = data.error.trim()
+      if (typeof data?.error === 'string' && data.error.trim()) message = data.error.trim()
     } catch (_) {}
     throw new Error(message)
   }

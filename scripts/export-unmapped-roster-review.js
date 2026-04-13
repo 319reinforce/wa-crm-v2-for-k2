@@ -15,7 +15,7 @@ function ensureDir(dir) {
 }
 
 function csvEscape(value) {
-    const text = value ***REMOVED*** null ? '' : String(value);
+    const text = value == null ? '' : String(value);
     if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
     return text;
 }
@@ -81,7 +81,7 @@ function scoreCandidate(roster, candidate) {
         for (const right of candidateStrings) {
             const rightCompact = compactText(right);
             const rightTokens = tokenize(right);
-            if (leftCompact && rightCompact && leftCompact ***REMOVED***= rightCompact) {
+            if (leftCompact && rightCompact && leftCompact === rightCompact) {
                 score = Math.max(score, 1000);
                 continue;
             }
@@ -148,7 +148,7 @@ async function main() {
 
     const rows = rosterRows.map((roster) => {
         const candidates = nonRosterCandidates
-            .filter((candidate) => candidate.wa_owner ***REMOVED***= roster.operator)
+            .filter((candidate) => candidate.wa_owner === roster.operator)
             .map((candidate) => ({ ...candidate, score: scoreCandidate(roster, candidate) }))
             .filter((candidate) => candidate.score >= 500)
             .sort((a, b) => b.score - a.score || Number(b.msg_count || 0) - Number(a.msg_count || 0) || a.id - b.id)

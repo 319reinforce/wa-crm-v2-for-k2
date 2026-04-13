@@ -28,10 +28,10 @@ function isLocalRequest(req) {
     );
 
     return candidates.some((value) => (
-        value ***REMOVED***= '127.0.0.1'
-        || value ***REMOVED***= '::1'
-        || value ***REMOVED***= '::ffff:127.0.0.1'
-        || value ***REMOVED***= 'localhost'
+        value === '127.0.0.1'
+        || value === '::1'
+        || value === '::ffff:127.0.0.1'
+        || value === 'localhost'
         || isPrivateLan(value)
     ));
 }
@@ -39,7 +39,7 @@ function isLocalRequest(req) {
 function getAllowedTokens() {
     return AUTH_TOKEN_ENV_KEYS
         .map((key) => process.env[key])
-        .filter((value) => typeof value ***REMOVED***= 'string' && value.trim().length > 0)
+        .filter((value) => typeof value === 'string' && value.trim().length > 0)
         .map((value) => value.trim());
 }
 
@@ -48,7 +48,7 @@ function extractToken(req) {
     if (authHeader.startsWith('Bearer ')) {
         return authHeader.slice(7).trim();
     }
-    const queryToken = typeof req.query?.token ***REMOVED***= 'string'
+    const queryToken = typeof req.query?.token === 'string'
         ? req.query.token.trim()
         : '';
     return queryToken;
@@ -56,9 +56,9 @@ function extractToken(req) {
 
 function requireAppAuth(req, res, next) {
     const allowed = getAllowedTokens();
-    const allowLocalBypass = process.env.LOCAL_API_AUTH_BYPASS !***REMOVED*** 'false';
+    const allowLocalBypass = process.env.LOCAL_API_AUTH_BYPASS !== 'false';
 
-    if (process.env.NODE_ENV !***REMOVED*** 'production' && allowLocalBypass && isLocalRequest(req)) {
+    if (process.env.NODE_ENV !== 'production' && allowLocalBypass && isLocalRequest(req)) {
         if (!warnedForBypass) {
             warnedForBypass = true;
             console.warn('[appAuth] localhost bypass enabled outside production');
@@ -66,8 +66,8 @@ function requireAppAuth(req, res, next) {
         return next();
     }
 
-    if (allowed.length ***REMOVED***= 0) {
-        if (process.env.NODE_ENV !***REMOVED*** 'production') {
+    if (allowed.length === 0) {
+        if (process.env.NODE_ENV !== 'production') {
             if (!warnedForBypass) {
                 warnedForBypass = true;
                 console.warn('[appAuth] no auth token configured; bypass enabled outside production');

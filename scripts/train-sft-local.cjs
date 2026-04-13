@@ -37,7 +37,7 @@ function main() {
 
     const raw = fs.readFileSync(inputPath, 'utf8').trim();
     const lines = raw ? raw.split('\n') : [];
-    if (lines.length ***REMOVED***= 0) {
+    if (lines.length === 0) {
         fail('empty export file');
     }
 
@@ -57,8 +57,8 @@ function main() {
 
         const first = messages[0] || {};
         const second = messages[1] || {};
-        const firstContent = typeof first.content ***REMOVED***= 'string' ? first.content.trim() : '';
-        const secondContent = typeof second.content ***REMOVED***= 'string' ? second.content.trim() : '';
+        const firstContent = typeof first.content === 'string' ? first.content.trim() : '';
+        const secondContent = typeof second.content === 'string' ? second.content.trim() : '';
 
         if (!firstContent) missingUser++;
         if (!secondContent) missingAssistant++;

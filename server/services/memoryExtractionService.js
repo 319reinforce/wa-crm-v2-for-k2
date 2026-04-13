@@ -29,7 +29,7 @@ function getPool() {
     if (!_pool) _pool = mysql.createPool(MYSQL_CONFIG);
     return _pool;
 }
-const VERBOSE_LOGS = process.env.LOG_VERBOSE ***REMOVED***= 'true';
+const VERBOSE_LOGS = process.env.LOG_VERBOSE === 'true';
 
 function maskClientId(clientId) {
     const value = String(clientId || '');
@@ -39,10 +39,10 @@ function maskClientId(clientId) {
     return '***';
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** LLM 调用（支持 OpenAI / MiniMax）***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== LLM 调用（支持 OpenAI / MiniMax）==========
 
 async function callLLMExtract(messages, owner, triggerType) {
-    const USE_OPENAI = process.env.USE_OPENAI ***REMOVED***= 'true';
+    const USE_OPENAI = process.env.USE_OPENAI === 'true';
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     const OPENAI_API_BASE = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
     const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
@@ -78,7 +78,7 @@ Response Format (return ONLY valid JSON, no markdown):
 }`;
 
     const conversationText = messages.map(m => {
-        const role = m.role ***REMOVED***= 'me' ? owner : 'Creator';
+        const role = m.role === 'me' ? owner : 'Creator';
         const text = (m.text || '').replace(/"/g, "'");
         return `[${role}]: ${text}`;
     }).join('\n');
@@ -135,7 +135,7 @@ Trigger type: ${triggerType}`;
         }
         const data = await response.json();
         raw = (data?.content && Array.isArray(data.content))
-            ? (data.content.find(c => c.type ***REMOVED***= 'text')?.text || '')
+            ? (data.content.find(c => c.type === 'text')?.text || '')
             : (data?.choices?.[0]?.message?.content || '');
     }
 
@@ -156,22 +156,22 @@ Trigger type: ${triggerType}`;
 
         // 策略2: 从第一个 { 找到完整（平衡）的 }
         const firstBrace = text.indexOf('{');
-        if (firstBrace ***REMOVED***= -1) return null;
+        if (firstBrace === -1) return null;
 
         let depth = 0;
         let end = -1;
         for (let i = firstBrace; i < text.length; i++) {
-            if (text[i] ***REMOVED***= '{') depth++;
-            else if (text[i] ***REMOVED***= '}') {
+            if (text[i] === '{') depth++;
+            else if (text[i] === '}') {
                 depth--;
-                if (depth ***REMOVED***= 0) {
+                if (depth === 0) {
                     end = i;
                     break;
                 }
             }
         }
 
-        if (end ***REMOVED***= -1) return null;
+        if (end === -1) return null;
         const candidate = text.slice(firstBrace, end + 1);
         try {
             return JSON.parse(candidate);
@@ -187,7 +187,7 @@ Trigger type: ${triggerType}`;
     return parsed.memories;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 写入 client_memory（INSERT IGNORE + 可选 confidence 覆盖）***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 写入 client_memory（INSERT IGNORE + 可选 confidence 覆盖）==========
 
 /**
  * upsertMemory — 写入单条记忆
@@ -227,7 +227,7 @@ async function upsertMemory(memory, clientId, _conn = null, overwriteOnHigherCon
     return { inserted: true, duplicate: false, overwritten: false };
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 核心入口函数 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 核心入口函数 ==========
 
 /**
  * extractAndSaveMemories — 从对话中提取记忆并写入 client_memory
@@ -241,7 +241,7 @@ async function upsertMemory(memory, clientId, _conn = null, overwriteOnHigherCon
  * @returns {Promise<{extracted: number, inserted: number, skipped: number, errors: number}>}
  */
 async function extractAndSaveMemories({ client_id, owner, messages, trigger_type, source_record_id = null }) {
-    if (!client_id || !messages || messages.length ***REMOVED***= 0) {
+    if (!client_id || !messages || messages.length === 0) {
         return { extracted: 0, inserted: 0, skipped: 0, errors: 0 };
     }
 
@@ -256,7 +256,7 @@ async function extractAndSaveMemories({ client_id, owner, messages, trigger_type
         return { extracted: 0, inserted: 0, skipped: 0, errors: 1 };
     }
 
-    if (!extractedMemories || extractedMemories.length ***REMOVED***= 0) {
+    if (!extractedMemories || extractedMemories.length === 0) {
         return { extracted: 0, inserted: 0, skipped: 0, errors: 0 };
     }
 

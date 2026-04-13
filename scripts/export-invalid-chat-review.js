@@ -30,7 +30,7 @@ function formatTimestamp(ts) {
 }
 
 function csvEscape(value) {
-    const text = value ***REMOVED*** null ? '' : String(value);
+    const text = value == null ? '' : String(value);
     if (/[",\n]/.test(text)) {
         return `"${text.replace(/"/g, '""')}"`;
     }
@@ -80,7 +80,7 @@ function classifyCandidate(candidate, messages, nowMs) {
         ? Number(normalizedMessages[normalizedMessages.length - 1].timestamp || 0)
         : 0;
     const staleDays = lastTsMs > 0 ? Math.floor((nowMs - lastTsMs) / DAY_MS) : null;
-    const allMessagesIrrelevant = messageCount > 0 && relevanceHits ***REMOVED***= 0;
+    const allMessagesIrrelevant = messageCount > 0 && relevanceHits === 0;
     const mostlyChinese = messageCount > 0 && chineseRatio >= 0.5;
     const staleOverWeek = lastTsMs > 0 && (nowMs - lastTsMs) >= REVIEW_WINDOW_DAYS * DAY_MS;
     const lowMessageCount = messageCount > 0 && messageCount <= STRICT_MAX_MESSAGES;
@@ -233,7 +233,7 @@ async function main() {
             all_messages_irrelevant: classification.allMessagesIrrelevant ? 'yes' : 'no',
             mostly_chinese: classification.mostlyChinese ? 'yes' : 'no',
             stale_over_week: classification.staleOverWeek ? 'yes' : 'no',
-            stale_days: classification.staleDays ***REMOVED*** null ? '' : classification.staleDays,
+            stale_days: classification.staleDays == null ? '' : classification.staleDays,
             low_message_count: classification.lowMessageCount ? 'yes' : 'no',
             last_message_at: formatTimestamp(classification.lastTsMs),
             eligibility_reasons: classification.eligibility.reasons.join('|'),

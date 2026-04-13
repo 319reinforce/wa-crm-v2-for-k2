@@ -25,7 +25,7 @@ const DB_CONFIG = {
 };
 
 // API 配置（支持 OpenAI 和 MiniMax）
-const USE_OPENAI = process.env.USE_OPENAI ***REMOVED***= 'true';
+const USE_OPENAI = process.env.USE_OPENAI === 'true';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_API_BASE = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
@@ -40,7 +40,7 @@ const TARGET_CREATOR_ID = CREATOR_ARG ? parseInt(CREATOR_ARG.split('=')[1]) : nu
 
 if (DRY_RUN) console.log('[DRY RUN 模式 — 不写入数据库]\n');
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 事件类型定义 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 事件类型定义 ==========
 const EVENT_DEFINITIONS = [
   {
     event_key: 'trial_7day',
@@ -96,14 +96,14 @@ function formatDateInShanghai(tsSeconds) {
     month: '2-digit',
     day: '2-digit',
   }).formatToParts(dt);
-  const get = (type) => parts.find(p => p.type ***REMOVED***= type)?.value || '00';
+  const get = (type) => parts.find(p => p.type === type)?.value || '00';
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 构建 system prompt ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 构建 system prompt ==========
 function buildSystemPrompt(owner) {
   const eventList = EVENT_DEFINITIONS.map(e => {
-    const keywords = owner ***REMOVED***= 'Yiyun' ? e.yiyun_keywords : e.beau_keywords;
+    const keywords = owner === 'Yiyun' ? e.yiyun_keywords : e.beau_keywords;
     return `  - ${e.event_key} (${e.event_type}): ${keywords.join(', ')}`;
   }).join('\n');
 
@@ -141,12 +141,12 @@ Return ONLY a valid JSON object, no markdown, no explanation:
 }`;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 调用 LLM API（支持 OpenAI / MiniMax）+ Rate Limit 重试***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 调用 LLM API（支持 OpenAI / MiniMax）+ Rate Limit 重试==========
 async function callLLM(messages, owner, retryCount = 0) {
   const systemPrompt = buildSystemPrompt(owner);
 
   const conversationText = messages.map(m => {
-    const role = m.role ***REMOVED***= 'me' ? 'Creator Manager' : 'Creator';
+    const role = m.role === 'me' ? 'Creator Manager' : 'Creator';
     const text = (m.text || '').replace(/"/g, "'");
     const date = formatDateInShanghai(m.timestamp);
     return `[${date}] ${role}: ${text}`;
@@ -177,7 +177,7 @@ async function callLLM(messages, owner, retryCount = 0) {
     if (!response.ok) {
       const err = await response.text();
       // 429 Rate Limit：等待 15 秒重试一次
-      if (response.status ***REMOVED***= 429 && retryCount ***REMOVED***= 0) {
+      if (response.status === 429 && retryCount === 0) {
         console.log(`\n  [Rate Limit] 等待 15 秒后重试...`);
         await new Promise(r => setTimeout(r, 15000));
         return callLLM(messages, owner, retryCount + 1);
@@ -210,7 +210,7 @@ async function callLLM(messages, owner, retryCount = 0) {
     }
     const data = await response.json();
     raw = (data?.content && Array.isArray(data.content))
-      ? (data.content.find(c => c.type ***REMOVED***= 'text')?.text || '')
+      ? (data.content.find(c => c.type === 'text')?.text || '')
       : (data?.choices?.[0]?.message?.content || '');
   }
 
@@ -223,7 +223,7 @@ async function callLLM(messages, owner, retryCount = 0) {
   return JSON.parse(jsonMatch[0]);
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 检查事件是否已存在 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 检查事件是否已存在 ==========
 async function eventExists(conn, creatorId, eventKey) {
   const [rows] = await conn.query(
     `SELECT id, status FROM events
@@ -235,7 +235,7 @@ async function eventExists(conn, creatorId, eventKey) {
   return rows[0] || null;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 插入事件（处理 unique index 冲突）***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 插入事件（处理 unique index 冲突）==========
 async function insertEvent(conn, creatorId, owner, eventData) {
   const { event_key, event_type, status, trigger_text, start_at, meta } = eventData;
   try {
@@ -248,14 +248,14 @@ async function insertEvent(conn, creatorId, owner, eventData) {
     return { inserted: true, id: result.insertId };
   } catch (e) {
     // Unique index 冲突（同一个 creator_id + event_key + status 已存在）
-    if (e.code ***REMOVED***= 'ER_DUP_ENTRY' || e.message.includes('Duplicate entry')) {
+    if (e.code === 'ER_DUP_ENTRY' || e.message.includes('Duplicate entry')) {
       return { inserted: false, duplicate: true };
     }
     throw e;
   }
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 主流程 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== 主流程 ==========
 async function main() {
   if (USE_OPENAI && !OPENAI_API_KEY) {
     console.error('错误: USE_OPENAI=true 但 OPENAI_API_KEY 环境变量未设置');
@@ -296,7 +296,7 @@ async function main() {
   const [creators] = await conn.query(sql, params);
   console.log(`待分析达人: ${creators.length} 个\n`);
 
-  if (creators.length ***REMOVED***= 0) {
+  if (creators.length === 0) {
     console.log('没有需要分析的达人，退出。');
     await conn.end();
     return;
@@ -320,7 +320,7 @@ async function main() {
         [creator.id]
       );
 
-      if (msgs.length ***REMOVED***= 0) {
+      if (msgs.length === 0) {
         console.log('— 无消息，跳过');
         stats.skipped++;
         continue;
@@ -338,7 +338,7 @@ async function main() {
 
       const detectedEvents = Array.isArray(analysis.events) ? analysis.events : [];
 
-      if (detectedEvents.length ***REMOVED***= 0) {
+      if (detectedEvents.length === 0) {
         console.log(`— 无事件 (${(analysis.analysis_note || '').slice(0, 60)})`);
         stats.skipped++;
         continue;
@@ -351,7 +351,7 @@ async function main() {
 
         if (existing) {
           // 同 key + 同 status → 跳过
-          if (existing.status ***REMOVED***= evt.status) {
+          if (existing.status === evt.status) {
             console.log(`\n  [跳过] ${evt.event_key} (${evt.status}) 已存在`);
             continue;
           }
@@ -365,7 +365,7 @@ async function main() {
         } else {
           const result = await insertEvent(conn, creator.id, creator.wa_owner, evt);
           if (result.inserted) {
-            // ***REMOVED***= client_memory 自动积累：事件创建后写入 decision 记忆 ***REMOVED***=
+            // === client_memory 自动积累：事件创建后写入 decision 记忆 ===
             await upsertMemory({
               memory_type: 'decision',
               memory_key: `decision:${evt.event_key}`,
@@ -383,7 +383,7 @@ async function main() {
         }
       }
 
-      if (created ***REMOVED***= 0) console.log('— 无新事件');
+      if (created === 0) console.log('— 无新事件');
     } catch (e) {
       console.log(`\n  [错误] ${e.message.slice(0, 100)}`);
       stats.errors++;

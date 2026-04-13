@@ -27,7 +27,7 @@ export function SFTDashboard() {
     let cancelled = false
     const loadTabData = async () => {
       try {
-        if (activeTab ***REMOVED***= 'evaluation') {
+        if (activeTab === 'evaluation') {
           const [abEval, ragObs, ragSrc] = await Promise.all([
             fetchJsonOrThrow(`${API_BASE}/ab-evaluation`),
             fetchJsonOrThrow(`${API_BASE}/generation-log/rag-observation?hours=24`),
@@ -40,12 +40,12 @@ export function SFTDashboard() {
           }
           return
         }
-        if (activeTab ***REMOVED***= 'trends') {
+        if (activeTab === 'trends') {
           const data = await fetchJsonOrThrow(`${API_BASE}/sft-memory/trends`)
           if (!cancelled) setTrendsData(data)
           return
         }
-        if (activeTab ***REMOVED***= 'review') {
+        if (activeTab === 'review') {
           const data = await fetchJsonOrThrow(`${API_BASE}/sft-memory/pending`)
           if (!cancelled) setPendingRecords(data)
         }
@@ -75,7 +75,7 @@ export function SFTDashboard() {
 
   const handleRefresh = async () => {
     await loadData()
-    if (activeTab ***REMOVED***= 'review') {
+    if (activeTab === 'review') {
       await loadPendingRecords()
     }
   }
@@ -107,31 +107,31 @@ export function SFTDashboard() {
               onClick={() => setActiveTab(key)}
               className="px-4 py-2 rounded-lg text-sm font-medium transition-all relative"
               style={{
-                background: activeTab ***REMOVED***= key ? '#334155' : 'transparent',
-                color: activeTab ***REMOVED***= key ? '#e2e8f0' : '#64748b',
+                background: activeTab === key ? '#334155' : 'transparent',
+                color: activeTab === key ? '#e2e8f0' : '#64748b',
               }}
             >
               {label}
             </button>
           ))}
         </div>
-        {(activeTab ***REMOVED***= 'records' || activeTab ***REMOVED***= 'review') && (
+        {(activeTab === 'records' || activeTab === 'review') && (
           <button onClick={handleRefresh} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm">
             刷新
           </button>
         )}
       </div>
 
-      {activeTab ***REMOVED***= 'evaluation' ? (
+      {activeTab === 'evaluation' ? (
         <ABEvaluationPanel
           data={abData}
           ragObservation={ragObservation}
           ragSources={ragSources}
           loading={!abData}
         />
-      ) : activeTab ***REMOVED***= 'review' ? (
+      ) : activeTab === 'review' ? (
         <ReviewPanel records={pendingRecords} onReviewed={handleReviewed} />
-      ) : activeTab ***REMOVED***= 'trends' ? (
+      ) : activeTab === 'trends' ? (
         <TrendsPanel data={trendsData} loading={!trendsData} />
       ) : (
         <>
@@ -187,7 +187,7 @@ export function SFTDashboard() {
 
             {loading ? (
               <div className="p-8 text-center text-slate-400">加载中...</div>
-            ) : records.length ***REMOVED***= 0 ? (
+            ) : records.length === 0 ? (
               <div className="p-8 text-center text-slate-500">
                 暂无 SFT 记录<br />
                 <span className="text-xs">在达人详情中发送消息并审核后将自动生成</span>
@@ -199,12 +199,12 @@ export function SFTDashboard() {
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex gap-2">
                         <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                          record.human_selected ***REMOVED***= 'opt1' ? 'bg-blue-500/20 text-blue-400' :
-                          record.human_selected ***REMOVED***= 'opt2' ? 'bg-green-500/20 text-green-400' :
+                          record.human_selected === 'opt1' ? 'bg-blue-500/20 text-blue-400' :
+                          record.human_selected === 'opt2' ? 'bg-green-500/20 text-green-400' :
                           'bg-amber-500/20 text-amber-400'
                         }`}>
-                          {record.human_selected ***REMOVED***= 'opt1' ? 'A' :
-                           record.human_selected ***REMOVED***= 'opt2' ? 'B' : '✍️ 人工'}
+                          {record.human_selected === 'opt1' ? 'A' :
+                           record.human_selected === 'opt2' ? 'B' : '✍️ 人工'}
                         </span>
                         {record.is_custom_input ? (
                           <span className="text-xs text-amber-400">人工覆盖</span>
@@ -267,7 +267,7 @@ function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
     );
   }
 
-  if (!data || data.total_records ***REMOVED***= 0) {
+  if (!data || data.total_records === 0) {
     return (
       <div className="text-center py-16" style={{ color: '#64748b' }}>
         暂无评估数据<br />
@@ -397,7 +397,7 @@ function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
                       {src.source_id || src.filename || 'unknown'} ({src.source_type || '-'})
                     </span>
                   ))}
-                  {(row.rag_sources || []).length ***REMOVED***= 0 && (
+                  {(row.rag_sources || []).length === 0 && (
                     <span className="text-[11px] text-slate-500">无命中来源</span>
                   )}
                 </div>
@@ -441,7 +441,7 @@ function ReviewPanel({ records, onReviewed }) {
     }
   };
 
-  if (records.length ***REMOVED***= 0) {
+  if (records.length === 0) {
     return (
       <div className="text-center py-16" style={{ color: '#64748b' }}>
         暂无待审核记录
@@ -459,11 +459,11 @@ function ReviewPanel({ records, onReviewed }) {
           <div className="flex items-start justify-between mb-2">
             <div className="flex gap-2">
               <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                record.similarity !***REMOVED*** null && record.similarity < 85
+                record.similarity !== null && record.similarity < 85
                   ? 'bg-amber-500/20 text-amber-400'
                   : 'bg-blue-500/20 text-blue-400'
               }`}>
-                相似度: {record.similarity !***REMOVED*** null ? `${record.similarity}%` : '-'}
+                相似度: {record.similarity !== null ? `${record.similarity}%` : '-'}
               </span>
               {record.scene && (
                 <span className="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-400">
@@ -517,17 +517,17 @@ function ReviewPanel({ records, onReviewed }) {
           <div className="flex gap-2 mt-3">
             <button
               onClick={() => handleReview(record.id, 'approve')}
-              disabled={loadingId ***REMOVED***= record.id}
+              disabled={loadingId === record.id}
               className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg text-sm text-white"
             >
-              {loadingId ***REMOVED***= record.id ? '处理中...' : '✓ 通过'}
+              {loadingId === record.id ? '处理中...' : '✓ 通过'}
             </button>
             <button
               onClick={() => handleReview(record.id, 'reject')}
-              disabled={loadingId ***REMOVED***= record.id}
+              disabled={loadingId === record.id}
               className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-lg text-sm text-white"
             >
-              {loadingId ***REMOVED***= record.id ? '处理中...' : '✗ 拒绝'}
+              {loadingId === record.id ? '处理中...' : '✗ 拒绝'}
             </button>
           </div>
         </div>
@@ -546,7 +546,7 @@ function TrendsPanel({ data, loading }) {
     );
   }
 
-  if (!data || !data.dates || data.dates.length ***REMOVED***= 0) {
+  if (!data || !data.dates || data.dates.length === 0) {
     return (
       <div className="text-center py-16" style={{ color: '#64748b' }}>
         暂无趋势数据<br />
@@ -625,7 +625,7 @@ function TrendsPanel({ data, loading }) {
           <polyline points={customPoints} fill="none" stroke="#f59e0b" strokeWidth="2" transform={`translate(${padding.left},${padding.top})`} />
 
           {/* X-axis labels */}
-          {data.dates.filter((_, i) => i % Math.max(1, Math.floor(data.dates.length / 7)) ***REMOVED***= 0).map((date, i, arr) => {
+          {data.dates.filter((_, i) => i % Math.max(1, Math.floor(data.dates.length / 7)) === 0).map((date, i, arr) => {
             const idx = data.dates.indexOf(date);
             return (
               <text

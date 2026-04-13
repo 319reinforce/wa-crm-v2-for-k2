@@ -197,7 +197,7 @@ export default function AIReplyPicker({
                             Prompt: {promptVersion}
                         </span>
                     )}
-                    {operatorConfigured ***REMOVED***= false && (
+                    {operatorConfigured === false && (
                         <span className="text-xs px-2.5 py-1 rounded-full" style={{ background: 'rgba(245,158,11,0.12)', color: '#b45309' }}>
                             使用基础路由
                         </span>

@@ -42,7 +42,7 @@ export async function generateViaExperienceRouter({
     setCurrentTopic,
 }) {
     const allMsgs = conversation?.messages || [];
-    const lastIncomingText = [...allMsgs].reverse().find(m => m.role ***REMOVED***= 'user')?.text || '';
+    const lastIncomingText = [...allMsgs].reverse().find(m => m.role === 'user')?.text || '';
     const lastMsgTimestamp = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1].timestamp : null;
     const resolvedClientId = client_id || client?.phone || '';
 
@@ -54,16 +54,16 @@ export async function generateViaExperienceRouter({
             const data = await fetchJsonOrThrow(`${API_BASE}/events/summary/${creatorId}`, {
                 signal: AbortSignal.timeout(15000),
             });
-            activeEvents = (data.events || []).filter(e => e.status ***REMOVED***= 'active');
+            activeEvents = (data.events || []).filter(e => e.status === 'active');
         }
     } catch (_) {}
 
-    // ***REMOVED***= 话题检测：判断是否需要开启新话题 ***REMOVED***=
+    // === 话题检测：判断是否需要开启新话题 ===
     let effectiveTopic = currentTopic;
     if (!effectiveTopic && autoDetectedTopic) {
         effectiveTopic = { ...autoDetectedTopic, trigger: 'auto' };
     }
-    const manualTopicPinned = effectiveTopic?.trigger ***REMOVED***= 'manual';
+    const manualTopicPinned = effectiveTopic?.trigger === 'manual';
     if (lastIncomingText && !manualTopicPinned) {
         const switchDecision = shouldSwitchTopic({
             currentTopic: effectiveTopic,
@@ -83,7 +83,7 @@ export async function generateViaExperienceRouter({
 
     // 构建 system prompt（含话题上下文 + 丰富上下文 + 双模式）
     // 方向三：差异化 Prompt — 同一话题用简短版，新话题用完整版
-    const isSameTopic = effectiveTopic?.trigger ***REMOVED***= 'auto';
+    const isSameTopic = effectiveTopic?.trigger === 'auto';
     const topicContext = effectiveTopic
         ? buildTopicContext({
             topic: effectiveTopic,
@@ -116,18 +116,18 @@ export async function generateViaExperienceRouter({
     // - 新话题（keyword/time）：全部消息，不做摘要
     const convSummary = isSameTopic ? buildConversationSummary(allMsgs) : null;
     const latestUserMessage = forcedInput
-        || allMsgs.filter((m) => m.role !***REMOVED*** 'me').slice(-1)[0]?.text
+        || allMsgs.filter((m) => m.role !== 'me').slice(-1)[0]?.text
         || '';
 
     // 对话消息：按场景截取
     const msgsToUse = convSummary ? allMsgs.slice(-convSummary.recentCount) : allMsgs;
     const conversationMsgs = msgsToUse.map(m => ({
-        role: m.role ***REMOVED***= 'me' ? 'assistant' : 'user',
+        role: m.role === 'me' ? 'assistant' : 'user',
         content: m.text,
     }));
     if (forcedInput) {
         conversationMsgs.push({ role: 'user', content: forcedInput });
-    } else if (conversationMsgs.length > 0 && conversationMsgs[conversationMsgs.length - 1].role ***REMOVED***= 'assistant') {
+    } else if (conversationMsgs.length > 0 && conversationMsgs[conversationMsgs.length - 1].role === 'assistant') {
         conversationMsgs.push({ role: 'user', content: '[请回复这位达人]' });
     }
 
@@ -194,11 +194,11 @@ export async function generateViaExperienceRouter({
     // MiniMax/OpenAI 均返回: { content: [{type:"text", text:opt1}], content_opt2: [{type:"text", text:opt2}] }
     const extractText = (d) => {
         if (!d || !Array.isArray(d.content)) return '';
-        return d.content.find(c => c.type ***REMOVED***= 'text')?.text || '';
+        return d.content.find(c => c.type === 'text')?.text || '';
     };
     const extractOpt2 = (d) => {
         if (!d || !Array.isArray(d.content_opt2)) return '';
-        return d.content_opt2.find(c => c.type ***REMOVED***= 'text')?.text || '';
+        return d.content_opt2.find(c => c.type === 'text')?.text || '';
     };
     const opt1 = extractText(data);
     const opt2 = extractOpt2(data);

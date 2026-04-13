@@ -5,7 +5,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const ROOT = process.cwd();
-const npmCmd = process.platform ***REMOVED***= 'win32' ? 'npm.cmd' : 'npm';
+const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 function runStep(label, cmd, args) {
   process.stdout.write(`\n[SMOKE] ${label}\n`);
@@ -14,7 +14,7 @@ function runStep(label, cmd, args) {
     stdio: 'inherit',
     env: process.env,
   });
-  return result.status ***REMOVED***= 0;
+  return result.status === 0;
 }
 
 function collectServerFiles() {
@@ -61,7 +61,7 @@ function collectSyntaxTargets() {
 
 function main() {
   const syntaxTargets = collectSyntaxTargets();
-  if (syntaxTargets.length ***REMOVED***= 0) {
+  if (syntaxTargets.length === 0) {
     console.error('[SMOKE] No syntax targets found');
     process.exit(1);
   }
@@ -78,7 +78,7 @@ function main() {
   const unitOk = runStep('npm run test:unit', npmCmd, ['run', 'test:unit']);
   if (!unitOk) failed = true;
 
-  const includeApiIT = process.env.SMOKE_INCLUDE_API_IT ***REMOVED***= '1';
+  const includeApiIT = process.env.SMOKE_INCLUDE_API_IT === '1';
   if (includeApiIT) {
     const apiItOk = runStep('npm run test:api:strategy', npmCmd, ['run', 'test:api:strategy']);
     if (!apiItOk) failed = true;

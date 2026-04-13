@@ -15,7 +15,7 @@ export function useTopicDetection({
 }) {
     // 每次 messages 变化 → 自动检测话题（仅用于 UI 显示）
     useEffect(() => {
-        if (!messages || messages.length ***REMOVED***= 0) return;
+        if (!messages || messages.length === 0) return;
         const result = inferAutoTopic({ messages, activeEvents });
         setAutoDetectedTopic(result);
     }, [messages, activeEvents, setAutoDetectedTopic]);

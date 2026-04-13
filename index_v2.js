@@ -27,7 +27,7 @@ const client = new Client({
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 工具函数 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 工具函数 ==================
 async function getContactName(contact) {
     return contact.name || contact.pushname || "Unknown";
 }
@@ -68,26 +68,26 @@ function loadOperators() {
 // 检查是否为 Yiyun 达人
 function isYiyunCreator(name, phone) {
     const operators = loadOperators();
-    const yiyun = operators.operators.find(o => o.id ***REMOVED***= 'yiyun');
+    const yiyun = operators.operators.find(o => o.id === 'yiyun');
     if (!yiyun) return false;
 
     const clean = cleanName(name);
     const nameLower = (name || '').toLowerCase();
 
     // 1. 精确匹配
-    if (yiyun.creators.some(c => cleanName(c) ***REMOVED***= clean)) return true;
+    if (yiyun.creators.some(c => cleanName(c) === clean)) return true;
 
     // 2. 括号内 TikTok 用户名
     const tiktokMatch = nameLower.match(/\(([^)]+)\)/);
     if (tiktokMatch) {
-        if (yiyun.creators.some(c => cleanName(c) ***REMOVED***= tiktokMatch[1].toLowerCase())) return true;
+        if (yiyun.creators.some(c => cleanName(c) === tiktokMatch[1].toLowerCase())) return true;
     }
 
     // 3. creator_tiktok_map
     const tiktokMap = yiyun.creator_tiktok_map || {};
     for (const key of Object.keys(tiktokMap)) {
         if (nameLower.includes(key.toLowerCase())) return true;
-        if (cleanName(key) ***REMOVED***= clean) return true;
+        if (cleanName(key) === clean) return true;
     }
     const allTiktoks = Object.values(tiktokMap).map(t => t.toLowerCase());
     for (const t of allTiktoks) {
@@ -103,7 +103,7 @@ function isYiyunCreator(name, phone) {
     return false;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 事件检测 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 事件检测 ==================
 function hasChinese(text) {
     return /[\u4e00-\u9fff]/.test(text);
 }
@@ -112,7 +112,7 @@ function isValidUSUser(phone, name, messages = [], bypassYiyun = false) {
     if (bypassYiyun) {
         if (phone.startsWith('+86')) return false;
         const phoneDigits = phone.replace(/\D/g, '');
-        if (phoneDigits.length ***REMOVED***= 11 && !phoneDigits.startsWith('1')) return false;
+        if (phoneDigits.length === 11 && !phoneDigits.startsWith('1')) return false;
         if (phone.startsWith('+') && !phone.startsWith('+1')) return false;
         if (messages.length > 0) {
             const chineseMsgs = messages.filter(m => hasChinese(m.text || ''));
@@ -125,7 +125,7 @@ function isValidUSUser(phone, name, messages = [], bypassYiyun = false) {
     // 普通用户
     if (phone.startsWith('+86')) return false;
     const phoneDigits = phone.replace(/\D/g, '');
-    if (phoneDigits.length ***REMOVED***= 11 && !phoneDigits.startsWith('1')) return false;
+    if (phoneDigits.length === 11 && !phoneDigits.startsWith('1')) return false;
     if (phone.startsWith('+') && !phone.startsWith('+1')) return false;
     if (messages.length > 0) {
         const chineseMsgs = messages.filter(m => hasChinese(m.text || ''));
@@ -140,7 +140,7 @@ function isValidUSUser(phone, name, messages = [], bypassYiyun = false) {
     return true;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 保存函数 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 保存函数 ==================
 function saveHistoryMessages(phone, name, messages) {
     const fileName = findUserFile(phone) || generateFileName(phone, name);
     const filePath = path.join(DATA_DIR, fileName);
@@ -176,7 +176,7 @@ function saveHistoryMessages(phone, name, messages) {
 
     // 从 WhatsApp 消息中过滤出不在 JSON 文件中的新消息
     const newMsgs = messages.filter(m => m.body && !existingTimestamps.has(m.timestamp * 1000));
-    if (newMsgs.length ***REMOVED***= 0) return 0;
+    if (newMsgs.length === 0) return 0;
 
     // 先写 SQLite，失败则不写 JSON（保持一致）
     try {
@@ -214,7 +214,7 @@ function saveHistoryMessages(phone, name, messages) {
     return newMsgs.length;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 定时同步 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 定时同步 ==================
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 async function pollNewMessages() {
@@ -252,7 +252,7 @@ async function pollNewMessages() {
             const existingTimestamps = new Set(existingData.messages.map(m => m.timestamp));
             const newMsgs = recentMessages.filter(m => !existingTimestamps.has(m.timestamp * 1000));
 
-            if (newMsgs.length ***REMOVED***= 0) continue;
+            if (newMsgs.length === 0) continue;
 
             console.log(`[Polling] ${name}: 发现 ${newMsgs.length} 条新消息`);
 
@@ -290,7 +290,7 @@ async function pollNewMessages() {
     }
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 启动 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 启动 ==================
 client.on('qr', qr => {
     qrcode.generate(qr, { small: true });
 });

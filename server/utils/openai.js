@@ -18,7 +18,7 @@ const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
  * @returns {Promise<string>}
  */
 async function generateResponse(messages, opts = {}) {
-    if (!API_KEY || API_KEY ***REMOVED***= 'sk-YourKeyHere') {
+    if (!API_KEY || API_KEY === 'sk-YourKeyHere') {
         throw new Error('OpenAI API key not configured. Set OPENAI_API_KEY in .env and USE_OPENAI=true');
     }
 
@@ -68,15 +68,15 @@ async function generateCandidates(systemPrompt, userMessages, temperatures = [0.
     );
 
     const successes = settled
-        .filter((item) => item.status ***REMOVED***= 'fulfilled' && item.value)
+        .filter((item) => item.status === 'fulfilled' && item.value)
         .map((item) => item.value);
 
-    if (successes.length ***REMOVED***= 0) {
-        const failure = settled.find((item) => item.status ***REMOVED***= 'rejected');
+    if (successes.length === 0) {
+        const failure = settled.find((item) => item.status === 'rejected');
         throw failure?.reason || new Error('OpenAI candidate generation failed');
     }
 
-    if (successes.length ***REMOVED***= 1) {
+    if (successes.length === 1) {
         return { opt1: successes[0], opt2: successes[0] };
     }
 

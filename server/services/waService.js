@@ -40,8 +40,8 @@ let detectedOwner = null;
 let detectedOwnerProfile = null;
 let qrRefreshCount = 0;
 let lastQrAt = null;
-const VERBOSE_LOGS = process.env.LOG_VERBOSE ***REMOVED***= 'true';
-const PRINT_QR_IN_TERMINAL = process.env.WA_PRINT_QR !***REMOVED*** 'false';
+const VERBOSE_LOGS = process.env.LOG_VERBOSE === 'true';
+const PRINT_QR_IN_TERMINAL = process.env.WA_PRINT_QR !== 'false';
 const RECONNECT_DELAY_MS = 5000;
 
 function maskPhone(phone) {
@@ -157,7 +157,7 @@ function initClient() {
         const resolved = getResolvedOwner();
         const source = detectedOwner ? 'phone_map' : 'env';
         console.log(`[WA Service:${WA_SESSION_ID}] WhatsApp 已就绪! owner=${resolved} source=${source} phone=${maskPhone(accountPhone)}`);
-        if (detectedOwner && detectedOwner !***REMOVED*** WA_OWNER) {
+        if (detectedOwner && detectedOwner !== WA_OWNER) {
             console.warn(`[WA Service:${WA_SESSION_ID}] owner mismatch: env=${WA_OWNER}, detected=${detectedOwner}; 优先使用 detected`);
         }
         ee.emit('ready');
@@ -229,7 +229,7 @@ async function resolveMediaPayload({ media_path, media_url, mime_type, file_name
 
 function extractMessageId(result) {
     if (!result) return null;
-    if (typeof result ***REMOVED***= 'string') return result;
+    if (typeof result === 'string') return result;
     return result?.id?._serialized || result?.id?.id || result?.id || null;
 }
 

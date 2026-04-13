@@ -47,7 +47,7 @@ function isNonTargetPhone(phone) {
     const digits = getPhoneDigits(phone);
     if (!digits) return true;
     if (isChinaPhone(phone)) return true;
-    if (digits.length ***REMOVED***= 11 && !digits.startsWith('1')) return true;
+    if (digits.length === 11 && !digits.startsWith('1')) return true;
     if (normalized.startsWith('+') && !normalized.startsWith('+1')) return true;
     return false;
 }
@@ -89,18 +89,18 @@ function analyzeCreatorEligibility(phone, name, recentMsgs = [], options = {}) {
         reasons.push('mostly_chinese');
     }
 
-    if (messageCount > 0 && relevanceHits ***REMOVED***= 0 && messageCount < 8) {
+    if (messageCount > 0 && relevanceHits === 0 && messageCount < 8) {
         reasons.push('irrelevant_chat');
     }
 
-    if (mode !***REMOVED*** 'realtime') {
-        if (messageCount ***REMOVED***= 0) reasons.push('no_wa_messages');
+    if (mode !== 'realtime') {
+        if (messageCount === 0) reasons.push('no_wa_messages');
         if (messageCount > 0 && messageCount < 3) reasons.push('too_few_messages');
         if (lastTsMs && lastTsMs < cutoffMs) reasons.push('stale_chat');
     }
 
     return {
-        eligible: reasons.length ***REMOVED***= 0,
+        eligible: reasons.length === 0,
         reasons,
         metrics: {
             messageCount,

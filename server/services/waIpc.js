@@ -97,7 +97,7 @@ function claimNextSessionCommand(sessionId) {
     const files = fs.readdirSync(dir)
         .filter((name) => name.endsWith('.json'))
         .sort();
-    if (files.length ***REMOVED***= 0) return null;
+    if (files.length === 0) return null;
 
     for (const file of files) {
         const source = path.join(dir, file);

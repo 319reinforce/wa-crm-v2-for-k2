@@ -9,11 +9,11 @@ const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
 const { extractAndSaveMemories } = require('../services/memoryExtractionService');
 const { normalizeOperatorName } = require('../utils/operator');
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Helper Functions ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== Helper Functions ==========
 
 function tryParseJson(val, fallback) {
-    if (val ***REMOVED***= null || val ***REMOVED***= undefined) return fallback;
-    if (typeof val ***REMOVED***= 'object') return val;
+    if (val === null || val === undefined) return fallback;
+    if (typeof val === 'object') return val;
     try { return JSON.parse(val); } catch (_) { return fallback; }
 }
 
@@ -68,7 +68,7 @@ async function compileSystemPrompt(operator, scene, clientInfo, clientMemory, po
         for (const doc of scenePolicies) {
             if (doc.policy_content) {
                 try {
-                    const content = typeof doc.policy_content ***REMOVED***= 'string'
+                    const content = typeof doc.policy_content === 'string'
                         ? JSON.parse(doc.policy_content)
                         : doc.policy_content;
                     prompt += '\n[' + doc.policy_key + ']';
@@ -106,7 +106,7 @@ async function compileSystemPrompt(operator, scene, clientInfo, clientMemory, po
 }
 
 function formatClientMemory(memory) {
-    if (!memory || memory.length ***REMOVED***= 0) return '暂无';
+    if (!memory || memory.length === 0) return '暂无';
     const lines = [];
     const byType = {};
     for (const m of memory) {
@@ -134,7 +134,7 @@ async function getOperatorByClientId(clientId) {
     return creator ? normalizeOperatorName(creator.wa_owner, creator.wa_owner) : null;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Routes ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== Routes ==========
 
 router.get('/operators', async (req, res) => {
     try {
@@ -236,11 +236,11 @@ router.post('/route', async (req, res) => {
 
         const recentMessages = (messages || []).slice(-10);
         const formattedMessages = recentMessages.map(msg => ({
-            role: msg.role ***REMOVED***= 'me' ? 'assistant' : 'user',
+            role: msg.role === 'me' ? 'assistant' : 'user',
             content: msg.text
         }));
 
-        if (formattedMessages.length > 0 && recentMessages[recentMessages.length - 1].role ***REMOVED***= 'me') {
+        if (formattedMessages.length > 0 && recentMessages[recentMessages.length - 1].role === 'me') {
             formattedMessages.push({ role: 'user', content: '[请回复这位达人]' });
         }
 
@@ -274,7 +274,7 @@ router.post('/route', async (req, res) => {
             }
 
             const data = JSON.parse(respText);
-            const textItem = data.content?.find(item => item.type ***REMOVED***= 'text');
+            const textItem = data.content?.find(item => item.type === 'text');
             return textItem?.text || '';
         }
 
@@ -290,7 +290,7 @@ router.post('/route', async (req, res) => {
             console.error('[route] opt2 failed:', e.message);
         }
 
-        // ***REMOVED***= client_memory 自动积累：AI 回复生成成功后异步提取记忆 ***REMOVED***=
+        // === client_memory 自动积累：AI 回复生成成功后异步提取记忆 ===
         if (client_id && operator && recentMessages.length > 0) {
             setImmediate(() => {
                 extractAndSaveMemories({
@@ -311,7 +311,7 @@ router.post('/route', async (req, res) => {
             experience_config: {
                 display_name: exp.display_name,
                 description: exp.description,
-                scene_config: (exp.scene_config && typeof exp.scene_config ***REMOVED***= 'object') ? exp.scene_config : {},
+                scene_config: (exp.scene_config && typeof exp.scene_config === 'object') ? exp.scene_config : {},
             },
             system_prompt: systemPrompt,
             version,

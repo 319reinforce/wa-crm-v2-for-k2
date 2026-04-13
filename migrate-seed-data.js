@@ -18,9 +18,9 @@ const DB_CONFIG = {
 
 async function main() {
   const conn = await mysql.createConnection(DB_CONFIG);
-  console.log('***REMOVED***= 完整数据迁移填充 ***REMOVED***=\n');
+  console.log('=== 完整数据迁移填充 ===\n');
 
-  // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 1. 填充 events_policy ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+  // ========== 1. 填充 events_policy ==========
   console.log('[1/6] 填充 events_policy...');
   const eventPolicies = [
     ['Beau', 'trial_7day', JSON.stringify({
@@ -94,7 +94,7 @@ async function main() {
   }
   console.log('  ✓ events_policy 填充完成');
 
-  // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 2. 填充 wa_crm_data (为所有没有的 creator 初始化) ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+  // ========== 2. 填充 wa_crm_data (为所有没有的 creator 初始化) ==========
   console.log('\n[2/6] 填充 wa_crm_data...');
   const [missing] = await conn.execute(`
     SELECT c.id FROM creators c
@@ -112,7 +112,7 @@ async function main() {
     console.log('  ✓ wa_crm_data 已完整');
   }
 
-  // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 3. 填充 creator_aliases (从 joinbrands_link 和 keeper_link 推导) ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+  // ========== 3. 填充 creator_aliases (从 joinbrands_link 和 keeper_link 推导) ==========
   console.log('\n[3/6] 填充 creator_aliases...');
   const [creatorsWithLinks] = await conn.execute(`
     SELECT DISTINCT c.id as creator_id,
@@ -147,7 +147,7 @@ async function main() {
   }
   console.log(`  ✓ 新增 ${aliasCount} 条 creator_aliases`);
 
-  // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 4. 从 joinbrands_link 历史数据生成 events 记录 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+  // ========== 4. 从 joinbrands_link 历史数据生成 events 记录 ==========
   console.log('\n[4/6] 从 joinbrands_link 历史数据生成 events...');
   const [jbCreators] = await conn.execute(`
     SELECT c.id as creator_id, c.wa_owner,
@@ -175,7 +175,7 @@ async function main() {
           `SELECT id FROM events WHERE creator_id = ? AND event_key = ? LIMIT 1`,
           [row.creator_id, evt.key]
         );
-        if (ex.length ***REMOVED***= 0) {
+        if (ex.length === 0) {
           const meta = evt.threshold ? JSON.stringify({ threshold: evt.threshold }) : null;
           await conn.execute(
             `INSERT INTO events (creator_id, event_key, event_type, owner, status, trigger_source, trigger_text, meta, start_at)
@@ -189,7 +189,7 @@ async function main() {
   }
   console.log(`  ✓ 新增 ${eventCount} 条 events 记录`);
 
-  // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 5. 填充 policy_documents ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+  // ========== 5. 填充 policy_documents ==========
   console.log('\n[5/6] 填充 policy_documents...');
   const policyDocItems = [
     {
@@ -249,7 +249,7 @@ async function main() {
   }
   console.log('  ✓ policy_documents 填充完成');
 
-  // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 6. 验证最终状态 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+  // ========== 6. 验证最终状态 ==========
   console.log('\n[6/6] 验证最终状态...');
   const tables = ['events', 'events_policy', 'policy_documents', 'creator_aliases', 'wa_crm_data', 'audit_log'];
   for (const tbl of tables) {
@@ -258,7 +258,7 @@ async function main() {
   }
 
   await conn.end();
-  console.log('\n***REMOVED***= 填充完成 ***REMOVED***=');
+  console.log('\n=== 填充完成 ===');
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

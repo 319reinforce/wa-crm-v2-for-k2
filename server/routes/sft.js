@@ -48,7 +48,7 @@ router.post('/sft-memory', async (req, res) => {
         let status = 'approved';
         if (diff_analysis?.is_custom) {
             status = similarity >= 85 ? 'approved' : 'pending_review';
-        } else if (similarity !***REMOVED*** null && similarity < 85) {
+        } else if (similarity !== null && similarity < 85) {
             status = 'pending_review';
         }
 
@@ -62,11 +62,11 @@ router.post('/sft-memory', async (req, res) => {
         const opt2 = model_candidates?.opt2 || null;
         let chosen_output = null;
         let rejected_output = null;
-        if (human_selected ***REMOVED***= 'opt1') {
+        if (human_selected === 'opt1') {
             chosen_output = opt1; rejected_output = opt2;
-        } else if (human_selected ***REMOVED***= 'opt2') {
+        } else if (human_selected === 'opt2') {
             chosen_output = opt2; rejected_output = opt1;
-        } else if (human_selected ***REMOVED***= 'custom') {
+        } else if (human_selected === 'custom') {
             chosen_output = human_output; rejected_output = opt1;
         }
 
@@ -76,7 +76,7 @@ router.post('/sft-memory', async (req, res) => {
         `).get(client_id_hash, input_text_hash, human_output_hash, created_date);
 
         if (existing) {
-            const newStatus = (status ***REMOVED***= 'approved') ? existing.status || status : status;
+            const newStatus = (status === 'approved') ? existing.status || status : status;
             await db2.prepare(`
                 UPDATE sft_memory SET
                     human_output = ?,
@@ -88,7 +88,7 @@ router.post('/sft-memory', async (req, res) => {
                     system_prompt_version = COALESCE(?, system_prompt_version)
                 WHERE id = ?
             `).run(human_output, status, newStatus, status, similarity, chosen_output, rejected_output, system_prompt_used, system_prompt_version, existing.id);
-            // ***REMOVED***= client_memory 自动积累：SFT 人工选择后异步提取记忆（UPDATE 路径）***REMOVED***=
+            // === client_memory 自动积累：SFT 人工选择后异步提取记忆（UPDATE 路径）===
             if (client_id && messages && messages.length > 0) {
                 const owner = await db2.prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
                 if (owner) {
@@ -144,7 +144,7 @@ router.post('/sft-memory', async (req, res) => {
             human_selected, human_output, status, reviewed_by
         }, req);
 
-        // ***REMOVED***= client_memory 自动积累：SFT 人工选择后异步提取记忆 ***REMOVED***=
+        // === client_memory 自动积累：SFT 人工选择后异步提取记忆 ===
         if (client_id && messages && messages.length > 0) {
             const owner = await db2.prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
             if (owner) {
@@ -218,12 +218,12 @@ router.patch('/sft-memory/:id/review', async (req, res) => {
             return res.status(400).json({ error: 'action must be approve or reject' });
         }
         const db2 = db.getDb();
-        const newStatus = action ***REMOVED***= 'approve' ? 'approved' : 'rejected';
+        const newStatus = action === 'approve' ? 'approved' : 'rejected';
         const result = await db2.prepare(`
             UPDATE sft_memory SET status = ?, reviewed_by = ?, human_reason = COALESCE(?, human_reason)
             WHERE id = ?
         `).run(newStatus, 'human_review', comment || null, parseInt(req.params.id));
-        if (result.changes ***REMOVED***= 0) {
+        if (result.changes === 0) {
             return res.status(404).json({ error: 'Record not found' });
         }
         res.json({ ok: true, status: newStatus });
@@ -412,7 +412,7 @@ router.get('/sft-export', async (req, res) => {
         const db2 = db.getDb();
         const { format = 'json', status = 'approved', lang = 'all', month, include_retrieval = 'false' } = req.query;
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 1000, 1), 5000);
-        const withRetrieval = include_retrieval ***REMOVED***= 'true';
+        const withRetrieval = include_retrieval === 'true';
 
         let sql = `SELECT * FROM sft_memory WHERE status = ?`;
         const params = [status];
@@ -462,13 +462,13 @@ router.get('/sft-export', async (req, res) => {
             const msgs = [];
             if (history && history.length > 0) {
                 for (const m of history) {
-                    msgs.push({ role: m.role ***REMOVED***= 'me' ? 'assistant' : 'user', content: m.text });
+                    msgs.push({ role: m.role === 'me' ? 'assistant' : 'user', content: m.text });
                 }
             }
             // Only append inputText as a new user message if history doesn't already end with a user message.
             // This aligns with inference: '[请回复这位达人]' is only added when last msg is NOT from user.
             const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
-            const alreadyHasUserMessage = lastMsg && lastMsg.role ***REMOVED***= 'user';
+            const alreadyHasUserMessage = lastMsg && lastMsg.role === 'user';
             if (!alreadyHasUserMessage) {
                 msgs.push({ role: 'user', content: inputText || '' });
             }
@@ -482,7 +482,7 @@ router.get('/sft-export', async (req, res) => {
             try { if (r.message_history) history = JSON.parse(r.message_history); } catch (_) {}
             const inputText = ctx.input_text || '';
 
-            if (lang ***REMOVED***= 'en' && !isEnglish(inputText) && !isEnglish(r.human_output || '')) {
+            if (lang === 'en' && !isEnglish(inputText) && !isEnglish(r.human_output || '')) {
                 return null;
             }
 
@@ -533,7 +533,7 @@ router.get('/sft-export', async (req, res) => {
             };
         };
 
-        if (format ***REMOVED***= 'jsonl') {
+        if (format === 'jsonl') {
             res.setHeader('Content-Type', 'application/x-ndjson');
             const exported = (await Promise.all(rows.map(r => exportRecord(r)))).filter(Boolean);
             res.end(exported.map(r => JSON.stringify(r)).join('\n'));

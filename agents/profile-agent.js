@@ -28,7 +28,7 @@ if (!API_KEY) {
     process.exit(1);
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** MiniMax API ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== MiniMax API ==========
 
 async function generateSummary(clientInfo, tags, recentMemory) {
     const prompt = `你是一个专业的客户画像分析师。根据以下信息，为这位客户生成一段简洁的画像摘要（50字以内）。
@@ -68,11 +68,11 @@ async function generateSummary(clientInfo, tags, recentMemory) {
     }
 
     const data = await response.json();
-    const textItem = data.content?.find(item => item.type ***REMOVED***= 'text');
+    const textItem = data.content?.find(item => item.type === 'text');
     return textItem?.text?.trim() || null;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Tag Extraction Rules ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== Tag Extraction Rules ==========
 
 /**
  * 从 WA 消息中提取标签
@@ -101,7 +101,7 @@ function extractTagsFromMessage(text, role = 'user') {
     }
 
     // decision 类
-    if (role ***REMOVED***= 'me' && /\b(decide[sd]?|chose|going with|选择了|已确认)\b/.test(t)) {
+    if (role === 'me' && /\b(decide[sd]?|chose|going with|选择了|已确认)\b/.test(t)) {
         tags.push({ tag: 'decision_made:true', source: 'ai_extracted', confidence: 3 });
     }
 
@@ -120,7 +120,7 @@ function extractTagsFromMessage(text, role = 'user') {
     }
 
     // engagement 类
-    if (role ***REMOVED***= 'user' && t.length > 50) {
+    if (role === 'user' && t.length > 50) {
         tags.push({ tag: 'engagement:detailed_response', source: 'ai_extracted', confidence: 1 });
     }
 
@@ -163,7 +163,7 @@ function learnFromSftRecord(sftRecord) {
     tags.push({ tag: `scene:${scene}`, source: 'sft_feedback', confidence: 2 });
 
     // 如果 human_selected = 'custom'，说明模型在这个场景表现差
-    if (sftRecord.human_selected ***REMOVED***= 'custom') {
+    if (sftRecord.human_selected === 'custom') {
         tags.push({ tag: `scene:${scene}:ai_weak`, source: 'sft_feedback', confidence: 2 });
     } else {
         // 模型被采纳，说明这个场景 AI 表现好
@@ -173,7 +173,7 @@ function learnFromSftRecord(sftRecord) {
     return tags;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Database Operations ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== Database Operations ==========
 
 function getDb() {
     return new Database(DB_PATH);
@@ -276,7 +276,7 @@ async function refreshProfileSummary(clientId) {
     return clientId;
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Event Handlers ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== Event Handlers ==========
 
 async function handleWAMessage(db, clientId, data) {
     const { text, role, timestamp } = data;
@@ -337,7 +337,7 @@ async function handleManualTag(db, clientId, data) {
     return [{ tag: `${tag}:${value || 'true'}`, source: 'manual', confidence }];
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Main ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ========== Main ==========
 
 async function processEvent(eventType, clientId, eventData) {
     const db = getDb();
@@ -379,14 +379,14 @@ async function processEvent(eventType, clientId, eventData) {
 }
 
 // CLI 模式
-if (require.main ***REMOVED***= module) {
+if (require.main === module) {
     const args = process.argv.slice(2);
     let eventType, clientId, data = {};
 
     for (let i = 0; i < args.length; i++) {
-        if (args[i] ***REMOVED***= '--event' && args[i + 1]) eventType = args[++i];
-        if (args[i] ***REMOVED***= '--client_id' && args[i + 1]) clientId = args[++i];
-        if (args[i] ***REMOVED***= '--data' && args[i + 1]) data = JSON.parse(args[++i]);
+        if (args[i] === '--event' && args[i + 1]) eventType = args[++i];
+        if (args[i] === '--client_id' && args[i + 1]) clientId = args[++i];
+        if (args[i] === '--data' && args[i + 1]) data = JSON.parse(args[++i]);
     }
 
     if (!eventType || !clientId) {

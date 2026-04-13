@@ -19,7 +19,7 @@ async function safeGet(sql, ...params) {
     try {
         return await db.getDb().prepare(sql).get(...params);
     } catch (err) {
-        if (err?.code ***REMOVED***= 'ER_NO_SUCH_TABLE') return null;
+        if (err?.code === 'ER_NO_SUCH_TABLE') return null;
         throw err;
     }
 }
@@ -71,7 +71,7 @@ async function getPrimaryAssignmentsByOperator(operator) {
              ORDER BY c.id ASC`
         ).all(normalized);
     } catch (err) {
-        if (err?.code ***REMOVED***= 'ER_NO_SUCH_TABLE') return [];
+        if (err?.code === 'ER_NO_SUCH_TABLE') return [];
         throw err;
     }
 }

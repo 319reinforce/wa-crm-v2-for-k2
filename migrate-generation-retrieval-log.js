@@ -40,7 +40,7 @@ async function main() {
         await conn.query('CREATE INDEX idx_rs_hash ON retrieval_snapshot(snapshot_hash)');
         console.log('[migrate-generation-retrieval-log] retrieval_snapshot ready');
     } catch (err) {
-        if (err.code !***REMOVED*** 'ER_DUP_KEYNAME') throw err;
+        if (err.code !== 'ER_DUP_KEYNAME') throw err;
         console.log('[migrate-generation-retrieval-log] retrieval_snapshot indexes already exist');
     }
 
@@ -70,7 +70,7 @@ async function main() {
         await conn.query('CREATE INDEX idx_gl_snapshot ON generation_log(retrieval_snapshot_id)');
         console.log('[migrate-generation-retrieval-log] generation_log ready');
     } catch (err) {
-        if (err.code !***REMOVED*** 'ER_DUP_KEYNAME') throw err;
+        if (err.code !== 'ER_DUP_KEYNAME') throw err;
         console.log('[migrate-generation-retrieval-log] generation_log indexes already exist');
     }
 

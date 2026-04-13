@@ -45,12 +45,12 @@ async function filterShortWindowDuplicates(executor, creatorId, messages = [], o
         }))
         .filter((message) => message.text && message.timestamp > 0);
 
-    if (normalized.length ***REMOVED***= 0) {
+    if (normalized.length === 0) {
         return { kept: [], dropped: [], existingSample: [] };
     }
 
     normalized.sort((a, b) => {
-        if (a.timestamp !***REMOVED*** b.timestamp) return a.timestamp - b.timestamp;
+        if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
         return a.__index - b.__index;
     });
 

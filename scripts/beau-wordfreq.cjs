@@ -11,7 +11,7 @@ const lines = raw.split('\n').filter(l => l.trim() && !l.startsWith('text') && !
 const messages = lines.map(line => {
   const tabs = [];
   for (let i = 0; i < line.length; i++) {
-    if (line[i] ***REMOVED***= '\t') tabs.push(i);
+    if (line[i] === '\t') tabs.push(i);
   }
   const lastTab = tabs[tabs.length - 1];
   const secondLastTab = tabs[tabs.length - 2];
@@ -19,11 +19,11 @@ const messages = lines.map(line => {
   const role = line.slice(secondLastTab + 1, lastTab);
   const name = line.slice(lastTab + 1);
   return { text, role, name };
-}).filter(m => m.text.trim() && (m.role ***REMOVED***= 'user' || m.role ***REMOVED***= 'me'));
+}).filter(m => m.text.trim() && (m.role === 'user' || m.role === 'me'));
 
 console.log(`总消息数: ${messages.length}`);
-const userMsgs = messages.filter(m => m.role ***REMOVED***= 'user');
-const opMsgs = messages.filter(m => m.role ***REMOVED***= 'me');
+const userMsgs = messages.filter(m => m.role === 'user');
+const opMsgs = messages.filter(m => m.role === 'me');
 console.log(`达人发送: ${userMsgs.length} | 运营发送: ${opMsgs.length}`);
 console.log('');
 
@@ -75,21 +75,21 @@ function freq(arr) {
 const allWords = [];
 messages.forEach(m => allWords.push(...tokenize(m.text)));
 const allFreq = freq(allWords);
-console.log('***REMOVED***= 高频词 TOP 100（全部消息）***REMOVED***=');
+console.log('=== 高频词 TOP 100（全部消息）===');
 allFreq.slice(0, 100).forEach(([w, c], i) => console.log(`${i+1}. ${w}: ${c}`));
 
 // ---- 2. 达人高频词 ----
 const creatorWords = [];
 userMsgs.forEach(m => creatorWords.push(...tokenize(m.text)));
 const creatorFreq = freq(creatorWords);
-console.log('\n***REMOVED***= 高频词 TOP 80（仅达人消息）***REMOVED***=');
+console.log('\n=== 高频词 TOP 80（仅达人消息）===');
 creatorFreq.slice(0, 80).forEach(([w, c], i) => console.log(`${i+1}. ${w}: ${c}`));
 
 // ---- 3. 运营高频词 ----
 const opWords = [];
 opMsgs.forEach(m => opWords.push(...tokenize(m.text)));
 const opFreq = freq(opWords);
-console.log('\n***REMOVED***= 高频词 TOP 80（仅运营消息）***REMOVED***=');
+console.log('\n=== 高频词 TOP 80（仅运营消息）===');
 opFreq.slice(0, 80).forEach(([w, c], i) => console.log(`${i+1}. ${w}: ${c}`));
 
 // ---- 4. 二元组 ----
@@ -102,7 +102,7 @@ messages.forEach(m => {
   }
 });
 const sortedBigrams = Object.entries(bgFreq).filter(([,c]) => c >= 8).sort((a,b) => b[1]-a[1]);
-console.log('\n***REMOVED***= 高频二元组 TOP 60（≥8次）***REMOVED***=');
+console.log('\n=== 高频二元组 TOP 60（≥8次）===');
 sortedBigrams.slice(0, 60).forEach(([bg, c], i) => console.log(`${i+1}. "${bg}": ${c}`));
 
 // ---- 5. 三元组 ----
@@ -115,7 +115,7 @@ messages.forEach(m => {
   }
 });
 const sortedTrigrams = Object.entries(tgFreq).filter(([,c]) => c >= 5).sort((a,b) => b[1]-a[1]);
-console.log('\n***REMOVED***= 高频三元组 TOP 40（≥5次）***REMOVED***=');
+console.log('\n=== 高频三元组 TOP 40（≥5次）===');
 sortedTrigrams.slice(0, 40).forEach(([tg, c], i) => console.log(`${i+1}. "${tg}": ${c}`));
 
 // ---- 6. 主题词分析 ----
@@ -134,7 +134,7 @@ const DOMAINS = [
   { name: '确认/核实', words: ['confirm', 'confirmed', 'confirmation', 'check', 'checked', 'verify', 'verified', 'info', 'information', 'details'] },
 ];
 
-console.log('\n***REMOVED***= 主题分类词频 ***REMOVED***=');
+console.log('\n=== 主题分类词频 ===');
 for (const domain of DOMAINS) {
   const counts = {};
   messages.forEach(m => {
@@ -160,16 +160,16 @@ messages.forEach(m => {
   if (starter.length > 5) starters[starter] = (starters[starter] || 0) + 1;
 });
 const sortedStarters = Object.entries(starters).filter(([,c]) => c >= 3).sort((a,b) => b[1]-a[1]);
-console.log('\n***REMOVED***= 常见句子开头（≥3次）***REMOVED***=');
+console.log('\n=== 常见句子开头（≥3次）===');
 sortedStarters.slice(0, 30).forEach(([s, c], i) => console.log(`${i+1}. "${s}": ${c}`));
 
 // ---- 8. 问句分析 ----
 const questionWords = {};
-messages.filter(m => m.role ***REMOVED***= 'me' && m.text.includes('?')).forEach(m => {
+messages.filter(m => m.role === 'me' && m.text.includes('?')).forEach(m => {
   tokenize(m.text).forEach(w => { questionWords[w] = (questionWords[w] || 0) + 1; });
 });
 const sortedQuestions = Object.entries(questionWords).sort((a,b) => b[1]-a[1]);
-console.log('\n***REMOVED***= 运营问句高频词 TOP 40 ***REMOVED***=');
+console.log('\n=== 运营问句高频词 TOP 40 ===');
 sortedQuestions.slice(0, 40).forEach(([w, c], i) => console.log(`${i+1}. ${w}: ${c}`));
 
 // ---- 9. 各达人消息量 ----
@@ -180,7 +180,7 @@ messages.forEach(m => {
   byCreator[m.name].total++;
 });
 const sortedByCreator = Object.entries(byCreator).sort((a,b) => b[1].total - a[1].total);
-console.log('\n***REMOVED***= 各达人消息量 TOP 25 ***REMOVED***=');
+console.log('\n=== 各达人消息量 TOP 25 ===');
 sortedByCreator.slice(0, 25).forEach(([name, counts], i) => {
   console.log(`${i+1}. ${name}: 达人→${counts.user}条 | 运营→${counts.me}条`);
 });
@@ -191,10 +191,10 @@ const KW_SAMPLES = [
   'payment', 'strike', 'contract', 'account', 'device', 'suspended', 'moras',
   'threshold', 'video', '35', 'monthly fee', '20', '300', '200'
 ];
-console.log('\n***REMOVED***= 关键词语境样本 ***REMOVED***=');
+console.log('\n=== 关键词语境样本 ===');
 KW_SAMPLES.forEach(kw => {
   const matches = messages.filter(m => m.text.toLowerCase().includes(kw.toLowerCase()));
-  if (matches.length ***REMOVED***= 0) return;
+  if (matches.length === 0) return;
   console.log(`\n"${kw}" (${matches.length}次):`);
   matches.slice(0, 2).forEach(s => {
     const snippet = s.text.replace(/\n/g, ' ').slice(0, 300);

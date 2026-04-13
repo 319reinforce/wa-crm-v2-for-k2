@@ -16,7 +16,7 @@ const PING_TIMEOUT_MS = Math.max(parseInt(process.env.FINETUNED_PING_TIMEOUT_MS 
 function parseHost(url) {
     try {
         const u = new URL(url);
-        return { hostname: u.hostname, port: u.port || (u.protocol ***REMOVED***= 'https:' ? 443 : 80), path: u.pathname + u.search };
+        return { hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search };
     } catch (_) {
         return null;
     }
@@ -27,7 +27,7 @@ function resolveFinetunedBase(baseUrl) {
     if (!input) return '';
     try {
         const url = new URL(input);
-        if (url.hostname ***REMOVED***= 'api.openai.com' && /^\/v1\/?$/.test(url.pathname)) {
+        if (url.hostname === 'api.openai.com' && /^\/v1\/?$/.test(url.pathname)) {
             return `${url.origin}/v1/chat/completions`;
         }
         return input;
@@ -65,7 +65,7 @@ async function pingFinetuned(baseUrl) {
             body: JSON.stringify(probeBody),
             signal: AbortSignal.timeout(PING_TIMEOUT_MS),
         });
-        const reachable = res.status !***REMOVED*** 404 && res.status < 500;
+        const reachable = res.status !== 404 && res.status < 500;
         return {
             reachable,
             status: res.status,
@@ -121,7 +121,7 @@ async function main() {
     if (!sftReady) blockers.push('SFT training readiness not met');
     if (!String(process.env.FINETUNED_MODEL || '').trim()) blockers.push('FINETUNED_MODEL is not set');
     if (!finetunedPing.reachable) blockers.push(`FINETUNED_BASE unreachable: ${finetunedPing.reason}`);
-    if (total ***REMOVED***= 0) blockers.push('generation_log has no recent traffic');
+    if (total === 0) blockers.push('generation_log has no recent traffic');
 
     const readyForCanary = sftReady && finetunedPing.reachable && total > 0;
 

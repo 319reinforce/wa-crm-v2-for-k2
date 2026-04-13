@@ -14,7 +14,7 @@ const { writeAudit } = require('../middleware/audit');
 
 function parseJsonSafe(value, fallback = null) {
     if (!value) return fallback;
-    if (typeof value ***REMOVED***= 'object') return value;
+    if (typeof value === 'object') return value;
     try {
         return JSON.parse(value);
     } catch (_) {
@@ -26,7 +26,7 @@ function parseJsonSafe(value, fallback = null) {
 router.get('/client-memory/:clientId', async (req, res) => {
     try {
         const { clientId } = req.params;
-        if (!clientId || typeof clientId !***REMOVED*** 'string' || clientId.length > 50) {
+        if (!clientId || typeof clientId !== 'string' || clientId.length > 50) {
             return res.status(400).json({ error: 'invalid clientId' });
         }
         const db2 = db.getDb();
@@ -125,7 +125,7 @@ router.put('/client-profile/:clientId', async (req, res) => {
             UPDATE client_profiles SET summary = ?, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?
         `).run(summary || '', clientId);
 
-        if (updated.changes ***REMOVED***= 0) {
+        if (updated.changes === 0) {
             await db2.prepare(`
                 INSERT INTO client_profiles (client_id, summary) VALUES (?, ?)
             `).run(clientId, summary || '');
@@ -147,7 +147,7 @@ router.put('/client-profiles/:clientId/tags', async (req, res) => {
 
         if (!tag) return res.status(400).json({ error: 'tag required' });
 
-        if (action ***REMOVED***= 'delete') {
+        if (action === 'delete') {
             await db2.prepare('DELETE FROM client_tags WHERE client_id = ? AND tag = ?').run(clientId, tag);
         } else {
             const fullTag = tag.includes(':') ? tag : `${tag}:${value || 'true'}`;
@@ -172,7 +172,7 @@ router.post('/client-profiles/:clientId/memory', async (req, res) => {
         const { clientId } = req.params;
         const { memory_type, memory_key, memory_value } = req.body;
 
-        if (!memory_type || !memory_key || memory_value ***REMOVED***= undefined) {
+        if (!memory_type || !memory_key || memory_value === undefined) {
             return res.status(400).json({ error: 'memory_type, memory_key and memory_value required' });
         }
 
@@ -210,7 +210,7 @@ router.delete('/client-profiles/:clientId/memory', async (req, res) => {
     }
 });
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** MiniMax LLM 标签提取 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== MiniMax LLM 标签提取 ==================
 
 const LABEL_SYSTEM_PROMPT = `你是一个客户对话标签提取专家。根据用户消息提取结构化标签。
 
@@ -272,7 +272,7 @@ async function extractTagsWithLLM(text) {
             console.warn(`[profile-agent] non-JSON response (status ${response.status}):`, bodyText.slice(0, 80));
             return [];
         }
-        const textItem = data.content?.find(item => item.type ***REMOVED***= 'text');
+        const textItem = data.content?.find(item => item.type === 'text');
         const raw = textItem?.text?.trim() || '';
 
         // 清理 Markdown code fence，再提取 JSON（非贪心匹配第一个块）
@@ -291,7 +291,7 @@ async function extractTagsWithLLM(text) {
 
         // 规范化：统一转成 { tag, source: 'ai_extracted', reason } 格式
         return tags
-            .filter(t => t.tag && typeof t.tag ***REMOVED***= 'string')
+            .filter(t => t.tag && typeof t.tag === 'string')
             .map(t => ({
                 tag: t.tag,
                 source: 'ai_extracted',
@@ -304,7 +304,7 @@ async function extractTagsWithLLM(text) {
     }
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 事件触发入口 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 事件触发入口 ==================
 
 // POST /api/profile-agent/event
 router.post('/profile-agent/event', async (req, res) => {
@@ -328,7 +328,7 @@ router.post('/profile-agent/event', async (req, res) => {
 
         let tags_added = [];
 
-        if (event_type ***REMOVED***= 'wa_message') {
+        if (event_type === 'wa_message') {
             const { text, role } = eventData || {};
             if (text) {
                 // LLM 标签提取（主要方式）

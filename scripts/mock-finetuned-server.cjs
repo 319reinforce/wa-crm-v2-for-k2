@@ -31,16 +31,16 @@ function json(res, status, payload) {
 
 const server = http.createServer(async (req, res) => {
     try {
-        if (req.method ***REMOVED***= 'GET' && req.url ***REMOVED***= '/health') {
+        if (req.method === 'GET' && req.url === '/health') {
             return json(res, 200, { ok: true, service: 'mock-finetuned', port: PORT });
         }
 
-        if (req.method ***REMOVED***= 'POST' && req.url ***REMOVED***= '/v1/messages') {
+        if (req.method === 'POST' && req.url === '/v1/messages') {
             const raw = await readBody(req);
             const body = raw ? JSON.parse(raw) : {};
             const messages = Array.isArray(body.messages) ? body.messages : [];
-            const lastUser = [...messages].reverse().find((m) => m.role ***REMOVED***= 'user');
-            const userText = typeof lastUser?.content ***REMOVED***= 'string'
+            const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+            const userText = typeof lastUser?.content === 'string'
                 ? lastUser.content
                 : (Array.isArray(lastUser?.content) ? JSON.stringify(lastUser.content).slice(0, 80) : '');
 

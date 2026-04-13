@@ -13,7 +13,7 @@
  */
 
 module.exports = {
-    // ***REMOVED******REMOVED***= Yiyun 达人 ***REMOVED******REMOVED***=
+    // ===== Yiyun 达人 =====
     1001: {
         primary_name: 'Jessica',
         aliases: {
@@ -253,7 +253,7 @@ module.exports = {
         }
     },
 
-    // ***REMOVED******REMOVED***= Beau 达人（示例部分） ***REMOVED******REMOVED***=
+    // ===== Beau 达人（示例部分） =====
     2001: {
         primary_name: 'Ashley',
         aliases: {

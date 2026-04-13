@@ -72,7 +72,7 @@ function parseBase64Payload(input) {
 function decodeImageBuffer(dataBase64) {
     const { mimeFromDataUrl, base64 } = parseBase64Payload(dataBase64);
     const buffer = Buffer.from(base64, 'base64');
-    if (!buffer || buffer.length ***REMOVED***= 0) {
+    if (!buffer || buffer.length === 0) {
         throw new Error('invalid base64 payload');
     }
     return { buffer, mimeFromDataUrl };
@@ -179,14 +179,14 @@ async function createMediaAsset({
         storageKey = String(parsed.pathname || '').replace(/^\/+/, '') || `external/${Date.now()}`;
         fileSize = Math.max(parseInt(sourceSize || '0', 10) || 0, 0);
         hash = sha256Text(fileUrl);
-        storageProvider = storageProvider ***REMOVED***= 'local' ? 'external' : storageProvider;
+        storageProvider = storageProvider === 'local' ? 'external' : storageProvider;
     } else {
         const decoded = decodeImageBuffer(dataBase64);
         buffer = decoded.buffer;
         if (!normalizedMime && decoded.mimeFromDataUrl) {
             mimeType = decoded.mimeFromDataUrl;
         }
-        if (!buffer || buffer.length ***REMOVED***= 0) {
+        if (!buffer || buffer.length === 0) {
             throw new Error('empty image payload');
         }
         if (buffer.length > MEDIA_UPLOAD_MAX_BYTES) {

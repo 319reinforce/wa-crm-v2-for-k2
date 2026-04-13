@@ -48,7 +48,7 @@ function getOperatorProfileByPhone(phone) {
 }
 
 function normalizeOperatorName(value, fallback = null) {
-    if (value ***REMOVED***= null || value ***REMOVED***= undefined) return fallback;
+    if (value === null || value === undefined) return fallback;
     const trimmed = String(value).trim();
     if (!trimmed) return fallback;
 

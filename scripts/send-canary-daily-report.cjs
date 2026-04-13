@@ -37,9 +37,9 @@ function parseArgs(argv) {
         chatId: DEFAULT_CHAT_ID,
     };
     for (const arg of argv) {
-        if (arg ***REMOVED***= '--executive') out.executive = true;
-        if (arg ***REMOVED***= '--dry-run') out.dryRun = true;
-        if (arg ***REMOVED***= '--no-send') out.noSend = true;
+        if (arg === '--executive') out.executive = true;
+        if (arg === '--dry-run') out.dryRun = true;
+        if (arg === '--no-send') out.noSend = true;
         if (arg.startsWith('--window-size=')) out.windowSize = Math.max(parseInt(arg.slice('--window-size='.length), 10) || DEFAULT_WINDOW_SIZE, 1);
         if (arg.startsWith('--hours=')) out.hours = Math.max(parseInt(arg.slice('--hours='.length), 10) || DEFAULT_HOURS, 1);
         if (arg.startsWith('--chat-query=')) out.chatQuery = arg.slice('--chat-query='.length).trim() || DEFAULT_CHAT_QUERY;
@@ -55,7 +55,7 @@ function runCommand(command, args, options = {}) {
         encoding: 'utf8',
         ...options,
     });
-    if (result.status !***REMOVED*** 0) {
+    if (result.status !== 0) {
         const err = (result.stderr || result.stdout || `exit=${result.status}`).trim();
         throw new Error(`${command} ${args.join(' ')} failed: ${err}`);
     }
@@ -96,7 +96,7 @@ async function fetchMetrics(windowSize, hours) {
         ORDER BY id DESC
         LIMIT ${safeWindowSize}
     `).all();
-    if (latestWindowRows.length ***REMOVED***= 0) {
+    if (latestWindowRows.length === 0) {
         throw new Error('generation_log 没有可用数据，无法生成日报');
     }
 
@@ -158,7 +158,7 @@ async function fetchMetrics(windowSize, hours) {
     `).get();
 
     const nowIso = new Date().toISOString();
-    const windowSuccess = latestWindowRows.filter((row) => row.status ***REMOVED***= 'success').length;
+    const windowSuccess = latestWindowRows.filter((row) => row.status === 'success').length;
     return {
         generated_at: nowIso,
         env: {
@@ -212,17 +212,17 @@ async function fetchMetrics(windowSize, hours) {
 }
 
 function formatProviderInline(items) {
-    if (!items || items.length ***REMOVED***= 0) return '无';
+    if (!items || items.length === 0) return '无';
     return items.map((item) => `${item.provider}=${item.c}`).join('，');
 }
 
 function formatProviderSuccessInline(items) {
-    if (!items || items.length ***REMOVED***= 0) return '无';
+    if (!items || items.length === 0) return '无';
     return items.map((item) => `${item.provider}=${item.success_count}`).join('，');
 }
 
 function formatProviderLatencyInline(items) {
-    if (!items || items.length ***REMOVED***= 0) return '无';
+    if (!items || items.length === 0) return '无';
     return items.map((item) => `${item.provider}=${item.avg_latency_ms ?? 'null'}ms`).join('，');
 }
 
@@ -313,7 +313,7 @@ function buildFullMarkdown(metrics) {
 function buildExecutiveMarkdown(metrics) {
     const date = toShanghaiDate(new Date());
     const latestFt = metrics.latest_finetuned;
-    const topLatency = metrics.window.by_provider.find((item) => item.provider ***REMOVED***= 'finetuned')?.avg_latency_ms ?? null;
+    const topLatency = metrics.window.by_provider.find((item) => item.provider === 'finetuned')?.avg_latency_ms ?? null;
     const riskLine = topLatency && topLatency > 5000
         ? `微调路径延迟偏高（窗口内约 ${topLatency}ms），建议持续观察高峰期耗时。`
         : '当前窗口未见明显性能风险，继续观察 24h 波动。';

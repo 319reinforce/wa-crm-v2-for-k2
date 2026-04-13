@@ -49,7 +49,7 @@ function parseAliasBlob(blob) {
         .split(' | ')
         .map((entry) => {
             const idx = entry.indexOf(':');
-            if (idx ***REMOVED***= -1) return null;
+            if (idx === -1) return null;
             return {
                 aliasType: entry.slice(0, idx),
                 aliasValue: entry.slice(idx + 1),
@@ -89,7 +89,7 @@ function scoreCandidate(row, incomingEntries = [], phone, operator) {
     const candidateKeys = buildCandidateKeys(row);
     const normalizedOperator = normalizeOperatorName(operator, operator || null);
 
-    if (phone && row.wa_phone && String(row.wa_phone) ***REMOVED***= String(phone)) {
+    if (phone && row.wa_phone && String(row.wa_phone) === String(phone)) {
         score += 20000;
         reasons.push('exact_phone');
     }
@@ -98,14 +98,14 @@ function scoreCandidate(row, incomingEntries = [], phone, operator) {
         let bestLocal = 0;
         let bestReason = null;
         for (const candidate of candidateKeys) {
-            if (incoming.compact && candidate.compact && incoming.compact ***REMOVED***= candidate.compact && incoming.compact.length >= 4) {
+            if (incoming.compact && candidate.compact && incoming.compact === candidate.compact && incoming.compact.length >= 4) {
                 if (900 > bestLocal) {
                     bestLocal = 900;
                     bestReason = `exact:${candidate.source}`;
                 }
                 continue;
             }
-            if (incoming.normalized && candidate.normalized && incoming.normalized ***REMOVED***= candidate.normalized) {
+            if (incoming.normalized && candidate.normalized && incoming.normalized === candidate.normalized) {
                 if (850 > bestLocal) {
                     bestLocal = 850;
                     bestReason = `exact_norm:${candidate.source}`;
@@ -138,7 +138,7 @@ function scoreCandidate(row, incomingEntries = [], phone, operator) {
         }
     }
 
-    if (normalizedOperator && normalizeOperatorName(row.operator, row.operator) ***REMOVED***= normalizedOperator) {
+    if (normalizedOperator && normalizeOperatorName(row.operator, row.operator) === normalizedOperator) {
         score += 140;
         reasons.push('operator_match');
     }
@@ -285,7 +285,7 @@ async function resolveCanonicalCreator({ phone, name, operator }) {
     const rosterCandidates = await loadRosterCandidates(operator);
     const best = chooseBestCandidate(rosterCandidates, incomingEntries, phone, operator);
 
-    if (exactPhoneCreator && best && Number(exactPhoneCreator.id) !***REMOVED*** Number(best.creatorId)) {
+    if (exactPhoneCreator && best && Number(exactPhoneCreator.id) !== Number(best.creatorId)) {
         if (best.score >= 700 && !best.row.wa_phone) {
             const merged = await mergeDuplicateCreatorIntoCanonical({
                 targetCreatorId: best.creatorId,

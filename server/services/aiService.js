@@ -21,7 +21,7 @@ async function validateClientId(clientId) {
  * 提取 MiniMax API 响应中的文本
  */
 function extractTextFromResponse(data) {
-    return data?.content?.find(c => c.type ***REMOVED***= 'text')?.text || '';
+    return data?.content?.find(c => c.type === 'text')?.text || '';
 }
 
 /**
@@ -106,13 +106,13 @@ async function translateText(text, role = 'user', timestamp = null) {
     const data = await response.json();
     let raw = '';
     if (data.content && Array.isArray(data.content)) {
-        const textItem = data.content.find(item => item.type ***REMOVED***= 'text');
+        const textItem = data.content.find(item => item.type === 'text');
         raw = textItem?.text || '';
     } else {
         raw = data.content?.text || data.content || '';
     }
 
-    const translation = (typeof raw ***REMOVED***= 'string' ? raw.trim() : '') || text;
+    const translation = (typeof raw === 'string' ? raw.trim() : '') || text;
     return { translation, timestamp };
 }
 
@@ -123,12 +123,12 @@ async function translateBatch(texts) {
     if (!API_KEY) {
         throw new Error('MINIMAX_API_KEY environment variable not set');
     }
-    if (!Array.isArray(texts) || texts.length ***REMOVED***= 0) {
+    if (!Array.isArray(texts) || texts.length === 0) {
         return { translations: [] };
     }
 
     const combined = texts
-        .map((t, i) => `[${i + 1}] ${t.role ***REMOVED***= 'me' ? '我' : '达人'}: ${t.text}`)
+        .map((t, i) => `[${i + 1}] ${t.role === 'me' ? '我' : '达人'}: ${t.text}`)
         .join('\n');
 
     const response = await fetch(`${API_BASE}/v1/messages`, {
@@ -153,7 +153,7 @@ async function translateBatch(texts) {
     const data = await response.json();
     let raw = '';
     if (data.content && Array.isArray(data.content)) {
-        const textItem = data.content.find(item => item.type ***REMOVED***= 'text');
+        const textItem = data.content.find(item => item.type === 'text');
         raw = textItem?.text || '';
     } else {
         raw = data.content?.text || data.content || '';

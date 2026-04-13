@@ -19,9 +19,9 @@ export function getOwnerColor(owner, fallback = '#94a3b8') {
 export function sortOwners(a, b) {
   const ai = OWNER_ORDER.indexOf(a)
   const bi = OWNER_ORDER.indexOf(b)
-  if (ai !***REMOVED*** -1 || bi !***REMOVED*** -1) {
-    if (ai ***REMOVED***= -1) return 1
-    if (bi ***REMOVED***= -1) return -1
+  if (ai !== -1 || bi !== -1) {
+    if (ai === -1) return 1
+    if (bi === -1) return -1
     return ai - bi
   }
   return String(a).localeCompare(String(b), 'zh-CN')
