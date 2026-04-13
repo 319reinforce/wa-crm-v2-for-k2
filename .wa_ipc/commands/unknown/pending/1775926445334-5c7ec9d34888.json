@@ -1,0 +1,22 @@
+{
+  "id": "1775926445334-5c7ec9d34888",
+  "session_id": "unknown",
+  "created_at": "2026-04-11T16:54:05.334Z",
+  "type": "send_media",
+  "payload": {
+    "phone": "+10000000000",
+    "caption": "smoke test caption",
+    "media_asset_id": 1,
+    "media_path": "/Users/depp/wa-bot/wa-crm-v2/data/media-assets/2026/04/12/1775926424764_ffa9cd17a8.png",
+    "media_url": null,
+    "mime_type": "image/png",
+    "file_name": "smoke.png",
+    "operator": "Beau",
+    "creator_id": null
+  },
+  "phone": "+10000000000",
+  "caption": "smoke test caption",
+  "media_asset_id": 1,
+  "operator": "Beau",
+  "creator_id": null
+}

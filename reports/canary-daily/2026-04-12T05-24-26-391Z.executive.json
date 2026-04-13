@@ -1,0 +1,241 @@
+{
+  "generated_at": "2026-04-12T05:24:26.360Z",
+  "env": {
+    "USE_FINETUNED": "true",
+    "AB_RATIO": "0.1",
+    "FINETUNED_BASE": "https://api.openai.com/v1",
+    "FINETUNED_MODEL": "ft:gpt-4.1-mini-2025-04-14:personal:wa-crm-min-522676:DTh7SccC",
+    "FINETUNED_PING_TIMEOUT_MS": "30000"
+  },
+  "window": {
+    "size": 12,
+    "min_id": 1416,
+    "max_id": 1427,
+    "first_at": "2026-04-12T05:07:06.000Z",
+    "last_at": "2026-04-12T05:17:28.000Z",
+    "success_count": 12,
+    "success_rate": "100.0%",
+    "by_provider": [
+      {
+        "provider": "openai",
+        "c": 10,
+        "success_count": 10,
+        "avg_latency_ms": 3619
+      },
+      {
+        "provider": "finetuned",
+        "c": 2,
+        "success_count": 2,
+        "avg_latency_ms": 5811
+      }
+    ],
+    "by_bucket": [
+      {
+        "ab_bucket": "openai",
+        "c": 10
+      },
+      {
+        "ab_bucket": "finetuned",
+        "c": 2
+      }
+    ],
+    "sample_rows": [
+      {
+        "id": 1427,
+        "client_id": "14057088893",
+        "provider": "finetuned",
+        "model": "ft:gpt-4.1-mini-2025-04-14:personal:wa-crm-min-522676:DTh7SccC",
+        "route": "minimax",
+        "ab_bucket": "finetuned",
+        "scene": "follow_up",
+        "operator": "Beau",
+        "status": "success",
+        "latency_ms": 4841,
+        "created_at": "2026-04-12T05:17:28.000Z"
+      },
+      {
+        "id": 1426,
+        "client_id": "14057088893",
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "route": "minimax",
+        "ab_bucket": "openai",
+        "scene": "follow_up",
+        "operator": "Beau",
+        "status": "success",
+        "latency_ms": 4338,
+        "created_at": "2026-04-12T05:17:23.000Z"
+      },
+      {
+        "id": 1425,
+        "client_id": "14057088893",
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "route": "minimax",
+        "ab_bucket": "openai",
+        "scene": "follow_up",
+        "operator": "Beau",
+        "status": "success",
+        "latency_ms": 4321,
+        "created_at": "2026-04-12T05:17:22.000Z"
+      },
+      {
+        "id": 1424,
+        "client_id": "14057088893",
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "route": "minimax",
+        "ab_bucket": "openai",
+        "scene": "follow_up",
+        "operator": "Beau",
+        "status": "success",
+        "latency_ms": 3817,
+        "created_at": "2026-04-12T05:17:22.000Z"
+      },
+      {
+        "id": 1423,
+        "client_id": "14057088893",
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "route": "minimax",
+        "ab_bucket": "openai",
+        "scene": "follow_up",
+        "operator": "Beau",
+        "status": "success",
+        "latency_ms": 4657,
+        "created_at": "2026-04-12T05:14:34.000Z"
+      },
+      {
+        "id": 1422,
+        "client_id": "14057088893",
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "route": "minimax",
+        "ab_bucket": "openai",
+        "scene": "follow_up",
+        "operator": "Beau",
+        "status": "success",
+        "latency_ms": 2271,
+        "created_at": "2026-04-12T05:14:25.000Z"
+      },
+      {
+        "id": 1421,
+        "client_id": "14057088893",
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "route": "minimax",
+        "ab_bucket": "openai",
+        "scene": "follow_up",
+        "operator": "Beau",
+        "status": "success",
+        "latency_ms": 4658,
+        "created_at": "2026-04-12T05:14:22.000Z"
+      },
+      {
+        "id": 1420,
+        "client_id": "17607077698",
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "route": "minimax",
+        "ab_bucket": "openai",
+        "scene": "follow_up",
+        "operator": "Beau",
+        "status": "success",
+        "latency_ms": 1375,
+        "created_at": "2026-04-12T05:10:49.000Z"
+      },
+      {
+        "id": 1419,
+        "client_id": "17607077698",
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "route": "minimax",
+        "ab_bucket": "openai",
+        "scene": "follow_up",
+        "operator": "Beau",
+        "status": "success",
+        "latency_ms": 4841,
+        "created_at": "2026-04-12T05:10:44.000Z"
+      },
+      {
+        "id": 1418,
+        "client_id": "17607077698",
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "route": "minimax",
+        "ab_bucket": "openai",
+        "scene": "follow_up",
+        "operator": "Beau",
+        "status": "success",
+        "latency_ms": 4394,
+        "created_at": "2026-04-12T05:10:42.000Z"
+      },
+      {
+        "id": 1417,
+        "client_id": "17607077698",
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "route": "minimax",
+        "ab_bucket": "openai",
+        "scene": "follow_up",
+        "operator": "Beau",
+        "status": "success",
+        "latency_ms": 1519,
+        "created_at": "2026-04-12T05:10:41.000Z"
+      },
+      {
+        "id": 1416,
+        "client_id": "17066916775",
+        "provider": "finetuned",
+        "model": "ft:gpt-4.1-mini-2025-04-14:personal:wa-crm-min-522676:DTh7SccC",
+        "route": "minimax",
+        "ab_bucket": "finetuned",
+        "scene": "content_request",
+        "operator": "Yiyun",
+        "status": "success",
+        "latency_ms": 6780,
+        "created_at": "2026-04-12T05:07:06.000Z"
+      }
+    ]
+  },
+  "day": {
+    "hours": 24,
+    "total": {
+      "total": 1223,
+      "success_count": 774,
+      "avg_latency_ms": 3285
+    },
+    "by_provider": [
+      {
+        "provider": "openai",
+        "c": 1209,
+        "success_count": 760,
+        "avg_latency_ms": 3307
+      },
+      {
+        "provider": "finetuned",
+        "c": 14,
+        "success_count": 14,
+        "avg_latency_ms": 2095
+      }
+    ]
+  },
+  "latest_finetuned": {
+    "id": 1427,
+    "client_id": "14057088893",
+    "provider": "finetuned",
+    "model": "ft:gpt-4.1-mini-2025-04-14:personal:wa-crm-min-522676:DTh7SccC",
+    "route": "minimax",
+    "ab_bucket": "finetuned",
+    "scene": "follow_up",
+    "operator": "Beau",
+    "status": "success",
+    "latency_ms": 4841,
+    "created_at": "2026-04-12T05:17:28.000Z"
+  },
+  "sft_readiness": {
+    "approved": 488,
+    "custom_cnt": 488,
+    "scenes": 8
+  }
+}

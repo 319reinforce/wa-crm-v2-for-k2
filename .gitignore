@@ -17,3 +17,4 @@ docs/rag/.openai-vector-sync-state.json
 docs/rag/observation-window.json
 docs/rag/observation-reports/*
 !docs/rag/observation-reports/.gitkeep
+data/media-assets/

@@ -9,8 +9,10 @@ import { TOPIC_LABELS } from './WAMessageComposer/constants/topicLabels';
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api';
 import { fetchWaAdmin } from '../utils/waAdmin';
 import { fetchAppAuth } from '../utils/appAuth';
+import { DEFAULT_UNBOUND_AGENCY_STRATEGIES, normalizeUnboundAgencyStrategies } from '../utils/unboundAgencyStrategies';
 
 const API_BASE = '/api';
+const MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 const WA = {
   darkHeader: '#111b21',
@@ -30,6 +32,14 @@ const WA = {
   darkBg: '#111b21',
   darkCard: '#1f2c33',
   inputBg: '#f0f2f5',
+}
+
+function formatBytes(value = 0) {
+    const bytes = Number(value) || 0;
+    if (bytes <= 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function toTimestampMs(value) {
@@ -55,6 +65,31 @@ function getTranslationKey(message, fallback = '') {
 
 function getLatestMessageTimestamp(messages = []) {
     return messages.reduce((max, message) => Math.max(max, toTimestampMs(message?.timestamp)), 0);
+}
+
+function mergeChronologicalMessages(existing = [], incoming = []) {
+    const merged = new Map();
+
+    [...existing, ...incoming].forEach((message, index) => {
+        const key = getMessageRenderKey(message, `merge_${index}`);
+        if (!merged.has(key)) {
+            merged.set(key, message);
+            return;
+        }
+
+        const current = merged.get(key);
+        const currentId = Number(current?.id || 0);
+        const incomingId = Number(message?.id || 0);
+        if (incomingId > currentId) {
+            merged.set(key, { ...current, ...message });
+        }
+    });
+
+    return Array.from(merged.values()).sort((a, b) => {
+        const tsDiff = toTimestampMs(a?.timestamp) - toTimestampMs(b?.timestamp);
+        if (tsDiff !***REMOVED*** 0) return tsDiff;
+        return Number(a?.id || 0) - Number(b?.id || 0);
+    });
 }
 
 function getLatestIncomingMessage(messages = []) {
@@ -89,7 +124,7 @@ function getConversationStatusMeta(creator) {
     return null;
 }
 
-export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMessageSent, asPanel }) {
+export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMessageSent, onCreatorUpdated, asPanel }) {
     const [inputText, setInputText] = useState('');
     const [generating, setGenerating] = useState(false);
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -105,6 +140,17 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     const [customToolLoading, setCustomToolLoading] = useState({ translate: false, emoji: false });
     const [pickerLoading, setPickerLoading] = useState(false);
     const [pickerError, setPickerError] = useState(null);
+    const [pickerCollapsed, setPickerCollapsed] = useState(false);
+    const [isMobileViewport, setIsMobileViewport] = useState(() => {
+        if (typeof window ***REMOVED***= 'undefined') return false;
+        return window.innerWidth < 768;
+    });
+    const [pendingImage, setPendingImage] = useState(null); // { file, previewUrl, fileName, mimeType, size }
+    const [sendingMedia, setSendingMedia] = useState(false);
+    const [syncingMessages, setSyncingMessages] = useState(false);
+    const [repairingMessages, setRepairingMessages] = useState(false);
+    const [lastSyncSummary, setLastSyncSummary] = useState(null);
+    const [lastRepairSummary, setLastRepairSummary] = useState(null);
 
     // 待审核队列
     const [pendingCandidates, setPendingCandidates] = useState([]);
@@ -140,15 +186,30 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
 
     // 消息历史（从 API 轮询更新）
     const [messages, setMessages] = useState(client?.messages || []);
+    const [messageTotal, setMessageTotal] = useState(
+        Number.isFinite(Number(client?.msg_count))
+            ? Number(client.msg_count)
+            : Number.isFinite(Number(creator?.msg_count))
+                ? Number(creator.msg_count)
+                : Array.isArray(client?.messages)
+                    ? client.messages.length
+                    : 0
+    );
+    const [loadedServerCount, setLoadedServerCount] = useState(0);
+    const [loadingOlder, setLoadingOlder] = useState(false);
 
     // 政策文档和客户记忆（预加载）
     const [policyDocs, setPolicyDocs] = useState([]);
     const [clientMemory, setClientMemory] = useState([]);
+    const [agencyStrategies, setAgencyStrategies] = useState(DEFAULT_UNBOUND_AGENCY_STRATEGIES);
     // 活跃事件数据（用于 inferAutoTopic 置信度加权 + Prompt 注入）
     const [activeEvents, setActiveEvents] = useState([]);
 
     const chatScrollRef = useRef(null);
     const inputRef = useRef(null);
+    const mediaInputRef = useRef(null);
+    const olderLoadCooldownRef = useRef(false);
+    const prependInFlightRef = useRef(false);
 
     // 滚动到底部
     const scrollToBottom = useCallback(() => {
@@ -157,6 +218,37 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         }
     }, []);
 
+    const unpackMessageResponse = useCallback((data) => {
+        const msgs = Array.isArray(data) ? data : (data?.messages || []);
+        const total = Array.isArray(data)
+            ? msgs.length
+            : Number.isFinite(Number(data?.total))
+                ? Number(data.total)
+                : msgs.length;
+        return { msgs, total };
+    }, []);
+
+    const clearPendingImage = useCallback(() => {
+        setPendingImage((prev) => {
+            if (prev?.previewUrl) {
+                try {
+                    URL.revokeObjectURL(prev.previewUrl);
+                } catch (_) {}
+            }
+            return null;
+        });
+        if (mediaInputRef.current) {
+            mediaInputRef.current.value = '';
+        }
+    }, []);
+
+    const fileToDataUrl = useCallback((file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('读取图片失败'));
+        reader.readAsDataURL(file);
+    }), []);
+
     const fetchPolicyDocs = async () => {
         try {
             return await fetchJsonOrThrow(`${API_BASE}/policy-documents?active_only=true`, {
@@ -164,6 +256,17 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
             });
         } catch (_) {}
         return [];
+    };
+
+    const fetchUnboundAgencyStrategies = async () => {
+        try {
+            const data = await fetchJsonOrThrow(`${API_BASE}/strategy-config/unbound-agency`, {
+                signal: AbortSignal.timeout(15000),
+            });
+            const normalized = normalizeUnboundAgencyStrategies(data?.strategies || []);
+            return normalized.length > 0 ? normalized : DEFAULT_UNBOUND_AGENCY_STRATEGIES;
+        } catch (_) {}
+        return DEFAULT_UNBOUND_AGENCY_STRATEGIES;
     };
 
     // 追踪最近一次互动时间（用于48小时话题切换）
@@ -187,8 +290,20 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         setActivePicker(null);
         setPendingCandidates([]);
         setMessages([]);
+        setMessageTotal(
+            Number.isFinite(Number(client?.msg_count))
+                ? Number(client.msg_count)
+                : Number.isFinite(Number(creator?.msg_count))
+                    ? Number(creator.msg_count)
+                    : 0
+        );
+        setLoadedServerCount(0);
+        setLoadingOlder(false);
+        setLastSyncSummary(null);
+        setLastRepairSummary(null);
         setCurrentTopic(null);
         setAutoDetectedTopic(null);
+        clearPendingImage();
         pendingCandidatesRef.current = [];
         lastActivityRef.current = null;
 
@@ -198,7 +313,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
 
         const load = async () => {
             const creatorId = client?.id;
-            const [docs, mem, evtData] = await Promise.all([
+            const [docs, mem, evtData, strategyConfig] = await Promise.all([
                 fetchPolicyDocs(),
                 fetchJsonOrThrow(`${API_BASE}/client-memory/${client.phone}`, {
                     signal: AbortSignal.timeout(15000),
@@ -210,11 +325,13 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                     })
                         .catch(() => ({ events: [] }))
                     : Promise.resolve({ events: [] }),
+                fetchUnboundAgencyStrategies(),
             ]);
             // 检查：期间是否切换过达人？
             if (cancelled || currentRace !***REMOVED*** generationRaceRef.current) return;
             setPolicyDocs(docs);
             setClientMemory(mem || []);
+            setAgencyStrategies(strategyConfig);
             setActiveEvents((evtData.events || []).filter(e => e.status ***REMOVED***= 'active'));
 
             // 等 policyDocs 加载后再生成
@@ -222,8 +339,10 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 const data = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}/messages`, {
                     signal: AbortSignal.timeout(15000),
                 });
-                const msgs = Array.isArray(data) ? data : (data.messages || []);
+                const { msgs, total } = unpackMessageResponse(data);
                 setMessages(msgs);
+                setMessageTotal(total);
+                setLoadedServerCount(msgs.length);
                 const latestTs = getLatestMessageTimestamp(msgs);
                 if (latestTs > 0) lastActivityRef.current = latestTs;
                 if (cancelled || currentRace !***REMOVED*** generationRaceRef.current || msgs.length ***REMOVED***= 0) return;
@@ -242,7 +361,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         return () => {
             cancelled = true;
         };
-    }, [client?.phone]);
+    }, [client?.phone, client?.msg_count, creator?.msg_count, clearPendingImage, unpackMessageResponse]);
 
     // 为一条 incoming 消息生成候选
     const generateForIncoming = useCallback(async (incomingMsg) => {
@@ -254,7 +373,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
             const msgsData = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}/messages`, {
                 signal: AbortSignal.timeout(15000),
             });
-            const msgs = Array.isArray(msgsData) ? msgsData : (msgsData.messages || []);
+            const { msgs } = unpackMessageResponse(msgsData);
             const conversation = buildConversation(msgs);
 
             const result = await generateViaExperienceRouter({
@@ -264,6 +383,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 creator,
                 policyDocs,
                 clientMemory,
+                agencyStrategies,
                 currentTopic,
                 autoDetectedTopic,
                 setCurrentTopic,
@@ -289,7 +409,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         } finally {
             setPickerLoading(false);
         }
-    }, [client, creator, policyDocs, clientMemory, currentTopic, autoDetectedTopic]);
+    }, [client, creator, policyDocs, clientMemory, agencyStrategies, currentTopic, autoDetectedTopic, unpackMessageResponse]);
 
     // 弹出候选 picker（处理新候选）
     const pushPicker = useCallback((result) => {
@@ -305,7 +425,11 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
 
     useMessagePolling({
         client,
-        setMessages,
+        setMessages: (freshMsgs) => {
+            setMessages((prev) => mergeChronologicalMessages(prev, freshMsgs));
+            setLoadedServerCount((prev) => Math.max(prev, freshMsgs.length));
+        },
+        setMessageTotal,
         generateForIncoming,
         pushPicker,
         lastActivityRef,
@@ -394,6 +518,101 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         setEmojiPickerOpen(false);
     };
 
+    const handlePickImage = () => {
+        mediaInputRef.current?.click();
+    };
+
+    const handleImageFileChange = (e) => {
+        const file = e?.target?.files?.[0];
+        if (!file) return;
+        const mimeType = String(file.type || '').toLowerCase();
+        if (!mimeType.startsWith('image/')) {
+            alert('仅支持图片文件（jpg/png/webp/gif）');
+            if (mediaInputRef.current) mediaInputRef.current.value = '';
+            return;
+        }
+        if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+            alert(`图片过大：${formatBytes(file.size)}，上限 ${formatBytes(MAX_IMAGE_UPLOAD_BYTES)}`);
+            if (mediaInputRef.current) mediaInputRef.current.value = '';
+            return;
+        }
+        setPendingImage((prev) => {
+            if (prev?.previewUrl) {
+                try {
+                    URL.revokeObjectURL(prev.previewUrl);
+                } catch (_) {}
+            }
+            return {
+                file,
+                previewUrl: URL.createObjectURL(file),
+                fileName: file.name || `image_${Date.now()}`,
+                mimeType,
+                size: file.size || 0,
+            };
+        });
+    };
+
+    const handleDirectSendMedia = async () => {
+        if (!pendingImage?.file || !client?.phone) return;
+        setSendingMedia(true);
+        try {
+            const dataBase64 = await fileToDataUrl(pendingImage.file);
+            const uploadRes = await fetchWaAdmin(`${API_BASE}/wa/media-assets`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    creator_id: client.id,
+                    operator: creator?.wa_owner || client.wa_owner || null,
+                    uploaded_by: creator?.wa_owner || client.wa_owner || 'api_user',
+                    file_name: pendingImage.fileName,
+                    mime_type: pendingImage.mimeType,
+                    data_base64: dataBase64,
+                    meta: { source: 'manual_upload', scene: currentTopic?.topic_key || null },
+                }),
+            });
+            const uploadData = await uploadRes.json();
+            if (!uploadRes.ok || !uploadData?.ok || !uploadData?.media_asset?.id) {
+                throw new Error(uploadData?.error || `upload failed: HTTP ${uploadRes.status}`);
+            }
+
+            const caption = inputText.trim();
+            const sendRes = await fetchWaAdmin(`${API_BASE}/wa/send-media`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone: client.phone,
+                    creator_id: client.id,
+                    operator: creator?.wa_owner || client.wa_owner || null,
+                    session_id: creator?.session_id || client.session_id || null,
+                    media_id: uploadData.media_asset.id,
+                    caption,
+                    sent_by: creator?.wa_owner || client.wa_owner || 'api_user',
+                }),
+            });
+            const sendData = await sendRes.json();
+            if (!sendRes.ok || !sendData?.ok) {
+                throw new Error(sendData?.error || `send media failed: HTTP ${sendRes.status}`);
+            }
+
+            const timelineText = caption ? `🖼️ [Image] ${caption}` : '🖼️ [Image]';
+            const sentAt = Date.now();
+            await persistCrmSentMessage(timelineText, sentAt);
+            setMessages((prev) => [...prev, { role: 'me', text: timelineText, timestamp: sentAt }]);
+            setMessageTotal((prev) => prev + 1);
+            if (caption) {
+                await extractAndSaveMemory(null, caption);
+            }
+            onMessageSent?.(client.id);
+            setInputText('');
+            clearPendingImage();
+        } catch (e) {
+            console.error('[WA Send Media] failed:', e);
+            alert(`发送图片失败: ${e.message || '未知错误'}`);
+        } finally {
+            setSendingMedia(false);
+        }
+    };
+
     // 点了 bot 图标 → 强制为最新 incoming 消息重新生成候选
     const handleBotIconClick = async () => {
         // 重新 fetch 最新消息，避免切换达人后闭包 stale 问题
@@ -420,6 +639,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 creator,
                 policyDocs,
                 clientMemory,
+                agencyStrategies,
                 currentTopic,
                 autoDetectedTopic,
                 setCurrentTopic,
@@ -513,6 +733,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 creator,
                 policyDocs,
                 clientMemory,
+                agencyStrategies,
                 currentTopic,
                 autoDetectedTopic,
                 setCurrentTopic,
@@ -617,6 +838,150 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         }
     };
 
+    const reloadMessagesFromApi = useCallback(async () => {
+        if (!client?.id) return [];
+        const data = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}/messages`, {
+            signal: AbortSignal.timeout(15000),
+        });
+        const { msgs, total } = unpackMessageResponse(data);
+        setMessages(msgs);
+        setMessageTotal(total);
+        setLoadedServerCount(msgs.length);
+        const latestTs = getLatestMessageTimestamp(msgs);
+        if (latestTs > 0) lastActivityRef.current = latestTs;
+        return msgs;
+    }, [client?.id, unpackMessageResponse]);
+
+    const loadOlderMessages = useCallback(async () => {
+        if (!client?.id || loadingOlder) return;
+        if (loadedServerCount >= messageTotal) return;
+
+        const container = chatScrollRef.current;
+        const previousHeight = container?.scrollHeight || 0;
+        const previousTop = container?.scrollTop || 0;
+
+        setLoadingOlder(true);
+        try {
+            const data = await fetchJsonOrThrow(
+                `${API_BASE}/creators/${client.id}/messages?limit=100&offset=${loadedServerCount}`,
+                { signal: AbortSignal.timeout(20000) }
+            );
+            const { msgs, total } = unpackMessageResponse(data);
+            if (msgs.length ***REMOVED***= 0) {
+                setMessageTotal(total);
+                return;
+            }
+
+            prependInFlightRef.current = true;
+            setMessages((prev) => mergeChronologicalMessages(msgs, prev));
+            setMessageTotal(total);
+            setLoadedServerCount((prev) => prev + msgs.length);
+
+            requestAnimationFrame(() => {
+                const node = chatScrollRef.current;
+                if (!node) return;
+                const delta = node.scrollHeight - previousHeight;
+                node.scrollTop = previousTop + delta;
+                prependInFlightRef.current = false;
+            });
+        } catch (e) {
+            console.error('[loadOlderMessages] error:', e);
+        } finally {
+            setLoadingOlder(false);
+        }
+    }, [client?.id, loadedServerCount, loadingOlder, messageTotal, unpackMessageResponse]);
+
+    const reloadCreatorDetail = useCallback(async () => {
+        if (!client?.id) return null;
+        const detail = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}`, {
+            signal: AbortSignal.timeout(15000),
+        });
+        onCreatorUpdated?.(detail);
+        if (Number.isFinite(Number(detail?.msg_count))) {
+            setMessageTotal(Number(detail.msg_count));
+        }
+        return detail;
+    }, [client?.id, onCreatorUpdated]);
+
+    const handleRepairMessages = async () => {
+        if (!client?.id || !client?.phone) return;
+        setRepairingMessages(true);
+        setLastRepairSummary(null);
+        try {
+            const res = await fetchWaAdmin(`${API_BASE}/wa/reconcile-contact`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    creator_id: client.id,
+                    phone: client.phone,
+                    operator: creator?.wa_owner || client.wa_owner || null,
+                    session_id: creator?.session_id || client.session_id || null,
+                    fetch_limit: 500,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.ok) {
+                throw new Error(data?.error || `HTTP ${res.status}`);
+            }
+
+            const freshMsgs = await reloadMessagesFromApi();
+            const detail = await reloadCreatorDetail().catch(() => null);
+            const summary = data.reconciliation || {};
+            setLastRepairSummary({
+                checked: summary.checked_messages || 0,
+                inserted: summary.inserted_count || 0,
+                updated: summary.updated_count || 0,
+                deleted: summary.deleted_count || 0,
+                sessionId: data.routed_session_id || null,
+                lastActive: detail?.last_active || getLatestMessageTimestamp(freshMsgs),
+            });
+        } catch (e) {
+            console.error('[repairMessages] error:', e);
+            alert(`修复消息失败: ${e.message || '未知错误'}`);
+        } finally {
+            setRepairingMessages(false);
+        }
+    };
+
+    const handleIncrementalSync = async () => {
+        if (!client?.id || !client?.phone) return;
+        setSyncingMessages(true);
+        setLastSyncSummary(null);
+        try {
+            const res = await fetchWaAdmin(`${API_BASE}/wa/sync-contact`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    creator_id: client.id,
+                    phone: client.phone,
+                    operator: creator?.wa_owner || client.wa_owner || null,
+                    session_id: creator?.session_id || client.session_id || null,
+                    fetch_limit: 200,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data?.ok) {
+                throw new Error(data?.error || `HTTP ${res.status}`);
+            }
+
+            const freshMsgs = await reloadMessagesFromApi();
+            const detail = await reloadCreatorDetail().catch(() => null);
+            const summary = data.synchronization || {};
+            setLastSyncSummary({
+                checked: summary.checked_messages || 0,
+                inserted: summary.inserted_count || 0,
+                skipped: summary.skipped_count || 0,
+                sessionId: data.routed_session_id || null,
+                lastActive: detail?.last_active || getLatestMessageTimestamp(freshMsgs),
+            });
+        } catch (e) {
+            console.error('[incrementalSync] error:', e);
+            alert(`增量更新失败: ${e.message || '未知错误'}`);
+        } finally {
+            setSyncingMessages(false);
+        }
+    };
+
     const sendOutboundMessage = async (sentText, { onError } = {}) => {
         const reportError = onError || ((message) => alert(`发送失败: ${message}`));
 
@@ -646,6 +1011,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         const sentAt = Date.now();
         await persistCrmSentMessage(sentText, sentAt);
         setMessages(prev => [...prev, { role: 'me', text: sentText, timestamp: sentAt }]);
+        setMessageTotal((prev) => prev + 1);
         onMessageSent?.(client.id);
         return true;
     };
@@ -667,6 +1033,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 creator,
                 policyDocs: activePicker?.policyDocs || policyDocs,
                 clientMemory,
+                agencyStrategies,
                 messages,
             });
 
@@ -801,6 +1168,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 creator,
                 policyDocs,
                 clientMemory,
+                agencyStrategies,
                 currentTopic,
                 autoDetectedTopic,
                 setCurrentTopic,
@@ -866,7 +1234,8 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     // 消息按日期分组 — 最新消息在底部（自然顺序）
     const groupedMessages = [];
     let lastDate = null;
-    const msgsToShow = messages.slice(-50);
+    const msgsToShow = messages;
+    const hasOlderMessages = loadedServerCount < messageTotal;
     const conversationStatusMeta = getConversationStatusMeta(creator);
     msgsToShow.forEach((msg, index) => {
         const normalizedTimestamp = toTimestampMs(msg.timestamp);
@@ -885,8 +1254,23 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
 
     // 初始滚动到底部
     useEffect(() => {
+        if (prependInFlightRef.current) return;
         scrollToBottom();
     }, [messages.length]);
+
+    const handleChatScroll = useCallback(() => {
+        const node = chatScrollRef.current;
+        if (!node || loadingOlder || !hasOlderMessages) return;
+        if (node.scrollTop > 80) return;
+        if (olderLoadCooldownRef.current) return;
+
+        olderLoadCooldownRef.current = true;
+        loadOlderMessages().finally(() => {
+            setTimeout(() => {
+                olderLoadCooldownRef.current = false;
+            }, 400);
+        });
+    }, [hasOlderMessages, loadOlderMessages, loadingOlder]);
 
     // 同步 textarea 高度（inputText 可能在 handleEditCandidate 中被程序化设置）
     useEffect(() => {
@@ -895,6 +1279,10 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
             inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 240) + 'px';
         }
     }, [inputText]);
+
+    useEffect(() => () => {
+        clearPendingImage();
+    }, [clearPendingImage]);
 
     // 点击外部关闭 emoji picker（跳过打开按钮的那次点击）
     const emojiSkipCloseRef = useRef(false);
@@ -930,6 +1318,19 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         };
     }, []);
 
+    useEffect(() => {
+        if (typeof window ***REMOVED***= 'undefined') return undefined;
+        const onResize = () => setIsMobileViewport(window.innerWidth < 768);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+
+    useEffect(() => {
+        if (activePicker && isMobileViewport) {
+            setPickerCollapsed(false);
+        }
+    }, [activePicker?.generated_at, isMobileViewport]);
+
     return (
         <>
             <div className="flex flex-col h-full">
@@ -944,7 +1345,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                         <div className="font-semibold text-base text-white">{client.name || client.phone}</div>
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs text-white/50">
-                                {client.conversion_stage || '未知阶段'} · {messages.length} 条消息
+                                {client.conversion_stage || '未知阶段'} · {messageTotal} 条消息
                             </span>
                             {/* 自动检测话题 — 右侧联系人信息区，显示在二级信息行 */}
                             {autoDetectedTopic && !currentTopic && (
@@ -987,6 +1388,30 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                             📋 {pendingCandidates.length} 条待处理
                         </span>
                     )}
+                    <button
+                        onClick={handleIncrementalSync}
+                        disabled={syncingMessages}
+                        className="text-xs px-3 py-1 rounded-full font-medium shrink-0 transition-all disabled:opacity-50"
+                        style={{
+                            background: syncingMessages ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.1)',
+                            color: syncingMessages ? '#34d399' : 'rgba(255,255,255,0.72)',
+                        }}
+                        title="按手机号抓取最近原始聊天，只补齐最新消息，不做深度修复"
+                    >
+                        {syncingMessages ? '⏳ 增量中' : '🔄 增量更新'}
+                    </button>
+                    <button
+                        onClick={handleRepairMessages}
+                        disabled={repairingMessages}
+                        className="text-xs px-3 py-1 rounded-full font-medium shrink-0 transition-all disabled:opacity-50"
+                        style={{
+                            background: repairingMessages ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.1)',
+                            color: repairingMessages ? '#f59e0b' : 'rgba(255,255,255,0.72)',
+                        }}
+                        title="按手机号在对应 session 里重新爬取该达人的原始聊天，并修复 role / 缺失 / 重复记录"
+                    >
+                        {repairingMessages ? '⏳ 修复中' : '🩺 修复消息'}
+                    </button>
                     <button
                         onClick={handleTranslate}
                         disabled={translating}
@@ -1043,6 +1468,22 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                 )}
                             </div>
                             <button
+                                onClick={handleIncrementalSync}
+                                disabled={syncingMessages}
+                                className="text-white/70 hover:text-white text-base shrink-0 px-2 py-1 rounded-lg disabled:opacity-50"
+                                title="按手机号抓取最近原始聊天，只补齐最新消息"
+                            >
+                                {syncingMessages ? '⏳' : '🔄'}
+                            </button>
+                            <button
+                                onClick={handleRepairMessages}
+                                disabled={repairingMessages}
+                                className="text-white/70 hover:text-white text-base shrink-0 px-2 py-1 rounded-lg disabled:opacity-50"
+                                title="重新爬取并修复当前联系人消息"
+                            >
+                                {repairingMessages ? '⏳' : '🩺'}
+                            </button>
+                            <button
                                 onClick={() => setTagsVisible(v => !v)}
                                 className="text-white/70 hover:text-white text-base shrink-0 px-2 py-1 rounded-lg"
                                 title={tagsVisible ? '隐藏标签' : '显示标签'}
@@ -1098,14 +1539,53 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                     </div>
                 )}
 
+                {lastRepairSummary && (
+                    <div className="px-4 py-2 flex items-center gap-3 text-xs" style={{ background: 'rgba(59,130,246,0.10)', borderBottom: `1px solid rgba(59,130,246,0.18)`, color: '#1d4ed8' }}>
+                        <span>🩺 已按手机号重爬修复</span>
+                        <span>检查 {lastRepairSummary.checked} 条</span>
+                        <span>补齐 {lastRepairSummary.inserted}</span>
+                        <span>修正 role {lastRepairSummary.updated}</span>
+                        <span>删除重复 {lastRepairSummary.deleted}</span>
+                        {lastRepairSummary.sessionId && <span>via {lastRepairSummary.sessionId}</span>}
+                    </div>
+                )}
+
+                {lastSyncSummary && (
+                    <div className="px-4 py-2 flex items-center gap-3 text-xs" style={{ background: 'rgba(16,185,129,0.10)', borderBottom: `1px solid rgba(16,185,129,0.18)`, color: '#047857' }}>
+                        <span>🔄 已完成增量更新</span>
+                        <span>检查 {lastSyncSummary.checked} 条</span>
+                        <span>新增 {lastSyncSummary.inserted}</span>
+                        <span>跳过 {lastSyncSummary.skipped}</span>
+                        {lastSyncSummary.sessionId && <span>via {lastSyncSummary.sessionId}</span>}
+                    </div>
+                )}
+
                 {/* Chat area — 最新消息在底部 */}
                 <div
                     ref={chatScrollRef}
                     className="flex-1 overflow-y-auto p-3 md:p-5 space-y-3"
                     style={{ background: WA.chatBg }}
+                    onScroll={handleChatScroll}
                     onTouchStart={handleTouchStart}
                     onTouchEnd={handleTouchEnd}
                 >
+                    {(hasOlderMessages || loadingOlder) && (
+                        <div className="flex justify-center mb-4">
+                            <button
+                                type="button"
+                                onClick={loadOlderMessages}
+                                disabled={loadingOlder}
+                                className="text-xs px-4 py-1.5 rounded-full transition-all disabled:opacity-60"
+                                style={{
+                                    background: 'rgba(0,0,0,0.05)',
+                                    color: WA.textMuted,
+                                    border: `1px solid ${WA.borderLight}`,
+                                }}
+                            >
+                                {loadingOlder ? '⏳ 正在加载更早消息…' : `⬆️ 加载更早消息（还剩 ${Math.max(messageTotal - loadedServerCount, 0)} 条）`}
+                            </button>
+                        </div>
+                    )}
                     {/* Watermark */}
                     <div className="flex justify-center mb-5">
                         <div className="text-xs px-4 py-1.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.03)', color: WA.textMuted }}>
@@ -1170,11 +1650,52 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                         onRegenerate={handleRegenerate}
                         loading={pickerLoading}
                         error={pickerError}
+                        compactMobile={isMobileViewport}
+                        collapsed={isMobileViewport ? pickerCollapsed : false}
+                        onToggleCollapse={() => setPickerCollapsed(v => !v)}
                     />
                 )}
 
                 {/* Input area */}
                 <div className="px-4 md:px-5 py-3 md:py-4 flex items-end gap-2 md:gap-3" style={{ background: WA.darkHeader, position: 'relative', paddingBottom: viewportOffset ? `${viewportOffset + 8}px` : undefined }}>
+                    {pendingImage && (
+                        <div
+                            className="rounded-xl px-3 py-2 flex items-center gap-3"
+                            style={{
+                                position: 'absolute',
+                                left: '12px',
+                                right: '12px',
+                                bottom: 'calc(100% + 8px)',
+                                background: 'rgba(17,27,33,0.94)',
+                                border: '1px solid rgba(255,255,255,0.12)',
+                                zIndex: 25,
+                            }}
+                        >
+                            <img
+                                src={pendingImage.previewUrl}
+                                alt={pendingImage.fileName}
+                                className="w-11 h-11 rounded-lg object-cover border border-white/20 shrink-0"
+                            />
+                            <div className="min-w-0 flex-1">
+                                <div className="text-xs text-white truncate">{pendingImage.fileName}</div>
+                                <div className="text-[11px] text-white/55">{formatBytes(pendingImage.size)} · 可选输入 caption 后发送</div>
+                            </div>
+                            <button
+                                onClick={clearPendingImage}
+                                className="w-8 h-8 rounded-full flex items-center justify-center text-white/70 hover:text-white"
+                                title="移除图片"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    )}
+                    <input
+                        ref={mediaInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleImageFileChange}
+                    />
                     {/* Emoji picker button */}
                     <button
                         onClick={() => {
@@ -1185,6 +1706,15 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                         style={{ color: emojiPickerOpen ? WA.teal : 'rgba(255,255,255,0.55)' }}
                     >
                         😊
+                    </button>
+                    <button
+                        onClick={handlePickImage}
+                        disabled={sendingMedia}
+                        className="w-9 h-9 md:w-11 md:h-11 rounded-full flex items-center justify-center text-lg md:text-xl shrink-0 transition-all disabled:opacity-50"
+                        style={{ color: pendingImage ? '#60a5fa' : 'rgba(255,255,255,0.55)' }}
+                        title="上传图片"
+                    >
+                        {sendingMedia ? '⏳' : '🖼️'}
                     </button>
 
                     {/* 📌 手动开启新话题按钮 + 下拉菜单 */}
@@ -1296,7 +1826,11 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                             onKeyDown={e => {
                                 if (e.key ***REMOVED***= 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
-                                    if (inputText.trim()) handleManualGenerate();
+                                    if (pendingImage) {
+                                        handleDirectSendMedia();
+                                    } else if (inputText.trim()) {
+                                        handleManualGenerate();
+                                    }
                                 }
                             }}
                             onInput={e => {
@@ -1306,26 +1840,35 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                         />
                     </div>
 
-                    {inputText.trim() ? (
+                    {(inputText.trim() || pendingImage) ? (
                         <div className="flex gap-2 shrink-0">
                             {/* 🤖 AI 生成候选 */}
-                            <button
-                                onClick={handleManualGenerate}
-                                disabled={generating}
-                                className="w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50"
-                                style={{ background: WA.teal }}
-                                title="AI 生成候选回复"
-                            >
-                                {generating ? <span className="text-white text-sm">⏳</span> : <span className="text-white text-xl">🤖</span>}
-                            </button>
+                            {!pendingImage && inputText.trim() && (
+                                <button
+                                    onClick={handleManualGenerate}
+                                    disabled={generating}
+                                    className="w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50"
+                                    style={{ background: WA.teal }}
+                                    title="AI 生成候选回复"
+                                >
+                                    {generating ? <span className="text-white text-sm">⏳</span> : <span className="text-white text-xl">🤖</span>}
+                                </button>
+                            )}
                             {/* ➤ 直接发送 */}
                             <button
-                                onClick={() => handleDirectSend(inputText)}
+                                onClick={() => {
+                                    if (pendingImage) {
+                                        handleDirectSendMedia();
+                                        return;
+                                    }
+                                    handleDirectSend(inputText);
+                                }}
+                                disabled={sendingMedia}
                                 className="w-11 h-11 rounded-full flex items-center justify-center"
                                 style={{ background: '#3b82f6' }}
-                                title="直接发送"
+                                title={pendingImage ? '发送图片（可附带 caption）' : '直接发送'}
                             >
-                                <span className="text-white text-xl">➤</span>
+                                <span className="text-white text-xl">{sendingMedia ? '⏳' : '➤'}</span>
                             </button>
                         </div>
                     ) : (

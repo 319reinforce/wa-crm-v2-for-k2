@@ -3,6 +3,7 @@ import { fetchJsonOrThrow } from '../utils/api'
 import WA from '../utils/waTheme'
 
 const API_BASE = '/api'
+const DISPLAY_TIME_ZONE = 'Asia/Shanghai'
 
 function parseEventMeta(meta) {
   if (!meta) return {}
@@ -37,7 +38,11 @@ function getEventDateValue(evt) {
 function formatEventShortDate(value) {
   const ts = new Date(value || 0).getTime()
   if (!ts) return '-'
-  return new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: DISPLAY_TIME_ZONE,
+    month: 'numeric',
+    day: 'numeric',
+  }).format(new Date(ts))
 }
 
 function Section({ title, children }) {

@@ -86,6 +86,20 @@ const EVENT_DEFINITIONS = [
   },
 ];
 
+function formatDateInShanghai(tsSeconds) {
+  const ts = Number(tsSeconds || 0);
+  if (!Number.isFinite(ts) || ts <= 0) return '1970-01-01';
+  const dt = new Date(ts * 1000);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(dt);
+  const get = (type) => parts.find(p => p.type ***REMOVED***= type)?.value || '00';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 构建 system prompt ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 function buildSystemPrompt(owner) {
   const eventList = EVENT_DEFINITIONS.map(e => {
@@ -134,7 +148,7 @@ async function callLLM(messages, owner, retryCount = 0) {
   const conversationText = messages.map(m => {
     const role = m.role ***REMOVED***= 'me' ? 'Creator Manager' : 'Creator';
     const text = (m.text || '').replace(/"/g, "'");
-    const date = new Date(m.timestamp * 1000).toISOString().slice(0, 10);
+    const date = formatDateInShanghai(m.timestamp);
     return `[${date}] ${role}: ${text}`;
   }).join('\n');
 

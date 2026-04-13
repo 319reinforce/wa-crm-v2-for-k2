@@ -1,0 +1,118 @@
+{
+  "generated_at": "2026-04-11T17:45:24.681Z",
+  "apply": true,
+  "delete_rules": [
+    {
+      "label": "alissa_duplicate_wrong_role_reinserts",
+      "creatorId": 983,
+      "ids": [
+        63598,
+        70347
+      ],
+      "reason": "pollution reinserts of historical outbound message; canonical me row is 43387",
+      "matched_rows": 0,
+      "rows": []
+    },
+    {
+      "label": "amanda_google_doc_wrong_role_reinsert",
+      "creatorId": 932,
+      "ids": [
+        71971
+      ],
+      "reason": "historical outbound Google Doc link reinserted as user during polluted poll window; canonical me row is 72618",
+      "matched_rows": 1,
+      "rows": [
+        {
+          "id": 71971,
+          "creator_id": 932,
+          "role": "user",
+          "operator": "Beau",
+          "text": "https://docs.google.com/document/d/1ogIMayDim7Pru2Ndu97T-q-1G9BLn8owxzFAk1gYk5M/edit?usp=sharing",
+          "timestamp": 1775914831410,
+          "created_at": "2026-04-11T13:40:31.000Z"
+        }
+      ]
+    },
+    {
+      "label": "amanda_payout_explanation_wrong_role_reinsert",
+      "creatorId": 932,
+      "ids": [
+        71816
+      ],
+      "reason": "historical outbound payout explanation reinserted as user during polluted poll window; canonical me row is 72608",
+      "matched_rows": 1,
+      "rows": [
+        {
+          "id": 71816,
+          "creator_id": 932,
+          "role": "user",
+          "operator": "Beau",
+          "text": "TikTok settles based on orders, only after they release the payout can we pay you. Everything is transparent, so no worries on that",
+          "timestamp": 1775912112234,
+          "created_at": "2026-04-11T12:55:12.000Z"
+        }
+      ]
+    },
+    {
+      "label": "amanda_monthly_fee_wrong_role_reinsert",
+      "creatorId": 932,
+      "ids": [
+        71818
+      ],
+      "reason": "historical outbound monthly fee explanation reinserted as user during polluted poll window; canonical me row is 72610",
+      "matched_rows": 1,
+      "rows": [
+        {
+          "id": 71818,
+          "creator_id": 932,
+          "role": "user",
+          "operator": "Beau",
+          "text": "You might be remembering it wrong , what I said was the monthly fee is $20, and the 20-day trial corresponds to $200, so you should receive $180 when it’s completed",
+          "timestamp": 1775912112234,
+          "created_at": "2026-04-11T12:55:12.000Z"
+        }
+      ]
+    },
+    {
+      "label": "angela_payout_schedule_wrong_role_reinsert",
+      "creatorId": 1131,
+      "ids": [
+        71844
+      ],
+      "reason": "historical outbound payout schedule explanation reinserted as user during polluted poll window; canonical me row is 72532",
+      "matched_rows": 1,
+      "rows": [
+        {
+          "id": 71844,
+          "creator_id": 1131,
+          "role": "user",
+          "operator": "Beau",
+          "text": "This timing is based on TikTok’s payout schedule, so far it looks like about 20 days. But we’ll check weekly to see if any orders have been paid out and send your payment accordingly",
+          "timestamp": 1775912364441,
+          "created_at": "2026-04-11T12:59:24.000Z"
+        }
+      ]
+    }
+  ],
+  "update_rules": [
+    {
+      "label": "noelia_followup_should_be_me",
+      "id": 65273,
+      "creatorId": 1072,
+      "expectedRole": "me",
+      "reason": "outbound follow-up addressed to contact; misclassified during polluted poll window",
+      "matched": true,
+      "before": {
+        "id": 65273,
+        "creator_id": 1072,
+        "role": "me",
+        "operator": "Yiyun",
+        "text": "Hey Noelia, I hope you had a good trip. I want to ask if you have time to make this 1-minute video? I'm still waiting for you.",
+        "timestamp": 1775890425809,
+        "created_at": "2026-04-11T06:53:45.000Z"
+      }
+    }
+  ],
+  "deleted_rows": 4,
+  "updated_rows": 0
+}

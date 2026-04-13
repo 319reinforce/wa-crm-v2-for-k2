@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useCreators } from './useApi'
-import { buildOwnerOptions } from '../utils/operators'
 
 const WA = {
   darkHeader: '#111b21',
@@ -14,7 +13,8 @@ const WA = {
 
 export default function MobileListScreen() {
   const [search, setSearch] = useState('')
-  const [owner, setOwner] = useState('')
+  const [searchParams] = useSearchParams()
+  const owner = useMemo(() => normalizeOwner(searchParams.get('op')), [searchParams])
   const [filterBeta, setFilterBeta] = useState('')
   const [filterPriority, setFilterPriority] = useState('')
   const [filterAgency, setFilterAgency] = useState('')
@@ -34,35 +34,20 @@ export default function MobileListScreen() {
     return true
   }), [creators, filterAgency, filterBeta, filterEvent, filterPriority])
 
-  const ownerOptions = useMemo(() => {
-    return buildOwnerOptions(creators.map(c => c.wa_owner), { includeAll: true })
-  }, [creators])
-
   return (
     <div className="min-h-screen flex flex-col" style={{ background: WA.lightBg }}>
       <header className="px-4 py-3 flex items-center gap-3" style={{ background: WA.darkHeader }}>
         <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold" style={{ background: WA.teal }}>WA</div>
         <div className="flex-1 min-w-0">
-          <div className="text-white font-semibold">达人列表</div>
+          <div className="text-white font-semibold">{owner} 达人列表</div>
           <div className="text-xs text-white/60">Tap 进入聊天，再点详情</div>
         </div>
       </header>
 
       <div className="p-3 space-y-2" style={{ background: WA.darkHeader }}>
-        <div className="flex gap-2 overflow-x-auto">
-          {ownerOptions.map(o => (
-            <button
-              key={o || 'all'}
-              onClick={() => setOwner(o)}
-              className="shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition-all"
-              style={{
-                background: owner ***REMOVED***= o ? WA.teal : '#1f2c33',
-                color: owner ***REMOVED***= o ? '#ffffff' : '#cbd5e1',
-              }}
-            >
-              {o || '全部'}
-            </button>
-          ))}
+        <div className="text-xs px-2 py-1 rounded-lg inline-flex items-center gap-2" style={{ background: '#1f2c33', color: '#cbd5e1' }}>
+          <span className="w-2 h-2 rounded-full" style={{ background: WA.teal }} />
+          仅显示 {owner} 负责的达人
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Select value={filterBeta} onChange={setFilterBeta} options={[
@@ -196,4 +181,15 @@ function Select({ value, onChange, options }) {
       {options.map(([val, label]) => <option key={val || 'all'} value={val}>{label}</option>)}
     </select>
   )
+}
+
+function normalizeOwner(raw) {
+  const value = String(raw || '').trim().toLowerCase()
+  if (!value) return 'Yiyun'
+  const aliasMap = {
+    beau: 'Beau',
+    yiyun: 'Yiyun',
+    jiawen: 'Jiawen',
+  }
+  return aliasMap[value] || 'Yiyun'
 }

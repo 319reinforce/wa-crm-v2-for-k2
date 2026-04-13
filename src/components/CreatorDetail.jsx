@@ -4,6 +4,12 @@ import { CreatorEventsSection } from './CreatorEventsSection'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 import { getCreatorStatusMeta } from '../utils/creatorMeta'
 import { OWNER_ORDER } from '../utils/operators'
+import {
+  DEFAULT_UNBOUND_AGENCY_STRATEGIES,
+  isAgencyBoundStatus,
+  normalizeUnboundAgencyStrategies,
+  resolveUnboundAgencyStrategy
+} from '../utils/unboundAgencyStrategies'
 import WA from '../utils/waTheme'
 
 const API_BASE = '/api'
@@ -20,9 +26,8 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   const [clientProfile, setClientProfile] = useState(null)
   const [profileRefreshing, setProfileRefreshing] = useState(false)
   const [profileExpanded, setProfileExpanded] = useState(false)
-  const [activeManageTab, setActiveManageTab] = useState('edit')
-  const [eventsExpanded, setEventsExpanded] = useState(() => !asPanel)
-  const [eventsPinned, setEventsPinned] = useState(false)
+  const [activeManageTab, setActiveManageTab] = useState(null)
+  const [agencyStrategies, setAgencyStrategies] = useState(DEFAULT_UNBOUND_AGENCY_STRATEGIES)
 
   const fetchCreator = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true)
@@ -57,6 +62,16 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
       .catch(() => {})
       .finally(() => { if (!silent) setProfileRefreshing(false) })
   }, [creator?.wa_phone])
+
+  const fetchAgencyStrategies = useCallback(async () => {
+    try {
+      const data = await fetchJsonOrThrow(`${API_BASE}/strategy-config/unbound-agency`)
+      const normalized = normalizeUnboundAgencyStrategies(data?.strategies || [])
+      setAgencyStrategies(normalized.length > 0 ? normalized : DEFAULT_UNBOUND_AGENCY_STRATEGIES)
+    } catch (_) {
+      setAgencyStrategies(DEFAULT_UNBOUND_AGENCY_STRATEGIES)
+    }
+  }, [])
 
   const updateClientTag = useCallback(async (tag, action = 'upsert') => {
     if (!creator?.wa_phone || !tag) return
@@ -103,13 +118,14 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   useEffect(() => {
     fetchCreator(true)
     fetchClientProfile()
+    fetchAgencyStrategies()
     const i = setInterval(() => fetchCreator(true), 8000)
     return () => clearInterval(i)
-  }, [fetchCreator, fetchClientProfile])
+  }, [fetchCreator, fetchClientProfile, fetchAgencyStrategies])
 
   useEffect(() => {
-    setEventsExpanded(!asPanel || eventsPinned)
-  }, [creatorId, asPanel, eventsPinned])
+    setActiveManageTab(null)
+  }, [creatorId])
 
   // 当 creator 变化时，同步 editForm（用于内联编辑）
   useEffect(() => {
@@ -258,6 +274,15 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
 
   const displayCreator = buildCreatorDraftPreview(creator, editForm)
   const wacrm = displayCreator?.wacrm || {}
+  const joinbrands = displayCreator?.joinbrands || {}
+  const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands)
+  const activeAgencyStrategy = !isAgencyBound
+    ? resolveUnboundAgencyStrategy({
+      clientMemory: clientProfile?.memory || [],
+      nextAction: editForm?.next_action || wacrm?.next_action || '',
+      strategies: agencyStrategies,
+    })
+    : null
   const detailStatusMeta = getCreatorStatusMeta(displayCreator)
   const clientInfo = {
     id: displayCreator?.id,
@@ -267,7 +292,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
     conversion_stage: wacrm.beta_status || 'unknown',
     priority: wacrm.priority || 'normal',
     sentiment: 'neutral',
-    msg_count: creator?.messages?.length || 0,
+    msg_count: Number.isFinite(Number(creator?.msg_count)) ? Number(creator.msg_count) : (creator?.messages?.length || 0),
     messages: creator?.messages || []
   }
   const displayName = displayCreator?.primary_name || creatorName
@@ -275,21 +300,22 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   const displayKeeperUsername = displayCreator?.keeper_username || '-'
   const displayOwner = displayCreator?.wa_owner || '-'
   const displayKeeper = displayCreator?.keeper || {}
-  const shouldCollapseEvents = !!asPanel
-  const showEventsPanel = !shouldCollapseEvents || eventsExpanded || eventsPinned
 
   const profileManagerPanel = profileExpanded && (
-    <div className="mt-2.5 p-3 rounded-xl space-y-2.5" style={{ background: WA.lightBg }}>
+    <div
+      className="mt-2 p-2.5 rounded-2xl space-y-2"
+      style={{ background: 'rgba(255,255,255,0.78)', border: `1px solid ${WA.borderLight}`, boxShadow: '0 10px 24px rgba(15,23,42,0.04)' }}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[9px] font-semibold" style={{ color: WA.textMuted }}>画像管理</span>
+          <span className="text-[8px] font-semibold tracking-wide" style={{ color: WA.textMuted }}>画像管理</span>
           {clientProfile?.tags?.length > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted }}>
+            <span className="text-[7px] px-1.5 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted }}>
               {clientProfile.tags.length} 标签
             </span>
           )}
           {clientProfile?.memory?.filter(m => m.type ***REMOVED***= 'strategy').length > 0 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: WA.teal }}>
+            <span className="text-[7px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: WA.teal }}>
               {clientProfile.memory.filter(m => m.type ***REMOVED***= 'strategy').length} 策略
             </span>
           )}
@@ -297,7 +323,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
         <button
           onClick={() => fetchClientProfile()}
           disabled={profileRefreshing}
-          className="text-[10px] px-2 py-1 rounded hover:opacity-80 transition-opacity"
+          className="text-[7px] px-2 py-1 rounded hover:opacity-80 transition-opacity"
           style={{ color: profileRefreshing ? WA.textMuted : WA.teal }}
         >
           {profileRefreshing ? '刷新中...' : '🔄 刷新'}
@@ -305,22 +331,22 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
       </div>
 
       <div>
-        <div className="text-[11px] font-semibold mb-1.5" style={{ color: WA.textMuted }}>AI 摘要</div>
+        <div className="text-[7px] font-semibold mb-1" style={{ color: WA.textMuted }}>AI 摘要</div>
         {clientProfile?.summary ? (
-          <div className="text-[11px] leading-5 py-2 px-3 rounded-lg" style={{ background: WA.white, color: WA.textDark }}>
+          <div className="text-[7px] leading-4 py-2 px-2.5 rounded-xl" style={{ background: WA.white, color: WA.textDark }}>
             {clientProfile.summary}
           </div>
         ) : (
-          <div className="text-[11px]" style={{ color: WA.textMuted }}>暂无摘要</div>
+          <div className="text-[7px]" style={{ color: WA.textMuted }}>暂无摘要</div>
         )}
       </div>
 
       <div>
-        <div className="text-[11px] font-semibold mb-1.5" style={{ color: WA.textMuted }}>客户标签</div>
+        <div className="text-[7px] font-semibold mb-1" style={{ color: WA.textMuted }}>客户标签</div>
         {clientProfile?.tags?.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-2">
             {clientProfile.tags.map((t, i) => (
-              <span key={i} className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-full" style={{ background: WA.white, color: WA.textDark }}>
+              <span key={i} className="flex items-center gap-1 text-[7px] px-2 py-1 rounded-full" style={{ background: WA.white, color: WA.textDark }}>
                 {t.tag}
                 <button
                   onClick={() => updateClientTag(t.tag, 'delete')}
@@ -341,11 +367,34 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
       </div>
 
       <div className="border-t pt-2.5" style={{ borderColor: WA.borderLight }}>
-        <div className="text-[11px] font-semibold mb-1.5" style={{ color: WA.textMuted }}>回复策略</div>
+        <div className="text-[7px] font-semibold mb-1" style={{ color: WA.textMuted }}>回复策略</div>
+        {!isAgencyBound && (
+          <div className="mb-2">
+            <div className="text-[7px] font-semibold mb-1" style={{ color: WA.teal }}>未绑定Agency专属策略</div>
+            <div className="flex flex-wrap gap-1.5">
+              {agencyStrategies.map((strategy) => (
+                <button
+                  key={strategy.id}
+                  onClick={() => addStrategyMemory(strategy.memoryKey, strategy.memoryValue)}
+                  className="text-[7px] px-2 py-1 rounded-full border"
+                  style={{ borderColor: WA.teal, color: WA.teal, background: 'rgba(0,168,132,0.08)' }}
+                  title={strategy.shortDesc}
+                >
+                  + {strategy.name}
+                </button>
+              ))}
+            </div>
+            {activeAgencyStrategy && (
+              <div className="text-[7px] mt-1.5" style={{ color: WA.textMuted }}>
+                当前策略：{activeAgencyStrategy.name} / {activeAgencyStrategy.nameEn}
+              </div>
+            )}
+          </div>
+        )}
         {clientProfile?.memory?.filter(m => m.type ***REMOVED***= 'strategy').length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-2">
             {clientProfile.memory.filter(m => m.type ***REMOVED***= 'strategy').map((m, i) => (
-              <span key={i} className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: WA.teal }}>
+              <span key={i} className="flex items-center gap-1 text-[7px] px-2 py-1 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: WA.teal }}>
                 {m.value}
                 <button onClick={() => deleteStrategyMemory(m.key)} className="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>
               </span>
@@ -366,7 +415,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
             <button
               key={key}
               onClick={() => addStrategyMemory(key, desc)}
-              className="text-[10px] px-2 py-1 rounded-full border"
+              className="text-[7px] px-2 py-1 rounded-full border"
               style={{ borderColor: WA.teal, color: WA.textDark, background: 'transparent' }}
             >
               + {key}
@@ -378,26 +427,29 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   )
 
   const financialPanel = activeManageTab ***REMOVED***= 'finance' && (
-    <div className="mt-2.5 p-3 rounded-xl space-y-2.5" style={{ background: WA.lightBg }}>
+    <div
+      className="mt-2 p-2.5 rounded-2xl space-y-2"
+      style={{ background: 'rgba(255,255,255,0.78)', border: `1px solid ${WA.borderLight}`, boxShadow: '0 10px 24px rgba(15,23,42,0.04)' }}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[9px] font-semibold" style={{ color: WA.textMuted }}>财务面板</span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted }}>
+          <span className="text-[8px] font-semibold tracking-wide" style={{ color: WA.textMuted }}>财务面板</span>
+          <span className="text-[7px] px-1.5 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted }}>
             {wacrm.monthly_fee_status || 'pending'}
           </span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>
+          <span className="text-[7px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>
             {wacrm.monthly_fee_amount ? `$${wacrm.monthly_fee_amount}` : '$0'}
           </span>
         </div>
       </div>
-      <InlineEditField label="Beta" value={editForm.beta_status || ''} onChange={v => setEditForm(f => ({ ...f, beta_status: v }))} type="select" options={[['not_introduced', '未引入'], ['introduced', '已引入'], ['churned', '流失']]} />
-      <InlineEditField label="月费" value={editForm.monthly_fee_status || ''} onChange={v => setEditForm(f => ({ ...f, monthly_fee_status: v }))} type="select" options={[['pending', '待支付'], ['paid', '已支付'], ['overdue', '逾期']]} />
-      <InlineEditField label="金额" value={String(editForm.monthly_fee_amount || 0)} onChange={v => setEditForm(f => ({ ...f, monthly_fee_amount: parseFloat(v) || 0 }))} type="number" />
+      <InlineEditField compact label="Beta" value={editForm.beta_status || ''} onChange={v => setEditForm(f => ({ ...f, beta_status: v }))} type="select" options={[['not_introduced', '未引入'], ['introduced', '已引入'], ['churned', '流失']]} />
+      <InlineEditField compact label="月费" value={editForm.monthly_fee_status || ''} onChange={v => setEditForm(f => ({ ...f, monthly_fee_status: v }))} type="select" options={[['pending', '待支付'], ['paid', '已支付'], ['overdue', '逾期']]} />
+      <InlineEditField compact label="金额" value={String(editForm.monthly_fee_amount || 0)} onChange={v => setEditForm(f => ({ ...f, monthly_fee_amount: parseFloat(v) || 0 }))} type="number" />
       <div className="flex justify-end pt-1">
         <button
           onClick={handleEditSave}
           disabled={editSaving}
-          className="px-3 py-2 rounded-xl text-[11px] font-medium text-white"
+          className="px-3 py-1.5 rounded-xl text-[7px] font-medium text-white"
           style={{ background: editSaving ? '#9ca3af' : WA.teal }}
         >
           {editSaving ? '保存中...' : '保存财务'}
@@ -407,30 +459,33 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   )
 
   const keeperPanel = activeManageTab ***REMOVED***= 'keeper' && (
-    <div className="mt-2.5 p-3 rounded-xl space-y-2.5" style={{ background: WA.lightBg }}>
+    <div
+      className="mt-2 p-2.5 rounded-2xl space-y-2"
+      style={{ background: 'rgba(255,255,255,0.78)', border: `1px solid ${WA.borderLight}`, boxShadow: '0 10px 24px rgba(15,23,42,0.04)' }}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[9px] font-semibold" style={{ color: WA.textMuted }}>Keeper 面板</span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted }}>
+          <span className="text-[8px] font-semibold tracking-wide" style={{ color: WA.textMuted }}>Keeper 面板</span>
+          <span className="text-[7px] px-1.5 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted }}>
             GMV {displayKeeper.keeper_gmv ? `$${Number(displayKeeper.keeper_gmv).toLocaleString()}` : '$0'}
           </span>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <InlineEditField label="GMV" value={String(editForm.keeper_gmv || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_gmv: parseFloat(v) || 0 }))} type="number" />
-        <InlineEditField label="30天GMV" value={String(editForm.keeper_gmv30 || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_gmv30: parseFloat(v) || 0 }))} type="number" />
-        <InlineEditField label="视频总数" value={String(editForm.keeper_videos || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_videos: parseInt(v) || 0 }))} type="number" />
-        <InlineEditField label="视频发布" value={String(editForm.keeper_videos_posted || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_videos_posted: parseInt(v) || 0 }))} type="number" />
-        <InlineEditField label="视频售出" value={String(editForm.keeper_videos_sold || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_videos_sold: parseInt(v) || 0 }))} type="number" />
-        <InlineEditField label="订单数" value={String(editForm.keeper_orders || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_orders: parseInt(v) || 0 }))} type="number" />
-        <InlineEditField label="橱窗转化率" value={editForm.keeper_card_rate || ''} onChange={v => setEditForm(f => ({ ...f, keeper_card_rate: v }))} type="text" />
-        <InlineEditField label="订单转化率" value={editForm.keeper_order_rate || ''} onChange={v => setEditForm(f => ({ ...f, keeper_order_rate: v }))} type="text" />
+        <InlineEditField compact label="GMV" value={String(editForm.keeper_gmv || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_gmv: parseFloat(v) || 0 }))} type="number" />
+        <InlineEditField compact label="30天GMV" value={String(editForm.keeper_gmv30 || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_gmv30: parseFloat(v) || 0 }))} type="number" />
+        <InlineEditField compact label="视频总数" value={String(editForm.keeper_videos || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_videos: parseInt(v) || 0 }))} type="number" />
+        <InlineEditField compact label="视频发布" value={String(editForm.keeper_videos_posted || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_videos_posted: parseInt(v) || 0 }))} type="number" />
+        <InlineEditField compact label="视频售出" value={String(editForm.keeper_videos_sold || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_videos_sold: parseInt(v) || 0 }))} type="number" />
+        <InlineEditField compact label="订单数" value={String(editForm.keeper_orders || 0)} onChange={v => setEditForm(f => ({ ...f, keeper_orders: parseInt(v) || 0 }))} type="number" />
+        <InlineEditField compact label="橱窗转化率" value={editForm.keeper_card_rate || ''} onChange={v => setEditForm(f => ({ ...f, keeper_card_rate: v }))} type="text" />
+        <InlineEditField compact label="订单转化率" value={editForm.keeper_order_rate || ''} onChange={v => setEditForm(f => ({ ...f, keeper_order_rate: v }))} type="text" />
       </div>
       <div className="flex justify-end pt-1">
         <button
           onClick={handleEditSave}
           disabled={editSaving}
-          className="px-3 py-2 rounded-xl text-[11px] font-medium text-white"
+          className="px-3 py-1.5 rounded-xl text-[7px] font-medium text-white"
           style={{ background: editSaving ? '#9ca3af' : WA.teal }}
         >
           {editSaving ? '保存中...' : '保存 Keeper'}
@@ -440,8 +495,11 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   )
 
   const quickEditPanel = activeManageTab ***REMOVED***= 'edit' && (
-    <div className="mt-2.5 p-3 rounded-xl space-y-2.5" style={{ background: WA.lightBg }}>
-      <div className="text-[9px] font-semibold mb-1.5" style={{ color: WA.textMuted }}>编辑达人</div>
+    <div
+      className="mt-2 p-2.5 rounded-2xl space-y-2"
+      style={{ background: 'rgba(255,255,255,0.78)', border: `1px solid ${WA.borderLight}`, boxShadow: '0 10px 24px rgba(15,23,42,0.04)' }}
+    >
+      <div className="text-[8px] font-semibold tracking-wide mb-1" style={{ color: WA.textMuted }}>编辑达人</div>
       <InlineEditField compact label="姓名" value={editForm.primary_name || ''} onChange={v => setEditForm(f => ({ ...f, primary_name: v }))} type="text" />
       <InlineEditField compact label="电话" value={editForm.wa_phone || ''} onChange={v => setEditForm(f => ({ ...f, wa_phone: v }))} type="text" />
       <InlineEditField compact label="负责人" value={editForm.wa_owner || ''} onChange={v => setEditForm(f => ({ ...f, wa_owner: v }))} type="select" options={OWNER_ORDER.map(owner => [owner, owner])} />
@@ -451,21 +509,43 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
       <InlineEditField compact label="视频数" value={String(editForm.video_count || 0)} onChange={v => setEditForm(f => ({ ...f, video_count: parseInt(v) || 0 }))} type="number" />
       <InlineEditField compact label="目标" value={String(editForm.video_target || 35)} onChange={v => setEditForm(f => ({ ...f, video_target: parseInt(v) || 35 }))} type="number" />
       <div>
-        <div className="text-[9px] mb-1" style={{ color: WA.textMuted }}>下一步</div>
+        <div className="text-[7px] mb-0.5" style={{ color: WA.textMuted }}>下一步</div>
         <textarea
-          className="w-full text-[9px] px-2.5 py-2 rounded-xl border focus:outline-none focus:ring-2 resize-none"
+          className="w-full text-[7px] px-2 py-1.5 rounded-xl border focus:outline-none focus:ring-2 resize-none"
           style={{ borderColor: WA.borderLight, background: WA.white, color: '#111b21' }}
           rows={2}
           value={editForm.next_action || ''}
           onChange={e => setEditForm(f => ({ ...f, next_action: e.target.value }))}
           placeholder="记录下一步跟进计划..."
         />
+        {!isAgencyBound && (
+          <div className="mt-1.5 space-y-1">
+            <div className="flex flex-wrap gap-1">
+              {agencyStrategies.map((strategy) => (
+                <button
+                  key={strategy.id}
+                  onClick={() => setEditForm(f => ({ ...f, next_action: strategy.nextActionTemplate }))}
+                  className="text-[7px] px-2 py-1 rounded-full border"
+                  style={{ borderColor: WA.borderLight, background: WA.white, color: WA.textDark }}
+                  title={`${strategy.shortDesc}\n${strategy.nextActionTemplateEn}`}
+                >
+                  填充：{strategy.name}
+                </button>
+              ))}
+            </div>
+            {activeAgencyStrategy && (
+              <div className="text-[7px]" style={{ color: WA.textMuted }}>
+                推荐策略：{activeAgencyStrategy.name}（{activeAgencyStrategy.nameEn}）
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div className="border-t pt-2 mt-1" style={{ borderColor: WA.borderLight }}>
-        <div className="text-[9px] font-semibold mb-2" style={{ color: WA.textMuted }}>事件标签</div>
+        <div className="text-[7px] font-semibold mb-1.5 tracking-wide" style={{ color: WA.textMuted }}>事件标签</div>
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <span className="text-[9px] w-20 shrink-0" style={{ color: WA.textMuted }}>挑战阶段</span>
+            <span className="text-[7px] w-20 shrink-0" style={{ color: WA.textMuted }}>挑战阶段</span>
             <select
               value={editForm.ev_trial_active ? 'active' : (editForm.ev_monthly_started ? 'monthly' : 'none')}
               onChange={e => {
@@ -476,7 +556,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                   ev_monthly_started: v ***REMOVED***= 'monthly',
                 }))
               }}
-              className="flex-1 text-[9px] px-2 py-1.5 rounded-lg border"
+              className="flex-1 text-[7px] px-2 py-1.5 rounded-xl border"
               style={{ borderColor: WA.borderLight, background: WA.white, color: WA.textDark }}
             >
               <option value="none">无</option>
@@ -485,7 +565,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[9px] w-20 shrink-0" style={{ color: WA.textMuted }}>GMV 阶段</span>
+            <span className="text-[7px] w-20 shrink-0" style={{ color: WA.textMuted }}>GMV 阶段</span>
             <select
               value={editForm.ev_gmv_10k ? '10k' : (editForm.ev_gmv_5k ? '5k' : (editForm.ev_gmv_2k ? '2k' : (editForm.ev_gmv_1k ? '1k' : 'none')))}
               onChange={e => {
@@ -498,7 +578,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                   ev_gmv_10k: v ***REMOVED***= '10k',
                 }))
               }}
-              className="flex-1 text-[9px] px-2 py-1.5 rounded-lg border"
+              className="flex-1 text-[7px] px-2 py-1.5 rounded-xl border"
               style={{ borderColor: WA.borderLight, background: WA.white, color: WA.textDark }}
             >
               <option value="none">无</option>
@@ -509,7 +589,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[9px] w-20 shrink-0" style={{ color: WA.textMuted }}>状态</span>
+            <span className="text-[7px] w-20 shrink-0" style={{ color: WA.textMuted }}>状态</span>
             <select
               value={editForm.ev_churned ? 'churned' : (editForm.ev_agency_bound ? 'agency' : 'active')}
               onChange={e => {
@@ -520,7 +600,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                   ev_churned: v ***REMOVED***= 'churned',
                 }))
               }}
-              className="flex-1 text-[9px] px-2 py-1.5 rounded-lg border"
+              className="flex-1 text-[7px] px-2 py-1.5 rounded-xl border"
               style={{ borderColor: WA.borderLight, background: WA.white, color: WA.textDark }}
             >
               <option value="active">正常/活跃</option>
@@ -534,14 +614,14 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
         <button
           onClick={handleEditSave}
           disabled={editSaving}
-          className="flex-1 py-2 rounded-xl text-[9px] font-medium text-white"
+          className="flex-1 py-1.5 rounded-xl text-[7px] font-medium text-white"
           style={{ background: editSaving ? '#9ca3af' : WA.teal }}
         >
           {editSaving ? '保存中...' : '保存'}
         </button>
         <button
           onClick={() => setEditForm(editFormInitial)}
-          className="px-3 py-2 rounded-xl text-[9px] font-medium"
+          className="px-3 py-1.5 rounded-xl text-[7px] font-medium"
           style={{ background: WA.borderLight, color: WA.textMuted }}
         >
           重置
@@ -551,8 +631,8 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   )
 
   const managementTabs = (
-    <div className="mt-2.5">
-      <div className="grid grid-cols-3 gap-2">
+    <div className="mt-2">
+      <div className="grid grid-cols-3 gap-1.5">
         {[
           { key: 'edit', label: '编辑达人', icon: '✏️', color: '#3b82f6' },
           { key: 'finance', label: '财务面板', icon: '💳', color: '#0f766e' },
@@ -565,6 +645,10 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
             icon={tab.icon}
             color={tab.color}
             onClick={() => {
+              if (activeManageTab ***REMOVED***= tab.key) {
+                setActiveManageTab(null)
+                return
+              }
               if (tab.key ***REMOVED***= 'edit') handleEditOpen()
               else setActiveManageTab(tab.key)
             }}
@@ -578,55 +662,8 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   )
 
   const eventsPanel = (
-    <div
-      className="space-y-2"
-      onMouseEnter={() => shouldCollapseEvents && setEventsExpanded(true)}
-      onMouseLeave={() => {
-        if (shouldCollapseEvents && !eventsPinned) setEventsExpanded(false)
-      }}
-    >
-      {shouldCollapseEvents && (
-        <div className="sticky top-0 z-10">
-          <div
-            className="mx-auto flex w-fit items-center gap-2 rounded-full px-3 py-1.5 shadow-sm transition-all"
-            style={{
-              background: showEventsPanel ? WA.white : 'rgba(255,255,255,0.92)',
-              border: `1px solid ${WA.borderLight}`,
-              color: WA.textMuted,
-            }}
-          >
-            <span className="text-[9px] font-semibold tracking-wide">事件达成</span>
-            <span
-              className="block h-1.5 w-10 rounded-full"
-              style={{ background: showEventsPanel ? WA.teal + '55' : WA.borderLight }}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setEventsPinned(v => !v)
-                setEventsExpanded(true)
-              }}
-              className="text-[9px] font-semibold transition-opacity hover:opacity-80"
-              style={{ color: showEventsPanel ? WA.teal : WA.textMuted }}
-              title={eventsPinned ? '取消固定' : '固定展开'}
-            >
-              {eventsPinned ? '收起' : '展开'}
-            </button>
-          </div>
-        </div>
-      )}
-      <div
-        style={{
-          maxHeight: showEventsPanel ? 520 : 0,
-          opacity: showEventsPanel ? 1 : 0,
-          overflow: 'hidden',
-          transform: showEventsPanel ? 'translateY(0)' : 'translateY(-8px)',
-          transition: 'max-height 220ms ease, opacity 180ms ease, transform 220ms ease',
-          pointerEvents: showEventsPanel ? 'auto' : 'none',
-        }}
-      >
-        <CreatorEventsSection creatorId={creatorId} />
-      </div>
+    <div className="space-y-2">
+      <CreatorEventsSection creatorId={creatorId} />
     </div>
   )
 
@@ -679,7 +716,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div className="grid grid-cols-4 gap-2">
-              <MiniStat label="消息" value={creator?.messages?.length || 0} />
+              <MiniStat label="消息" value={creator?.msg_count || 0} />
               <MiniStat label="GMV" value={displayCreator?.keeper_gmv ? '$' + Number(displayCreator?.keeper_gmv).toLocaleString() : '-'} />
               <MiniStat label="30天GMV" value={displayCreator?.keeper_gmv30 ? '$' + Number(displayCreator?.keeper_gmv30).toLocaleString() : '-'} />
               <MiniStat label="事件评分" value={wacrm.event_score != null ? wacrm.event_score.toFixed(1) : '-'} />
@@ -739,7 +776,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
 
               <div className="flex-1 overflow-y-auto p-5 space-y-5">
                 <div className="grid grid-cols-4 gap-3">
-                  <MiniStat label="消息" value={creator?.messages?.length || 0} />
+                  <MiniStat label="消息" value={creator?.msg_count || 0} />
                   <MiniStat label="GMV" value={displayCreator?.keeper_gmv ? '$' + Number(displayCreator?.keeper_gmv).toLocaleString() : '-'} />
                   <MiniStat label="30天GMV" value={displayCreator?.keeper_gmv30 ? '$' + Number(displayCreator?.keeper_gmv30).toLocaleString() : '-'} />
                   <MiniStat label="事件评分" value={wacrm.event_score != null ? wacrm.event_score.toFixed(1) : '-'} />
@@ -1015,8 +1052,8 @@ function buildCreatorDraftPreview(creator, editForm = {}) {
 }
 
 function InlineEditField({ label, value, onChange, type = 'text', options = [], compact = false }) {
-  const labelClass = compact ? 'text-[9px] mb-1' : 'text-[11px] mb-1'
-  const fieldClass = compact ? 'w-full text-[9px] px-2.5 py-2 rounded-xl border focus:outline-none focus:ring-2' : 'w-full text-[11px] px-2.5 py-2 rounded-xl border focus:outline-none focus:ring-2'
+  const labelClass = compact ? 'text-[7px] mb-0.5 leading-tight' : 'text-[11px] mb-1'
+  const fieldClass = compact ? 'w-full text-[7px] px-2 py-1.5 rounded-xl border focus:outline-none focus:ring-2' : 'w-full text-[11px] px-2.5 py-2 rounded-xl border focus:outline-none focus:ring-2'
   if (type ***REMOVED***= 'select') {
     return (
       <label className="block">
@@ -1052,13 +1089,13 @@ function InlineEditField({ label, value, onChange, type = 'text', options = [], 
 function ProfileTagGroup({ label, tags, onAdd }) {
   return (
     <div>
-      <div className="text-[11px] font-semibold mb-1" style={{ color: WA.textMuted }}>{label}</div>
+      <div className="text-[7px] font-semibold mb-1" style={{ color: WA.textMuted }}>{label}</div>
       <div className="flex flex-wrap gap-1.5">
         {tags.map(([tag, name]) => (
           <button
             key={tag}
             onClick={() => onAdd(tag)}
-            className="text-[10px] px-2 py-1 rounded-full border"
+            className="text-[7px] px-2 py-1 rounded-full border"
             style={{ borderColor: WA.borderLight, background: WA.white, color: WA.textDark }}
           >
             + {name}
@@ -1071,26 +1108,26 @@ function ProfileTagGroup({ label, tags, onAdd }) {
 
 function MiniStat({ label, value }) {
   return (
-    <div className="text-center py-2 px-1 rounded-lg" style={{ background: WA.lightBg }}>
-      <div className="text-sm font-semibold" style={{ color: WA.textDark }}>{value}</div>
-      <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>{label}</div>
+    <div className="text-center py-2.5 px-1.5 rounded-2xl border" style={{ background: 'rgba(255,255,255,0.62)', borderColor: WA.borderLight }}>
+      <div className="text-[14px] font-semibold leading-tight" style={{ color: WA.textDark }}>{value}</div>
+      <div className="text-[10px] mt-1 leading-tight" style={{ color: WA.textMuted }}>{label}</div>
     </div>
   )
 }
 
 function InfoRow({ label, value }) {
   return (
-    <div className="flex justify-between items-center py-1.5 px-1">
-      <span className="text-sm" style={{ color: WA.textMuted }}>{label}</span>
-      <span className="text-sm font-medium" style={{ color: WA.textDark }}>{value}</span>
+    <div className="flex justify-between items-center py-1.5 px-0.5 gap-2.5">
+      <span className="text-[11px] leading-tight" style={{ color: WA.textMuted }}>{label}</span>
+      <span className="text-[11px] font-medium leading-tight text-right" style={{ color: WA.textDark }}>{value}</span>
     </div>
   )
 }
 
 function DetailCard({ title, children, className = '' }) {
   return (
-    <div className={`rounded-2xl p-4 ${className}`.trim()} style={{ background: WA.lightBg }}>
-      <div className="text-xs font-semibold mb-2.5" style={{ color: WA.textMuted }}>{title}</div>
+    <div className={`rounded-2xl p-3 ${className}`.trim()} style={{ background: 'rgba(255,255,255,0.62)', border: `1px solid ${WA.borderLight}` }}>
+      <div className="text-[11px] font-semibold mb-2" style={{ color: WA.textMuted }}>{title}</div>
       <div className="space-y-0.5">{children}</div>
     </div>
   )
@@ -1101,10 +1138,10 @@ function ActionPill({ label, icon, color, onClick, loading }) {
     <button
       onClick={onClick}
       disabled={loading}
-      className="w-full flex items-center gap-1.5 px-3 py-2 rounded-xl text-[9px] font-medium transition-all hover:opacity-80 disabled:opacity-50"
+      className="w-full flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[8px] font-medium transition-all hover:opacity-80 disabled:opacity-50"
       style={{ background: color + '18', color }}
     >
-      <span className="text-[11px] leading-none">{loading ? '⏳' : icon}</span><span>{loading ? '刷新中...' : label}</span>
+      <span className="text-[8px] leading-none">{loading ? '⏳' : icon}</span><span>{loading ? '刷新中...' : label}</span>
     </button>
   )
 }
@@ -1113,16 +1150,16 @@ function ManagementTabButton({ active, label, icon, color, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="px-2.5 py-2 rounded-xl text-[8px] font-semibold transition-all"
+      className="px-2 py-1.5 rounded-2xl text-[7px] font-semibold transition-all"
       style={{
         background: active ? color : WA.white,
         color: active ? WA.white : color,
-        border: active ? '1px solid transparent' : `1px solid ${color}30`,
-        boxShadow: active ? `${color}22 0 8px 20px` : 'none',
+        border: active ? '1px solid transparent' : `1px solid ${color}22`,
+        boxShadow: active ? `${color}18 0 8px 18px` : '0 4px 12px rgba(15,23,42,0.04)',
       }}
     >
-      <span className="block text-[11px] leading-none">{icon}</span>
-      <span className="block mt-1 leading-none">{label}</span>
+      <span className="block text-[8px] leading-none">{icon}</span>
+      <span className="block mt-0.5 leading-tight">{label}</span>
     </button>
   )
 }

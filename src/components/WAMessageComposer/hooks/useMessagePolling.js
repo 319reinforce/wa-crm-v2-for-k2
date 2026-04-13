@@ -27,6 +27,7 @@ function getMessageKey(message) {
 export function useMessagePolling({
     client,
     setMessages,
+    setMessageTotal,
     generateForIncoming,
     pushPicker,
     lastActivityRef,
@@ -54,9 +55,11 @@ export function useMessagePolling({
             });
             if (activeClientIdRef.current !***REMOVED*** clientId || requestVersionRef.current !***REMOVED*** requestVersion) return;
             const freshMsgs = Array.isArray(data) ? data : (data.messages || []);
+            const total = Array.isArray(data) ? freshMsgs.length : Number(data?.total ?? freshMsgs.length);
             if (freshMsgs.length ***REMOVED***= 0) return;
 
             setMessages(freshMsgs);
+            setMessageTotal?.(Number.isFinite(total) ? total : freshMsgs.length);
 
             // 追踪最后一条消息时间
             const latest = freshMsgs[freshMsgs.length - 1];

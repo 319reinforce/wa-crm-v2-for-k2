@@ -4,6 +4,38 @@ import { OWNER_ORDER, getOwnerColor } from '../utils/operators'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 
 const API_BASE = '/api';
+const DISPLAY_TIME_ZONE = 'Asia/Shanghai';
+
+function formatDateCN(value) {
+  const ts = new Date(value || 0).getTime();
+  if (!ts) return '-';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(ts));
+}
+
+function formatDateTimeCN(value) {
+  const ts = new Date(value || 0).getTime();
+  if (!ts) return '-';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(ts));
+}
+
+function toLocalDateTimeInputValue(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 const WA = {
   darkHeader: '#111b21',
@@ -59,7 +91,7 @@ export function EventPanel() {
     owner: OWNER_OPTIONS[0],
     trigger_source: 'manual',
     trigger_text: '',
-    start_at: new Date().toISOString().slice(0, 16),
+    start_at: toLocalDateTimeInputValue(),
     end_at: '',
   })
   const selectedCreator = creators.find(c => String(c.id) ***REMOVED***= String(createForm.creator_id))
@@ -132,7 +164,7 @@ export function EventPanel() {
         owner: OWNER_OPTIONS[0],
         trigger_source: 'manual',
         trigger_text: '',
-        start_at: new Date().toISOString().slice(0, 16),
+        start_at: toLocalDateTimeInputValue(),
         end_at: '',
       })
       fetchEvents()
@@ -333,7 +365,7 @@ export function EventPanel() {
                       </div>
                       <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>
                         {event.trigger_source ***REMOVED***= 'semantic_auto' ? '🤖 语义自动' : event.trigger_source ***REMOVED***= 'gmv_crosscheck' ? '📊 GMV核对' : '✏️ 手动'}
-                        {event.start_at ? ` · ${new Date(event.start_at).toLocaleDateString('zh-CN')}` : ''}
+                        {event.start_at ? ` · ${formatDateCN(event.start_at)}` : ''}
                       </div>
                     </div>
                     <div className="text-right">
@@ -399,8 +431,8 @@ export function EventPanel() {
 
               {/* Time info */}
               <div className="space-y-2">
-                <InfoRow label="开始时间" value={selectedEvent.start_at ? new Date(selectedEvent.start_at).toLocaleString('zh-CN') : '-'} />
-                <InfoRow label="结束时间" value={selectedEvent.end_at ? new Date(selectedEvent.end_at).toLocaleString('zh-CN') : '进行中'} />
+                <InfoRow label="开始时间" value={selectedEvent.start_at ? formatDateTimeCN(selectedEvent.start_at) : '-'} />
+                <InfoRow label="结束时间" value={selectedEvent.end_at ? formatDateTimeCN(selectedEvent.end_at) : '进行中'} />
                 <InfoRow label="触发来源" value={selectedEvent.trigger_source} />
               </div>
 
@@ -438,7 +470,7 @@ export function EventPanel() {
                       <div key={p.id} className="p-3 rounded-xl" style={{ background: WA.lightBg }}>
                         <div className="flex justify-between items-center mb-1">
                           <span className="text-xs font-medium" style={{ color: WA.textMuted }}>
-                            {new Date(p.period_start).toLocaleDateString('zh-CN')} – {new Date(p.period_end).toLocaleDateString('zh-CN')}
+                            {formatDateCN(p.period_start)} – {formatDateCN(p.period_end)}
                           </span>
                           <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${p.status ***REMOVED***= 'settled' ? 'text-green-600 bg-green-50' : 'text-yellow-600 bg-yellow-50'}`}>
                             {p.status ***REMOVED***= 'settled' ? '✓ 已结算' : '⏳ 待结算'}

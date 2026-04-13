@@ -8,7 +8,7 @@ import { fetchAppAuth } from '../utils/appAuth'
 import { fetchWaAdmin } from '../utils/waAdmin'
 
 const API_BASE = '/api'
-const POLL_INTERVAL_MS = 5 * 60 * 1000   // 5分钟，与 waWorker.js 保持一致
+const DEFAULT_POLL_INTERVAL_MS = 60 * 1000
 
 function phaseLabel(phase) {
     switch (phase) {
@@ -168,11 +168,13 @@ export function WorkerStatusBar() {
     const pct = typeof safeStatus.progressPct ***REMOVED***= 'function' ? safeStatus.progressPct() : (safeStatus.progressPct || 0)
     const color = status ? phaseColor(status.phase) : '#94a3b8'
 
+    const effectivePollIntervalMs = status?.pollIntervalMs || DEFAULT_POLL_INTERVAL_MS
+
     // 计算距下次轮询的倒计时
     let secondsUntilNextPoll = null
     if (status?.lastPollAt) {
         const secondsSinceLastPoll = Math.floor((Date.now() - new Date(status.lastPollAt).getTime()) / 1000)
-        secondsUntilNextPoll = Math.max(0, Math.round(POLL_INTERVAL_MS / 1000) - secondsSinceLastPoll)
+        secondsUntilNextPoll = Math.max(0, Math.round(effectivePollIntervalMs / 1000) - secondsSinceLastPoll)
     }
 
     // ***REMOVED***= 收缩形态：小方块 ***REMOVED***=
@@ -330,7 +332,7 @@ export function WorkerStatusBar() {
                         <div style={{ flex: 1, height: 4, background: '#f3f4f6', borderRadius: 2, overflow: 'hidden' }}>
                             <div style={{
                                 height: '100%',
-                                width: `${Math.round((1 - secondsUntilNextPoll / (POLL_INTERVAL_MS / 1000)) * 100)}%`,
+                                width: `${Math.round((1 - secondsUntilNextPoll / (effectivePollIntervalMs / 1000)) * 100)}%`,
                                 background: secondsUntilNextPoll < 30 ? '#f59e0b' : '#3b82f6',
                                 borderRadius: 2,
                                 transition: 'width 1s linear',

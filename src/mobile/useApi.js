@@ -6,13 +6,16 @@ const API_BASE = '/api'
 export function useCreators({ search = '', owner = '' } = {}) {
   const [creators, setCreators] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const abortRef = useRef(null)
 
   const load = useCallback(async () => {
+    let controller = null
     setLoading(true)
+    setError('')
     try {
       if (abortRef.current) abortRef.current.abort()
-      const controller = new AbortController()
+      controller = new AbortController()
       abortRef.current = controller
       const params = new URLSearchParams()
       if (search) params.set('search', search)
@@ -24,8 +27,11 @@ export function useCreators({ search = '', owner = '' } = {}) {
       const enriched = list.map(c => ({ ...c, _full: buildCreatorListFull(c) }))
       enriched.sort((a, b) => getLastTs(b) - getLastTs(a))
       setCreators(enriched)
+    } catch (err) {
+      if (controller?.signal.aborted) return
+      setError(err?.message || '加载达人列表失败')
     } finally {
-      if (abortRef.current && !abortRef.current.signal.aborted) {
+      if (controller && abortRef.current ***REMOVED***= controller && !controller.signal.aborted) {
         setLoading(false)
       }
     }
@@ -38,24 +44,35 @@ export function useCreators({ search = '', owner = '' } = {}) {
     }
   }, [load])
 
-  return { creators, loading, reload: load }
+  return { creators, loading, error, reload: load }
 }
 
 export function useCreatorDetail(id) {
   const [creator, setCreator] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const abortRef = useRef(null)
 
   const load = useCallback(async () => {
-    if (!id) return
+    if (!id) {
+      setLoading(false)
+      setError('无效的达人 ID')
+      return
+    }
+    let controller = null
     setLoading(true)
+    setError('')
     try {
       if (abortRef.current) abortRef.current.abort()
-      const controller = new AbortController()
+      controller = new AbortController()
       abortRef.current = controller
       const detail = await fetchJsonOrThrow(`${API_BASE}/creators/${id}`, { signal: controller.signal })
       if (controller.signal.aborted) return
       setCreator(detail)
+    } catch (err) {
+      if (controller?.signal.aborted) return
+      setCreator(null)
+      setError(err?.message || '加载达人详情失败')
     } finally {
       if (abortRef.current ***REMOVED***= controller && !controller.signal.aborted) {
         setLoading(false)
@@ -70,7 +87,7 @@ export function useCreatorDetail(id) {
     }
   }, [load])
 
-  return { creator, loading, reload: load }
+  return { creator, loading, error, reload: load }
 }
 
 function buildCreatorListFull(detail = {}) {

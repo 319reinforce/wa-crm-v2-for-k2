@@ -18,6 +18,7 @@ const https = require('https');
 const http = require('http');
 
 const DB = require('../../db');
+const { prepareDataset } = require('../../scripts/prepare-safe-finetune-jsonl.cjs');
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 配置 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 const EXPORT_LIMIT = parseInt(process.env.TRAINING_EXPORT_LIMIT || '5000');
@@ -31,6 +32,7 @@ const INTERNAL_API_TOKEN = (
     ''
 ).trim();
 const INTERNAL_API_TIMEOUT_MS = Math.max(parseInt(process.env.TRAINING_API_TIMEOUT_MS || '30000', 10) || 30000, 3000);
+const PREPARE_SAFE_DATASET = process.env.TRAINING_PREPARE_SAFE_DATASET !***REMOVED*** 'false';
 
 // ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** HTTP 辅助 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
 function apiRequest(method, pathWithQuery, body) {
@@ -104,6 +106,8 @@ async function notify(message) {
 async function exportSFTData(monthLabel) {
     const exportPath = `/tmp/sft-export-${monthLabel}.jsonl`;
     const countPath = `/tmp/sft-export-${monthLabel}.count`;
+    const safePath = `/tmp/sft-export-${monthLabel}.safe.minimal.jsonl`;
+    const safeReportPath = `/tmp/sft-export-${monthLabel}.safe.minimal.report.json`;
 
     console.log(`[Training] 导出 SFT 数据到 ${exportPath}...`);
 
@@ -132,7 +136,35 @@ async function exportSFTData(monthLabel) {
     fs.writeFileSync(countPath, String(count), 'utf8');
     console.log(`[Training] 已写入 ${exportPath}（${count} 条）`);
 
-    return { count, path: exportPath, recordCount: count };
+    if (!PREPARE_SAFE_DATASET) {
+        return {
+            count,
+            raw_count: count,
+            path: exportPath,
+            recordCount: count,
+            safe_prepare: false,
+            safe_report_path: null,
+        };
+    }
+
+    const prepared = prepareDataset({
+        inputPath: exportPath,
+        outputPath: safePath,
+        reportPath: safeReportPath,
+    });
+    if (!prepared.kept || prepared.kept <= 0) {
+        throw new Error(`安全清洗后样本为 0（report: ${safeReportPath}）`);
+    }
+
+    console.log(`[Training] 安全清洗完成：${prepared.kept}/${prepared.total} 条可训练样本`);
+    return {
+        count: prepared.kept,
+        raw_count: count,
+        path: prepared.outputPath,
+        recordCount: prepared.kept,
+        safe_prepare: true,
+        safe_report_path: prepared.reportPath,
+    };
 }
 
 async function ensureTrainingLogTable() {
@@ -198,13 +230,15 @@ async function runTraining(triggeredBy = 'manual') {
         const exportResult = await exportSFTData(monthLabel);
         recordCount = exportResult.count;
         exportPath = exportResult.path;
+        const rawCount = Number.isFinite(exportResult.raw_count) ? exportResult.raw_count : recordCount;
+        const safeReportPath = exportResult.safe_report_path || null;
 
         if (recordCount ***REMOVED***= 0) {
             detail = '无 approved 数据，跳过训练';
             status = 'skipped';
             console.warn(`[Training] ${detail}`);
         } else if (DRY_RUN) {
-            detail = `DRY_RUN: 导出 ${recordCount} 条，待训练`;
+            detail = `DRY_RUN: 导出 ${rawCount} 条，清洗后 ${recordCount} 条，待训练（report: ${safeReportPath || 'n/a'}）`;
             console.log(`[Training] ${detail}`);
         } else {
             // 2. 这里调用实际训练脚本（预留 hook）
@@ -213,10 +247,10 @@ async function runTraining(triggeredBy = 'manual') {
                 console.log(`[Training] 调用训练脚本: ${trainingScript}`);
                 const { execSync } = require('child_process');
                 const result = execSync(`node "${trainingScript}" "${exportPath}"`, { timeout: 3600 * 1000 });
-                detail = `训练完成: ${result.toString().slice(0, 200)}`;
+                detail = `训练完成: raw=${rawCount}, safe=${recordCount}, report=${safeReportPath || 'n/a'}; ${result.toString().slice(0, 200)}`;
                 console.log(`[Training] ${detail}`);
             } else {
-                detail = `导出完成，待接入训练脚本（export: ${exportPath}）`;
+                detail = `导出完成，待接入训练脚本（raw=${rawCount}, safe=${recordCount}, export=${exportPath}, report=${safeReportPath || 'n/a'}）`;
                 console.log(`[Training] ${detail}`);
             }
         }

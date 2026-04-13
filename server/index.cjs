@@ -21,6 +21,7 @@ const auditRouter = require('./routes/audit');
 const profileRouter = require('./routes/profile');
 const eventsRouter = require('./routes/events');
 const experienceRouter = require('./routes/experience');
+const strategyRouter = require('./routes/strategy');
 const waRouter = require('./routes/wa');
 const trainingRouter = require('./routes/training');
 const { start: startWaWorker, stop: stopWaWorker, getProgress: getWaWorkerProgress } = require('./waWorker');
@@ -162,6 +163,7 @@ app.use('/api', requireAppAuth, auditRouter);
 app.use('/api', requireAppAuth, profileRouter);
 app.use('/api/events', requireAppAuth, eventsRouter);
 app.use('/api/experience', requireAppAuth, experienceRouter);
+app.use('/api', requireAppAuth, strategyRouter);
 app.use('/api/wa', requireAppAuth, waRouter);
 app.use('/api/training', requireAppAuth, trainingRouter);
 

@@ -70,6 +70,7 @@ async function main() {
                 'event_periods', 'events', 'events_policy',
                 'client_tags', 'client_profiles', 'client_memory',
                 'sft_feedback', 'sft_memory', 'audit_log',
+                'media_send_log', 'media_assets',
                 'sync_log', 'manual_match', 'joinbrands_link', 'keeper_link',
                 'wa_crm_data', 'creator_aliases', 'wa_messages', 'creators',
                 'operator_experiences', 'policy_documents',

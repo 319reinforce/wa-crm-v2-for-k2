@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-04-11T16:38:40.973Z",
+  "apply": false,
+  "delete_rules": [
+    {
+      "label": "alissa_duplicate_wrong_role_reinserts",
+      "creatorId": 983,
+      "ids": [
+        63598,
+        70347
+      ],
+      "reason": "pollution reinserts of historical outbound message; canonical me row is 43387",
+      "matched_rows": 2,
+      "rows": [
+        {
+          "id": 63598,
+          "creator_id": 983,
+          "role": "user",
+          "operator": "Beau",
+          "text": "Got it, I’ll send it to finance on the next business day and walk you through the next steps!",
+          "timestamp": 1775890128642,
+          "created_at": "2026-04-11T06:48:48.000Z"
+        },
+        {
+          "id": 70347,
+          "creator_id": 983,
+          "role": "user",
+          "operator": "Beau",
+          "text": "Got it, I’ll send it to finance on the next business day and walk you through the next steps!",
+          "timestamp": 1775891132078,
+          "created_at": "2026-04-11T07:05:32.000Z"
+        }
+      ]
+    }
+  ],
+  "update_rules": [
+    {
+      "label": "noelia_followup_should_be_me",
+      "id": 65273,
+      "creatorId": 1072,
+      "expectedRole": "me",
+      "reason": "outbound follow-up addressed to contact; misclassified during polluted poll window",
+      "matched": true,
+      "before": {
+        "id": 65273,
+        "creator_id": 1072,
+        "role": "user",
+        "operator": "Yiyun",
+        "text": "Hey Noelia, I hope you had a good trip. I want to ask if you have time to make this 1-minute video? I'm still waiting for you.",
+        "timestamp": 1775890425809,
+        "created_at": "2026-04-11T06:53:45.000Z"
+      }
+    }
+  ],
+  "deleted_rows": 0,
+  "updated_rows": 0
+}

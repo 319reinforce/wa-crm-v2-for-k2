@@ -1,5 +1,6 @@
 /**
- * JSON body parser middleware — 3MB limit
+ * JSON body parser middleware
  */
 const express = require('express');
-module.exports = express.json({ limit: '3mb' });
+const limit = process.env.JSON_BODY_LIMIT || '15mb';
+module.exports = express.json({ limit });

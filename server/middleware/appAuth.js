@@ -18,11 +18,21 @@ function isLocalRequest(req) {
         req.hostname,
     ].filter(Boolean).map((value) => String(value).trim().toLowerCase());
 
+    const isPrivateLan = (value) => (
+        /^192\.168\.\d{1,3}\.\d{1,3}$/.test(value)
+        || /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(value)
+        || /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(value)
+        || /^::ffff:192\.168\.\d{1,3}\.\d{1,3}$/.test(value)
+        || /^::ffff:10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(value)
+        || /^::ffff:172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(value)
+    );
+
     return candidates.some((value) => (
         value ***REMOVED***= '127.0.0.1'
         || value ***REMOVED***= '::1'
         || value ***REMOVED***= '::ffff:127.0.0.1'
         || value ***REMOVED***= 'localhost'
+        || isPrivateLan(value)
     ));
 }
 
