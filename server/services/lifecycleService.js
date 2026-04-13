@@ -104,6 +104,15 @@ function findEventSignal(events, eventKey) {
     });
 }
 
+function findEventSignalByType(events, eventType) {
+    if (!Array.isArray(events)) return false;
+    return events.some((item) => {
+        const type = String(item?.event_type || item?.eventType || '').trim();
+        const status = String(item?.status || '').trim().toLowerCase();
+        return type === eventType && (status === '' || status === 'active' || status === 'completed');
+    });
+}
+
 function pick(data = {}, ...paths) {
     for (const path of paths) {
         const value = path.split('.').reduce((acc, key) => (acc == null ? undefined : acc[key]), data);
@@ -124,17 +133,29 @@ function extractSignals(input = {}) {
     const nextAction = toText(pick({ input, wacrm }, 'wacrm.next_action', 'input.next_action')).toLowerCase();
     const source = toText(input.source).toLowerCase();
 
-    const agencyBound = toBool(pick({ input, wacrm, joinbrands }, 'wacrm.agency_bound', 'input.agency_bound', 'joinbrands.ev_agency_bound', 'input.ev_agency_bound'));
-    const trialActive = toBool(pick({ input, joinbrands }, 'joinbrands.ev_trial_active', 'joinbrands.ev_trial_7day', 'input.ev_trial_active', 'input.ev_trial_7day'));
-    const monthlyStarted = toBool(pick({ input, joinbrands }, 'joinbrands.ev_monthly_started', 'input.ev_monthly_started'));
-    const monthlyJoined = toBool(pick({ input, joinbrands }, 'joinbrands.ev_monthly_joined', 'input.ev_monthly_joined'));
+    const hasAgencyBoundEvent = findEventSignal(events, 'agency_bound') || findEventSignalByType(events, 'agency');
+    const hasTrialEvent = findEventSignal(events, 'trial_7day');
+    const hasMonthlyChallengeEvent = findEventSignal(events, 'monthly_challenge') || findEventSignalByType(events, 'challenge');
+    const hasGmvMilestoneEvent = findEventSignal(events, 'gmv_milestone') || findEventSignalByType(events, 'gmv');
+
+    const agencyBound = toBool(pick({ input, wacrm, joinbrands }, 'wacrm.agency_bound', 'input.agency_bound', 'joinbrands.ev_agency_bound', 'input.ev_agency_bound')) || hasAgencyBoundEvent;
+    const trialActive = toBool(pick({ input, joinbrands }, 'joinbrands.ev_trial_active', 'joinbrands.ev_trial_7day', 'input.ev_trial_active', 'input.ev_trial_7day')) || hasTrialEvent;
+    const monthlyStarted = toBool(pick({ input, joinbrands }, 'joinbrands.ev_monthly_started', 'input.ev_monthly_started')) || hasMonthlyChallengeEvent;
+    const monthlyJoined = toBool(pick({ input, joinbrands }, 'joinbrands.ev_monthly_joined', 'input.ev_monthly_joined')) || hasMonthlyChallengeEvent;
     const monthlyInvited = toBool(pick({ input, joinbrands }, 'joinbrands.ev_monthly_invited', 'input.ev_monthly_invited'));
     const gmv2kEvent = toBool(pick({ input, joinbrands }, 'joinbrands.ev_gmv_2k', 'input.ev_gmv_2k'));
     const gmv2kValue = toNumber(pick({ input, keeper, joinbrands }, 'keeper.keeper_gmv', 'input.keeper_gmv', 'joinbrands.jb_gmv', 'input.jb_gmv'), 0) > 2000;
-    const gmv2k = gmv2kEvent || gmv2kValue;
-    const churned = toBool(pick({ input, joinbrands }, 'joinbrands.ev_churned', 'input.ev_churned')) || betaStatus === 'churned';
+    const gmv2k = gmv2kEvent || gmv2kValue || hasGmvMilestoneEvent;
+    const referralEventField = toBool(pick({ input }, 'input.ev_referral_event'));
+    const terminatedEventField = toBool(pick({ input }, 'input.ev_terminated_event'));
+    const hasTerminatedEvent = terminatedEventField
+        || findEventSignal(events, 'churned')
+        || findEventSignal(events, 'do_not_contact')
+        || findEventSignal(events, 'opt_out')
+        || findEventSignalByType(events, 'termination');
+    const churned = toBool(pick({ input, joinbrands }, 'joinbrands.ev_churned', 'input.ev_churned')) || betaStatus === 'churned' || hasTerminatedEvent;
     const paid = monthlyFeeStatus === 'paid' || toBool(pick({ input, wacrm }, 'wacrm.monthly_fee_deducted', 'input.monthly_fee_deducted'));
-    const referral = source.includes('referral') || findEventSignal(events, 'referral');
+    const referral = referralEventField || source.includes('referral') || findEventSignal(events, 'referral') || findEventSignalByType(events, 'referral');
 
     const noContact = /不继续联系|终止|停止联系|do\s*not\s*contact|stop\s*contact|no\s*longer\s*contact/i.test(nextAction);
 
@@ -145,7 +166,7 @@ function extractSignals(input = {}) {
         betaProgramType.includes('beta') ||
         trialActive ||
         monthlyInvited ||
-        findEventSignal(events, 'trial_7day') ||
+        hasTrialEvent ||
         findEventSignal(events, 'beta_program');
 
     const activationSignal =
@@ -166,6 +187,7 @@ function extractSignals(input = {}) {
         gmv2k,
         paid,
         referral,
+        hasTerminatedEvent,
         churned,
         noContact,
         acquisitionSignal,
@@ -182,6 +204,8 @@ function buildOption0(stageKey) {
 function buildLifecycle(input = {}, options = {}) {
     const signals = extractSignals(input);
     const strictRevenueGmv = options?.strictRevenueGmv === true;
+    const gmvThresholdRaw = Number(options?.revenueGmvThreshold);
+    const gmvThreshold = Number.isFinite(gmvThresholdRaw) ? gmvThresholdRaw : 2000;
 
     let stageKey = 'acquisition';
     let entrySignals = [];
@@ -199,9 +223,9 @@ function buildLifecycle(input = {}, options = {}) {
         entryReason = '检测到推荐传播信号。';
     } else if (signals.agencyBound && (!strictRevenueGmv || signals.gmv2k)) {
         stageKey = 'revenue';
-        entrySignals = strictRevenueGmv ? ['agency_bound', 'gmv>2k'] : ['agency_bound'];
+        entrySignals = strictRevenueGmv ? ['agency_bound', `gmv>${gmvThreshold}`] : ['agency_bound'];
         entryReason = strictRevenueGmv
-            ? '已绑定Agency且GMV超过2k，进入收入阶段。'
+            ? `已绑定Agency且GMV超过${gmvThreshold}，进入收入阶段。`
             : '已绑定Agency，按当前临时规则进入收入阶段（暂不校验GMV）。';
     } else if (signals.retentionSignal) {
         stageKey = 'retention';
@@ -242,6 +266,7 @@ function buildLifecycle(input = {}, options = {}) {
         rule_flags: {
             revenue_relaxed_to_agency_bound: !strictRevenueGmv,
             agency_bound_mainline: true,
+            revenue_gmv_threshold: gmvThreshold,
         },
         evaluated_at: new Date().toISOString(),
     };

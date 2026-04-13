@@ -41,7 +41,7 @@ async function closeDb() {
     }
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** SQLite 接口兼容层 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== SQLite 接口兼容层 ==================
 
 // MySQL → SQLite 结果格式适配
 function toSqliteFormat(result) {
@@ -110,7 +110,7 @@ const db = {
     },
 };
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** Creator 操作 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== Creator 操作 ==================
 
 async function getOrCreateCreator(phone, name, source = 'wa') {
     return await db.transaction(async (txDb) => {
@@ -145,7 +145,7 @@ async function findCreator(query) {
 }
 
 async function updateCreator(id, updates) {
-    if (!updates || typeof updates !***REMOVED*** 'object') return;
+    if (!updates || typeof updates !== 'object') return;
     const allowed = ['primary_name', 'keeper_username', 'wa_owner', 'is_active'];
     const fields = [];
     const values = [];
@@ -155,7 +155,7 @@ async function updateCreator(id, updates) {
             values.push(value);
         }
     }
-    if (fields.length ***REMOVED***= 0) return;
+    if (fields.length === 0) return;
     values.push(id);
     await db.prepare(`UPDATE creators SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...values);
 }
@@ -166,11 +166,11 @@ async function addAlias(creatorId, aliasType, aliasValue, verified = false) {
             'INSERT IGNORE INTO creator_aliases (creator_id, alias_type, alias_value, is_verified) VALUES (?, ?, ?, ?)'
         ).run(creatorId, aliasType, aliasValue, verified ? 1 : 0);
     } catch (e) {
-        if (e.code !***REMOVED*** 'ER_DUP_ENTRY') throw e;
+        if (e.code !== 'ER_DUP_ENTRY') throw e;
     }
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 消息操作 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 消息操作 ==================
 
 async function insertMessage(creatorId, role, text, timestamp, operator = null) {
     const timestampMs = toTimestampMs(timestamp);
@@ -184,7 +184,7 @@ async function insertMessage(creatorId, role, text, timestamp, operator = null) 
         windowMs: 15 * 60 * 1000,
         minTextLength: 12,
     });
-    if (kept.length ***REMOVED***= 0) return;
+    if (kept.length === 0) return;
     const safe = kept[0];
     const messageHash = buildMessageHash(safe.role, safe.text, safe.timestamp);
     await db.prepare(
@@ -193,7 +193,7 @@ async function insertMessage(creatorId, role, text, timestamp, operator = null) 
 }
 
 async function insertMessagesBatch(creatorId, messages) {
-    if (!messages || messages.length ***REMOVED***= 0) return;
+    if (!messages || messages.length === 0) return;
     await db.transaction(async (txDb) => {
         const normalizedMessages = messages.map((msg) => ({
             creator_id: creatorId,
@@ -206,7 +206,7 @@ async function insertMessagesBatch(creatorId, messages) {
             windowMs: 15 * 60 * 1000,
             minTextLength: 12,
         });
-        if (kept.length ***REMOVED***= 0) return;
+        if (kept.length === 0) return;
         const insert = txDb.prepare(
             'INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash) VALUES (?, ?, ?, ?, ?, ?)'
         );
@@ -228,7 +228,7 @@ async function getLastMessage(creatorId) {
     ).get(creatorId);
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** WA CRM 数据操作 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== WA CRM 数据操作 ==================
 
 async function getOrCreateWacrm(creatorId) {
     return await db.transaction(async (txDb) => {
@@ -257,12 +257,12 @@ async function updateWacrm(creatorId, updates) {
             values.push(updates[key]);
         }
     }
-    if (fields.length ***REMOVED***= 0) return;
+    if (fields.length === 0) return;
     values.push(creatorId);
     await db.prepare(`UPDATE wa_crm_data SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE creator_id = ?`).run(...values);
 }
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 查询 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 查询 ==================
 
 async function getAllCreators(filters = {}) {
     const limit = Math.min(parseInt(filters.limit) || 100, 500);
@@ -282,7 +282,7 @@ async function getAllCreators(filters = {}) {
         sql += ' AND c.wa_owner = ?';
         params.push(filters.wa_owner);
     }
-    if (filters.is_active !***REMOVED*** undefined) {
+    if (filters.is_active !== undefined) {
         sql += ' AND c.is_active = ?';
         params.push(filters.is_active ? 1 : 0);
     }
@@ -297,6 +297,7 @@ async function getCreatorFull(creatorId) {
                (SELECT MAX(timestamp) FROM wa_messages WHERE creator_id = c.id) AS last_active,
                wc.priority as wc_priority,
                wc.beta_status as wc_beta_status,
+               wc.beta_program_type,
                wc.monthly_fee_status,
                wc.monthly_fee_amount,
                wc.monthly_fee_deducted,
@@ -306,6 +307,7 @@ async function getCreatorFull(creatorId) {
                wc.video_count,
                wc.video_target,
                wc.video_last_checked,
+               wc.next_action,
                wc.event_score,
                wc.urgency_level,
                j.creator_name_jb,
@@ -313,7 +315,9 @@ async function getCreatorFull(creatorId) {
                j.jb_status,
                j.ev_joined,
                j.ev_ready_sent,
+               j.ev_trial_7day,
                j.ev_trial_active,
+               j.ev_monthly_invited,
                j.ev_monthly_started,
                j.ev_monthly_joined,
                j.ev_whatsapp_shared,
@@ -339,20 +343,23 @@ async function getCreatorFull(creatorId) {
         last_active: row.last_active || null,
     };
 
-    const wacrm = (row.wc_priority !***REMOVED*** undefined) ? {
+    const wacrm = (row.wc_priority !== undefined) ? {
         priority: row.wc_priority, beta_status: row.wc_beta_status,
+        beta_program_type: row.beta_program_type,
         monthly_fee_status: row.monthly_fee_status, monthly_fee_amount: row.monthly_fee_amount,
         monthly_fee_deducted: row.monthly_fee_deducted, agency_bound: row.agency_bound,
         agency_bound_at: row.agency_bound_at, agency_deadline: row.agency_deadline,
         video_count: row.video_count, video_target: row.video_target,
-        video_last_checked: row.video_last_checked, event_score: row.event_score,
+        video_last_checked: row.video_last_checked, next_action: row.next_action,
+        event_score: row.event_score,
         urgency_level: row.urgency_level
     } : null;
 
-    const joinbrands = (row.ev_joined !***REMOVED*** undefined) ? {
+    const joinbrands = (row.ev_joined !== undefined) ? {
         keeper_username: row.creator_name_jb, keeper_gmv: row.jb_gmv, jb_status: row.jb_status,
         ev_joined: row.ev_joined, ev_ready_sent: row.ev_ready_sent,
-        ev_trial_active: row.ev_trial_active, ev_monthly_started: row.ev_monthly_started,
+        ev_trial_7day: row.ev_trial_7day, ev_trial_active: row.ev_trial_active,
+        ev_monthly_invited: row.ev_monthly_invited, ev_monthly_started: row.ev_monthly_started,
         ev_monthly_joined: row.ev_monthly_joined, ev_whatsapp_shared: row.ev_whatsapp_shared,
         ev_gmv_1k: row.ev_gmv_1k, ev_gmv_2k: row.ev_gmv_2k,
         ev_gmv_5k: row.ev_gmv_5k, ev_gmv_10k: row.ev_gmv_10k,
