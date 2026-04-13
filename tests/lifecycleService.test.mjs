@@ -88,3 +88,29 @@ test('buildLifecycle enters terminated when next_action says no contact', () => 
 
   assert.equal(lifecycle.stage_key, 'terminated');
 });
+
+test('extractSignals promotes agency/gmv/monthly signals from events table rows', () => {
+  const signals = extractSignals({
+    events: [
+      { event_key: 'agency_bound', event_type: 'agency', status: 'active' },
+      { event_key: 'monthly_challenge', event_type: 'challenge', status: 'completed' },
+      { event_key: 'gmv_milestone', event_type: 'gmv', status: 'active' },
+    ],
+  });
+
+  assert.equal(signals.agencyBound, true);
+  assert.equal(signals.monthlyStarted, true);
+  assert.equal(signals.monthlyJoined, true);
+  assert.equal(signals.gmv2k, true);
+});
+
+test('buildLifecycle enters terminated when termination event type is active', () => {
+  const lifecycle = buildLifecycle({
+    events: [
+      { event_key: 'do_not_contact', event_type: 'termination', status: 'active' },
+    ],
+  });
+
+  assert.equal(lifecycle.stage_key, 'terminated');
+  assert.equal(lifecycle.is_terminal, true);
+});

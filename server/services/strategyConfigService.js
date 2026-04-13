@@ -3,8 +3,8 @@ const defaults = require('../../config/unbound-agency-strategies.json');
 const DEFAULT_POLICY_KEY = defaults.policy_key || 'strategy.unbound_agency';
 
 function parseJsonSafe(value, fallback) {
-    if (value ***REMOVED***= null || value ***REMOVED***= undefined) return fallback;
-    if (typeof value ***REMOVED***= 'object') return value;
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'object') return value;
     try {
         return JSON.parse(value);
     } catch (_) {
@@ -60,6 +60,7 @@ function buildDefaultPayload() {
         policy_key: DEFAULT_POLICY_KEY,
         policy_version: defaults.policy_version || 'v1',
         applicable_scenarios: normalizeTextArray(defaults.applicable_scenarios || []),
+        is_active: 1,
         strategies: normalizeStrategies(defaults.strategies || []),
     };
 }
@@ -75,6 +76,7 @@ function extractPayloadFromRow(row) {
         policy_key: row.policy_key || fallback.policy_key,
         policy_version: row.policy_version || fallback.policy_version,
         applicable_scenarios: normalizeTextArray(parseJsonSafe(row.applicable_scenarios, fallback.applicable_scenarios)),
+        is_active: row.is_active === undefined ? 1 : (row.is_active ? 1 : 0),
         strategies,
         source: contentStrategies.length > 0 ? 'db' : 'default',
         updated_at: row.updated_at || null,

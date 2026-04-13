@@ -22,6 +22,7 @@ const profileRouter = require('./routes/profile');
 const eventsRouter = require('./routes/events');
 const experienceRouter = require('./routes/experience');
 const strategyRouter = require('./routes/strategy');
+const lifecycleRouter = require('./routes/lifecycle');
 const waRouter = require('./routes/wa');
 const trainingRouter = require('./routes/training');
 const { start: startWaWorker, stop: stopWaWorker, getProgress: getWaWorkerProgress } = require('./waWorker');
@@ -29,13 +30,13 @@ const { start: startWaService } = require('./services/waService');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const DISABLE_WA_SERVICE = process.env.DISABLE_WA_SERVICE ***REMOVED***= 'true';
-const DISABLE_WA_WORKER = process.env.DISABLE_WA_WORKER ***REMOVED***= 'true';
+const DISABLE_WA_SERVICE = process.env.DISABLE_WA_SERVICE === 'true';
+const DISABLE_WA_WORKER = process.env.DISABLE_WA_WORKER === 'true';
 const EVENT_BROADCAST_TOKEN = process.env.EVENT_BROADCAST_TOKEN;
 const WA_SESSION_ID = String(process.env.WA_SESSION_ID || PORT).trim();
 const WA_OWNER = process.env.WA_OWNER || 'Beau';
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** SSE 实时广播 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== SSE 实时广播 ==================
 const sseClients = new Set();
 
 // GET /api/events/subscribe — 前端 SSE 订阅
@@ -61,7 +62,7 @@ app.post('/api/events/broadcast', (req, res) => {
         return res.status(503).json({ ok: false, error: 'EVENT_BROADCAST_TOKEN not configured' });
     }
     const auth = req.headers.authorization || '';
-    if (auth !***REMOVED*** `Bearer ${EVENT_BROADCAST_TOKEN}`) {
+    if (auth !== `Bearer ${EVENT_BROADCAST_TOKEN}`) {
         return res.status(401).json({ ok: false, error: 'Unauthorized' });
     }
     const { event = 'creators-updated' } = req.body || {};
@@ -75,14 +76,14 @@ app.post('/api/events/broadcast', (req, res) => {
 
 // SSE 心跳：每 25 秒向所有客户端发送一次 ping，防止连接被中间件关闭
 setInterval(() => {
-    if (sseClients.size ***REMOVED***= 0) return;
+    if (sseClients.size === 0) return;
     const ping = `: ping ${Date.now()}\n\n`;
     sseClients.forEach(client => {
         try { client.write(ping); } catch (e) { sseClients.delete(client); }
     });
 }, 25000);
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 端口检测 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 端口检测 ==================
 
 /**
  * 检查端口是否可用
@@ -93,7 +94,7 @@ function isPortAvailable(port) {
     return new Promise((resolve) => {
         const server = net.createServer();
         server.once('error', (err) => {
-            if (err.code ***REMOVED***= 'EADDRINUSE') {
+            if (err.code === 'EADDRINUSE') {
                 resolve(false);
             } else {
                 resolve(false);
@@ -164,6 +165,7 @@ app.use('/api', requireAppAuth, profileRouter);
 app.use('/api/events', requireAppAuth, eventsRouter);
 app.use('/api/experience', requireAppAuth, experienceRouter);
 app.use('/api', requireAppAuth, strategyRouter);
+app.use('/api', requireAppAuth, lifecycleRouter);
 app.use('/api/wa', requireAppAuth, waRouter);
 app.use('/api/training', requireAppAuth, trainingRouter);
 
@@ -172,7 +174,7 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
     res.json(getWaWorkerProgress());
 });
 
-// ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED*** 启动服务器 ***REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED******REMOVED***
+// ================== 启动服务器 ==================
 
 (async () => {
     try {
