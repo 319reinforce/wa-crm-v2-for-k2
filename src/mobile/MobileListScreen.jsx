@@ -19,20 +19,22 @@ export default function MobileListScreen() {
   const [filterPriority, setFilterPriority] = useState('')
   const [filterAgency, setFilterAgency] = useState('')
   const [filterEvent, setFilterEvent] = useState('')
+  const [filterLifecycle, setFilterLifecycle] = useState('')
   const { creators, loading } = useCreators({ search, owner })
   const nav = useNavigate()
 
   const filtered = useMemo(() => creators.filter(c => {
-    if (filterBeta && c._full?.wacrm?.beta_status !***REMOVED*** filterBeta) return false
-    if (filterPriority && c._full?.wacrm?.priority !***REMOVED*** filterPriority) return false
-    if (filterAgency ***REMOVED***= 'yes' && !c._full?.wacrm?.agency_bound) return false
-    if (filterAgency ***REMOVED***= 'no' && c._full?.wacrm?.agency_bound) return false
+    if (filterBeta && c._full?.wacrm?.beta_status !== filterBeta) return false
+    if (filterPriority && c._full?.wacrm?.priority !== filterPriority) return false
+    if (filterAgency === 'yes' && !c._full?.wacrm?.agency_bound) return false
+    if (filterAgency === 'no' && c._full?.wacrm?.agency_bound) return false
     if (filterEvent) {
       const evKey = `ev_${filterEvent}`
       if (!c._full?.joinbrands?.[evKey]) return false
     }
+    if (filterLifecycle && c.lifecycle?.stage_key !== filterLifecycle) return false
     return true
-  }), [creators, filterAgency, filterBeta, filterEvent, filterPriority])
+  }), [creators, filterAgency, filterBeta, filterEvent, filterLifecycle, filterPriority])
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: WA.lightBg }}>
@@ -77,10 +79,19 @@ export default function MobileListScreen() {
             ['gmv_1k', 'GMV>1K'],
             ['churned', '流失'],
           ]} />
+          <Select value={filterLifecycle} onChange={setFilterLifecycle} options={[
+            ['', '生命周期'],
+            ['acquisition', '获取'],
+            ['activation', '激活'],
+            ['retention', '留存'],
+            ['revenue', '收入'],
+            ['referral', '传播'],
+            ['terminated', '终止池'],
+          ]} />
         </div>
-        {(filterBeta || filterPriority || filterAgency || filterEvent) && (
+        {(filterBeta || filterPriority || filterAgency || filterEvent || filterLifecycle) && (
           <button
-            onClick={() => { setFilterBeta(''); setFilterPriority(''); setFilterAgency(''); setFilterEvent('') }}
+            onClick={() => { setFilterBeta(''); setFilterPriority(''); setFilterAgency(''); setFilterEvent(''); setFilterLifecycle('') }}
             className="w-full text-xs py-1.5 rounded-lg text-center font-medium"
             style={{ color: '#ef4444', background: 'rgba(239,68,68,0.12)' }}
           >
@@ -106,7 +117,7 @@ export default function MobileListScreen() {
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-12 text-sm" style={{ color: WA.textMuted }}>加载中...</div>
-        ) : filtered.length ***REMOVED***= 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="flex items-center justify-center py-12 text-sm" style={{ color: WA.textMuted }}>没有找到达人</div>
         ) : (
           <div className="divide-y" style={{ borderColor: WA.borderLight }}>
@@ -122,7 +133,8 @@ export default function MobileListScreen() {
 
 function ChatRow({ creator, onClick }) {
   const statusMeta = getStatusMeta(creator)
-  const unread = creator.ev_replied ***REMOVED***= 0
+  const unread = creator.ev_replied === 0
+  const lifecycleLabel = getLifecycleLabel(creator?.lifecycle?.stage_key)
   return (
     <button
       onClick={onClick}
@@ -143,6 +155,11 @@ function ChatRow({ creator, onClick }) {
               {statusMeta.label}
             </span>
           )}
+          {lifecycleLabel && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(0,168,132,0.10)', color: WA.teal }}>
+              {lifecycleLabel}
+            </span>
+          )}
         </div>
         <div className="text-xs" style={{ color: WA.textMuted }}>{creator.wa_phone || '-'} · {creator.wa_owner || '-'}</div>
       </div>
@@ -155,7 +172,7 @@ function formatChatListTime(ts) {
   if (!ts) return ''
   const d = new Date(ts)
   const now = new Date()
-  const sameDay = d.toDateString() ***REMOVED***= now.toDateString()
+  const sameDay = d.toDateString() === now.toDateString()
   return sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : `${d.getMonth() + 1}/${d.getDate()}`
 }
 
@@ -164,7 +181,7 @@ function getStatusMeta(c) {
   const w = c._full?.wacrm || c.wacrm || {}
   const jb = c._full?.joinbrands || c.joinbrands || {}
   if (jb.ev_churned) return { label: '流失', accent: '#ef4444', bg: '#fee2e2' }
-  if (w.priority ***REMOVED***= 'high' || w.priority ***REMOVED***= 'urgent') return { label: '高优', accent: '#f97316', bg: '#ffedd5' }
+  if (w.priority === 'high' || w.priority === 'urgent') return { label: '高优', accent: '#f97316', bg: '#ffedd5' }
   if (jb.ev_trial_active) return { label: '七日挑战', accent: '#3b82f6', bg: '#dbeafe' }
   if (jb.ev_monthly_started || jb.ev_monthly_joined) return { label: '月度挑战', accent: '#8b5cf6', bg: '#ede9fe' }
   return null
@@ -181,6 +198,18 @@ function Select({ value, onChange, options }) {
       {options.map(([val, label]) => <option key={val || 'all'} value={val}>{label}</option>)}
     </select>
   )
+}
+
+function getLifecycleLabel(stageKey) {
+  const map = {
+    acquisition: '获取',
+    activation: '激活',
+    retention: '留存',
+    revenue: '收入',
+    referral: '传播',
+    terminated: '终止池',
+  }
+  return map[stageKey] || ''
 }
 
 function normalizeOwner(raw) {

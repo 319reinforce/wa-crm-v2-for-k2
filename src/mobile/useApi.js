@@ -31,7 +31,7 @@ export function useCreators({ search = '', owner = '' } = {}) {
       if (controller?.signal.aborted) return
       setError(err?.message || '加载达人列表失败')
     } finally {
-      if (controller && abortRef.current ***REMOVED***= controller && !controller.signal.aborted) {
+      if (controller && abortRef.current === controller && !controller.signal.aborted) {
         setLoading(false)
       }
     }
@@ -74,7 +74,7 @@ export function useCreatorDetail(id) {
       setCreator(null)
       setError(err?.message || '加载达人详情失败')
     } finally {
-      if (abortRef.current ***REMOVED***= controller && !controller.signal.aborted) {
+      if (abortRef.current === controller && !controller.signal.aborted) {
         setLoading(false)
       }
     }
@@ -95,7 +95,9 @@ function buildCreatorListFull(detail = {}) {
     ...(detail.joinbrands || {}),
     ev_joined: detail.ev_joined ?? detail.joinbrands?.ev_joined,
     ev_ready_sent: detail.ev_ready_sent ?? detail.joinbrands?.ev_ready_sent,
+    ev_trial_7day: detail.ev_trial_7day ?? detail.joinbrands?.ev_trial_7day,
     ev_trial_active: detail.ev_trial_active ?? detail.joinbrands?.ev_trial_active,
+    ev_monthly_invited: detail.ev_monthly_invited ?? detail.joinbrands?.ev_monthly_invited,
     ev_monthly_started: detail.ev_monthly_started ?? detail.joinbrands?.ev_monthly_started,
     ev_monthly_joined: detail.ev_monthly_joined ?? detail.joinbrands?.ev_monthly_joined,
     ev_whatsapp_shared: detail.ev_whatsapp_shared ?? detail.joinbrands?.ev_whatsapp_shared,
