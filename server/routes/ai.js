@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const db = require('../../db');
+const aiService = require('../services/aiService');
 const { extractAndSaveMemories } = require('../services/memoryExtractionService');
 const { normalizeOperatorName } = require('../utils/operator');
 
@@ -545,143 +546,23 @@ router.post('/ai/system-prompt', async (req, res) => {
     }
 });
 
-// POST /api/translate — 翻译接口（USE_OPENAI=true 走 OpenAI，否则走 MiniMax）
+// POST /api/translate — 翻译接口（固定 MiniMax + 系统提示）
 router.post('/translate', async (req, res) => {
     try {
-        const { text, role, timestamp } = req.body;
-        const { texts } = req.body;
-
-        // 单条翻译
+        const { text, role, timestamp, texts } = req.body;
         if (text !== undefined) {
-            if (process.env.USE_OPENAI === 'true') {
-                const OPENAI_KEY = process.env.OPENAI_API_KEY;
-                const OPENAI_BASE = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
-                const openaiRes = await fetch(`${OPENAI_BASE}/chat/completions`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${OPENAI_KEY}`,
-                    },
-                    body: JSON.stringify({
-                        model: process.env.OPENAI_MODEL || 'gpt-4o',
-                        max_tokens: 1000,
-                        temperature: 0.3,
-                        messages: [{
-                            role: 'user',
-                            content: `你是一个翻译助手。请将以下消息翻译为中文（全部译为中文，不区分发送者，直接给出中文翻译即可，不需要解释）：\n"${text}"`,
-                        }],
-                    }),
-                    signal: AbortSignal.timeout(30000),
-                });
-                const openaiData = await openaiRes.json();
-                const raw = openaiData.choices?.[0]?.message?.content || '';
-                const translation = raw.trim() || text;
-                return res.json({ translation, timestamp });
-            } else {
-                const API_KEY = process.env.MINIMAX_API_KEY;
-                if (!API_KEY) return res.status(500).json({ error: 'MINIMAX_API_KEY not set' });
-                const response = await fetch('https://api.minimaxi.com/anthropic/v1/messages', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${API_KEY}`,
-                        'x-api-key': API_KEY,
-                        'anthropic-version': '2023-06-01',
-                    },
-                    body: JSON.stringify({
-                        model: 'mini-max-typing',
-                        max_tokens: 1000,
-                        temperature: 0.3,
-                        messages: [{
-                            role: 'user',
-                            content: `你是一个翻译助手。请将以下消息翻译为中文（所有消息都译为中文，不区分发送者，直接给出中文翻译即可，不需要解释）：\n"${text}"`,
-                        }],
-                    }),
-                });
-                const data = await response.json();
-                let raw = '';
-                if (data.content && Array.isArray(data.content)) {
-                    raw = data.content.find(item => item.type === 'text')?.text || '';
-                } else {
-                    raw = data.content?.text || data.content || '';
-                }
-                const translation = (typeof raw === 'string' ? raw.trim() : '') || text;
-                return res.json({ translation, timestamp });
-            }
+            const result = await aiService.translateText(text, role, timestamp);
+            return res.json(result);
         }
 
-        // 批量翻译
         if (!Array.isArray(texts) || texts.length === 0) {
             return res.json([]);
         }
 
-        const combined = texts
-            .map((t, i) => `[${i + 1}] ${t.role === 'me' ? '我' : '达人'}: ${t.text}`)
-            .join('\n');
-
-        let raw;
-        if (process.env.USE_OPENAI === 'true') {
-            const OPENAI_KEY = process.env.OPENAI_API_KEY;
-            const OPENAI_BASE = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
-            const openaiRes = await fetch(`${OPENAI_BASE}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${OPENAI_KEY}`,
-                },
-                body: JSON.stringify({
-                    model: process.env.OPENAI_MODEL || 'gpt-4o',
-                    max_tokens: 2000,
-                    temperature: 0.3,
-                    messages: [{
-                        role: 'user',
-                        content: `你是一个翻译助手。请将以下每条消息翻译为中文（不区分发送者，全部译为中文）。请严格按以下JSON数组格式返回，不要输出任何其他内容，不要添加任何解释：\n[{"idx":1,"translation":"中文翻译"},{"idx":2,"translation":"中文翻译"}]\n\n消息列表：\n${combined}`,
-                    }],
-                }),
-                signal: AbortSignal.timeout(30000),
-            });
-            const openaiData = await openaiRes.json();
-            raw = openaiData.choices?.[0]?.message?.content || '';
-        } else {
-            const API_KEY = process.env.MINIMAX_API_KEY;
-            if (!API_KEY) return res.status(500).json({ error: 'MINIMAX_API_KEY not set' });
-            const response = await fetch('https://api.minimaxi.com/anthropic/v1/messages', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${API_KEY}`,
-                    'x-api-key': API_KEY,
-                    'anthropic-version': '2023-06-01',
-                },
-                body: JSON.stringify({
-                    model: 'mini-max-typing',
-                    max_tokens: 1000,
-                    temperature: 0.3,
-                    messages: [{
-                        role: 'user',
-                        content: `你是一个翻译助手。请将以下每条消息翻译为中文（不区分发送者，全部译为中文）。请严格按以下JSON数组格式返回，不要输出任何其他内容，不要添加任何解释：\n[{"idx":1,"translation":"中文翻译"},{"idx":2,"translation":"中文翻译"}]\n\n消息列表：\n${combined}`,
-                    }],
-                }),
-            });
-            const data = await response.json();
-            if (data.content && Array.isArray(data.content)) {
-                raw = data.content.find(item => item.type === 'text')?.text || '';
-            } else {
-                raw = data.content?.text || data.content || '';
-            }
-        }
-
-        let translations = [];
-        try {
-            const jsonMatch = raw.match(/\[[\s\S]*\]/);
-            if (jsonMatch) translations = JSON.parse(jsonMatch[0]);
-        } catch (_) {
-            translations = texts.map((t, i) => ({ idx: i + 1, translation: t.text }));
-        }
-
-        res.json({ translations });
+        const result = await aiService.translateBatch(texts);
+        return res.json(result);
     } catch (err) {
-        console.error('Translate error:', err);
+        console.error('POST /api/translate error:', err);
         res.status(500).json({ error: err.message });
     }
 });
