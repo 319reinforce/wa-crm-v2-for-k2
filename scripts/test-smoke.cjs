@@ -82,6 +82,8 @@ function main() {
   if (includeApiIT) {
     const apiItOk = runStep('npm run test:api:strategy', npmCmd, ['run', 'test:api:strategy']);
     if (!apiItOk) failed = true;
+    const lifecycleApiItOk = runStep('npm run test:api:lifecycle', npmCmd, ['run', 'test:api:lifecycle']);
+    if (!lifecycleApiItOk) failed = true;
   } else {
     process.stdout.write('\n[SMOKE] skip api integration (set SMOKE_INCLUDE_API_IT=1 to enable)\n');
   }

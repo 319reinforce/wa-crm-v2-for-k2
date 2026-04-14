@@ -27,6 +27,70 @@ function buildMessageHash(role, text, timestamp) {
     return sha256(`${role || ''}|${text || ''}|${timestamp || ''}`);
 }
 
+function isValidWindow(minTs, maxTs) {
+    return Number.isFinite(minTs) && Number.isFinite(maxTs) && maxTs >= minTs;
+}
+
+async function cleanupDuplicateMessages(db2, creatorId, minTs, maxTs, { full = false } = {}) {
+    const useWindow = !full && isValidWindow(minTs, maxTs);
+    const windowFilter = useWindow
+        ? 'AND m1.timestamp BETWEEN ? AND ? AND m2.timestamp BETWEEN ? AND ?'
+        : '';
+    const params = [creatorId];
+    if (useWindow) params.push(minTs, maxTs, minTs, maxTs);
+    const result = await db2.prepare(`
+        DELETE m1 FROM wa_messages m1
+        JOIN wa_messages m2
+          ON m1.creator_id = m2.creator_id
+         AND m1.role = m2.role
+         AND m1.text = m2.text
+         AND m1.timestamp = m2.timestamp
+         AND m1.id > m2.id
+        WHERE m1.creator_id = ?
+          ${windowFilter}
+          AND (m1.message_hash IS NULL OR m2.message_hash IS NULL)
+    `).run(...params);
+    return Number(result?.changes || 0);
+}
+
+async function backfillMessageHashes(db2, creatorId, minTs, maxTs, {
+    full = false,
+    limit = 2000,
+} = {}) {
+    const safeLimit = Number.isFinite(limit) ? Math.max(100, Math.floor(limit)) : 2000;
+    const useWindow = !full && isValidWindow(minTs, maxTs);
+    const windowFilter = useWindow
+        ? 'AND timestamp BETWEEN ? AND ?'
+        : '';
+    const params = [creatorId];
+    if (useWindow) params.push(minTs, maxTs);
+    const rows = await db2.prepare(`
+        SELECT id, role, text, timestamp
+        FROM wa_messages
+        WHERE creator_id = ?
+          AND message_hash IS NULL
+          ${windowFilter}
+        ORDER BY id ASC
+        LIMIT ${safeLimit}
+    `).all(...params);
+    if (!rows.length) return { updated: 0, deleted: 0 };
+    let updated = 0;
+    let deleted = 0;
+    const updateStmt = db2.prepare('UPDATE wa_messages SET message_hash = ? WHERE id = ?');
+    const deleteStmt = db2.prepare('DELETE FROM wa_messages WHERE id = ?');
+    for (const row of rows) {
+        const hash = buildMessageHash(row.role, row.text, row.timestamp);
+        try {
+            const res = await updateStmt.run(hash, row.id);
+            if (res?.changes) updated += res.changes;
+        } catch (_) {
+            const res = await deleteStmt.run(row.id);
+            if (res?.changes) deleted += res.changes;
+        }
+    }
+    return { updated, deleted };
+}
+
 function normalizeRawMessages(rawMessages = []) {
     const dedup = new Set();
     return (Array.isArray(rawMessages) ? rawMessages : [])
@@ -74,6 +138,7 @@ async function reconcileCreatorMessagesFromRaw({
     creatorName,
     operator,
     rawMessages,
+    fullDedup = false,
     dryRun = false,
 }) {
     const normalizedRaw = normalizeRawMessages(rawMessages);
@@ -181,6 +246,7 @@ async function reconcileCreatorMessagesFromRaw({
         });
     }
 
+    let cleanup = null;
     if (!dryRun) {
         if (roleUpdates.length > 0) {
             const stmt = db2.prepare('UPDATE wa_messages SET role = ? WHERE id = ?');
@@ -215,6 +281,10 @@ async function reconcileCreatorMessagesFromRaw({
         if (roleUpdates.length > 0 || deletes.length > 0 || inserts.length > 0) {
             await db2.prepare('UPDATE creators SET updated_at = NOW() WHERE id = ?').run(creatorId);
         }
+
+        const duplicateDeleted = await cleanupDuplicateMessages(db2, creatorId, minTs, maxTs, { full: fullDedup });
+        const hashBackfill = await backfillMessageHashes(db2, creatorId, minTs, maxTs, { full: fullDedup });
+        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill };
     }
 
     return {
@@ -227,6 +297,7 @@ async function reconcileCreatorMessagesFromRaw({
         inserted_samples: inserts.slice(0, 3),
         updated_samples: roleUpdates.slice(0, 3),
         deleted_samples: deletes.slice(0, 3),
+        cleanup,
     };
 }
 
@@ -235,6 +306,7 @@ async function syncCreatorMessagesFromRaw({
     creatorName,
     operator,
     rawMessages,
+    fullDedup = false,
     dryRun = false,
 }) {
     const normalizedRaw = normalizeRawMessages(rawMessages);
@@ -274,6 +346,7 @@ async function syncCreatorMessagesFromRaw({
         return true;
     });
 
+    let cleanup = null;
     if (!dryRun && inserts.length > 0) {
         const values = inserts.map((row) => [
             creatorId,
@@ -291,6 +364,12 @@ async function syncCreatorMessagesFromRaw({
         await db2.prepare('UPDATE creators SET updated_at = NOW() WHERE id = ?').run(creatorId);
     }
 
+    if (!dryRun) {
+        const duplicateDeleted = await cleanupDuplicateMessages(db2, creatorId, minTs, maxTs, { full: fullDedup });
+        const hashBackfill = await backfillMessageHashes(db2, creatorId, minTs, maxTs, { full: fullDedup });
+        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill };
+    }
+
     return {
         creator_id: creatorId,
         creator_name: creatorName,
@@ -298,10 +377,101 @@ async function syncCreatorMessagesFromRaw({
         inserted_count: inserts.length,
         skipped_count: normalizedRaw.length - inserts.length,
         inserted_samples: inserts.slice(0, 3),
+        cleanup,
+    };
+}
+
+async function replaceCreatorMessagesFromRaw({
+    creatorId,
+    creatorName,
+    operator,
+    rawMessages,
+    deleteAll = false,
+    fullDedup = false,
+    dryRun = false,
+}) {
+    const normalizedRaw = normalizeRawMessages(rawMessages);
+    if (normalizedRaw.length === 0) {
+        return {
+            creator_id: creatorId,
+            creator_name: creatorName,
+            checked_messages: 0,
+            inserted_count: 0,
+            deleted_count: 0,
+            inserted_samples: [],
+            note: 'no useful raw messages',
+        };
+    }
+
+    const db2 = db.getDb();
+    const minTs = Math.max(0, normalizedRaw[0].timestamp - QUERY_PADDING_MS);
+    const maxTs = normalizedRaw[normalizedRaw.length - 1].timestamp + QUERY_PADDING_MS;
+    const existingCountRow = deleteAll
+        ? await db2.prepare(`
+            SELECT COUNT(*) AS count
+            FROM wa_messages
+            WHERE creator_id = ?
+        `).get(creatorId)
+        : await db2.prepare(`
+            SELECT COUNT(*) AS count
+            FROM wa_messages
+            WHERE creator_id = ?
+              AND timestamp BETWEEN ? AND ?
+        `).get(creatorId, minTs, maxTs);
+    const existingCount = Number(existingCountRow?.count) || 0;
+
+    let cleanup = null;
+    if (!dryRun) {
+        if (deleteAll) {
+            await db2.prepare(`
+                DELETE FROM wa_messages
+                WHERE creator_id = ?
+            `).run(creatorId);
+        } else {
+            await db2.prepare(`
+                DELETE FROM wa_messages
+                WHERE creator_id = ?
+                  AND timestamp BETWEEN ? AND ?
+            `).run(creatorId, minTs, maxTs);
+        }
+
+        const values = normalizedRaw.map((row) => [
+            creatorId,
+            row.role,
+            operator || null,
+            row.text,
+            row.timestamp,
+            buildMessageHash(row.role, row.text, row.timestamp),
+        ]);
+        const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+        await db2.prepare(`
+            INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash)
+            VALUES ${placeholders}
+        `).run(...values.flat());
+
+        await db2.prepare('UPDATE creators SET updated_at = NOW() WHERE id = ?').run(creatorId);
+
+        const duplicateDeleted = await cleanupDuplicateMessages(db2, creatorId, minTs, maxTs, { full: fullDedup });
+        const hashBackfill = await backfillMessageHashes(db2, creatorId, minTs, maxTs, { full: fullDedup });
+        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill };
+    }
+
+    return {
+        creator_id: creatorId,
+        creator_name: creatorName,
+        checked_messages: normalizedRaw.length,
+        inserted_count: normalizedRaw.length,
+        deleted_count: existingCount,
+        inserted_samples: normalizedRaw.slice(0, 3),
+        deleted_scope: deleteAll ? 'all' : 'window',
+        window_start: minTs,
+        window_end: maxTs,
+        cleanup,
     };
 }
 
 module.exports = {
     reconcileCreatorMessagesFromRaw,
     syncCreatorMessagesFromRaw,
+    replaceCreatorMessagesFromRaw,
 };

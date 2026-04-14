@@ -12,7 +12,7 @@
 | 类型 | WhatsApp 达人 CRM + SFT 语料收集平台 |
 | 路径 | `/Users/depp/wa-bot/wa-crm-v2/` |
 | 后端端口 | `3000` |
-| 数据库 | `SQLite` → `crm.db` |
+| 数据库 | `MySQL`（运行时） / `schema.sql` 为主 schema |
 | 文档 | `SFT_PROJECT.md`（详细项目文档） |
 
 ---
@@ -21,7 +21,7 @@
 
 ```bash
 cd /Users/depp/wa-bot/wa-crm-v2
-node server.js        # 启动服务
+npm start             # 启动服务（实际入口: server/index.cjs）
 ```
 
 服务地址：`http://localhost:3000`
@@ -41,10 +41,9 @@ node server.js        # 启动服务
 ## 数据库连接
 
 ```javascript
-const Database = require('better-sqlite3');
-const DB_PATH = '/Users/depp/wa-bot/wa-crm-v2/crm.db';
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
+const db = require('/Users/depp/wa-bot/wa-crm-v2/db');
+const conn = db.getDb();
+// conn.prepare(...).get/all/run 与 SQLite 风格保持一致
 ```
 
 ---

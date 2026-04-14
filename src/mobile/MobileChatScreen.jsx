@@ -44,7 +44,9 @@ export default function MobileChatScreen() {
     phone: creator.wa_phone,
     name: creator.primary_name,
     wa_owner: creator.wa_owner,
-    conversion_stage: creator?.wacrm?.beta_status || 'unknown',
+    conversion_stage: creator?.lifecycle?.stage_key || creator?.wacrm?.beta_status || 'unknown',
+    lifecycle_stage: creator?.lifecycle?.stage_key || 'unknown',
+    lifecycle_label: creator?.lifecycle?.stage_label || null,
   }
 
   return (

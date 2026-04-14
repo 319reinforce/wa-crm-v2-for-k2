@@ -1,0 +1,18 @@
+{
+  "id": "1776099234581-59fe5407351d",
+  "session_id": "beau",
+  "completed_at": "2026-04-13T16:54:23.593Z",
+  "ok": true,
+  "phone": "16085135437",
+  "name": "Jordan Fadness",
+  "messages": [
+    {
+      "role": "me",
+      "text": "Hi Jordan, sorry, I’ve been so busy lately that I didn’t get a chance to follow up. In the same JoinBrands batch, 20 creators have already passed $1k GMV, and 4 have passed $10k GMV. Do you want to keep going with the monthly beta program? If so, I’ll add you to the group",
+      "timestamp": 1774892888000,
+      "message_id": "true_263286545187036@lid_3B5E9D2937CB3DA24B58"
+    }
+  ],
+  "routed_session_id": "beau",
+  "routed_operator": "Beau"
+}

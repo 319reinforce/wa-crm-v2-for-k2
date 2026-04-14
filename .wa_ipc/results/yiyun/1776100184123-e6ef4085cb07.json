@@ -1,0 +1,18 @@
+{
+  "id": "1776100184123-e6ef4085cb07",
+  "session_id": "yiyun",
+  "completed_at": "2026-04-13T17:10:36.361Z",
+  "ok": true,
+  "phone": "13364976322",
+  "name": "Alessandra Reckner(alelovesfinds",
+  "messages": [
+    {
+      "role": "user",
+      "text": "I will give it a try, thank you!",
+      "timestamp": 1775127236000,
+      "message_id": "false_52205377835056@lid_3A4B1B67D17ABEBEE378"
+    }
+  ],
+  "routed_session_id": "yiyun",
+  "routed_operator": "Yiyun"
+}

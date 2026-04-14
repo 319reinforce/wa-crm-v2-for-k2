@@ -8,12 +8,7 @@ const db = require('../../db');
 const { getCreatorFull } = require('../../db');
 const { writeAudit } = require('../middleware/audit');
 const { normalizeOperatorName } = require('../utils/operator');
-const { buildLifecycle } = require('../services/lifecycleService');
-const {
-    DEFAULT_POLICY_KEY: LIFECYCLE_POLICY_KEY,
-    buildDefaultPayload: buildDefaultLifecyclePayload,
-    extractPayloadFromRow: extractLifecyclePayloadFromRow,
-} = require('../services/lifecycleConfigService');
+const { buildLifecycle, STAGE_META } = require('../services/lifecycleService');
 const {
     TABLE: ROSTER_TABLE,
     applyAssignmentToCreator,
@@ -25,6 +20,13 @@ const {
     getLifecycleSnapshotByCreatorId,
     rebuildReplyStrategyForCreator,
 } = require('../services/replyStrategyService');
+const {
+    getLifecycleRuntimeOptions,
+    evaluateCreatorLifecycle,
+    getLifecycleSnapshotRecord,
+    persistLifecycleForCreator,
+    listLifecycleTransitions,
+} = require('../services/lifecyclePersistenceService');
 
 function normalizeManualPhone(value) {
     return String(value || '').replace(/\D/g, '').trim();
@@ -62,28 +64,20 @@ function normalizeCreatorIds(input = []) {
     )];
 }
 
-async function getLifecycleRuntimeOptions(dbConn) {
-    const fallback = buildDefaultLifecyclePayload();
+function parseJsonSafe(value, fallback = null) {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'object') return value;
     try {
-        const row = await dbConn.prepare(
-            'SELECT policy_key, policy_version, policy_content, applicable_scenarios, is_active, updated_at FROM policy_documents WHERE policy_key = ? LIMIT 1'
-        ).get(LIFECYCLE_POLICY_KEY);
-        const payload = extractLifecyclePayloadFromRow(row);
-        const config = payload?.is_active === 0 ? fallback.config : (payload?.config || fallback.config);
-        const thresholdRaw = Number(config?.revenue_gmv_threshold);
-        return {
-            strictRevenueGmv: config?.revenue_requires_gmv === true,
-            revenueGmvThreshold: Number.isFinite(thresholdRaw) ? thresholdRaw : fallback.config.revenue_gmv_threshold,
-            agencyBoundMainline: config?.agency_bound_mainline !== false,
-        };
-    } catch (err) {
-        console.warn('[lifecycle] load config failed, fallback to defaults:', err.message);
-        return {
-            strictRevenueGmv: fallback.config.revenue_requires_gmv === true,
-            revenueGmvThreshold: fallback.config.revenue_gmv_threshold,
-            agencyBoundMainline: fallback.config.agency_bound_mainline !== false,
-        };
+        return JSON.parse(value);
+    } catch (_) {
+        return fallback;
     }
+}
+
+function getLifecycleStageLabel(stageKey) {
+    const key = String(stageKey || '').trim().toLowerCase();
+    if (!key) return null;
+    return STAGE_META[key]?.stage_label || key;
 }
 
 async function getLifecycleEventsMap(dbConn, creatorIds, options = {}) {
@@ -237,10 +231,121 @@ async function fetchCreatorsForBatchNextAction(dbConn, creatorIds) {
     `).all(...normalizedIds);
 }
 
+async function buildCurrentLifecycleForCreator(dbConn, creatorId) {
+    const evaluated = await evaluateCreatorLifecycle(dbConn, creatorId);
+    return evaluated?.lifecycle || null;
+}
+
+async function listLifecycleHistoryForCreator(dbConn, creatorId, limit = 30) {
+    const transitionRows = await listLifecycleTransitions(dbConn, creatorId, limit);
+    if (transitionRows.length > 0) {
+        const currentLifecycle = await buildCurrentLifecycleForCreator(dbConn, creatorId);
+        return {
+            source: 'transition_table',
+            current_stage: currentLifecycle?.stage_key || null,
+            current_label: currentLifecycle?.stage_label || getLifecycleStageLabel(currentLifecycle?.stage_key || null),
+            transitions: transitionRows
+                .slice()
+                .reverse()
+                .map((row) => ({
+                    id: row.id,
+                    at: row.created_at,
+                    action: 'transition',
+                    trigger: row.trigger_type || null,
+                    trigger_source: row.trigger_source || null,
+                    reason: row.reason || null,
+                    from_stage: row.from_stage || null,
+                    from_label: getLifecycleStageLabel(row.from_stage),
+                    to_stage: row.to_stage || null,
+                    to_label: getLifecycleStageLabel(row.to_stage),
+                })),
+        };
+    }
+
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 30, 120));
+    const creatorIdText = String(creatorId);
+    const rawRows = await dbConn.prepare(`
+        SELECT id, action, table_name, record_id, before_value, after_value, created_at
+        FROM audit_log
+        WHERE (
+            (action = 'lifecycle_stage_transition' AND table_name = 'creators' AND record_id = ?)
+            OR
+            (action = 'creator_profile_update' AND table_name = 'multi' AND record_id = ?)
+        )
+        ORDER BY created_at ASC, id ASC
+    `).all(creatorIdText, creatorIdText);
+
+    const points = [];
+    for (const row of rawRows) {
+        const beforeValue = parseJsonSafe(row.before_value, {});
+        const afterValue = parseJsonSafe(row.after_value, {});
+        const fromStage = String(
+            afterValue?.lifecycle_before
+            || beforeValue?.lifecycle_before
+            || beforeValue?.stage
+            || ''
+        ).trim().toLowerCase() || null;
+        const toStage = String(
+            afterValue?.lifecycle_after
+            || afterValue?.stage
+            || ''
+        ).trim().toLowerCase() || null;
+        const changed = afterValue?.lifecycle_changed === undefined
+            ? (fromStage && toStage ? fromStage !== toStage : true)
+            : !!afterValue.lifecycle_changed;
+        if (!changed && fromStage && toStage && fromStage === toStage) continue;
+        if (!fromStage && !toStage) continue;
+
+        points.push({
+            id: row.id,
+            at: row.created_at,
+            action: row.action,
+            trigger: afterValue?.trigger || null,
+            from_stage: fromStage,
+            from_label: getLifecycleStageLabel(fromStage),
+            to_stage: toStage,
+            to_label: getLifecycleStageLabel(toStage),
+        });
+    }
+
+    const compact = [];
+    for (const point of points) {
+        const prev = compact[compact.length - 1];
+        if (prev && prev.to_stage && point.to_stage && prev.to_stage === point.to_stage) {
+            continue;
+        }
+        compact.push(point);
+    }
+
+    const currentLifecycle = await buildCurrentLifecycleForCreator(dbConn, creatorId);
+    if (currentLifecycle?.stage_key) {
+        const last = compact[compact.length - 1];
+        if (!last || last.to_stage !== currentLifecycle.stage_key) {
+            compact.push({
+                id: `current_${creatorId}`,
+                at: new Date().toISOString(),
+                action: 'current_snapshot',
+                trigger: 'current',
+                from_stage: last?.to_stage || null,
+                from_label: getLifecycleStageLabel(last?.to_stage || null),
+                to_stage: currentLifecycle.stage_key,
+                to_label: currentLifecycle.stage_label || getLifecycleStageLabel(currentLifecycle.stage_key),
+            });
+        }
+    }
+
+    return {
+        source: 'audit_log',
+        current_stage: currentLifecycle?.stage_key || null,
+        current_label: currentLifecycle?.stage_label || getLifecycleStageLabel(currentLifecycle?.stage_key || null),
+        transitions: compact.slice(-safeLimit),
+    };
+}
+
 // GET /api/creators — 获取所有达人
 router.get('/', async (req, res) => {
     try {
-        const { owner, search, is_active, include_inactive, beta_status, priority, agency, event } = req.query;
+        const { owner, search, is_active, include_inactive, beta_status, priority, agency, event, lifecycle_stage, referral_active, has_conflict, monthly_fee_status } = req.query;
         const rosterOnly = req.query.roster === 'all' ? false : await hasRosterAssignments();
         const dbConn = db.getDb();
 
@@ -356,7 +461,7 @@ router.get('/', async (req, res) => {
             getLifecycleRuntimeOptions(dbConn),
         ]);
 
-        res.json(creators.map((item) => {
+        const mapped = creators.map((item) => {
             const normalized = {
                 ...item,
                 wa_owner: normalizeOperatorName(item.roster_operator, item.roster_operator) || item.wa_owner,
@@ -365,7 +470,17 @@ router.get('/', async (req, res) => {
             return attachLifecycle(normalized, eventsMap.get(Number(item.id)) || [], lifecycleOptions, {
                 includeEventLists: false,
             });
-        }));
+        }).filter((item) => {
+            if (lifecycle_stage && item.lifecycle?.stage_key !== lifecycle_stage) return false;
+            if (referral_active === '1' && !item.lifecycle?.flags?.referral_active) return false;
+            if (referral_active === '0' && item.lifecycle?.flags?.referral_active) return false;
+            if (has_conflict === '1' && !(item.lifecycle?.has_conflicts)) return false;
+            if (has_conflict === '0' && item.lifecycle?.has_conflicts) return false;
+            if (monthly_fee_status && item.monthly_fee_status !== monthly_fee_status) return false;
+            return true;
+        });
+
+        res.json(mapped);
     } catch (err) {
         console.error('Error fetching creators:', err);
         res.status(500).json({ error: err.message });
@@ -590,10 +705,79 @@ router.get('/:id', async (req, res) => {
             getLifecycleRuntimeOptions(dbConn),
         ]);
         const withAssignment = applyAssignmentToCreator(creator, assignment);
-        res.json(attachLifecycle(withAssignment, eventsMap.get(creator.id) || [], lifecycleOptions));
+        const detail = attachLifecycle(withAssignment, eventsMap.get(creator.id) || [], lifecycleOptions);
+        const lifecycleSnapshot = await getLifecycleSnapshotRecord(dbConn, creator.id);
+        res.json({
+            ...detail,
+            lifecycle_snapshot: lifecycleSnapshot,
+            lifecycle_conflicts: detail.lifecycle?.conflicts || [],
+        });
     } catch (err) {
         console.error('Error fetching creator:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/creators/:id/lifecycle — 当前生命周期快照
+router.get('/:id/lifecycle', async (req, res) => {
+    try {
+        const creatorId = parseInt(req.params.id, 10);
+        if (!Number.isFinite(creatorId) || creatorId <= 0) {
+            return res.status(400).json({ ok: false, error: 'invalid creator id' });
+        }
+        const dbConn = db.getDb();
+        const creator = await dbConn.prepare(
+            'SELECT id, primary_name, wa_owner FROM creators WHERE id = ? LIMIT 1'
+        ).get(creatorId);
+        if (!creator) {
+            return res.status(404).json({ ok: false, error: 'Creator not found' });
+        }
+
+        const snapshot = await getLifecycleSnapshotRecord(dbConn, creatorId);
+        const current = snapshot || (await buildCurrentLifecycleForCreator(dbConn, creatorId));
+        res.json({
+            ok: true,
+            creator_id: creatorId,
+            creator_name: creator.primary_name || null,
+            wa_owner: creator.wa_owner || null,
+            ...(snapshot || current || {}),
+        });
+    } catch (err) {
+        console.error('GET /api/creators/:id/lifecycle error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// GET /api/creators/:id/lifecycle-history — 生命周期迁移轨迹
+router.get('/:id/lifecycle-history', async (req, res) => {
+    try {
+        const creatorId = parseInt(req.params.id, 10);
+        if (!Number.isFinite(creatorId) || creatorId <= 0) {
+            return res.status(400).json({ ok: false, error: 'invalid creator id' });
+        }
+        const dbConn = db.getDb();
+        const creator = await dbConn.prepare(
+            'SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1'
+        ).get(creatorId);
+        if (!creator) {
+            return res.status(404).json({ ok: false, error: 'Creator not found' });
+        }
+
+        const history = await listLifecycleHistoryForCreator(dbConn, creatorId, req.query.limit || 30);
+        res.json({
+            ok: true,
+            creator_id: creatorId,
+            creator_name: creator.primary_name || null,
+            wa_owner: creator.wa_owner || null,
+            source: history.source || 'audit_log',
+            current_stage: history.current_stage,
+            current_label: history.current_label,
+            transitions: history.transitions,
+            count: history.transitions.length,
+        });
+    } catch (err) {
+        console.error('GET /api/creators/:id/lifecycle-history error:', err);
+        res.status(500).json({ ok: false, error: err.message });
     }
 });
 
@@ -644,7 +828,9 @@ router.put('/:id/wacrm', async (req, res) => {
             keeper_reg_time, keeper_activate_time,
         } = req.body;
         const creatorId = parseInt(req.params.id);
-        const beforeLifecycle = await getLifecycleSnapshotByCreatorId(creatorId).catch(() => null);
+        const beforeLifecycle = await evaluateCreatorLifecycle(db.getDb(), creatorId)
+            .then((ret) => ret?.lifecycle || null)
+            .catch(() => null);
         const { updatedFields } = await db.getDb().transaction(async (txDb) => {
             const nextUpdatedFields = [];
 
@@ -718,11 +904,6 @@ router.put('/:id/wacrm', async (req, res) => {
                 nextUpdatedFields.push(...kFields.map(f => 'k.' + f.split(' = ')[0]));
             }
 
-            if (ev_churned) {
-                await txDb.prepare(`UPDATE wa_crm_data SET beta_status = 'churned' WHERE creator_id = ?`).run(creatorId);
-                nextUpdatedFields.push('wacrm.beta_status→churned');
-            }
-
             const creatorPhone = await txDb.prepare('SELECT wa_phone FROM creators WHERE id = ?').get(creatorId);
             if (creatorPhone) {
                 if (ev_trial_active) {
@@ -749,7 +930,12 @@ router.put('/:id/wacrm', async (req, res) => {
             return res.status(400).json({ error: 'No fields to update' });
         }
 
-        const afterLifecycle = await getLifecycleSnapshotByCreatorId(creatorId).catch(() => null);
+        const persistedLifecycle = await persistLifecycleForCreator(db.getDb(), creatorId, {
+            triggerType: 'wacrm_update',
+            triggerId: creatorId,
+            triggerSource: 'creators',
+        }).catch(() => null);
+        const afterLifecycle = persistedLifecycle?.lifecycle || await getLifecycleSnapshotByCreatorId(creatorId).catch(() => null);
         const lifecycleChanged = !!(
             beforeLifecycle?.stage_key &&
             afterLifecycle?.stage_key &&
@@ -767,6 +953,15 @@ router.put('/:id/wacrm', async (req, res) => {
             } catch (e) {
                 strategyRebuild = { ok: false, reason: e.message };
             }
+            await writeAudit('lifecycle_stage_transition', 'creators', creatorId, {
+                stage: beforeLifecycle?.stage_key || null,
+            }, {
+                stage: afterLifecycle?.stage_key || null,
+                lifecycle_before: beforeLifecycle?.stage_key || null,
+                lifecycle_after: afterLifecycle?.stage_key || null,
+                lifecycle_changed: true,
+                trigger: 'wacrm_update',
+            }, req);
         }
 
         await writeAudit('creator_profile_update', 'multi', creatorId, null, {

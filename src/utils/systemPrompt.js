@@ -9,10 +9,13 @@
  * @param {object} ctx - 上下文对象
  * @param {string} ctx.client_name - 客户姓名
  * @param {string} ctx.wa_owner - 负责人
- * @param {string} ctx.conversion_stage - 建联阶段
+ * @param {string} [ctx.lifecycle_label] - 生命周期阶段标签
+ * @param {string} [ctx.beta_status] - Beta 子流程
+ * @param {string} [ctx.conversion_stage] - 兼容旧字段，等同生命周期阶段
  * @param {string} [ctx.scene] - 当前场景（可选）
  */
 export function buildSystemPromptTemplate(ctx) {
+    const lifecycleLabel = ctx.lifecycle_label || ctx.conversion_stage || '未知';
     const parts = [
         `你是一个专业的达人运营助手，帮助运营人员与 WhatsApp 达人沟通。`,
         ``,
@@ -21,7 +24,8 @@ export function buildSystemPromptTemplate(ctx) {
         `当前客户档案（仅以下信息可用于生成回复）：`,
         `- 姓名: ${ctx.client_name || '未知'}`,
         `- 负责人: ${ctx.wa_owner || '未知'}`,
-        `- 建联阶段: ${ctx.conversion_stage || '未知'}`,
+        `- 生命周期阶段: ${lifecycleLabel}`,
+        `- Beta 子流程: ${ctx.beta_status || '未知'}`,
         ``,
     ];
 

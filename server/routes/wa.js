@@ -26,6 +26,7 @@ const {
     sendRoutedMessage,
     sendRoutedMedia,
     syncRoutedContact,
+    replaceRoutedContact,
 } = require('../services/waSessionRouter');
 
 function parsePositiveInt(value, fallback = null) {
@@ -123,7 +124,7 @@ router.post('/send', async (req, res) => {
 // 按手机号/creator 定向重爬原始聊天并修复 CRM 消息
 router.post('/reconcile-contact', async (req, res) => {
     try {
-        const { creator_id, phone, session_id, operator, fetch_limit } = req.body || {};
+        const { creator_id, phone, session_id, operator, fetch_limit, full_dedup } = req.body || {};
         if (!creator_id && !phone) {
             return res.status(400).json({ ok: false, error: 'creator_id or phone required' });
         }
@@ -134,6 +135,7 @@ router.post('/reconcile-contact', async (req, res) => {
             session_id,
             operator,
             fetch_limit: parsePositiveInt(fetch_limit, 500),
+            full_dedup: full_dedup === undefined ? true : (full_dedup === true || full_dedup === 'true' || full_dedup === 1 || full_dedup === '1'),
         });
         if (!result.ok) {
             return res.status(400).json(result);
@@ -149,7 +151,7 @@ router.post('/reconcile-contact', async (req, res) => {
 // 按手机号/creator 定向拉取最近原始聊天并补齐最新消息，不做重度修复
 router.post('/sync-contact', async (req, res) => {
     try {
-        const { creator_id, phone, session_id, operator, fetch_limit } = req.body || {};
+        const { creator_id, phone, session_id, operator, fetch_limit, full_dedup } = req.body || {};
         if (!creator_id && !phone) {
             return res.status(400).json({ ok: false, error: 'creator_id or phone required' });
         }
@@ -160,6 +162,7 @@ router.post('/sync-contact', async (req, res) => {
             session_id,
             operator,
             fetch_limit: parsePositiveInt(fetch_limit, 200),
+            full_dedup: full_dedup === true || full_dedup === 'true' || full_dedup === 1 || full_dedup === '1',
         });
         if (!result.ok) {
             return res.status(400).json(result);
@@ -167,6 +170,35 @@ router.post('/sync-contact', async (req, res) => {
         res.json(result);
     } catch (err) {
         console.error('[WA Route] sync-contact error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// POST /api/wa/replace-contact
+// 按手机号/creator 定向拉取原始聊天并替换时间窗内全部消息
+router.post('/replace-contact', async (req, res) => {
+    try {
+        const { creator_id, phone, session_id, operator, fetch_limit, force, delete_all, full_dedup } = req.body || {};
+        if (!creator_id && !phone) {
+            return res.status(400).json({ ok: false, error: 'creator_id or phone required' });
+        }
+
+        const result = await replaceRoutedContact({
+            creator_id: parsePositiveInt(creator_id, null),
+            phone: phone ? String(phone).trim() : '',
+            session_id,
+            operator,
+            fetch_limit: parsePositiveInt(fetch_limit, 800),
+            force: force === true || force === 'true' || force === 1 || force === '1',
+            delete_all: delete_all === true || delete_all === 'true' || delete_all === 1 || delete_all === '1',
+            full_dedup: full_dedup === undefined ? true : (full_dedup === true || full_dedup === 'true' || full_dedup === 1 || full_dedup === '1'),
+        });
+        if (!result.ok) {
+            return res.status(400).json(result);
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('[WA Route] replace-contact error:', err);
         res.status(500).json({ ok: false, error: err.message });
     }
 });

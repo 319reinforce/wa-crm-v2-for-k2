@@ -1,0 +1,18 @@
+{
+  "id": "1776100214266-76447512a079",
+  "session_id": "beau",
+  "completed_at": "2026-04-13T17:11:17.348Z",
+  "ok": true,
+  "phone": "19142676009",
+  "name": "Kris",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Are they going to refresh the inventory soon? It’s really stale. I don’t want to kick anyone off in the main chat so I’m just asking you.",
+      "timestamp": 1775609789000,
+      "message_id": "false_95314602119256@lid_3AE4BC801086ED966B80"
+    }
+  ],
+  "routed_session_id": "beau",
+  "routed_operator": "Beau"
+}

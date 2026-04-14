@@ -501,7 +501,7 @@ CREATE TABLE IF NOT EXISTS events (
     event_key       VARCHAR(64) NOT NULL COMMENT "'trial_7day'|'monthly_challenge'|'agency_bound'",
     event_type      VARCHAR(32) NOT NULL COMMENT "'challenge'|'gmv'|'referral'|'incentive_task'|'agency'",
     owner           VARCHAR(32) NOT NULL COMMENT "'Beau'|'Yiyun'",
-    status          VARCHAR(16) DEFAULT 'active' COMMENT "'pending'|'active'|'completed'|'cancelled'",
+    status          VARCHAR(16) DEFAULT 'active' COMMENT "'draft'|'active'|'completed'|'cancelled'",
     trigger_source  VARCHAR(32) DEFAULT 'semantic_auto' COMMENT "'semantic_auto'|'manual'|'gmv_crosscheck'",
     trigger_text    TEXT,
     start_at        DATETIME,
@@ -517,6 +517,53 @@ CREATE INDEX idx_events_status ON events(status);
 CREATE INDEX idx_events_owner ON events(owner);
 CREATE INDEX idx_events_event_type ON events(event_type);
 CREATE UNIQUE INDEX idx_events_unique_active ON events(creator_id, event_key, status, (IF(status='active',0,1)));
+
+-- ============================================================
+-- Creator Lifecycle Snapshot — 生命周期当前态
+-- ============================================================
+CREATE TABLE IF NOT EXISTS creator_lifecycle_snapshot (
+    creator_id           INT PRIMARY KEY,
+    stage_key            VARCHAR(32) NOT NULL,
+    stage_label          VARCHAR(64) NOT NULL,
+    entry_reason         TEXT,
+    entry_signals_json   JSON,
+    flags_json           JSON,
+    conflicts_json       JSON,
+    option0_key          VARCHAR(64),
+    option0_label        VARCHAR(128),
+    option0_next_action  TEXT,
+    snapshot_version     VARCHAR(32) NOT NULL DEFAULT 'lifecycle_v2',
+    trigger_type         VARCHAR(64),
+    trigger_id           VARCHAR(64),
+    evaluated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_lifecycle_snapshot_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_lifecycle_snapshot_stage ON creator_lifecycle_snapshot(stage_key);
+CREATE INDEX idx_lifecycle_snapshot_evaluated ON creator_lifecycle_snapshot(evaluated_at);
+
+-- ============================================================
+-- Creator Lifecycle Transition — 生命周期迁移历史
+-- ============================================================
+CREATE TABLE IF NOT EXISTS creator_lifecycle_transition (
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NOT NULL,
+    from_stage          VARCHAR(32),
+    to_stage            VARCHAR(32) NOT NULL,
+    trigger_type        VARCHAR(64),
+    trigger_id          VARCHAR(64),
+    trigger_source      VARCHAR(64),
+    reason              TEXT,
+    signals_json        JSON,
+    flags_json          JSON,
+    operator            VARCHAR(64),
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_lifecycle_transition_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_lifecycle_transition_creator_time ON creator_lifecycle_transition(creator_id, created_at DESC);
 
 -- ============================================================
 -- Event Periods — 事件周期记录

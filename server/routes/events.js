@@ -14,6 +14,10 @@ const {
     getLifecycleSnapshotByCreatorId,
     rebuildReplyStrategyForCreator,
 } = require('../services/replyStrategyService');
+const {
+    evaluateCreatorLifecycle,
+    persistLifecycleForCreator,
+} = require('../services/lifecyclePersistenceService');
 function normalizeOwner(o) {
     if (!o) return 'Beau';
     const l = o.toLowerCase();
@@ -22,6 +26,22 @@ function normalizeOwner(o) {
 
 const { getPolicy } = require('../utils/policyMatcher');
 const { extractAndSaveMemories } = require('../services/memoryExtractionService');
+
+const EVENT_STATUS_SET = new Set(['draft', 'active', 'completed', 'cancelled']);
+const EVENT_STATUS_TRANSITIONS = {
+  draft: new Set(['active', 'cancelled']),
+  active: new Set(['completed', 'cancelled']),
+  completed: new Set([]),
+  cancelled: new Set([]),
+  pending: new Set(['active', 'cancelled']),
+};
+
+function normalizeEventStatus(value, fallback = null) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return fallback;
+  if (text === 'pending') return 'draft';
+  return EVENT_STATUS_SET.has(text) ? text : fallback;
+}
 
 // GET /api/events
 router.get('/', async (req, res) => {
@@ -89,22 +109,28 @@ router.post('/', async (req, res) => {
     const db2 = db.getDb();
     const { creator_id, event_key, event_type, owner, trigger_source = 'manual', trigger_text = '', start_at, end_at, meta = {} } = req.body;
     const normOwner = normalizeOwner(owner);
+    const requestedStatus = normalizeEventStatus(req.body?.status, null);
+    const nextStatus = requestedStatus || (String(trigger_source || '').toLowerCase().includes('detect') || String(trigger_source || '').toLowerCase().includes('semantic')
+      ? 'draft'
+      : 'active');
 
     if (!creator_id || !event_key || !event_type || !normOwner) {
       return res.status(400).json({ error: 'creator_id, event_key, event_type, owner required' });
     }
-    const beforeLifecycle = await getLifecycleSnapshotByCreatorId(Number(creator_id)).catch(() => null);
+    const beforeLifecycle = await evaluateCreatorLifecycle(db2, Number(creator_id))
+      .then((ret) => ret?.lifecycle || null)
+      .catch(() => null);
 
     const existing = await db2.prepare(`SELECT id FROM events WHERE creator_id = ? AND event_key = ? AND status = 'active'`).get(creator_id, event_key);
-    if (existing) {
+    if (nextStatus === 'active' && existing) {
       return res.status(409).json({ error: '同一达人已有相同事件处于 active 状态', existing_id: existing.id });
     }
 
     const safeEndAt = end_at ?? null;
     const result = await db2.prepare(`
       INSERT INTO events (creator_id, event_key, event_type, owner, status, trigger_source, trigger_text, start_at, end_at, meta)
-      VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
-    `).run(creator_id, event_key, event_type, normOwner, trigger_source, trigger_text, start_at || new Date().toISOString(), safeEndAt, JSON.stringify(meta));
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(creator_id, event_key, event_type, normOwner, nextStatus, trigger_source, trigger_text, start_at || new Date().toISOString(), safeEndAt, JSON.stringify(meta));
 
     // === client_memory 自动积累：事件创建后异步提取记忆 ===
     const eventId = result.lastInsertRowid;
@@ -132,13 +158,22 @@ router.post('/', async (req, res) => {
       event_key,
       event_type,
       owner: normOwner,
-      status: 'active',
+      status: nextStatus,
       trigger_source,
       start_at: start_at || null,
       end_at: end_at || null,
     }, req);
-    const afterLifecycle = await getLifecycleSnapshotByCreatorId(Number(creator_id)).catch(() => null);
-    const lifecycleChanged = (beforeLifecycle?.stage_key || null) !== (afterLifecycle?.stage_key || null);
+    const persistedLifecycle = await persistLifecycleForCreator(db2, Number(creator_id), {
+      triggerType: 'event_create',
+      triggerId: eventId,
+      triggerSource: 'events',
+    }).catch(() => null);
+    const afterLifecycle = persistedLifecycle?.lifecycle || await getLifecycleSnapshotByCreatorId(Number(creator_id)).catch(() => null);
+    const lifecycleChanged = !!(
+      beforeLifecycle?.stage_key &&
+      afterLifecycle?.stage_key &&
+      beforeLifecycle.stage_key !== afterLifecycle.stage_key
+    );
     let strategyRebuild = null;
     if (lifecycleChanged) {
       try {
@@ -150,11 +185,22 @@ router.post('/', async (req, res) => {
       } catch (e) {
         strategyRebuild = { ok: false, reason: e.message };
       }
+      await writeAudit('lifecycle_stage_transition', 'creators', Number(creator_id), {
+        stage: beforeLifecycle?.stage_key || null,
+      }, {
+        stage: afterLifecycle?.stage_key || null,
+        lifecycle_before: beforeLifecycle?.stage_key || null,
+        lifecycle_after: afterLifecycle?.stage_key || null,
+        lifecycle_changed: true,
+        trigger: 'event_create',
+        event_id: eventId,
+        event_key: event_key || null,
+      }, req);
     }
 
     res.json({
       id: eventId,
-      status: 'active',
+      status: nextStatus,
       lifecycle_before: beforeLifecycle?.stage_key || null,
       lifecycle_after: afterLifecycle?.stage_key || null,
       lifecycle_changed: lifecycleChanged,
@@ -175,11 +221,32 @@ router.patch('/:id', async (req, res) => {
     const existing = await db2.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Event not found' });
     const creatorId = Number(existing.creator_id);
-    const beforeLifecycle = await getLifecycleSnapshotByCreatorId(creatorId).catch(() => null);
+    const beforeLifecycle = await evaluateCreatorLifecycle(db2, creatorId)
+      .then((ret) => ret?.lifecycle || null)
+      .catch(() => null);
+    const nextStatus = normalizeEventStatus(status, null);
+    const currentStatus = normalizeEventStatus(existing.status, 'draft');
+
+    if (nextStatus) {
+      const allowed = EVENT_STATUS_TRANSITIONS[currentStatus] || new Set();
+      if (!allowed.has(nextStatus)) {
+        return res.status(400).json({ error: `非法状态流转: ${currentStatus} -> ${nextStatus}` });
+      }
+      if (nextStatus === 'active') {
+        const activeConflict = await db2.prepare(`
+          SELECT id FROM events
+          WHERE creator_id = ? AND event_key = ? AND status = 'active' AND id <> ?
+          LIMIT 1
+        `).get(existing.creator_id, existing.event_key, req.params.id);
+        if (activeConflict) {
+          return res.status(409).json({ error: '同一达人已有相同事件处于 active 状态', existing_id: activeConflict.id });
+        }
+      }
+    }
 
     const updates = [];
     const params = [];
-    if (status) { updates.push('status = ?'); params.push(status); }
+    if (nextStatus) { updates.push('status = ?'); params.push(nextStatus); }
     if (end_at !== undefined) { updates.push('end_at = ?'); params.push(end_at); }
     if (meta) { updates.push('meta = ?'); params.push(JSON.stringify(meta)); }
 
@@ -191,8 +258,17 @@ router.patch('/:id', async (req, res) => {
     await db2.prepare(`UPDATE events SET ${updates.join(', ')} WHERE id = ?`).run(...params);
     const updated = await db2.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
     await writeAudit('event_update', 'events', req.params.id, existing, updated, req);
-    const afterLifecycle = await getLifecycleSnapshotByCreatorId(creatorId).catch(() => null);
-    const lifecycleChanged = (beforeLifecycle?.stage_key || null) !== (afterLifecycle?.stage_key || null);
+    const persistedLifecycle = await persistLifecycleForCreator(db2, creatorId, {
+      triggerType: 'event_update',
+      triggerId: Number(req.params.id),
+      triggerSource: 'events',
+    }).catch(() => null);
+    const afterLifecycle = persistedLifecycle?.lifecycle || await getLifecycleSnapshotByCreatorId(creatorId).catch(() => null);
+    const lifecycleChanged = !!(
+      beforeLifecycle?.stage_key &&
+      afterLifecycle?.stage_key &&
+      beforeLifecycle.stage_key !== afterLifecycle.stage_key
+    );
     let strategyRebuild = null;
     if (lifecycleChanged) {
       try {
@@ -204,9 +280,21 @@ router.patch('/:id', async (req, res) => {
       } catch (e) {
         strategyRebuild = { ok: false, reason: e.message };
       }
+      await writeAudit('lifecycle_stage_transition', 'creators', creatorId, {
+        stage: beforeLifecycle?.stage_key || null,
+      }, {
+        stage: afterLifecycle?.stage_key || null,
+        lifecycle_before: beforeLifecycle?.stage_key || null,
+        lifecycle_after: afterLifecycle?.stage_key || null,
+        lifecycle_changed: true,
+        trigger: 'event_update',
+        event_id: Number(req.params.id),
+        event_key: existing?.event_key || null,
+      }, req);
     }
     res.json({
       ok: true,
+      event_status: updated?.status || nextStatus || currentStatus,
       lifecycle_before: beforeLifecycle?.stage_key || null,
       lifecycle_after: afterLifecycle?.stage_key || null,
       lifecycle_changed: lifecycleChanged,
@@ -224,15 +312,28 @@ router.delete('/:id', async (req, res) => {
     const db2 = db.getDb();
     const event = await db2.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
     if (!event) return res.status(404).json({ error: 'Event not found' });
-    if (event.status !== 'pending') return res.status(400).json({ error: '只能删除 pending 状态的事件' });
+    if (!['pending', 'draft'].includes(String(event.status || '').toLowerCase())) {
+      return res.status(400).json({ error: '只能删除 draft 状态的事件' });
+    }
     const creatorId = Number(event.creator_id);
-    const beforeLifecycle = await getLifecycleSnapshotByCreatorId(creatorId).catch(() => null);
+    const beforeLifecycle = await evaluateCreatorLifecycle(db2, creatorId)
+      .then((ret) => ret?.lifecycle || null)
+      .catch(() => null);
 
     await db2.prepare('DELETE FROM event_periods WHERE event_id = ?').run(req.params.id);
     await db2.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
     await writeAudit('event_delete', 'events', req.params.id, event, null, req);
-    const afterLifecycle = await getLifecycleSnapshotByCreatorId(creatorId).catch(() => null);
-    const lifecycleChanged = (beforeLifecycle?.stage_key || null) !== (afterLifecycle?.stage_key || null);
+    const persistedLifecycle = await persistLifecycleForCreator(db2, creatorId, {
+      triggerType: 'event_delete',
+      triggerId: Number(req.params.id),
+      triggerSource: 'events',
+    }).catch(() => null);
+    const afterLifecycle = persistedLifecycle?.lifecycle || await getLifecycleSnapshotByCreatorId(creatorId).catch(() => null);
+    const lifecycleChanged = !!(
+      beforeLifecycle?.stage_key &&
+      afterLifecycle?.stage_key &&
+      beforeLifecycle.stage_key !== afterLifecycle.stage_key
+    );
     let strategyRebuild = null;
     if (lifecycleChanged) {
       try {
@@ -244,6 +345,17 @@ router.delete('/:id', async (req, res) => {
       } catch (e) {
         strategyRebuild = { ok: false, reason: e.message };
       }
+      await writeAudit('lifecycle_stage_transition', 'creators', creatorId, {
+        stage: beforeLifecycle?.stage_key || null,
+      }, {
+        stage: afterLifecycle?.stage_key || null,
+        lifecycle_before: beforeLifecycle?.stage_key || null,
+        lifecycle_after: afterLifecycle?.stage_key || null,
+        lifecycle_changed: true,
+        trigger: 'event_delete',
+        event_id: Number(req.params.id),
+        event_key: event?.event_key || null,
+      }, req);
     }
     res.json({
       ok: true,
@@ -285,7 +397,9 @@ router.post('/detect', async (req, res) => {
               owner: normalizeOwner(creator.wa_owner) || 'Beau',
               trigger_text: text,
               trigger_source: 'semantic_auto',
+              suggested_status: 'draft',
               confidence: 1.0,
+              reason: `matched keyword: ${kw}`,
             });
           }
           break;
@@ -305,7 +419,9 @@ router.post('/detect', async (req, res) => {
             trigger_text: text,
             trigger_source: 'gmv_crosscheck',
             gmv_current: keeper.keeper_gmv,
+            suggested_status: 'draft',
             confidence: 0.8,
+            reason: 'detected GMV-related keyword and keeper_gmv > 0',
           });
         }
         break;

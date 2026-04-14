@@ -62,13 +62,25 @@ test('buildLifecycle does not enter revenue when strictRevenueGmv is true and gm
   assert.notEqual(lifecycle.stage_key, 'revenue');
 });
 
-test('buildLifecycle enters referral when referral source is detected', () => {
+test('buildLifecycle keeps acquisition when only referral source is detected', () => {
   const lifecycle = buildLifecycle({
     source: 'referral',
     wacrm: { agency_bound: 0 },
   });
 
-  assert.equal(lifecycle.stage_key, 'referral');
+  assert.equal(lifecycle.stage_key, 'acquisition');
+  assert.ok(lifecycle.entry_signals.includes('referral_source'));
+  assert.equal(lifecycle.flags.referral_active, true);
+});
+
+test('buildLifecycle keeps revenue as main stage when referral is active in parallel', () => {
+  const lifecycle = buildLifecycle({
+    events: [{ event_key: 'referral', event_type: 'referral', status: 'completed' }],
+    wacrm: { agency_bound: 1 },
+  });
+
+  assert.equal(lifecycle.stage_key, 'revenue');
+  assert.equal(lifecycle.flags.referral_active, true);
 });
 
 test('buildLifecycle enters terminated when churned signal appears', () => {
@@ -113,4 +125,15 @@ test('buildLifecycle enters terminated when termination event type is active', (
 
   assert.equal(lifecycle.stage_key, 'terminated');
   assert.equal(lifecycle.is_terminal, true);
+});
+
+test('buildLifecycle emits conflict when agency bound but revenue is blocked by strict gmv rule', () => {
+  const lifecycle = buildLifecycle({
+    wacrm: { agency_bound: 1, beta_status: 'started' },
+    keeper: { keeper_gmv: 1200 },
+  }, { strictRevenueGmv: true, revenueGmvThreshold: 2000, agencyBoundMainline: true });
+
+  assert.equal(lifecycle.stage_key, 'activation');
+  assert.equal(lifecycle.has_conflicts, true);
+  assert.ok(lifecycle.conflicts.some((item) => item.code === 'agency_bound_not_revenue'));
 });

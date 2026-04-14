@@ -1,0 +1,18 @@
+{
+  "id": "1776100090486-97626dfe076b",
+  "session_id": "beau",
+  "completed_at": "2026-04-13T17:08:48.257Z",
+  "ok": true,
+  "phone": "18645538965",
+  "name": "Rebecca Wheelock",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Ok",
+      "timestamp": 1775921978000,
+      "message_id": "false_163716083519666@lid_3A5971C1650B6C080C84"
+    }
+  ],
+  "routed_session_id": "beau",
+  "routed_operator": "Beau"
+}

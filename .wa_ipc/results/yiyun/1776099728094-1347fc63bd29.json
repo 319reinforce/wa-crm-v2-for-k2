@@ -1,0 +1,18 @@
+{
+  "id": "1776099728094-1347fc63bd29",
+  "session_id": "yiyun",
+  "completed_at": "2026-04-13T17:02:59.391Z",
+  "ok": true,
+  "phone": "14705347328",
+  "name": "fiduciado",
+  "messages": [
+    {
+      "role": "me",
+      "text": "Can't wait😍",
+      "timestamp": 1776008686000,
+      "message_id": "true_192345832218878@lid_3EB0BF0669FE1AF1AFF57B"
+    }
+  ],
+  "routed_session_id": "yiyun",
+  "routed_operator": "Yiyun"
+}

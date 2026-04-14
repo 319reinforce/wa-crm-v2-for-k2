@@ -53,7 +53,7 @@ export default function MobileListScreen() {
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Select value={filterBeta} onChange={setFilterBeta} options={[
-            ['', 'Beta'],
+            ['', 'Beta 子流程'],
             ['not_introduced', '未介绍'],
             ['introduced', '已介绍'],
             ['started', '已开始'],
@@ -85,7 +85,6 @@ export default function MobileListScreen() {
             ['activation', '激活'],
             ['retention', '留存'],
             ['revenue', '收入'],
-            ['referral', '传播'],
             ['terminated', '终止池'],
           ]} />
         </div>
@@ -135,6 +134,8 @@ function ChatRow({ creator, onClick }) {
   const statusMeta = getStatusMeta(creator)
   const unread = creator.ev_replied === 0
   const lifecycleLabel = getLifecycleLabel(creator?.lifecycle?.stage_key)
+  const referralActive = !!creator?.lifecycle?.flags?.referral_active
+  const hasConflicts = !!creator?.lifecycle?.has_conflicts
   return (
     <button
       onClick={onClick}
@@ -158,6 +159,16 @@ function ChatRow({ creator, onClick }) {
           {lifecycleLabel && (
             <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(0,168,132,0.10)', color: WA.teal }}>
               {lifecycleLabel}
+            </span>
+          )}
+          {referralActive && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(13,148,136,0.12)', color: '#0d9488' }}>
+              推荐中
+            </span>
+          )}
+          {hasConflicts && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(239,68,68,0.12)', color: '#dc2626' }}>
+              冲突
             </span>
           )}
         </div>
@@ -206,7 +217,6 @@ function getLifecycleLabel(stageKey) {
     activation: '激活',
     retention: '留存',
     revenue: '收入',
-    referral: '传播',
     terminated: '终止池',
   }
   return map[stageKey] || ''

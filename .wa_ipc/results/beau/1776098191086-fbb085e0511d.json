@@ -1,0 +1,18 @@
+{
+  "id": "1776098191086-fbb085e0511d",
+  "session_id": "beau",
+  "completed_at": "2026-04-13T16:37:43.945Z",
+  "ok": true,
+  "phone": "19152749536",
+  "name": "Aieen Salcedo",
+  "messages": [
+    {
+      "role": "me",
+      "text": "We recently had a creator in a similar situation, she only had one violation. Her appeal was successful, but her product showcase was still suspended. She first went through the normal appeal process, and after it was rejected, she submitted a support ticket. Eventually, her account was restored",
+      "timestamp": 1776052313000,
+      "message_id": "true_173023411834885@lid_3B420058C666B93E32EF"
+    }
+  ],
+  "routed_session_id": "beau",
+  "routed_operator": "Beau"
+}

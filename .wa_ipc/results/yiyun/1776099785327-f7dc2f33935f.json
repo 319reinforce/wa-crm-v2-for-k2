@@ -1,0 +1,18 @@
+{
+  "id": "1776099785327-f7dc2f33935f",
+  "session_id": "yiyun",
+  "completed_at": "2026-04-13T17:03:39.334Z",
+  "ok": true,
+  "phone": "12676906506",
+  "name": "leiry2024(Leiry_Gonzlez",
+  "messages": [
+    {
+      "role": "me",
+      "text": "",
+      "timestamp": 1775884661000,
+      "message_id": "true_80835847926008@lid_3EB088BAB31D732295C7E8"
+    }
+  ],
+  "routed_session_id": "yiyun",
+  "routed_operator": "Yiyun"
+}

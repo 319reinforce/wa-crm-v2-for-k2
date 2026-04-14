@@ -1,0 +1,18 @@
+{
+  "id": "1776098334625-bebe3e0e04ce",
+  "session_id": "beau",
+  "completed_at": "2026-04-13T16:41:56.826Z",
+  "ok": true,
+  "phone": "13472634179",
+  "name": "Daphnee Accime",
+  "messages": [
+    {
+      "role": "me",
+      "text": "Because I noticed you haven’t been posting much lately. Normally, I’d want to get you linked with the agency, but if you’re not posting much, it feels like there may not be necessary. I just wanted to check: would 5 videos a day be too much for you?",
+      "timestamp": 1774988562000,
+      "message_id": "true_126787854045283@lid_3BC73A329CDCDF108442"
+    }
+  ],
+  "routed_session_id": "beau",
+  "routed_operator": "Beau"
+}

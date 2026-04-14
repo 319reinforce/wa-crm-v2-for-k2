@@ -185,7 +185,7 @@ export function CreatorEventsSection({ creatorId }) {
                   return (
                     <div key={evt.id} className="flex items-center justify-between gap-3 rounded-2xl px-3 py-3" style={{ background: WA.white }}>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 min-w-0">
                           <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold shrink-0" style={{ background: typeInfo.bg, color: typeInfo.color }}>
                             {typeInfo.label}
                           </span>

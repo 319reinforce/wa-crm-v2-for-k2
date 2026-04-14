@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
+import WA from '../utils/waTheme'
 
 const API_BASE = '/api'
 
@@ -98,17 +99,18 @@ export function SFTDashboard() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <div className="flex gap-1 p-1 rounded-xl" style={{ background: '#1e293b' }}>
+        <div className="flex gap-2">
           {TABS.map(([key, label]) => (
             <button
               key={key}
               onClick={() => setActiveTab(key)}
-              className="px-4 py-2 rounded-lg text-sm font-medium transition-all relative"
+              className="px-4 py-2 rounded-full text-sm font-medium transition-all relative"
               style={{
-                background: activeTab === key ? '#334155' : 'transparent',
-                color: activeTab === key ? '#e2e8f0' : '#64748b',
+                background: activeTab === key ? WA.white : WA.shellPanelMuted,
+                color: activeTab === key ? WA.textDark : WA.textMuted,
+                border: `1px solid ${WA.borderLight}`,
               }}
             >
               {label}
@@ -116,7 +118,11 @@ export function SFTDashboard() {
           ))}
         </div>
         {(activeTab === 'records' || activeTab === 'review') && (
-          <button onClick={handleRefresh} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm">
+          <button
+            onClick={handleRefresh}
+            className="px-4 py-2 rounded-full text-sm font-semibold"
+            style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
+          >
             刷新
           </button>
         )}
@@ -148,9 +154,9 @@ export function SFTDashboard() {
 
           {/* 覆盖率和分布 */}
           {stats && stats.total > 0 && (
-            <div className="bg-[#1e293b] rounded-xl p-4">
-              <div className="text-sm font-medium mb-3 text-slate-300">模型 vs 人工分布</div>
-              <div className="flex gap-2 h-4 rounded-full overflow-hidden bg-slate-700">
+            <div className="rounded-[24px] p-5" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+              <div className="text-[16px] font-semibold mb-4" style={{ color: WA.textDark }}>模型 vs 人工分布</div>
+              <div className="flex gap-2 h-5 rounded-full overflow-hidden" style={{ background: WA.shellPanelMuted }}>
                 {stats.opt1_selected > 0 && (
                   <div
                     className="bg-blue-500 flex items-center justify-center text-xs text-white"
@@ -170,7 +176,7 @@ export function SFTDashboard() {
                   />
                 )}
               </div>
-              <div className="flex gap-4 mt-2 text-xs text-slate-400">
+              <div className="flex flex-wrap gap-3 mt-3 text-[13px]" style={{ color: WA.textMuted }}>
                 <span>● opt1: {stats.opt1_selected}</span>
                 <span>● opt2: {stats.opt2_selected}</span>
                 <span>● 人工: {stats.custom_input}</span>
@@ -180,58 +186,100 @@ export function SFTDashboard() {
           )}
 
           {/* 最近记录 */}
-          <div className="bg-[#1e293b] rounded-xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-700">
-              <h3 className="font-semibold text-sm">最近 SFT 记录</h3>
+          <div className="rounded-[24px] overflow-hidden" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+            <div className="px-5 py-4 border-b" style={{ borderColor: WA.borderLight, background: WA.shellPanelMuted }}>
+              <h3 className="font-semibold text-[16px]" style={{ color: WA.textDark }}>最近 SFT 记录</h3>
             </div>
 
             {loading ? (
-              <div className="p-8 text-center text-slate-400">加载中...</div>
+              <div className="p-8 text-center" style={{ color: WA.textMuted }}>加载中...</div>
             ) : records.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">
+              <div className="p-8 text-center" style={{ color: WA.textMuted }}>
                 暂无 SFT 记录<br />
                 <span className="text-xs">在达人详情中发送消息并审核后将自动生成</span>
               </div>
             ) : (
-              <div className="divide-y divide-slate-700">
-                {records.map(record => (
-                  <div key={record.id} className="px-5 py-4 hover:bg-slate-800/50">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex gap-2">
-                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                          record.human_selected === 'opt1' ? 'bg-blue-500/20 text-blue-400' :
-                          record.human_selected === 'opt2' ? 'bg-green-500/20 text-green-400' :
-                          'bg-amber-500/20 text-amber-400'
-                        }`}>
-                          {record.human_selected === 'opt1' ? 'A' :
-                           record.human_selected === 'opt2' ? 'B' : '✍️ 人工'}
-                        </span>
-                        {record.is_custom_input ? (
-                          <span className="text-xs text-amber-400">人工覆盖</span>
-                        ) : (
-                          <span className="text-xs text-slate-400">模型采用</span>
-                        )}
-                      </div>
-                      <span className="text-xs text-slate-500">{formatDate(record.created_at)}</span>
-                    </div>
+              <div className="p-4 md:p-5" style={{ borderTop: `1px solid ${WA.borderLight}` }}>
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  {records.map(record => {
+                    const choiceMeta = getRecordChoiceMeta(record)
+                    return (
+                      <article
+                        key={record.id}
+                        className="rounded-[24px] p-5 flex flex-col gap-4"
+                        style={{ background: WA.shellPanelStrong, border: `1px solid ${WA.borderLight}`, minHeight: 240 }}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className="px-3 py-1 rounded-full text-[12px] font-semibold"
+                              style={{ background: choiceMeta.bg, color: choiceMeta.color }}
+                            >
+                              {choiceMeta.badge} {choiceMeta.label}
+                            </span>
+                            <span
+                              className="px-3 py-1 rounded-full text-[12px] font-medium"
+                              style={{ background: 'rgba(99,102,241,0.10)', color: '#4f46e5' }}
+                            >
+                              {buildRecordTopic(record)}
+                            </span>
+                            {record.is_custom_input && (
+                              <span
+                                className="px-3 py-1 rounded-full text-[12px] font-medium"
+                                style={{ background: 'rgba(245,158,11,0.12)', color: '#b45309' }}
+                              >
+                                人工覆盖
+                              </span>
+                            )}
+                          </div>
+                          <span className="shrink-0 text-[12px]" style={{ color: WA.textMuted }}>
+                            {formatDate(record.created_at)}
+                          </span>
+                        </div>
 
-                    <div className="text-sm text-slate-300 line-clamp-2 mb-1">
-                      {record.human_output}
-                    </div>
+                        <div className="space-y-2">
+                          <div className="text-[22px] font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>
+                            {buildRecordTitle(record)}
+                          </div>
+                          <div className="text-[15px] leading-7 line-clamp-4" style={{ color: WA.textDark }}>
+                            {record.human_output || '暂无输出内容'}
+                          </div>
+                        </div>
 
-                    {record.human_reason && (
-                      <div className="text-xs text-slate-500 italic mt-1">
-                        理由: {record.human_reason}
-                      </div>
-                    )}
+                        <div
+                          className="rounded-[18px] px-4 py-3 space-y-2"
+                          style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}
+                        >
+                          <div className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>
+                            Reason
+                          </div>
+                          <div className="text-[13px] leading-6" style={{ color: WA.textMuted }}>
+                            {record.human_reason || '暂无补充理由，当前记录已进入语料池待后续复核。'}
+                          </div>
+                        </div>
 
-                    {record.context && record.context.client_name && (
-                      <div className="text-xs text-slate-600 mt-1">
-                        客户: {record.context.client_name} · {record.context.client_id}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                        <div className="flex flex-wrap gap-2">
+                          {record.context?.client_name && (
+                            <span
+                              className="px-3 py-1 rounded-full text-[12px]"
+                              style={{ background: WA.white, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
+                            >
+                              客户 {record.context.client_name}
+                            </span>
+                          )}
+                          {record.context?.client_id && (
+                            <span
+                              className="px-3 py-1 rounded-full text-[12px]"
+                              style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
+                            >
+                              #{record.context.client_id}
+                            </span>
+                          )}
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -243,24 +291,66 @@ export function SFTDashboard() {
 
 function StatCard({ label, value, color = 'slate' }) {
   const colors = {
-    blue: 'text-blue-400',
-    green: 'text-green-400',
-    amber: 'text-amber-400',
-    red: 'text-red-400',
-    slate: 'text-slate-100'
+    blue: '#2563eb',
+    green: '#0f766e',
+    amber: '#b45309',
+    red: '#dc2626',
+    slate: WA.textDark
   }
   return (
-    <div className="bg-[#1e293b] rounded-xl p-4">
-      <div className={`text-2xl font-bold ${colors[color]}`}>{value ?? '-'}</div>
-      <div className="text-xs text-slate-400 mt-1">{label}</div>
+    <div className="rounded-[24px] p-5" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+      <div className="text-[34px] font-semibold tracking-[-0.03em]" style={{ color: colors[color] }}>{value ?? '-'}</div>
+      <div className="text-[13px] mt-1.5" style={{ color: WA.textMuted }}>{label}</div>
     </div>
   )
+}
+
+function getRecordChoiceMeta(record) {
+  if (record?.human_selected === 'opt1') {
+    return {
+      label: '模型 opt1',
+      badge: 'A',
+      bg: 'rgba(37,99,235,0.12)',
+      color: '#2563eb',
+    }
+  }
+  if (record?.human_selected === 'opt2') {
+    return {
+      label: '模型 opt2',
+      badge: 'B',
+      bg: 'rgba(15,118,110,0.12)',
+      color: '#0f766e',
+    }
+  }
+  return {
+    label: '人工输出',
+    badge: '✍',
+    bg: 'rgba(245,158,11,0.14)',
+    color: '#b45309',
+  }
+}
+
+function buildRecordTitle(record) {
+  const name = record?.context?.client_name || record?.context?.creator_name || ''
+  if (name) return name
+  if (record?.scene) return `${record.scene} 记录`
+  return `SFT #${record?.id || '-'}`
+}
+
+function buildRecordTopic(record) {
+  const candidates = [
+    record?.scene,
+    record?.context?.topic,
+    record?.context?.reason_tag,
+    record?.context?.stage,
+  ].filter(Boolean)
+  return candidates[0] || '语料样本'
 }
 
 function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16 gap-3" style={{ color: '#64748b' }}>
+      <div className="flex items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
         <span className="text-2xl">⏳</span>
         <span className="text-sm">加载中...</span>
       </div>
@@ -269,7 +359,7 @@ function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
 
   if (!data || data.total_records === 0) {
     return (
-      <div className="text-center py-16" style={{ color: '#64748b' }}>
+      <div className="text-center py-16" style={{ color: WA.textMuted }}>
         暂无评估数据<br />
         <span className="text-xs">在达人详情中发送消息后将自动收集数据</span>
       </div>
@@ -297,9 +387,9 @@ function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
       )}
 
       {/* 分布条 */}
-      <div className="bg-[#1e293b] rounded-xl p-4">
-        <div className="text-sm font-medium mb-3 text-slate-300">AI 候选 vs 人工选择分布</div>
-        <div className="flex gap-2 h-5 rounded-full overflow-hidden bg-slate-700">
+      <div className="rounded-[22px] p-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+        <div className="text-sm font-medium mb-3" style={{ color: WA.textDark }}>AI 候选 vs 人工选择分布</div>
+        <div className="flex gap-2 h-5 rounded-full overflow-hidden" style={{ background: WA.shellPanelMuted }}>
           {data.opt1_selected > 0 && (
             <div className="bg-blue-500 flex items-center justify-center text-xs text-white font-medium"
               style={{ width: `${(data.opt1_selected / data.total_records) * 100}%` }}>
@@ -319,7 +409,7 @@ function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
             </div>
           )}
         </div>
-        <div className="flex gap-4 mt-2 text-xs text-slate-400">
+        <div className="flex gap-4 mt-2 text-xs" style={{ color: WA.textMuted }}>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>opt1: {data.opt1_selected}</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span>opt2: {data.opt2_selected}</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>人工: {data.custom_input}</span>
@@ -329,19 +419,19 @@ function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
 
       {/* 按场景 */}
       {Object.keys(data.by_scene || {}).length > 0 && (
-        <div className="bg-[#1e293b] rounded-xl p-4">
-          <div className="text-sm font-medium mb-3 text-slate-300">按场景分布</div>
+        <div className="rounded-[22px] p-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+          <div className="text-sm font-medium mb-3" style={{ color: WA.textDark }}>按场景分布</div>
           <div className="space-y-2">
             {Object.entries(data.by_scene).map(([scene, info]) => {
               const rateNum = parseFloat(info.custom_rate) / 100;
               return (
               <div key={scene} className="flex items-center gap-3">
-                <span className="text-xs text-slate-400 w-28 truncate">{scene}</span>
-                <div className="flex-1 flex gap-2 h-4 rounded-full overflow-hidden bg-slate-700">
+                <span className="text-xs w-28 truncate" style={{ color: WA.textMuted }}>{scene}</span>
+                <div className="flex-1 flex gap-2 h-4 rounded-full overflow-hidden" style={{ background: WA.shellPanelMuted }}>
                   <div className="bg-amber-500" style={{ width: `${(rateNum * 100).toFixed(1)}%` }} />
                 </div>
-                <span className="text-xs text-slate-400 w-20 text-right">{info.custom_rate} 人工</span>
-                <span className="text-xs text-slate-500 w-12 text-right">{info.total}条</span>
+                <span className="text-xs w-20 text-right" style={{ color: WA.textMuted }}>{info.custom_rate} 人工</span>
+                <span className="text-xs w-12 text-right" style={{ color: WA.textMuted }}>{info.total}条</span>
               </div>
             )})}
           </div>
@@ -350,15 +440,15 @@ function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
 
       {/* 按负责人 */}
       {Object.keys(data.by_owner || {}).length > 0 && (
-        <div className="bg-[#1e293b] rounded-xl p-4">
-          <div className="text-sm font-medium mb-3 text-slate-300">按负责人分布</div>
+        <div className="rounded-[22px] p-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+          <div className="text-sm font-medium mb-3" style={{ color: WA.textDark }}>按负责人分布</div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {Object.entries(data.by_owner).map(([owner, info]) => (
-              <div key={owner} className="bg-slate-800 rounded-xl p-3">
-                <div className="text-sm font-semibold text-slate-200">{owner}</div>
+              <div key={owner} className="rounded-xl p-3" style={{ background: WA.shellPanelMuted, border: `1px solid ${WA.borderLight}` }}>
+                <div className="text-sm font-semibold" style={{ color: WA.textDark }}>{owner}</div>
                 <div className="text-2xl font-bold mt-1" style={{ color: '#f59e0b' }}>{info.custom_rate}</div>
-                <div className="text-xs text-slate-500 mt-1">人工采纳率 · {info.total}条</div>
-                <div className="text-xs text-slate-600 mt-0.5">人工: {info.custom_count}条</div>
+                <div className="text-xs mt-1" style={{ color: WA.textMuted }}>人工采纳率 · {info.total}条</div>
+                <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>人工: {info.custom_count}条</div>
               </div>
             ))}
           </div>
@@ -366,13 +456,13 @@ function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
       )}
 
       {ragSources?.summary?.top_sources?.length > 0 && (
-        <div className="bg-[#1e293b] rounded-xl p-4">
-          <div className="text-sm font-medium mb-3 text-slate-300">RAG 命中来源 Top（24h）</div>
+        <div className="rounded-[22px] p-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+          <div className="text-sm font-medium mb-3" style={{ color: WA.textDark }}>RAG 命中来源 Top（24h）</div>
           <div className="space-y-2">
             {ragSources.summary.top_sources.slice(0, 8).map((item) => (
               <div key={`${item.source_id || item.filename}-${item.source_type}`} className="flex items-center gap-3 text-xs">
-                <span className="text-slate-300 w-56 truncate">{item.source_id || item.filename || 'unknown'}</span>
-                <span className="text-slate-500 w-24">{item.source_type || '-'}</span>
+                <span className="w-56 truncate" style={{ color: WA.textDark }}>{item.source_id || item.filename || 'unknown'}</span>
+                <span className="w-24" style={{ color: WA.textMuted }}>{item.source_type || '-'}</span>
                 <span className="text-emerald-400 font-medium">{item.hit_count} 命中</span>
               </div>
             ))}
@@ -381,24 +471,24 @@ function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
       )}
 
       {Array.isArray(ragSources?.recent) && ragSources.recent.length > 0 && (
-        <div className="bg-[#1e293b] rounded-xl p-4">
-          <div className="text-sm font-medium mb-3 text-slate-300">最近生成的 RAG 来源（24h）</div>
+        <div className="rounded-[22px] p-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+          <div className="text-sm font-medium mb-3" style={{ color: WA.textDark }}>最近生成的 RAG 来源（24h）</div>
           <div className="space-y-3 max-h-72 overflow-auto pr-1">
             {ragSources.recent.slice(0, 20).map((row) => (
-              <div key={row.id} className="bg-slate-800/70 rounded-lg p-3">
+              <div key={row.id} className="rounded-lg p-3" style={{ background: WA.shellPanelMuted, border: `1px solid ${WA.borderLight}` }}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-slate-400">#{row.id} · {row.scene || 'unknown'} · hit={row.rag_hit_count || 0}</span>
-                  <span className="text-xs text-slate-500">{new Date(row.created_at).toLocaleString('zh-CN')}</span>
+                  <span className="text-xs" style={{ color: WA.textMuted }}>#{row.id} · {row.scene || 'unknown'} · hit={row.rag_hit_count || 0}</span>
+                  <span className="text-xs" style={{ color: WA.textMuted }}>{new Date(row.created_at).toLocaleString('zh-CN')}</span>
                 </div>
-                <div className="text-xs text-slate-500 mb-1">client: {row.client_id || '-'} · operator: {row.operator || '-'}</div>
+                <div className="text-xs mb-1" style={{ color: WA.textMuted }}>client: {row.client_id || '-'} · operator: {row.operator || '-'}</div>
                 <div className="flex flex-wrap gap-1">
                   {(row.rag_sources || []).slice(0, 4).map((src, idx) => (
-                    <span key={`${row.id}-${idx}`} className="px-2 py-0.5 rounded bg-slate-700 text-slate-300 text-[11px]">
+                    <span key={`${row.id}-${idx}`} className="px-2 py-0.5 rounded text-[11px]" style={{ background: WA.white, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}>
                       {src.source_id || src.filename || 'unknown'} ({src.source_type || '-'})
                     </span>
                   ))}
                   {(row.rag_sources || []).length === 0 && (
-                    <span className="text-[11px] text-slate-500">无命中来源</span>
+                    <span className="text-[11px]" style={{ color: WA.textMuted }}>无命中来源</span>
                   )}
                 </div>
               </div>
@@ -410,12 +500,14 @@ function ABEvaluationPanel({ data, ragObservation, ragSources, loading }) {
       {/* 导出按钮 */}
       <div className="flex gap-3">
         <a href="/api/sft-export?format=jsonl&limit=1000" target="_blank" rel="noreferrer"
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-medium text-white">
-          📥 导出 JSONL
+          className="px-4 py-2 rounded-full text-sm font-medium text-white"
+          style={{ background: WA.teal }}>
+          导出 JSONL
         </a>
         <a href="/api/sft-export?format=json&limit=1000" target="_blank" rel="noreferrer"
-          className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-sm font-medium text-white">
-          📥 导出 JSON
+          className="px-4 py-2 rounded-full text-sm font-medium"
+          style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}>
+          导出 JSON
         </a>
       </div>
     </div>
@@ -443,7 +535,7 @@ function ReviewPanel({ records, onReviewed }) {
 
   if (records.length === 0) {
     return (
-      <div className="text-center py-16" style={{ color: '#64748b' }}>
+      <div className="text-center py-16" style={{ color: WA.textMuted }}>
         暂无待审核记录
       </div>
     );
@@ -451,42 +543,42 @@ function ReviewPanel({ records, onReviewed }) {
 
   return (
     <div className="space-y-4">
-      <div className="text-sm text-slate-400">
+      <div className="text-sm" style={{ color: WA.textMuted }}>
         共 {records.length} 条待审核记录
       </div>
       {records.map(record => (
-        <div key={record.id} className="bg-[#1e293b] rounded-xl p-4">
+        <div key={record.id} className="rounded-[22px] p-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
           <div className="flex items-start justify-between mb-2">
             <div className="flex gap-2">
               <span className={`text-xs px-2 py-0.5 rounded font-medium ${
                 record.similarity !== null && record.similarity < 85
-                  ? 'bg-amber-500/20 text-amber-400'
-                  : 'bg-blue-500/20 text-blue-400'
+                  ? 'bg-amber-500/10 text-amber-700'
+                  : 'bg-blue-500/10 text-blue-600'
               }`}>
                 相似度: {record.similarity !== null ? `${record.similarity}%` : '-'}
               </span>
               {record.scene && (
-                <span className="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-400">
+                <span className="text-xs px-2 py-0.5 rounded" style={{ background: WA.shellPanelMuted, color: WA.textMuted }}>
                   {record.scene}
                 </span>
               )}
             </div>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs" style={{ color: WA.textMuted }}>
               {record.created_at ? new Date(record.created_at).toLocaleString('zh-CN') : '-'}
             </span>
           </div>
 
           <div className="mb-3">
-            <div className="text-xs text-slate-500 mb-1">输入:</div>
-            <div className="text-sm text-slate-300 bg-slate-800/50 rounded p-2">
+            <div className="text-xs mb-1" style={{ color: WA.textMuted }}>输入:</div>
+            <div className="text-sm rounded p-2" style={{ color: WA.textDark, background: WA.shellPanelMuted }}>
               {record.input_text || record.incoming_text || '-'}
             </div>
           </div>
 
           {record.model_opt1 && (
             <div className="mb-2">
-              <div className="text-xs text-blue-400 mb-1">模型 opt1:</div>
-              <div className="text-sm text-slate-300 bg-slate-800/30 rounded p-2">
+              <div className="text-xs mb-1" style={{ color: '#2563eb' }}>模型 opt1:</div>
+              <div className="text-sm rounded p-2" style={{ color: WA.textDark, background: WA.shellPanelMuted }}>
                 {record.model_opt1}
               </div>
             </div>
@@ -494,22 +586,22 @@ function ReviewPanel({ records, onReviewed }) {
 
           {record.model_opt2 && (
             <div className="mb-2">
-              <div className="text-xs text-green-400 mb-1">模型 opt2:</div>
-              <div className="text-sm text-slate-300 bg-slate-800/30 rounded p-2">
+              <div className="text-xs mb-1" style={{ color: '#0f766e' }}>模型 opt2:</div>
+              <div className="text-sm rounded p-2" style={{ color: WA.textDark, background: WA.shellPanelMuted }}>
                 {record.model_opt2}
               </div>
             </div>
           )}
 
           <div className="mb-3">
-            <div className="text-xs text-amber-400 mb-1">人工输出:</div>
-            <div className="text-sm text-slate-200 bg-amber-500/10 rounded p-2 border border-amber-500/20">
+            <div className="text-xs mb-1" style={{ color: '#b45309' }}>人工输出:</div>
+            <div className="text-sm rounded p-2 border" style={{ color: WA.textDark, background: 'rgba(245,158,11,0.08)', borderColor: 'rgba(245,158,11,0.18)' }}>
               {record.human_output}
             </div>
           </div>
 
           {record.human_reason && (
-            <div className="text-xs text-slate-500 italic mb-3">
+            <div className="text-xs italic mb-3" style={{ color: WA.textMuted }}>
               理由: {record.human_reason}
             </div>
           )}
@@ -518,14 +610,16 @@ function ReviewPanel({ records, onReviewed }) {
             <button
               onClick={() => handleReview(record.id, 'approve')}
               disabled={loadingId === record.id}
-              className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg text-sm text-white"
+              className="px-4 py-2 disabled:opacity-50 rounded-full text-sm text-white"
+              style={{ background: '#0f766e' }}
             >
               {loadingId === record.id ? '处理中...' : '✓ 通过'}
             </button>
             <button
               onClick={() => handleReview(record.id, 'reject')}
               disabled={loadingId === record.id}
-              className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-lg text-sm text-white"
+              className="px-4 py-2 disabled:opacity-50 rounded-full text-sm text-white"
+              style={{ background: '#dc2626' }}
             >
               {loadingId === record.id ? '处理中...' : '✗ 拒绝'}
             </button>
@@ -539,7 +633,7 @@ function ReviewPanel({ records, onReviewed }) {
 function TrendsPanel({ data, loading }) {
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16 gap-3" style={{ color: '#64748b' }}>
+      <div className="flex items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
         <span className="text-2xl">⏳</span>
         <span className="text-sm">加载中...</span>
       </div>
@@ -548,7 +642,7 @@ function TrendsPanel({ data, loading }) {
 
   if (!data || !data.dates || data.dates.length === 0) {
     return (
-      <div className="text-center py-16" style={{ color: '#64748b' }}>
+      <div className="text-center py-16" style={{ color: WA.textMuted }}>
         暂无趋势数据<br />
         <span className="text-xs">开始使用后数据将自动积累</span>
       </div>
@@ -599,8 +693,8 @@ function TrendsPanel({ data, loading }) {
         <StatCard label="日均条数" value={avgVolume} color="slate" />
       </div>
 
-      <div className="bg-[#1e293b] rounded-xl p-4">
-        <div className="text-sm font-medium mb-3 text-slate-300">采用率趋势（近 {data.dates.length} 天）</div>
+      <div className="rounded-[22px] p-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+        <div className="text-sm font-medium mb-3" style={{ color: WA.textDark }}>采用率趋势（近 {data.dates.length} 天）</div>
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto" style={{ minHeight: '200px' }}>
           {/* Grid lines */}
           {[0, 25, 50, 75, 100].map(val => (
@@ -610,10 +704,10 @@ function TrendsPanel({ data, loading }) {
                 y1={padding.top + scaleY(val)}
                 x2={width - padding.right}
                 y2={padding.top + scaleY(val)}
-                stroke="#334155"
+                stroke={WA.borderLight}
                 strokeWidth="1"
               />
-              <text x={padding.left - 5} y={padding.top + scaleY(val) + 4} fill="#64748b" fontSize="10" textAnchor="end">
+              <text x={padding.left - 5} y={padding.top + scaleY(val) + 4} fill={WA.textMuted} fontSize="10" textAnchor="end">
                 {val}%
               </text>
             </g>
@@ -632,7 +726,7 @@ function TrendsPanel({ data, loading }) {
                 key={date}
                 x={padding.left + idx * xStep}
                 y={height - 5}
-                fill="#64748b"
+                fill={WA.textMuted}
                 fontSize="9"
                 textAnchor="middle"
               >
@@ -642,7 +736,7 @@ function TrendsPanel({ data, loading }) {
           })}
         </svg>
 
-        <div className="flex gap-4 mt-2 text-xs text-slate-400 justify-center">
+        <div className="flex gap-4 mt-2 text-xs justify-center" style={{ color: WA.textMuted }}>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>opt1</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span>opt2</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>人工</span>
@@ -650,13 +744,13 @@ function TrendsPanel({ data, loading }) {
       </div>
 
       {data.skip_rate && data.skip_rate.some(v => v > 0) && (
-        <div className="bg-[#1e293b] rounded-xl p-4">
-          <div className="text-sm font-medium mb-3 text-slate-300">跳过率趋势</div>
+        <div className="rounded-[22px] p-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+          <div className="text-sm font-medium mb-3" style={{ color: WA.textDark }}>跳过率趋势</div>
           <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto" style={{ minHeight: '200px' }}>
             {[0, 25, 50, 75, 100].map(val => (
               <g key={val}>
-                <line x1={padding.left} y1={padding.top + scaleY(val)} x2={width - padding.right} y2={padding.top + scaleY(val)} stroke="#334155" strokeWidth="1" />
-                <text x={padding.left - 5} y={padding.top + scaleY(val) + 4} fill="#64748b" fontSize="10" textAnchor="end">{val}%</text>
+                <line x1={padding.left} y1={padding.top + scaleY(val)} x2={width - padding.right} y2={padding.top + scaleY(val)} stroke={WA.borderLight} strokeWidth="1" />
+                <text x={padding.left - 5} y={padding.top + scaleY(val) + 4} fill={WA.textMuted} fontSize="10" textAnchor="end">{val}%</text>
               </g>
             ))}
             <polyline
@@ -667,7 +761,7 @@ function TrendsPanel({ data, loading }) {
               transform={`translate(${padding.left},${padding.top})`}
             />
           </svg>
-          <div className="flex gap-4 mt-2 text-xs text-slate-400 justify-center">
+          <div className="flex gap-4 mt-2 text-xs justify-center" style={{ color: WA.textMuted }}>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block"></span>跳过率</span>
           </div>
         </div>

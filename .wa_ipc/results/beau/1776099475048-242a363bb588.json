@@ -1,0 +1,18 @@
+{
+  "id": "1776099475048-242a363bb588",
+  "session_id": "beau",
+  "completed_at": "2026-04-13T16:58:50.889Z",
+  "ok": true,
+  "phone": "17347541492",
+  "name": "Audre Johnson",
+  "messages": [
+    {
+      "role": "user",
+      "text": "I received my payment, thank you!",
+      "timestamp": 1775920304000,
+      "message_id": "false_179551812452430@lid_3A79C22B1659E0D51038"
+    }
+  ],
+  "routed_session_id": "beau",
+  "routed_operator": "Beau"
+}

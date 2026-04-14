@@ -1,0 +1,1163 @@
+{
+  "generated_at": "2026-04-13T18:03:51.407Z",
+  "apply": true,
+  "owners": [
+    "Beau",
+    "Jiawen",
+    "Yiyun"
+  ],
+  "batch_limit": 2000,
+  "results": [
+    {
+      "owner": "Beau",
+      "creator_id": 932,
+      "creator_name": "Amanda Gonzalez",
+      "duplicate_count": 91,
+      "deleted_duplicates": 91,
+      "hash_backfill": {
+        "updated": 1,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 933,
+      "creator_name": "Audre Johnson",
+      "duplicate_count": 24,
+      "deleted_duplicates": 24,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 937,
+      "creator_name": "Caitlyn Porter",
+      "duplicate_count": 100,
+      "deleted_duplicates": 100,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 938,
+      "creator_name": "Christy Baldomino",
+      "duplicate_count": 66,
+      "deleted_duplicates": 66,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 939,
+      "creator_name": "Chrystal Dorr",
+      "duplicate_count": 43,
+      "deleted_duplicates": 43,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 940,
+      "creator_name": "Cindy Texeira",
+      "duplicate_count": 25,
+      "deleted_duplicates": 25,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 942,
+      "creator_name": "Daphnee Accime",
+      "duplicate_count": 23,
+      "deleted_duplicates": 23,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 943,
+      "creator_name": "Dave Kettner",
+      "duplicate_count": 70,
+      "deleted_duplicates": 70,
+      "hash_backfill": {
+        "updated": 1,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 944,
+      "creator_name": "Deedra Burton",
+      "duplicate_count": 60,
+      "deleted_duplicates": 60,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 947,
+      "creator_name": "Hunter Cowan",
+      "duplicate_count": 61,
+      "deleted_duplicates": 61,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 951,
+      "creator_name": "Jennifer Dunn",
+      "duplicate_count": 13,
+      "deleted_duplicates": 13,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 956,
+      "creator_name": "Jordan Fadness",
+      "duplicate_count": 6,
+      "deleted_duplicates": 6,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 958,
+      "creator_name": "Kristen Roome",
+      "duplicate_count": 48,
+      "deleted_duplicates": 48,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 963,
+      "creator_name": "Olha Predko",
+      "duplicate_count": 29,
+      "deleted_duplicates": 29,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 964,
+      "creator_name": "Rebecca Wheelock",
+      "duplicate_count": 49,
+      "deleted_duplicates": 49,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 965,
+      "creator_name": "Shanlee Chapman",
+      "duplicate_count": 59,
+      "deleted_duplicates": 59,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 973,
+      "creator_name": "Mani.therealbigleo",
+      "duplicate_count": 12,
+      "deleted_duplicates": 12,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 974,
+      "creator_name": "Adria Cava",
+      "duplicate_count": 56,
+      "deleted_duplicates": 56,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 975,
+      "creator_name": "ChaseThePeekapoo",
+      "duplicate_count": 7,
+      "deleted_duplicates": 7,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 977,
+      "creator_name": "Mareeyah",
+      "duplicate_count": 26,
+      "deleted_duplicates": 26,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 978,
+      "creator_name": "SmileyJoy2",
+      "duplicate_count": 5,
+      "deleted_duplicates": 5,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 980,
+      "creator_name": "Reather",
+      "duplicate_count": 29,
+      "deleted_duplicates": 29,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 981,
+      "creator_name": "Hanadi Khoury",
+      "duplicate_count": 73,
+      "deleted_duplicates": 73,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 982,
+      "creator_name": "Melanie Warrick",
+      "duplicate_count": 9,
+      "deleted_duplicates": 9,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 983,
+      "creator_name": "Alissa Aviles",
+      "duplicate_count": 9,
+      "deleted_duplicates": 9,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 986,
+      "creator_name": "Kellie",
+      "duplicate_count": 9,
+      "deleted_duplicates": 9,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 988,
+      "creator_name": "PO Box Girl",
+      "duplicate_count": 27,
+      "deleted_duplicates": 27,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 991,
+      "creator_name": "Claudia",
+      "duplicate_count": 31,
+      "deleted_duplicates": 31,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 992,
+      "creator_name": "Tayo Akinwale",
+      "duplicate_count": 4,
+      "deleted_duplicates": 4,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 995,
+      "creator_name": "Kolton",
+      "duplicate_count": 18,
+      "deleted_duplicates": 18,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 996,
+      "creator_name": "Kellie",
+      "duplicate_count": 16,
+      "deleted_duplicates": 16,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 999,
+      "creator_name": "bricklynnnn",
+      "duplicate_count": 6,
+      "deleted_duplicates": 6,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 1002,
+      "creator_name": "Valery Rodriguez",
+      "duplicate_count": 7,
+      "deleted_duplicates": 7,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 1003,
+      "creator_name": "Tanya Oard",
+      "duplicate_count": 25,
+      "deleted_duplicates": 25,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 1064,
+      "creator_name": "resilient_51394",
+      "duplicate_count": 2,
+      "deleted_duplicates": 2,
+      "hash_backfill": {
+        "updated": 1,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 1096,
+      "creator_name": "Kris",
+      "duplicate_count": 100,
+      "deleted_duplicates": 100,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 1125,
+      "creator_name": "Cortney Hass",
+      "duplicate_count": 40,
+      "deleted_duplicates": 40,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 1131,
+      "creator_name": "Angela",
+      "duplicate_count": 68,
+      "deleted_duplicates": 68,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 1132,
+      "creator_name": "Yulietsy",
+      "duplicate_count": 57,
+      "deleted_duplicates": 57,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 1150,
+      "creator_name": "Dinesa Fretz",
+      "duplicate_count": 86,
+      "deleted_duplicates": 86,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 1201,
+      "creator_name": "Bran Bledsoe",
+      "duplicate_count": 23,
+      "deleted_duplicates": 23,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 1975,
+      "creator_name": "Aline Siqueira",
+      "duplicate_count": 3,
+      "deleted_duplicates": 3,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 1996,
+      "creator_name": "Marinille Lam",
+      "duplicate_count": 15,
+      "deleted_duplicates": 15,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 2411,
+      "creator_name": "Waqar Khadim",
+      "duplicate_count": 1,
+      "deleted_duplicates": 1,
+      "hash_backfill": {
+        "updated": 49,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 2412,
+      "creator_name": "doratheexplorer068",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 9,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 2413,
+      "creator_name": "+601136221898",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 10,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 2414,
+      "creator_name": "mystical_juju",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 3,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 2415,
+      "creator_name": "Syna Dhawan",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 19,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 2416,
+      "creator_name": "+1 (651) 217-8555",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 8,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3304,
+      "creator_name": "juanitabeltran1",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 2,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3305,
+      "creator_name": "momminanmakeup",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 6,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3306,
+      "creator_name": "Dessi",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 12,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3307,
+      "creator_name": "love_paradise12 (Boujee)",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 20,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3308,
+      "creator_name": "diamond_in_the_rough412",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 7,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3309,
+      "creator_name": "meganrenee7821",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 8,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3310,
+      "creator_name": "‪+16072065868‬",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 24,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3311,
+      "creator_name": "Bizzle",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 10,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3312,
+      "creator_name": "‪+17178846579‬",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 7,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3313,
+      "creator_name": "glowgettergina",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 13,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3314,
+      "creator_name": "Sham",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 23,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3315,
+      "creator_name": "dasweetesttee2",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 32,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Beau",
+      "creator_id": 3316,
+      "creator_name": "Marissa",
+      "duplicate_count": 0,
+      "deleted_duplicates": 0,
+      "hash_backfill": {
+        "updated": 20,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Jiawen",
+      "creator_id": 957,
+      "creator_name": "Km!",
+      "duplicate_count": 115,
+      "deleted_duplicates": 115,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Jiawen",
+      "creator_id": 989,
+      "creator_name": "beautybyblair1011",
+      "duplicate_count": 32,
+      "deleted_duplicates": 32,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Jiawen",
+      "creator_id": 1223,
+      "creator_name": "rebecalee675",
+      "duplicate_count": 14,
+      "deleted_duplicates": 14,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1011,
+      "creator_name": "Joshua(zilchpov",
+      "duplicate_count": 10,
+      "deleted_duplicates": 10,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1012,
+      "creator_name": "leiry2024(Leiry_Gonzlez",
+      "duplicate_count": 110,
+      "deleted_duplicates": 110,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1013,
+      "creator_name": "Dee(healinginthehustle",
+      "duplicate_count": 27,
+      "deleted_duplicates": 27,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1015,
+      "creator_name": "katieoextras",
+      "duplicate_count": 88,
+      "deleted_duplicates": 88,
+      "hash_backfill": {
+        "updated": 2,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1016,
+      "creator_name": "shannons_tiktok_",
+      "duplicate_count": 34,
+      "deleted_duplicates": 34,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1017,
+      "creator_name": "yvonnecarolina（Yvonne 🦋",
+      "duplicate_count": 78,
+      "deleted_duplicates": 78,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1019,
+      "creator_name": "fiduciado",
+      "duplicate_count": 311,
+      "deleted_duplicates": 311,
+      "hash_backfill": {
+        "updated": 2,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1024,
+      "creator_name": "barbieluvsbeauty",
+      "duplicate_count": 202,
+      "deleted_duplicates": 202,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1025,
+      "creator_name": "tiktokfonds9867（Wilson_Conrad",
+      "duplicate_count": 11,
+      "deleted_duplicates": 11,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1027,
+      "creator_name": "monica",
+      "duplicate_count": 78,
+      "deleted_duplicates": 78,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1031,
+      "creator_name": "2hotfu（",
+      "duplicate_count": 10,
+      "deleted_duplicates": 10,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1033,
+      "creator_name": "jomairagaxi",
+      "duplicate_count": 3,
+      "deleted_duplicates": 3,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1034,
+      "creator_name": "dgcfamily(daynagirlworld",
+      "duplicate_count": 16,
+      "deleted_duplicates": 16,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1035,
+      "creator_name": "(Nalini) 🌸ĎĨÀÑÀ🌸ŠB🔐 blushedbeauty25",
+      "duplicate_count": 89,
+      "deleted_duplicates": 89,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1036,
+      "creator_name": "Brittney Behr",
+      "duplicate_count": 254,
+      "deleted_duplicates": 254,
+      "hash_backfill": {
+        "updated": 8,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1037,
+      "creator_name": "maryglowafter50_ugc_pr",
+      "duplicate_count": 104,
+      "deleted_duplicates": 104,
+      "hash_backfill": {
+        "updated": 4,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1041,
+      "creator_name": "Simon",
+      "duplicate_count": 8,
+      "deleted_duplicates": 8,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1045,
+      "creator_name": "Tricia(tricia.g.rutledge)",
+      "duplicate_count": 84,
+      "deleted_duplicates": 84,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1048,
+      "creator_name": "Faateh",
+      "duplicate_count": 22,
+      "deleted_duplicates": 22,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1071,
+      "creator_name": "Yandra（prettyfxce_yandra Santana",
+      "duplicate_count": 7,
+      "deleted_duplicates": 7,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1072,
+      "creator_name": "Noelia(elkingdomi1)",
+      "duplicate_count": 378,
+      "deleted_duplicates": 378,
+      "hash_backfill": {
+        "updated": 48,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1074,
+      "creator_name": "Allison busymom",
+      "duplicate_count": 326,
+      "deleted_duplicates": 326,
+      "hash_backfill": {
+        "updated": 22,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1080,
+      "creator_name": "Yisi（yisicastillo",
+      "duplicate_count": 96,
+      "deleted_duplicates": 96,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1082,
+      "creator_name": "angelmh3441 (AngelMarieX43X",
+      "duplicate_count": 118,
+      "deleted_duplicates": 118,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1087,
+      "creator_name": "Jessica(614jessicam)",
+      "duplicate_count": 381,
+      "deleted_duplicates": 381,
+      "hash_backfill": {
+        "updated": 11,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1102,
+      "creator_name": "yakimp4(Noelia’mom",
+      "duplicate_count": 8,
+      "deleted_duplicates": 8,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1113,
+      "creator_name": "empowerglowbeauty(shamcdan",
+      "duplicate_count": 93,
+      "deleted_duplicates": 93,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1138,
+      "creator_name": "Authentic(authenticandbig",
+      "duplicate_count": 59,
+      "deleted_duplicates": 59,
+      "hash_backfill": {
+        "updated": 3,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1148,
+      "creator_name": "Anjale(bosslady023)",
+      "duplicate_count": 382,
+      "deleted_duplicates": 382,
+      "hash_backfill": {
+        "updated": 71,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1152,
+      "creator_name": "Allen(ladomi0103",
+      "duplicate_count": 70,
+      "deleted_duplicates": 70,
+      "hash_backfill": {
+        "updated": 8,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1154,
+      "creator_name": "Iliana( iliana_castillo",
+      "duplicate_count": 175,
+      "deleted_duplicates": 175,
+      "hash_backfill": {
+        "updated": 5,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1175,
+      "creator_name": "Tara Molina(steelcitymukbang3variety)",
+      "duplicate_count": 101,
+      "deleted_duplicates": 101,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1185,
+      "creator_name": "Alessandra Reckner(alelovesfinds",
+      "duplicate_count": 146,
+      "deleted_duplicates": 146,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1193,
+      "creator_name": "white_chocolate2819 Lalbeharry",
+      "duplicate_count": 10,
+      "deleted_duplicates": 10,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1194,
+      "creator_name": "Janet Paula (travelin_realtor)",
+      "duplicate_count": 79,
+      "deleted_duplicates": 79,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1215,
+      "creator_name": "Darth Vader",
+      "duplicate_count": 165,
+      "deleted_duplicates": 165,
+      "hash_backfill": {
+        "updated": 6,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1221,
+      "creator_name": "Amy(glowupgirlfriend)",
+      "duplicate_count": 140,
+      "deleted_duplicates": 140,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1222,
+      "creator_name": "amy_nichole44(Amy ✨ TTS Affiliate",
+      "duplicate_count": 10,
+      "deleted_duplicates": 10,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    },
+    {
+      "owner": "Yiyun",
+      "creator_id": 1227,
+      "creator_name": "Emmy（Emily.hayden.easterly",
+      "duplicate_count": 7,
+      "deleted_duplicates": 7,
+      "hash_backfill": {
+        "updated": 0,
+        "deleted": 0
+      }
+    }
+  ],
+  "summary": {
+    "creators": 104,
+    "duplicates": 5982,
+    "deleted_duplicates": 5982,
+    "hash_updated": 475,
+    "hash_deleted": 0
+  }
+}

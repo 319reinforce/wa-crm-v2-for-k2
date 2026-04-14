@@ -5,6 +5,7 @@
 const db = require('../../db');
 const { normalizeOperatorName } = require('../utils/operator');
 const { searchVectorStore } = require('../utils/openaiVectorStore');
+const { evaluateCreatorLifecycle } = require('./lifecyclePersistenceService');
 
 function parseJsonSafe(value, fallback) {
     if (value === null || value === undefined) return fallback;
@@ -19,22 +20,25 @@ function parseJsonSafe(value, fallback) {
 async function getGroundingContext({ clientId = null, scene = 'unknown', operator = null, queryText = '' } = {}) {
     const db2 = db.getDb();
     let resolvedOperator = normalizeOperatorName(operator, null);
-    let clientInfo = { name: '未知', conversion_stage: '未知', next_action: null };
+    let clientInfo = { name: '未知', lifecycle_stage: '未知', lifecycle_label: '未知', beta_status: null, next_action: null };
 
     if (clientId) {
         const creator = await db2.prepare(`
-            SELECT c.primary_name AS name, c.wa_owner, wc.beta_status AS conversion_stage, wc.next_action
+            SELECT c.id, c.primary_name AS name, c.wa_owner, wc.beta_status, wc.next_action
             FROM creators c
             LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
             WHERE c.wa_phone = ?
         `).get(clientId);
         if (creator) {
+            const lifecycleEval = await evaluateCreatorLifecycle(db2, creator.id).catch(() => null);
             if (!resolvedOperator) {
                 resolvedOperator = normalizeOperatorName(creator.wa_owner, null);
             }
             clientInfo = {
                 name: creator.name || '未知',
-                conversion_stage: creator.conversion_stage || '未知',
+                lifecycle_stage: lifecycleEval?.lifecycle?.stage_key || '未知',
+                lifecycle_label: lifecycleEval?.lifecycle?.stage_label || lifecycleEval?.lifecycle?.stage_key || '未知',
+                beta_status: creator.beta_status || null,
                 next_action: creator.next_action || null,
             };
         }
@@ -74,7 +78,8 @@ async function getGroundingContext({ clientId = null, scene = 'unknown', operato
     let externalKnowledge = [];
     const fallbackQuery = [
         `scene:${scene || 'unknown'}`,
-        clientInfo?.conversion_stage ? `stage:${clientInfo.conversion_stage}` : '',
+        clientInfo?.lifecycle_stage ? `lifecycle:${clientInfo.lifecycle_stage}` : '',
+        clientInfo?.beta_status ? `beta:${clientInfo.beta_status}` : '',
         clientInfo?.next_action ? `next_action:${clientInfo.next_action}` : '',
         clientInfo?.name ? `client:${clientInfo.name}` : '',
     ].filter(Boolean).join('\n');
@@ -115,7 +120,10 @@ async function getGroundingContext({ clientId = null, scene = 'unknown', operato
             client: {
                 id: clientId || null,
                 name: clientInfo.name || null,
-                conversion_stage: clientInfo.conversion_stage || null,
+                lifecycle_stage: clientInfo.lifecycle_stage || null,
+                lifecycle_label: clientInfo.lifecycle_label || null,
+                beta_status: clientInfo.beta_status || null,
+                conversion_stage: clientInfo.lifecycle_stage || null,
                 next_action: clientInfo.next_action || null,
             },
             operator: {

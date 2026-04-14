@@ -1,0 +1,18 @@
+{
+  "id": "1776099606753-68251f5c70cd",
+  "session_id": "yiyun",
+  "completed_at": "2026-04-13T17:00:45.671Z",
+  "ok": true,
+  "phone": "13097037107",
+  "name": "Dee(healinginthehustle",
+  "messages": [
+    {
+      "role": "me",
+      "text": "Hi",
+      "timestamp": 1775613358000,
+      "message_id": "true_126955726893255@lid_3EB048BFC954AD09D03898"
+    }
+  ],
+  "routed_session_id": "yiyun",
+  "routed_operator": "Yiyun"
+}

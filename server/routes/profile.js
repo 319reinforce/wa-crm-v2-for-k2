@@ -11,6 +11,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const { writeAudit } = require('../middleware/audit');
+const { evaluateCreatorLifecycle } = require('../services/lifecyclePersistenceService');
 
 function parseJsonSafe(value, fallback = null) {
     if (!value) return fallback;
@@ -19,6 +20,93 @@ function parseJsonSafe(value, fallback = null) {
         return JSON.parse(value);
     } catch (_) {
         return fallback;
+    }
+}
+
+function clampConfidence(value, fallback = 2) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(1, Math.min(3, Math.round(n)));
+}
+
+function normalizeEnum(value, allowed = []) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return allowed.includes(normalized) ? normalized : null;
+}
+
+function normalizePortraitField(rawField, allowed = []) {
+    if (rawField === null || rawField === undefined) {
+        return { value: null, confidence: 2, evidence: '' };
+    }
+
+    const rawObj = (typeof rawField === 'object' && rawField !== null)
+        ? rawField
+        : { value: rawField };
+    return {
+        value: normalizeEnum(rawObj.value, allowed),
+        confidence: clampConfidence(rawObj.confidence, 2),
+        evidence: String(rawObj.evidence || '').slice(0, 250),
+    };
+}
+
+function normalizePortraitPayload(payload) {
+    if (!payload || typeof payload !== 'object') return null;
+    return {
+        frequency: normalizePortraitField(payload.frequency, ['high', 'medium', 'low']),
+        difficulty: normalizePortraitField(payload.difficulty, ['high', 'medium', 'low']),
+        intent: normalizePortraitField(payload.intent, ['strong', 'medium', 'weak']),
+        emotion: normalizePortraitField(payload.emotion, ['positive', 'neutral', 'negative']),
+    };
+}
+
+function mapSnapshotRowToPortrait(row) {
+    if (!row) return null;
+    return {
+        frequency: {
+            value: normalizeEnum(row.frequency_level, ['high', 'medium', 'low']),
+            confidence: clampConfidence(row.frequency_conf, 2),
+            evidence: String(row.frequency_evidence || '').slice(0, 250),
+        },
+        difficulty: {
+            value: normalizeEnum(row.difficulty_level, ['high', 'medium', 'low']),
+            confidence: clampConfidence(row.difficulty_conf, 2),
+            evidence: String(row.difficulty_evidence || '').slice(0, 250),
+        },
+        intent: {
+            value: normalizeEnum(row.intent_level, ['strong', 'medium', 'weak']),
+            confidence: clampConfidence(row.intent_conf, 2),
+            evidence: String(row.intent_evidence || '').slice(0, 250),
+        },
+        emotion: {
+            value: normalizeEnum(row.emotion_level, ['positive', 'neutral', 'negative']),
+            confidence: clampConfidence(row.emotion_conf, 2),
+            evidence: String(row.emotion_evidence || '').slice(0, 250),
+        },
+    };
+}
+
+function hasPortraitValue(portrait) {
+    if (!portrait || typeof portrait !== 'object') return false;
+    return ['frequency', 'difficulty', 'intent', 'emotion'].some((field) => {
+        return !!portrait?.[field]?.value;
+    });
+}
+
+async function getLatestSnapshotPortrait(db2, clientId) {
+    try {
+        const row = await db2.prepare(`
+            SELECT frequency_level, frequency_conf, frequency_evidence,
+                   difficulty_level, difficulty_conf, difficulty_evidence,
+                   intent_level, intent_conf, intent_evidence,
+                   emotion_level, emotion_conf, emotion_evidence
+            FROM client_profile_snapshots
+            WHERE client_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+        `).get(clientId);
+        return mapSnapshotRowToPortrait(row);
+    } catch (_) {
+        return null;
     }
 }
 
@@ -82,28 +170,47 @@ router.get('/client-profile/:clientId', async (req, res) => {
         ).all(clientId);
 
         const profileData = profile || { summary: null, tiktok_data: null, stage: null, last_interaction: null, last_updated: null };
+        const tiktokData = parseJsonSafe(profileData.tiktok_data, {}) || {};
+        const manualPortrait = normalizePortraitPayload(tiktokData.portrait_manual || tiktokData.portrait || null);
+        const snapshotPortrait = await getLatestSnapshotPortrait(db2, clientId);
+        const portrait = hasPortraitValue(manualPortrait)
+            ? manualPortrait
+            : (hasPortraitValue(snapshotPortrait) ? snapshotPortrait : null);
+        const portraitSource = hasPortraitValue(manualPortrait)
+            ? 'manual'
+            : (hasPortraitValue(snapshotPortrait) ? 'system' : null);
 
         const creator = await db2.prepare(`
-            SELECT c.primary_name as name, c.wa_owner, c.keeper_username,
-                   wc.beta_status as conversion_stage, wc.priority,
+            SELECT c.id, c.primary_name as name, c.wa_owner, c.keeper_username,
+                   wc.beta_status, wc.priority,
                    k.keeper_gmv, k.keeper_videos, k.keeper_orders
             FROM creators c
             LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
             LEFT JOIN keeper_link k ON k.creator_id = c.id
             WHERE c.wa_phone = ?
         `).get(clientId);
+        const lifecycleEval = creator?.id
+            ? await evaluateCreatorLifecycle(db2, creator.id).catch(() => null)
+            : null;
+        const lifecycleStage = lifecycleEval?.lifecycle?.stage_key || null;
+        const lifecycleLabel = lifecycleEval?.lifecycle?.stage_label || lifecycleStage || null;
 
         res.json({
             client_id: clientId,
             name: creator?.name || null,
             wa_owner: creator?.wa_owner || null,
             keeper_username: creator?.keeper_username || null,
-            conversion_stage: creator?.conversion_stage || null,
+            conversion_stage: lifecycleStage || null,
+            lifecycle_stage: lifecycleStage,
+            lifecycle_label: lifecycleLabel,
+            beta_status: creator?.beta_status || null,
             priority: creator?.priority || null,
             summary: profileData.summary || null,
             tags: tags.map(t => ({ tag: t.tag, source: t.source, confidence: t.confidence })),
-            tiktok_data: parseJsonSafe(profileData.tiktok_data, null),
-            stage: profileData.stage || creator?.conversion_stage || null,
+            portrait,
+            portrait_source: portraitSource,
+            tiktok_data: tiktokData,
+            stage: profileData.stage || lifecycleStage || creator?.beta_status || null,
             last_interaction: profileData.last_interaction,
             last_updated: profileData.last_updated,
             memory: memory.map(m => ({ type: m.memory_type, key: m.memory_key, value: m.memory_value })),
@@ -119,19 +226,55 @@ router.put('/client-profile/:clientId', async (req, res) => {
     try {
         const db2 = db.getDb();
         const { clientId } = req.params;
-        const { summary } = req.body;
+        const { summary, portrait } = req.body || {};
+        if (summary === undefined && portrait === undefined) {
+            return res.status(400).json({ error: 'summary or portrait required' });
+        }
 
+        const existing = await db2.prepare(
+            'SELECT client_id, summary, tiktok_data FROM client_profiles WHERE client_id = ? LIMIT 1'
+        ).get(clientId);
+        const nextSummary = summary === undefined ? (existing?.summary || '') : String(summary || '');
+        const tiktokData = parseJsonSafe(existing?.tiktok_data, {}) || {};
+
+        let normalizedPortrait;
+        if (portrait === undefined) {
+            normalizedPortrait = normalizePortraitPayload(tiktokData.portrait_manual || null);
+        } else if (portrait === null) {
+            normalizedPortrait = null;
+            delete tiktokData.portrait_manual;
+            delete tiktokData.portrait_manual_updated_at;
+        } else {
+            normalizedPortrait = normalizePortraitPayload(portrait);
+            tiktokData.portrait_manual = normalizedPortrait;
+            tiktokData.portrait_manual_updated_at = new Date().toISOString();
+        }
+
+        const nextTiktokData = Object.keys(tiktokData).length > 0 ? JSON.stringify(tiktokData) : null;
         const updated = await db2.prepare(`
-            UPDATE client_profiles SET summary = ?, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?
-        `).run(summary || '', clientId);
+            UPDATE client_profiles
+            SET summary = ?, tiktok_data = ?, last_updated = CURRENT_TIMESTAMP
+            WHERE client_id = ?
+        `).run(nextSummary, nextTiktokData, clientId);
 
         if (updated.changes === 0) {
             await db2.prepare(`
-                INSERT INTO client_profiles (client_id, summary) VALUES (?, ?)
-            `).run(clientId, summary || '');
+                INSERT INTO client_profiles (client_id, summary, tiktok_data)
+                VALUES (?, ?, ?)
+            `).run(clientId, nextSummary, nextTiktokData);
         }
 
-        res.json({ ok: true });
+        await writeAudit('client_profile_update', 'client_profiles', clientId, null, {
+            client_id: clientId,
+            summary: nextSummary,
+            portrait_manual: normalizedPortrait,
+        }, req);
+
+        res.json({
+            ok: true,
+            portrait: normalizedPortrait,
+            portrait_source: normalizedPortrait ? 'manual' : null,
+        });
     } catch (err) {
         console.error('PUT /api/client-profile error:', err);
         res.status(500).json({ error: err.message });
@@ -244,6 +387,7 @@ async function extractTagsWithLLM(text) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${API_KEY}`,
                 'x-api-key': API_KEY,
                 'anthropic-version': '2023-06-01',
             },

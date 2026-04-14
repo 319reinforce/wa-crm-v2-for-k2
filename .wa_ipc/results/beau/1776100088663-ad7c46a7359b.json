@@ -1,0 +1,18 @@
+{
+  "id": "1776100088663-ad7c46a7359b",
+  "session_id": "beau",
+  "completed_at": "2026-04-13T17:08:43.273Z",
+  "ok": true,
+  "phone": "19152928996",
+  "name": "Angela",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Thank you",
+      "timestamp": 1775906064000,
+      "message_id": "false_242941218037827@lid_3A5BE9715ED7E144AEBB"
+    }
+  ],
+  "routed_session_id": "beau",
+  "routed_operator": "Beau"
+}

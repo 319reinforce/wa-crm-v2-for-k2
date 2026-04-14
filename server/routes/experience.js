@@ -8,6 +8,7 @@ const db = require('../../db');
 const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
 const { extractAndSaveMemories } = require('../services/memoryExtractionService');
 const { normalizeOperatorName } = require('../utils/operator');
+const { evaluateCreatorLifecycle } = require('../services/lifecyclePersistenceService');
 
 // ========== Helper Functions ==========
 
@@ -50,7 +51,8 @@ async function compileSystemPrompt(operator, scene, clientInfo, clientMemory, po
 当前客户档案（仅以下信息可用于生成回复）：
 - 姓名: ${clientInfo.name || '未知'}
 - 负责人: ${operator}
-- 建联阶段: ${clientInfo.conversion_stage || '未知'}
+- 生命周期阶段: ${clientInfo.lifecycle_label || clientInfo.lifecycle_stage || '未知'}
+- Beta 子流程: ${clientInfo.beta_status || '未知'}
 `).trim();
 
     if (scene && sceneConfig[scene]) {
@@ -206,15 +208,21 @@ router.post('/route', async (req, res) => {
         }
 
         const dbInstance = db.getDb();
-        let clientInfo = { name: '未知', conversion_stage: '未知' };
+        let clientInfo = { name: '未知', lifecycle_stage: '未知', lifecycle_label: '未知', beta_status: null };
         if (client_id) {
             const creator = await dbInstance.prepare(`
-                SELECT c.primary_name as name, wc.beta_status as conversion_stage
+                SELECT c.id, c.primary_name as name, wc.beta_status
                 FROM creators c LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
                 WHERE c.wa_phone = ?
             `).get(client_id);
             if (creator) {
-                clientInfo = { name: creator.name || '未知', conversion_stage: creator.conversion_stage || '未知' };
+                const lifecycleEval = await evaluateCreatorLifecycle(dbInstance, creator.id).catch(() => null);
+                clientInfo = {
+                    name: creator.name || '未知',
+                    lifecycle_stage: lifecycleEval?.lifecycle?.stage_key || '未知',
+                    lifecycle_label: lifecycleEval?.lifecycle?.stage_label || lifecycleEval?.lifecycle?.stage_key || '未知',
+                    beta_status: creator.beta_status || null,
+                };
             }
         }
 
@@ -260,6 +268,7 @@ router.post('/route', async (req, res) => {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json; charset=utf-8',
+                    'Authorization': `Bearer ${API_KEY}`,
                     'x-api-key': API_KEY,
                     'anthropic-version': '2023-06-01',
                     'Content-Length': Buffer.byteLength(body),
@@ -331,15 +340,21 @@ router.get('/:operator/system-prompt', async (req, res) => {
 
         const dbInstance = db.getDb();
 
-        let clientInfo = { name: '未知', conversion_stage: '未知' };
+        let clientInfo = { name: '未知', lifecycle_stage: '未知', lifecycle_label: '未知', beta_status: null };
         if (client_id) {
             const creator = await dbInstance.prepare(`
-                SELECT c.primary_name as name, wc.beta_status as conversion_stage
+                SELECT c.id, c.primary_name as name, wc.beta_status
                 FROM creators c LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
                 WHERE c.wa_phone = ?
             `).get(client_id);
             if (creator) {
-                clientInfo = { name: creator.name || '未知', conversion_stage: creator.conversion_stage || '未知' };
+                const lifecycleEval = await evaluateCreatorLifecycle(dbInstance, creator.id).catch(() => null);
+                clientInfo = {
+                    name: creator.name || '未知',
+                    lifecycle_stage: lifecycleEval?.lifecycle?.stage_key || '未知',
+                    lifecycle_label: lifecycleEval?.lifecycle?.stage_label || lifecycleEval?.lifecycle?.stage_key || '未知',
+                    beta_status: creator.beta_status || null,
+                };
             }
         }
 
