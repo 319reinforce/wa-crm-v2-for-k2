@@ -78,6 +78,8 @@ async function generateWithDualTemperature(messages, model, maxTokens, temperatu
     };
 }
 
+const TRANSLATION_SYSTEM_PROMPT = '你是中文翻译助手，专注把收到的文本翻译成中文。不要解释其他内容，直接输出纯中文翻译。';
+
 /**
  * 单条翻译
  */
@@ -94,17 +96,17 @@ async function translateText(text, role = 'user', timestamp = null) {
             'x-api-key': API_KEY,
             'anthropic-version': '2023-06-01',
         },
-        body: JSON.stringify({
-            model: 'mini-max-typing',
-            max_tokens: 1000,
-            temperature: 0.3,
-            messages: [{
-                role: 'user',
-                content: `你是一个翻译助手。请将以下消息翻译为中文（所有消息都译为中文，不区分发送者，直接给出中文翻译即可，不需要解释）：\n"${text}"`,
-            }],
-        }),
-        signal: AbortSignal.timeout(30000),
-    });
+            body: JSON.stringify({
+                model: 'mini-max-typing',
+                max_tokens: 1000,
+                temperature: 0.3,
+                messages: [
+                    { role: 'system', content: TRANSLATION_SYSTEM_PROMPT },
+                    { role: 'user', content: text },
+                ],
+            }),
+            signal: AbortSignal.timeout(30000),
+        });
 
     const data = await response.json();
     let raw = '';
@@ -142,15 +144,18 @@ async function translateBatch(texts) {
             'x-api-key': API_KEY,
             'anthropic-version': '2023-06-01',
         },
-        body: JSON.stringify({
-            model: 'mini-max-typing',
-            max_tokens: 1000,
-            temperature: 0.3,
-            messages: [{
-                role: 'user',
-                content: `你是一个翻译助手。请将以下每条消息翻译为中文（不区分发送者，全部译为中文）。请严格按以下JSON数组格式返回，不要输出任何其他内容：\n[{"idx":1,"translation":"中文翻译"},{"idx":2,"translation":"中文翻译"}]\n\n消息列表：\n${combined}`,
-            }],
-        }),
+            body: JSON.stringify({
+                model: 'mini-max-typing',
+                max_tokens: 1000,
+                temperature: 0.3,
+                messages: [
+                    { role: 'system', content: TRANSLATION_SYSTEM_PROMPT },
+                    {
+                        role: 'user',
+                        content: `请将以下每条消息翻译为中文（不区分发送者，全部译为中文）。请严格按以下JSON数组格式返回，不要输出任何其他内容：\n[{"idx":1,"translation":"中文翻译"},{"idx":2,"translation":"中文翻译"}]\n\n消息列表：\n${combined}`,
+                    },
+                ],
+            }),
         signal: AbortSignal.timeout(30000),
     });
 
