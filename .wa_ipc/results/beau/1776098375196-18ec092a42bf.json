@@ -1,0 +1,18 @@
+{
+  "id": "1776098375196-18ec092a42bf",
+  "session_id": "beau",
+  "completed_at": "2026-04-13T16:43:14.026Z",
+  "ok": true,
+  "phone": "14792956315",
+  "name": "Deedra Burton",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Ok, will do that. I’ll let you know how it goes.",
+      "timestamp": 1775648025000,
+      "message_id": "false_226139356323858@lid_3A7E3A7186AA5D8F374C"
+    }
+  ],
+  "routed_session_id": "beau",
+  "routed_operator": "Beau"
+}

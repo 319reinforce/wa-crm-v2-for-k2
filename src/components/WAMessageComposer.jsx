@@ -10,29 +10,14 @@ import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api';
 import { fetchWaAdmin } from '../utils/waAdmin';
 import { fetchAppAuth } from '../utils/appAuth';
 import { DEFAULT_UNBOUND_AGENCY_STRATEGIES, normalizeUnboundAgencyStrategies } from '../utils/unboundAgencyStrategies';
+import WA from '../utils/waTheme';
 
 const API_BASE = '/api';
 const MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024;
-
-const WA = {
-  darkHeader: '#111b21',
-  teal: '#00a884',
-  tealDark: '#008069',
-  lightBg: '#f0f2f5',
-  chatBg: '#efeae2',
-  white: '#ffffff',
-  searchBg: '#f0f2f5',
-  borderLight: '#e9edef',
-  bubbleOut: '#d9fdd3',
-  bubbleIn: '#ffffff',
-  textDark: '#111b21',
-  textMuted: '#667781',
-  hover: '#f5f6f6',
-  darkHover: '#202c33',
-  darkBg: '#111b21',
-  darkCard: '#1f2c33',
-  inputBg: '#f0f2f5',
-}
+const CHAT_PATTERN = [
+    'radial-gradient(circle at 1px 1px, rgba(111,106,98,0.05) 1px, transparent 0)',
+    'radial-gradient(circle at 12px 12px, rgba(111,106,98,0.03) 1px, transparent 0)',
+].join(', ');
 
 function formatBytes(value = 0) {
     const bytes = Number(value) || 0;
@@ -95,6 +80,34 @@ function mergeChronologicalMessages(existing = [], incoming = []) {
 function getLatestIncomingMessage(messages = []) {
     const latest = messages[messages.length - 1];
     return latest?.role === 'user' ? latest : null;
+}
+
+function isImageMessage(message = {}) {
+    const mime = String(message?.mime_type || message?.mimeType || '').toLowerCase();
+    const url = String(message?.media_url || message?.previewUrl || '').toLowerCase();
+    return mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(url);
+}
+
+function hasMediaAttachment(message = {}) {
+    return !!(message?.media_url || message?.previewUrl || message?.file_name || message?.fileName || message?.mime_type || message?.mimeType);
+}
+
+function getMessageMediaUrl(message = {}) {
+    return String(message?.media_url || message?.previewUrl || '').trim();
+}
+
+function getMessageFileName(message = {}) {
+    return String(message?.file_name || message?.fileName || '').trim();
+}
+
+function getMessageMime(message = {}) {
+    return String(message?.mime_type || message?.mimeType || '').trim();
+}
+
+function getMessageCaption(message = {}) {
+    const raw = String(message?.caption || message?.text || '').trim();
+    if (raw === '🖼️ [Image]') return '';
+    return raw.replace(/^🖼️ \[Image\]\s*/i, '').trim();
 }
 
 function getConversationStatusMeta(creator) {
@@ -597,7 +610,16 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
             const timelineText = caption ? `🖼️ [Image] ${caption}` : '🖼️ [Image]';
             const sentAt = Date.now();
             await persistCrmSentMessage(timelineText, sentAt);
-            setMessages((prev) => [...prev, { role: 'me', text: timelineText, timestamp: sentAt }]);
+            setMessages((prev) => [...prev, {
+                role: 'me',
+                text: timelineText,
+                caption,
+                timestamp: sentAt,
+                media_url: uploadData?.media_asset?.file_url || null,
+                mime_type: uploadData?.media_asset?.mime_type || pendingImage.mimeType || null,
+                file_name: uploadData?.media_asset?.file_name || pendingImage.fileName || null,
+                previewUrl: pendingImage.previewUrl,
+            }]);
             setMessageTotal((prev) => prev + 1);
             if (caption) {
                 await extractAndSaveMemory(null, caption);
@@ -921,7 +943,23 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
             });
             const data = await res.json();
             if (!res.ok || !data?.ok) {
+                if (data?.error === 'session syncing') {
+                    throw new Error('后台正在全量同步中，请稍后再试');
+                }
                 throw new Error(data?.error || `HTTP ${res.status}`);
+            }
+
+            if (data?.queued) {
+                setLastRepairSummary({
+                    checked: 0,
+                    inserted: 0,
+                    updated: 0,
+                    deleted: 0,
+                    sessionId: data.routed_session_id || null,
+                    queued: true,
+                    lastActive: null,
+                });
+                return;
             }
 
             const freshMsgs = await reloadMessagesFromApi();
@@ -961,6 +999,9 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
             });
             const data = await res.json();
             if (!res.ok || !data?.ok) {
+                if (data?.error === 'session syncing') {
+                    throw new Error('后台正在全量同步中，请稍后再试');
+                }
                 throw new Error(data?.error || `HTTP ${res.status}`);
             }
 
@@ -1336,16 +1377,22 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
             <div className="flex flex-col h-full">
 
                 {/* Desktop Header — hidden on mobile (mobile has its own top bar in App.jsx) */}
-                <div className="hidden md:flex items-center gap-4 px-5 py-4" style={{ background: WA.darkHeader }}>
-                    <button onClick={onClose} className="text-white/70 hover:text-white text-xl shrink-0">←</button>
+                <div
+                    className="hidden md:flex items-center gap-4 px-6 py-3.5 border-b"
+                    style={{ background: WA.shellPanelStrong, borderColor: WA.borderLight }}
+                >
+                    <button onClick={onClose} className="shrink-0 transition-colors" style={{ color: WA.textMuted }} title="返回">
+                        <ArrowLeftIcon />
+                    </button>
                     <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-base shrink-0" style={{ background: WA.teal }}>
                         {(client.name || '?')[0]?.toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-base text-white">{client.name || client.phone}</div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs text-white/50">
-                                {client.conversion_stage || '未知阶段'} · {messageTotal} 条消息
+                        <div className="font-semibold text-base" style={{ color: WA.textDark }}>{client.name || client.phone}</div>
+                        <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                            <span className="inline-flex items-center gap-1 text-xs" style={{ color: WA.textMuted }}>
+                                <span className="w-1.5 h-1.5 rounded-full" style={{ background: WA.teal }} />
+                                {client.wa_owner || creator?.wa_owner || '在线工作台'} · {messageTotal} 条消息
                             </span>
                             {/* 自动检测话题 — 右侧联系人信息区，显示在二级信息行 */}
                             {autoDetectedTopic && !currentTopic && (
@@ -1356,12 +1403,12 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                             ? 'rgba(16,185,129,0.2)'
                                             : autoDetectedTopic.confidence === 'medium'
                                                 ? 'rgba(245,158,11,0.2)'
-                                                : 'rgba(255,255,255,0.08)',
+                                                : WA.shellPanelMuted,
                                         color: autoDetectedTopic.confidence === 'high'
-                                            ? '#6ee7b7'
+                                            ? '#047857'
                                             : autoDetectedTopic.confidence === 'medium'
-                                                ? '#fcd34d'
-                                                : 'rgba(255,255,255,0.45)',
+                                                ? '#b45309'
+                                                : WA.textMuted,
                                     }}
                                     title={`自动检测 · 置信度: ${autoDetectedTopic.confidence} · 根据最新 ${Math.min(messages.length, 20)} 条消息`}
                                 >
@@ -1373,8 +1420,8 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                 <span
                                     className="text-xs px-2 py-0.5 rounded-full shrink-0"
                                     style={{
-                                        background: 'rgba(59,130,246,0.25)',
-                                        color: '#93c5fd',
+                                        background: 'rgba(59,130,246,0.12)',
+                                        color: '#2563eb',
                                     }}
                                     title={`手动标记 · ${currentTopic.detected_at ? new Date(currentTopic.detected_at).toLocaleString('zh-CN') : ''}`}
                                 >
@@ -1384,58 +1431,49 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                         </div>
                     </div>
                     {pendingCandidates.length > 0 && (
-                        <span className="text-xs px-3 py-1 rounded-full font-bold shrink-0" style={{ background: 'rgba(245,158,11,0.2)', color: '#f59e0b' }}>
-                            📋 {pendingCandidates.length} 条待处理
+                        <span className="text-xs px-3 py-1 rounded-full font-bold shrink-0" style={{ background: 'rgba(245,158,11,0.14)', color: '#b45309' }}>
+                            待处理 {pendingCandidates.length}
                         </span>
                     )}
-                    <button
+                    <IconButton
                         onClick={handleIncrementalSync}
                         disabled={syncingMessages}
-                        className="text-xs px-3 py-1 rounded-full font-medium shrink-0 transition-all disabled:opacity-50"
-                        style={{
-                            background: syncingMessages ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.1)',
-                            color: syncingMessages ? '#34d399' : 'rgba(255,255,255,0.72)',
-                        }}
                         title="按手机号抓取最近原始聊天，只补齐最新消息，不做深度修复"
+                        active={syncingMessages}
                     >
-                        {syncingMessages ? '⏳ 增量中' : '🔄 增量更新'}
-                    </button>
-                    <button
+                        {syncingMessages ? <SpinnerIcon /> : <RefreshIcon />}
+                    </IconButton>
+                    <IconButton
                         onClick={handleRepairMessages}
                         disabled={repairingMessages}
-                        className="text-xs px-3 py-1 rounded-full font-medium shrink-0 transition-all disabled:opacity-50"
-                        style={{
-                            background: repairingMessages ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.1)',
-                            color: repairingMessages ? '#f59e0b' : 'rgba(255,255,255,0.72)',
-                        }}
                         title="按手机号在对应 session 里重新爬取该达人的原始聊天，并修复 role / 缺失 / 重复记录"
+                        active={repairingMessages}
                     >
-                        {repairingMessages ? '⏳ 修复中' : '🩺 修复消息'}
-                    </button>
-                    <button
+                        {repairingMessages ? <SpinnerIcon /> : <RepairIcon />}
+                    </IconButton>
+                    <IconButton
                         onClick={handleTranslate}
                         disabled={translating}
-                        className="text-xs px-3 py-1 rounded-full font-medium shrink-0 transition-all disabled:opacity-50"
-                        style={{
-                            background: Object.keys(translationMap).length > 0 ? 'rgba(0,168,132,0.2)' : 'rgba(255,255,255,0.1)',
-                            color: Object.keys(translationMap).length > 0 ? WA.teal : 'rgba(255,255,255,0.55)',
-                        }}
                         title={Object.keys(translationMap).length > 0 ? '关闭翻译' : '翻译最近20条消息'}
+                        active={translating || Object.keys(translationMap).length > 0}
                     >
-                        {translating ? '⏳' : '🌐'} 翻译
-                    </button>
+                        {translating ? <SpinnerIcon /> : <GlobeIcon />}
+                    </IconButton>
                 </div>
 
                 {/* Mobile Header with Tags toggle — only shown when NOT used as panel in App.jsx */}
                 {!asPanel && (
                     <>
-                        <div className="flex md:hidden items-center gap-3 px-4 py-3" style={{ background: WA.darkHeader }}>
-                            <button onClick={onClose} className="text-white/70 hover:text-white text-xl shrink-0">←</button>
+                        <div
+                            className="flex md:hidden items-center gap-3 px-4 py-3 border-b"
+                            style={{ background: WA.shellPanelStrong, borderColor: WA.borderLight }}
+                        >
+                            <button onClick={onClose} className="text-xl shrink-0" style={{ color: WA.textMuted }}>←</button>
                             <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0" style={{ background: WA.teal }}>
                                 {(client.name || '?')[0]?.toUpperCase()}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <div className="text-sm font-semibold text-white truncate">{client.name || client.phone}</div>
+                                <div className="text-sm font-semibold truncate" style={{ color: WA.textDark }}>{client.name || client.phone}</div>
                                 {/* 自动检测话题（移动端） */}
                                 {autoDetectedTopic && !currentTopic && (
                                     <div className="flex items-center gap-1 mt-0.5">
@@ -1446,12 +1484,12 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                                     ? 'rgba(16,185,129,0.2)'
                                                     : autoDetectedTopic.confidence === 'medium'
                                                         ? 'rgba(245,158,11,0.2)'
-                                                        : 'rgba(255,255,255,0.08)',
+                                                        : WA.shellPanelMuted,
                                                 color: autoDetectedTopic.confidence === 'high'
-                                                    ? '#6ee7b7'
+                                                    ? '#047857'
                                                     : autoDetectedTopic.confidence === 'medium'
-                                                        ? '#fcd34d'
-                                                        : 'rgba(255,255,255,0.45)',
+                                                        ? '#b45309'
+                                                        : WA.textMuted,
                                             }}
                                         >
                                             🔍 {autoDetectedTopic.label}
@@ -1461,7 +1499,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                 {/* 手动话题（移动端） */}
                                 {currentTopic && (
                                     <div className="flex items-center gap-1 mt-0.5">
-                                        <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.25)', color: '#93c5fd' }}>
+                                        <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.12)', color: '#2563eb' }}>
                                             📌 {TOPIC_LABELS[currentTopic.topic_key] || '新话题'}
                                         </span>
                                     </div>
@@ -1470,7 +1508,8 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                             <button
                                 onClick={handleIncrementalSync}
                                 disabled={syncingMessages}
-                                className="text-white/70 hover:text-white text-base shrink-0 px-2 py-1 rounded-lg disabled:opacity-50"
+                                className="text-base shrink-0 px-2 py-1 rounded-lg disabled:opacity-50"
+                                style={{ color: WA.textMuted, background: WA.white, border: `1px solid ${WA.borderLight}` }}
                                 title="按手机号抓取最近原始聊天，只补齐最新消息"
                             >
                                 {syncingMessages ? '⏳' : '🔄'}
@@ -1478,14 +1517,16 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                             <button
                                 onClick={handleRepairMessages}
                                 disabled={repairingMessages}
-                                className="text-white/70 hover:text-white text-base shrink-0 px-2 py-1 rounded-lg disabled:opacity-50"
+                                className="text-base shrink-0 px-2 py-1 rounded-lg disabled:opacity-50"
+                                style={{ color: WA.textMuted, background: WA.white, border: `1px solid ${WA.borderLight}` }}
                                 title="重新爬取并修复当前联系人消息"
                             >
                                 {repairingMessages ? '⏳' : '🩺'}
                             </button>
                             <button
                                 onClick={() => setTagsVisible(v => !v)}
-                                className="text-white/70 hover:text-white text-base shrink-0 px-2 py-1 rounded-lg"
+                                className="text-base shrink-0 px-2 py-1 rounded-lg"
+                                style={{ color: WA.textMuted, background: WA.white, border: `1px solid ${WA.borderLight}` }}
                                 title={tagsVisible ? '隐藏标签' : '显示标签'}
                             >
                                 🏷
@@ -1541,11 +1582,15 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
 
                 {lastRepairSummary && (
                     <div className="px-4 py-2 flex items-center gap-3 text-xs" style={{ background: 'rgba(59,130,246,0.10)', borderBottom: `1px solid rgba(59,130,246,0.18)`, color: '#1d4ed8' }}>
-                        <span>🩺 已按手机号重爬修复</span>
-                        <span>检查 {lastRepairSummary.checked} 条</span>
-                        <span>补齐 {lastRepairSummary.inserted}</span>
-                        <span>修正 role {lastRepairSummary.updated}</span>
-                        <span>删除重复 {lastRepairSummary.deleted}</span>
+                        <span>{lastRepairSummary.queued ? '🩺 已排队，等待同步完成后自动修复' : '🩺 已按手机号重爬修复'}</span>
+                        {!lastRepairSummary.queued && (
+                            <>
+                                <span>检查 {lastRepairSummary.checked} 条</span>
+                                <span>补齐 {lastRepairSummary.inserted}</span>
+                                <span>修正 role {lastRepairSummary.updated}</span>
+                                <span>删除重复 {lastRepairSummary.deleted}</span>
+                            </>
+                        )}
                         {lastRepairSummary.sessionId && <span>via {lastRepairSummary.sessionId}</span>}
                     </div>
                 )}
@@ -1564,7 +1609,11 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 <div
                     ref={chatScrollRef}
                     className="flex-1 overflow-y-auto p-3 md:p-5 space-y-3"
-                    style={{ background: WA.chatBg }}
+                    style={{
+                        backgroundColor: WA.chatBg,
+                        backgroundImage: CHAT_PATTERN,
+                        backgroundSize: '24px 24px',
+                    }}
                     onScroll={handleChatScroll}
                     onTouchStart={handleTouchStart}
                     onTouchEnd={handleTouchEnd}
@@ -1605,25 +1654,90 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                         }
 
                         const isMe = item.role === 'me';
+                        const mediaUrl = getMessageMediaUrl(item);
+                        const fileName = getMessageFileName(item);
+                        const mimeType = getMessageMime(item);
+                        const captionText = getMessageCaption(item);
+                        const isImage = hasMediaAttachment(item) && isImageMessage(item);
+                        const isFile = hasMediaAttachment(item) && !isImage;
                         return (
                             <div key={item.uiKey} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                 <div
-                                    className="max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed"
+                                    className="max-w-[74%] px-4 py-3 text-sm leading-relaxed"
                                     style={{
-                                        background: isMe ? WA.bubbleOut : WA.bubbleIn,
+                                        background: isMe ? '#DCF8C6' : WA.bubbleIn,
                                         color: WA.textDark,
-                                        borderRadius: isMe ? '16px 16px 6px 16px' : '16px 16px 16px 6px',
-                                        boxShadow: '0 1px 0.5px rgba(0,0,0,0.13)',
+                                        borderRadius: isMe ? '10px 10px 3px 10px' : '10px 10px 10px 3px',
+                                        boxShadow: '0 1px 1px rgba(17,29,26,0.12)',
+                                        border: isMe ? '1px solid rgba(169,220,146,0.55)' : `1px solid ${WA.borderLight}`,
                                     }}
                                 >
-                                    <div className="whitespace-pre-wrap">{item.text}</div>
+                                    {isImage ? (
+                                        <div className="space-y-2">
+                                            {mediaUrl && (
+                                                <a
+                                                    href={mediaUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="block overflow-hidden rounded-[8px]"
+                                                    style={{ border: `1px solid ${WA.borderLight}` }}
+                                                >
+                                                    <img
+                                                        src={mediaUrl}
+                                                        alt={fileName || 'image'}
+                                                        className="block w-full max-h-[320px] object-cover"
+                                                    />
+                                                </a>
+                                            )}
+                                            {captionText && (
+                                                <div className="whitespace-pre-wrap">{captionText}</div>
+                                            )}
+                                        </div>
+                                    ) : isFile ? (
+                                        <div className="space-y-2">
+                                            <div
+                                                className="rounded-[10px] px-3 py-3 flex items-center gap-3"
+                                                style={{
+                                                    background: isMe ? 'rgba(255,255,255,0.55)' : 'rgba(15,118,110,0.05)',
+                                                    border: `1px solid ${isMe ? 'rgba(169,220,146,0.4)' : WA.borderLight}`,
+                                                }}
+                                            >
+                                                <div
+                                                    className="w-11 h-11 rounded-[10px] flex items-center justify-center shrink-0"
+                                                    style={{ background: 'rgba(255,255,255,0.72)', border: `1px solid ${WA.borderLight}` }}
+                                                >
+                                                    <FileIcon />
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="text-[13px] font-semibold truncate">{fileName || 'Attachment'}</div>
+                                                    <div className="text-[11px]" style={{ color: WA.textMuted }}>{mimeType || 'file'}</div>
+                                                </div>
+                                                {mediaUrl && (
+                                                    <a
+                                                        href={mediaUrl}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="px-3 py-2 rounded-[10px] text-[12px] font-semibold"
+                                                        style={{ background: WA.white, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
+                                                    >
+                                                        打开
+                                                    </a>
+                                                )}
+                                            </div>
+                                            {captionText && (
+                                                <div className="whitespace-pre-wrap">{captionText}</div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="whitespace-pre-wrap">{item.text}</div>
+                                    )}
                                     {translationMap[item.translationKey] && (
                                         <div className="text-xs mt-1.5 pt-1.5 border-t" style={{ color: '#00a884', borderColor: 'rgba(0,0,0,0.08)' }}>
-                                            🌐 {translationMap[item.translationKey]}
+                                            <span className="inline-flex items-center gap-1"><GlobeIcon size={12} strokeWidth={2} />{translationMap[item.translationKey]}</span>
                                         </div>
                                     )}
                                     <div className="text-xs mt-1.5 flex justify-end" style={{ color: isMe ? '#667781' : WA.textMuted }}>
-                                        {formatTime(item.normalizedTimestamp)}
+                                        {formatTime(item.normalizedTimestamp)}{isMe ? '  ✓✓' : ''}
                                     </div>
                                 </div>
                             </div>
@@ -1657,7 +1771,15 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 )}
 
                 {/* Input area */}
-                <div className="px-4 md:px-5 py-3 md:py-4 flex items-end gap-2 md:gap-3" style={{ background: WA.darkHeader, position: 'relative', paddingBottom: viewportOffset ? `${viewportOffset + 8}px` : undefined }}>
+                <div
+                    className="px-4 md:px-5 py-3 md:py-4 flex items-end gap-2 md:gap-3 border-t"
+                    style={{
+                        background: WA.shellPanelStrong,
+                        borderTop: `1px solid ${WA.borderLight}`,
+                        position: 'relative',
+                        paddingBottom: viewportOffset ? `${viewportOffset + 8}px` : undefined,
+                    }}
+                >
                     {pendingImage && (
                         <div
                             className="rounded-xl px-3 py-2 flex items-center gap-3"
@@ -1666,23 +1788,26 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                 left: '12px',
                                 right: '12px',
                                 bottom: 'calc(100% + 8px)',
-                                background: 'rgba(17,27,33,0.94)',
-                                border: '1px solid rgba(255,255,255,0.12)',
+                                background: WA.white,
+                                border: `1px solid ${WA.borderLight}`,
+                                boxShadow: WA.shellShadow,
                                 zIndex: 25,
                             }}
                         >
                             <img
                                 src={pendingImage.previewUrl}
                                 alt={pendingImage.fileName}
-                                className="w-11 h-11 rounded-lg object-cover border border-white/20 shrink-0"
+                                className="w-11 h-11 rounded-lg object-cover shrink-0"
+                                style={{ border: `1px solid ${WA.borderLight}` }}
                             />
                             <div className="min-w-0 flex-1">
-                                <div className="text-xs text-white truncate">{pendingImage.fileName}</div>
-                                <div className="text-[11px] text-white/55">{formatBytes(pendingImage.size)} · 可选输入 caption 后发送</div>
+                                <div className="text-xs truncate" style={{ color: WA.textDark }}>{pendingImage.fileName}</div>
+                                <div className="text-[11px]" style={{ color: WA.textMuted }}>{formatBytes(pendingImage.size)} · 可选输入 caption 后发送</div>
                             </div>
                             <button
                                 onClick={clearPendingImage}
-                                className="w-8 h-8 rounded-full flex items-center justify-center text-white/70 hover:text-white"
+                                className="w-8 h-8 rounded-full flex items-center justify-center"
+                                style={{ color: WA.textMuted }}
                                 title="移除图片"
                             >
                                 ✕
@@ -1702,19 +1827,28 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                             emojiSkipCloseRef.current = true;
                             setEmojiPickerOpen(v => !v);
                         }}
-                        className="w-9 h-9 md:w-11 md:h-11 rounded-full flex items-center justify-center text-lg md:text-xl shrink-0 transition-all"
-                        style={{ color: emojiPickerOpen ? WA.teal : 'rgba(255,255,255,0.55)' }}
+                        className="w-9 h-9 md:w-11 md:h-11 rounded-full flex items-center justify-center shrink-0 transition-all"
+                        style={{
+                            color: emojiPickerOpen ? WA.teal : WA.textMuted,
+                            background: WA.white,
+                            border: `1px solid ${WA.borderLight}`,
+                        }}
+                        title="表情"
                     >
-                        😊
+                        <SmileIcon />
                     </button>
                     <button
                         onClick={handlePickImage}
                         disabled={sendingMedia}
-                        className="w-9 h-9 md:w-11 md:h-11 rounded-full flex items-center justify-center text-lg md:text-xl shrink-0 transition-all disabled:opacity-50"
-                        style={{ color: pendingImage ? '#60a5fa' : 'rgba(255,255,255,0.55)' }}
+                        className="w-9 h-9 md:w-11 md:h-11 rounded-full flex items-center justify-center shrink-0 transition-all disabled:opacity-50"
+                        style={{
+                            color: pendingImage ? '#2563eb' : WA.textMuted,
+                            background: WA.white,
+                            border: `1px solid ${WA.borderLight}`,
+                        }}
                         title="上传图片"
                     >
-                        {sendingMedia ? '⏳' : '🖼️'}
+                        {sendingMedia ? <SpinnerIcon /> : <ImageIcon />}
                     </button>
 
                     {/* 📌 手动开启新话题按钮 + 下拉菜单 */}
@@ -1724,18 +1858,18 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                             className="h-9 md:h-11 px-3 rounded-full flex items-center gap-1.5 text-xs font-medium shrink-0 transition-all"
                             style={{
                                 background: topicDropdownOpen
-                                    ? 'rgba(59,130,246,0.4)'
+                                    ? 'rgba(37,99,235,0.12)'
                                     : currentTopic
-                                        ? 'rgba(59,130,246,0.25)'
-                                        : 'rgba(255,255,255,0.08)',
-                                color: topicDropdownOpen || currentTopic ? '#93c5fd' : 'rgba(255,255,255,0.5)',
-                                border: '1px solid rgba(255,255,255,0.15)',
+                                        ? 'rgba(37,99,235,0.08)'
+                                        : WA.white,
+                                color: topicDropdownOpen || currentTopic ? '#2563eb' : WA.textMuted,
+                                border: `1px solid ${topicDropdownOpen || currentTopic ? 'rgba(37,99,235,0.2)' : WA.borderLight}`,
                             }}
                             title="选择话题类型，开启新话题上下文"
                         >
-                            📌
+                            <TopicIcon />
                             <span className="hidden sm:inline">新话题</span>
-                            <span className="text-xs opacity-60">▼</span>
+                            <span className="text-xs opacity-60">▾</span>
                         </button>
 
                         {/* 话题下拉菜单 */}
@@ -1748,12 +1882,13 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                     left: '0',
                                     width: '200px',
                                     maxHeight: '320px',
-                                    background: '#1e293b',
-                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    background: WA.white,
+                                    border: `1px solid ${WA.borderLight}`,
+                                    boxShadow: WA.shellShadow,
                                     zIndex: 1001,
                                 }}
                             >
-                                <div className="px-3 py-1.5 text-xs font-semibold text-white/40 border-b border-white/10 mb-1">
+                                <div className="px-3 py-1.5 text-xs font-semibold border-b mb-1" style={{ color: WA.textMuted, borderColor: WA.borderLight }}>
                                     选择话题类型
                                 </div>
                                 {Object.entries(TOPIC_LABELS).map(([key, label]) => (
@@ -1771,13 +1906,13 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                         }}
                                         className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2"
                                         style={{
-                                            color: currentTopic?.topic_key === key ? '#93c5fd' : 'rgba(255,255,255,0.75)',
-                                            background: currentTopic?.topic_key === key ? 'rgba(59,130,246,0.2)' : 'transparent',
+                                            color: currentTopic?.topic_key === key ? '#2563eb' : WA.textDark,
+                                            background: currentTopic?.topic_key === key ? 'rgba(37,99,235,0.08)' : 'transparent',
                                         }}
-                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-                                        onMouseLeave={e => e.currentTarget.style.background = currentTopic?.topic_key === key ? 'rgba(59,130,246,0.2)' : 'transparent'}
+                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(37,99,235,0.06)'}
+                                        onMouseLeave={e => e.currentTarget.style.background = currentTopic?.topic_key === key ? 'rgba(37,99,235,0.08)' : 'transparent'}
                                     >
-                                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: currentTopic?.topic_key === key ? '#60a5fa' : 'rgba(255,255,255,0.3)' }} />
+                                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: currentTopic?.topic_key === key ? '#2563eb' : WA.borderLight }} />
                                         {label}
                                     </button>
                                 ))}
@@ -1814,15 +1949,18 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                         />
                     </div>
 
-                    <div className="flex-1 flex items-center rounded-3xl px-4 md:px-5 py-3 md:py-3.5" style={{ background: WA.darkBg }}>
+                    <div
+                        className="flex-1 flex items-center rounded-3xl px-4 md:px-5 py-3 md:py-3.5 border"
+                        style={{ background: WA.white, borderColor: WA.borderLight }}
+                    >
                         <textarea
                             ref={inputRef}
                             value={inputText}
                             onChange={e => setInputText(e.target.value)}
                             placeholder="输入消息，或直接点击右下角 🤖 为最新消息生成回复..."
                             rows={2}
-                            className="flex-1 bg-transparent text-sm text-white placeholder-slate-400 focus:outline-none resize-none"
-                            style={{ maxHeight: '240px' }}
+                            className="flex-1 bg-transparent text-sm focus:outline-none resize-none"
+                            style={{ maxHeight: '240px', color: WA.textDark }}
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
@@ -1851,7 +1989,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                     style={{ background: WA.teal }}
                                     title="AI 生成候选回复"
                                 >
-                                    {generating ? <span className="text-white text-sm">⏳</span> : <span className="text-white text-xl">🤖</span>}
+                                    {generating ? <SpinnerIcon color="#ffffff" /> : <SparkIcon color="#ffffff" />}
                                 </button>
                             )}
                             {/* ➤ 直接发送 */}
@@ -1868,7 +2006,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                 style={{ background: '#3b82f6' }}
                                 title={pendingImage ? '发送图片（可附带 caption）' : '直接发送'}
                             >
-                                <span className="text-white text-xl">{sendingMedia ? '⏳' : '➤'}</span>
+                                {sendingMedia ? <SpinnerIcon color="#ffffff" /> : <SendIcon color="#ffffff" />}
                             </button>
                         </div>
                     ) : (
@@ -1880,8 +2018,9 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                                 background: activePicker
                                     ? '#3b82f6'
                                     : pickerLoading
-                                        ? 'rgba(255,255,255,0.1)'
-                                        : 'rgba(255,255,255,0.1)',
+                                        ? WA.shellPanelMuted
+                                        : WA.white,
+                                border: activePicker ? '1px solid transparent' : `1px solid ${WA.borderLight}`,
                                 opacity: pickerLoading ? 0.7 : 1,
                             }}
                             title={
@@ -1893,17 +2032,150 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                             }
                         >
                             {pickerLoading ? (
-                                <span className="text-white text-sm animate-spin">⏳</span>
+                                <SpinnerIcon />
                             ) : activePicker ? (
-                                <span className="text-white text-lg">🔄</span>
+                                <RefreshIcon color="#ffffff" />
                             ) : (
-                                <span className="text-white/70 text-lg">🤖</span>
+                                <SparkIcon />
                             )}
                         </button>
                     )}
                 </div>
             </div>
         </>
+    );
+}
+
+function IconButton({ children, title, onClick, disabled, active = false }) {
+    return (
+        <button
+            onClick={onClick}
+            disabled={disabled}
+            title={title}
+            className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all disabled:opacity-50"
+            style={{
+                background: active ? 'rgba(15,118,110,0.12)' : WA.white,
+                color: active ? WA.teal : WA.textMuted,
+                border: `1px solid ${active ? 'rgba(15,118,110,0.18)' : WA.borderLight}`,
+            }}
+        >
+            {children}
+        </button>
+    );
+}
+
+function StrokeIcon({ children, size = 18, strokeWidth = 1.85, color = 'currentColor', viewBox = '0 0 24 24' }) {
+    return (
+        <svg width={size} height={size} viewBox={viewBox} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {children}
+        </svg>
+    );
+}
+
+function ArrowLeftIcon(props) {
+    return (
+        <StrokeIcon {...props}>
+            <path d="M15 18l-6-6 6-6" />
+            <path d="M9 12h10" />
+        </StrokeIcon>
+    );
+}
+
+function RefreshIcon({ color = 'currentColor' }) {
+    return (
+        <StrokeIcon color={color}>
+            <path d="M20 11a8 8 0 1 0 2.2 5.5" />
+            <path d="M20 4v7h-7" />
+        </StrokeIcon>
+    );
+}
+
+function RepairIcon({ color = 'currentColor' }) {
+    return (
+        <StrokeIcon color={color}>
+            <path d="M14 5a4 4 0 0 0 5 5l-8 8a2 2 0 1 1-3-3l8-8Z" />
+            <path d="M16 8l3-3" />
+        </StrokeIcon>
+    );
+}
+
+function GlobeIcon({ size = 18, strokeWidth = 1.85, color = 'currentColor' }) {
+    return (
+        <StrokeIcon size={size} strokeWidth={strokeWidth} color={color}>
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18" />
+            <path d="M12 3a15 15 0 0 1 0 18" />
+            <path d="M12 3a15 15 0 0 0 0 18" />
+        </StrokeIcon>
+    );
+}
+
+function SmileIcon({ color = 'currentColor' }) {
+    return (
+        <StrokeIcon color={color}>
+            <circle cx="12" cy="12" r="9" />
+            <path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" />
+            <path d="M9 10h.01" />
+            <path d="M15 10h.01" />
+        </StrokeIcon>
+    );
+}
+
+function ImageIcon({ color = 'currentColor' }) {
+    return (
+        <StrokeIcon color={color}>
+            <rect x="4" y="5" width="16" height="14" rx="2" />
+            <path d="M8 13l2.5-2.5a1.2 1.2 0 0 1 1.7 0L17 15" />
+            <path d="M14 12l1-1a1.2 1.2 0 0 1 1.7 0l2.3 2.3" />
+            <circle cx="9" cy="9" r="1" />
+        </StrokeIcon>
+    );
+}
+
+function FileIcon({ color = 'currentColor' }) {
+    return (
+        <StrokeIcon color={color}>
+            <path d="M14 3H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9Z" />
+            <path d="M14 3v6h6" />
+            <path d="M9 14h6" />
+            <path d="M9 17h4" />
+        </StrokeIcon>
+    );
+}
+
+function TopicIcon({ color = 'currentColor' }) {
+    return (
+        <StrokeIcon color={color}>
+            <path d="M7 4h8l2 3-2 3H7z" />
+            <path d="M7 4v16" />
+        </StrokeIcon>
+    );
+}
+
+function SparkIcon({ color = 'currentColor' }) {
+    return (
+        <StrokeIcon color={color}>
+            <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3Z" />
+            <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14Z" />
+        </StrokeIcon>
+    );
+}
+
+function SendIcon({ color = 'currentColor' }) {
+    return (
+        <StrokeIcon color={color}>
+            <path d="M21 3L10 14" />
+            <path d="M21 3l-7 18-4-7-7-4 18-7Z" />
+        </StrokeIcon>
+    );
+}
+
+function SpinnerIcon({ color = 'currentColor' }) {
+    return (
+        <StrokeIcon color={color}>
+            <path d="M21 12a9 9 0 1 1-3-6.7" />
+            <path d="M21 5v5h-5" />
+        </StrokeIcon>
     );
 }
 

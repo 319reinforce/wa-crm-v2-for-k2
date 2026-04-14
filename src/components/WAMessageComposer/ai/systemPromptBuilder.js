@@ -9,7 +9,12 @@ import { isAgencyBoundStatus, resolveUnboundAgencyStrategy } from '../../../util
 export function buildSystemPrompt({ lastMsgRole, activeEvents, client, creator }) {
     const clientName = client?.name || creator?.primary_name || '未知';
     const owner = client?.wa_owner || creator?.wa_owner || '未知';
-    const stage = client?.conversion_stage || creator?._full?.wacrm?.beta_status || '未知';
+    const stage = client?.lifecycle_label
+        || client?.conversion_stage
+        || creator?._full?.lifecycle?.stage_label
+        || creator?.lifecycle?.stage_label
+        || creator?._full?.wacrm?.beta_status
+        || '未知';
     const isPushMode = lastMsgRole === 'assistant';
 
     const base = `你是一个专业的达人运营助手，帮助运营人员与 WhatsApp 达人沟通。
@@ -19,7 +24,7 @@ export function buildSystemPrompt({ lastMsgRole, activeEvents, client, creator }
 当前客户档案：
 - 姓名: ${clientName}
 - 负责人: ${owner}
-- 建联阶段: ${stage}
+- 生命周期阶段: ${stage}
 
 【输出禁止规则 — 严格遵守】
 你的回复中禁止出现以下内容：
@@ -67,7 +72,7 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
     const joinbrands = fullCreator?.joinbrands || creator?.joinbrands || {};
     const lifecycle = fullCreator?.lifecycle || creator?.lifecycle || null;
     const owner = creator?.wa_owner || '未知';
-    const stage = wacrm.beta_status || '未知';
+    const stage = lifecycle?.stage_label || lifecycle?.stage_key || wacrm.beta_status || '未知';
     const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands);
     const strategy = !isAgencyBound
         ? resolveUnboundAgencyStrategy({ clientMemory, nextAction: wacrm?.next_action || '', strategies: agencyStrategies })
@@ -149,7 +154,7 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
     return `【当前话题】
 - 话题: ${topicLabel}
 - 开始: ${detectedAt}（${triggerLabel}）
-- 用户阶段: ${stage}（${owner}负责）
+- 生命周期阶段: ${stage}（${owner}负责）
 
 【进行中事件】
 ${fullEventSummary}

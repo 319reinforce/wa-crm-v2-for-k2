@@ -1,0 +1,18 @@
+{
+  "id": "1776098272386-99b58653b682",
+  "session_id": "beau",
+  "completed_at": "2026-04-13T16:40:04.979Z",
+  "ok": true,
+  "phone": "15626734676",
+  "name": "Christy Baldomino",
+  "messages": [
+    {
+      "role": "me",
+      "text": "Yes, I will send you the last $90",
+      "timestamp": 1775705263000,
+      "message_id": "true_207417543553235@lid_3B4588401E67320537F9"
+    }
+  ],
+  "routed_session_id": "beau",
+  "routed_operator": "Beau"
+}

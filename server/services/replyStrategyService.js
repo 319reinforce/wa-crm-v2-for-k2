@@ -4,6 +4,7 @@ const {
     DEFAULT_POLICY_KEY: LIFECYCLE_POLICY_KEY,
     buildDefaultPayload: buildDefaultLifecyclePayload,
     extractPayloadFromRow: extractLifecyclePayloadFromRow,
+    toRuntimeOptions,
 } = require('./lifecycleConfigService');
 const {
     DEFAULT_POLICY_KEY: STRATEGY_POLICY_KEY,
@@ -12,6 +13,7 @@ const {
 } = require('./strategyConfigService');
 
 const AUTO_STRATEGY_VERSION = 'auto_reply_strategy_v2';
+const LIFECYCLE_STAGE_KEYS = ['acquisition', 'activation', 'retention', 'revenue', 'terminated'];
 
 function parseJsonSafe(value, fallback) {
     if (value === null || value === undefined) return fallback;
@@ -30,6 +32,16 @@ function toNumber(value, fallback = 0) {
 
 function toText(value) {
     return String(value || '').trim();
+}
+
+function normalizeOwnerLabel(value) {
+    const text = toText(value);
+    if (!text) return '';
+    const lower = text.toLowerCase();
+    if (lower === 'beau') return 'Beau';
+    if (lower === 'yiyun') return 'Yiyun';
+    if (lower === 'jiawen') return 'Jiawen';
+    return text;
 }
 
 function normalizeConfidence(value) {
@@ -116,18 +128,9 @@ async function getLifecycleRuntimeOptions(dbConn) {
         ).get(LIFECYCLE_POLICY_KEY);
         const payload = extractLifecyclePayloadFromRow(row);
         const config = payload?.is_active === 0 ? fallback.config : (payload?.config || fallback.config);
-        const thresholdRaw = Number(config?.revenue_gmv_threshold);
-        return {
-            strictRevenueGmv: config?.revenue_requires_gmv === true,
-            revenueGmvThreshold: Number.isFinite(thresholdRaw) ? thresholdRaw : fallback.config.revenue_gmv_threshold,
-            agencyBoundMainline: config?.agency_bound_mainline !== false,
-        };
+        return toRuntimeOptions(config);
     } catch (_) {
-        return {
-            strictRevenueGmv: fallback.config.revenue_requires_gmv === true,
-            revenueGmvThreshold: fallback.config.revenue_gmv_threshold,
-            agencyBoundMainline: fallback.config.agency_bound_mainline !== false,
-        };
+        return toRuntimeOptions(fallback.config);
     }
 }
 
@@ -264,6 +267,44 @@ function mapProfileSnapshot(row) {
         },
         summary: toText(row.summary),
     };
+}
+
+function parseAutoStrategyMeta(memoryValue) {
+    const text = String(memoryValue || '');
+    const lines = text.split('\n').map((line) => line.trim()).filter(Boolean);
+    const meta = {
+        is_auto: false,
+        version: null,
+        trigger: null,
+        lifecycle: null,
+        profile_signals: [],
+        focus: null,
+    };
+    for (const line of lines) {
+        const versionMatch = line.match(/^\[AUTO_REPLY_STRATEGY:(.+)\]$/i);
+        if (versionMatch) {
+            meta.is_auto = true;
+            meta.version = toText(versionMatch[1]) || null;
+            continue;
+        }
+        if (line.toLowerCase().startsWith('trigger:')) {
+            meta.trigger = toText(line.slice('trigger:'.length)) || null;
+            continue;
+        }
+        if (line.toLowerCase().startsWith('lifecycle:')) {
+            meta.lifecycle = toText(line.slice('lifecycle:'.length)) || null;
+            continue;
+        }
+        if (/^(frequency|difficulty|intent|emotion):/i.test(line)) {
+            meta.profile_signals.push(line);
+            continue;
+        }
+        if (line.toLowerCase().startsWith('focus:')) {
+            meta.focus = toText(line.slice('focus:'.length)) || null;
+            continue;
+        }
+    }
+    return meta;
 }
 
 function scoreByLifecycleAndProfile({ lifecycle, profile }) {
@@ -438,6 +479,15 @@ function chooseStrategy({
     if (!secondaryStrategy || !recallStrategy) {
         return { strategy: strategies[0] || null, reasons: ['策略配置不足，回退首条。'], scores: { secondary: 0, recall: 0 }, kept_existing: false };
     }
+    if (String(lifecycle?.stage_key || '').toLowerCase() === 'acquisition') {
+        return {
+            strategy: secondaryStrategy,
+            reasons: ['生命周期=Acquisition，统一使用二次触达完成首轮破冰与意向确认。'],
+            scores: { secondary: 999, recall: 0 },
+            kept_existing: false,
+            trigger,
+        };
+    }
 
     const scores = scoreByLifecycleAndProfile({ lifecycle, profile });
     let selected = scores.recall > scores.secondary ? recallStrategy : secondaryStrategy;
@@ -470,6 +520,109 @@ function estimateStrategyConfidence({ lifecycle, profile, selectedStrategy, scor
     if (profile?.intent?.value === 'strong' && selectedStrategy?.id && classifyStrategyRole(selectedStrategy) === 'recall_pending') confidence = 3;
     if (Math.abs(toNumber(scores?.recall) - toNumber(scores?.secondary)) >= 3) confidence = 3;
     return Math.max(1, Math.min(3, confidence));
+}
+
+function mapCurrentMemoryToStrategy(currentMemory, strategies) {
+    if (!currentMemory) return null;
+    const matched = (strategies || []).find((item) => item.memory_key === currentMemory.memory_key) || null;
+    return {
+        id: matched?.id || null,
+        name: matched?.name || null,
+        memory_key: currentMemory.memory_key || null,
+        confidence: normalizeConfidence(currentMemory.confidence),
+        updated_at: currentMemory.updated_at || null,
+        auto_meta: parseAutoStrategyMeta(currentMemory.memory_value || ''),
+    };
+}
+
+function buildProfileSignalView(profile) {
+    return {
+        frequency: profile?.frequency || null,
+        difficulty: profile?.difficulty || null,
+        intent: profile?.intent || null,
+        emotion: profile?.emotion || null,
+    };
+}
+
+async function inspectReplyStrategyForCreator({
+    creatorId,
+    trigger = 'insight',
+    allowSoftAdjust = true,
+} = {}) {
+    const safeCreatorId = Number(creatorId);
+    if (!Number.isFinite(safeCreatorId) || safeCreatorId <= 0) {
+        return { ok: false, reason: 'invalid_creator_id' };
+    }
+
+    const dbConn = db.getDb();
+    const lifecycleSnapshot = await getLifecycleSnapshotByCreatorId(safeCreatorId);
+    if (!lifecycleSnapshot || !lifecycleSnapshot.client_id) {
+        return { ok: false, reason: 'creator_not_found' };
+    }
+    const clientId = lifecycleSnapshot.client_id;
+    const strategyRuntime = await getStrategyRuntime(dbConn);
+    const [profileRow, currentMemory] = await Promise.all([
+        getLatestProfileSnapshot(dbConn, clientId),
+        getCurrentConfiguredStrategyMemory(dbConn, clientId, strategyRuntime.strategies || []),
+    ]);
+    const profile = mapProfileSnapshot(profileRow);
+
+    if (!strategyRuntime.enabled) {
+        return {
+            ok: true,
+            creator_id: safeCreatorId,
+            client_id: clientId,
+            owner: lifecycleSnapshot?.creator?.wa_owner || null,
+            lifecycle_stage: lifecycleSnapshot.stage_key,
+            lifecycle_label: lifecycleSnapshot.stage_label,
+            strategy_enabled: false,
+            missing: !currentMemory,
+            current_strategy: mapCurrentMemoryToStrategy(currentMemory, strategyRuntime.strategies || []),
+            recommended_strategy: null,
+            scores: { secondary: 0, recall: 0 },
+            reasons: ['策略配置已关闭。'],
+            profile_signals: buildProfileSignalView(profile),
+            stage_supported: true,
+        };
+    }
+
+    const stageSupported = LIFECYCLE_STAGE_KEYS.includes(String(lifecycleSnapshot.stage_key || '').toLowerCase());
+    const selected = chooseStrategy({
+        strategies: strategyRuntime.strategies,
+        lifecycle: lifecycleSnapshot.lifecycle,
+        profile,
+        currentMemory,
+        trigger,
+        force: false,
+        allowSoftAdjust,
+    });
+    const currentMapped = mapCurrentMemoryToStrategy(currentMemory, strategyRuntime.strategies || []);
+    const recommendedId = selected?.strategy?.id || null;
+    const aligned = !!(currentMapped?.id && recommendedId && currentMapped.id === recommendedId);
+
+    return {
+        ok: true,
+        creator_id: safeCreatorId,
+        client_id: clientId,
+        owner: lifecycleSnapshot?.creator?.wa_owner || null,
+        lifecycle_stage: lifecycleSnapshot.stage_key,
+        lifecycle_label: lifecycleSnapshot.stage_label,
+        strategy_enabled: true,
+        stage_supported: stageSupported,
+        missing: !currentMemory,
+        aligned,
+        current_strategy: currentMapped,
+        recommended_strategy: selected?.strategy
+            ? {
+                id: selected.strategy.id,
+                name: selected.strategy.name,
+                memory_key: selected.strategy.memory_key,
+            }
+            : null,
+        scores: selected?.scores || { secondary: 0, recall: 0 },
+        reasons: Array.isArray(selected?.reasons) ? selected.reasons : [],
+        profile_signals: buildProfileSignalView(profile),
+    };
 }
 
 async function rebuildReplyStrategyForCreator({
@@ -660,16 +813,194 @@ async function rebuildReplyStrategiesForAll({
     return result;
 }
 
+async function rebuildMissingReplyStrategies({
+    owner = '',
+    stage = '',
+    trigger = 'manual_rebuild_missing',
+    allowSoftAdjust = false,
+    limit = 0,
+} = {}) {
+    const dbConn = db.getDb();
+    const ownerText = toText(owner);
+    const stageFilter = toText(stage).toLowerCase();
+    const limitNum = Math.max(0, Number(limit) || 0);
+    if (stageFilter && !LIFECYCLE_STAGE_KEYS.includes(stageFilter)) {
+        return { ok: false, reason: 'invalid_stage_filter' };
+    }
+
+    let creatorRows = [];
+    if (ownerText) {
+        creatorRows = await dbConn.prepare(`
+            SELECT id, wa_phone, primary_name, wa_owner
+            FROM creators
+            WHERE wa_phone IS NOT NULL
+              AND wa_phone <> ''
+              AND LOWER(wa_owner) = LOWER(?)
+            ORDER BY id ASC
+        `).all(ownerText);
+    } else {
+        creatorRows = await dbConn.prepare(`
+            SELECT id, wa_phone, primary_name, wa_owner
+            FROM creators
+            WHERE wa_phone IS NOT NULL
+              AND wa_phone <> ''
+            ORDER BY id ASC
+        `).all();
+    }
+
+    const result = {
+        ok: true,
+        owner: ownerText || null,
+        stage: stageFilter || null,
+        trigger,
+        total_candidates: creatorRows.length,
+        scoped_total: 0,
+        existing: 0,
+        missing: 0,
+        rebuilt: 0,
+        failed: 0,
+        limit: limitNum,
+        breakdown: {},
+        items: [],
+    };
+
+    const pushBreakdown = (ownerName, stageKey, key) => {
+        const safeOwner = normalizeOwnerLabel(ownerName) || 'Unknown';
+        const safeStage = toText(stageKey) || 'unknown';
+        const mapKey = `${safeOwner}|${safeStage}`;
+        if (!result.breakdown[mapKey]) {
+            result.breakdown[mapKey] = {
+                owner: safeOwner,
+                stage: safeStage,
+                scoped_total: 0,
+                existing: 0,
+                missing: 0,
+                rebuilt: 0,
+                failed: 0,
+            };
+        }
+        result.breakdown[mapKey][key] += 1;
+        return mapKey;
+    };
+
+    for (const row of creatorRows) {
+        let insight = null;
+        try {
+            insight = await inspectReplyStrategyForCreator({
+                creatorId: row.id,
+                trigger,
+                allowSoftAdjust,
+            });
+        } catch (err) {
+            result.failed++;
+            result.items.push({
+                creator_id: row.id,
+                client_id: row.wa_phone,
+                ok: false,
+                reason: err.message,
+            });
+            continue;
+        }
+        if (!insight?.ok) {
+            result.failed++;
+            result.items.push({
+                creator_id: row.id,
+                client_id: row.wa_phone,
+                ok: false,
+                reason: insight?.reason || 'inspect_failed',
+            });
+            continue;
+        }
+
+        if (stageFilter && insight.lifecycle_stage !== stageFilter) {
+            continue;
+        }
+
+        result.scoped_total++;
+        const mapKey = pushBreakdown(insight.owner, insight.lifecycle_stage, 'scoped_total');
+
+        if (!insight.missing) {
+            result.existing++;
+            result.breakdown[mapKey].existing += 1;
+            continue;
+        }
+
+        result.missing++;
+        result.breakdown[mapKey].missing += 1;
+
+        if (limitNum > 0 && result.rebuilt >= limitNum) {
+            result.items.push({
+                creator_id: row.id,
+                client_id: row.wa_phone,
+                ok: true,
+                skipped: true,
+                reason: 'limit_reached',
+                lifecycle_stage: insight.lifecycle_stage,
+                owner: insight.owner,
+            });
+            continue;
+        }
+
+        try {
+            const rebuildRet = await rebuildReplyStrategyForCreator({
+                creatorId: row.id,
+                trigger,
+                force: false,
+                allowSoftAdjust,
+            });
+            if (!rebuildRet?.ok) {
+                result.failed++;
+                result.breakdown[mapKey].failed += 1;
+                result.items.push({
+                    creator_id: row.id,
+                    client_id: row.wa_phone,
+                    ok: false,
+                    reason: rebuildRet?.reason || 'rebuild_failed',
+                    lifecycle_stage: insight.lifecycle_stage,
+                    owner: insight.owner,
+                });
+                continue;
+            }
+            result.rebuilt++;
+            result.breakdown[mapKey].rebuilt += 1;
+            result.items.push({
+                creator_id: row.id,
+                client_id: row.wa_phone,
+                ok: true,
+                lifecycle_stage: rebuildRet.lifecycle_stage || insight.lifecycle_stage,
+                owner: insight.owner,
+                selected_strategy_id: rebuildRet.selected_strategy?.id || null,
+            });
+        } catch (err) {
+            result.failed++;
+            result.breakdown[mapKey].failed += 1;
+            result.items.push({
+                creator_id: row.id,
+                client_id: row.wa_phone,
+                ok: false,
+                reason: err.message,
+                lifecycle_stage: insight.lifecycle_stage,
+                owner: insight.owner,
+            });
+        }
+    }
+
+    return result;
+}
+
 module.exports = {
     AUTO_STRATEGY_VERSION,
     getLifecycleSnapshotByCreatorId,
     rebuildReplyStrategyForCreator,
     rebuildReplyStrategyForClient,
     rebuildReplyStrategiesForAll,
+    rebuildMissingReplyStrategies,
+    inspectReplyStrategyForCreator,
     _private: {
         classifyStrategyRole,
         chooseStrategy,
         mapProfileSnapshot,
+        parseAutoStrategyMeta,
         scoreByLifecycleAndProfile,
     },
 };

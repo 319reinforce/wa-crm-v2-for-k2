@@ -17,6 +17,8 @@ const {
 const {
     rebuildReplyStrategyForCreator,
     rebuildReplyStrategiesForAll,
+    rebuildMissingReplyStrategies,
+    inspectReplyStrategyForCreator,
 } = require('../services/replyStrategyService');
 
 // GET /api/strategy-config/unbound-agency
@@ -131,6 +133,26 @@ router.post('/reply-strategy/rebuild/:creatorId', async (req, res) => {
     }
 });
 
+// GET /api/reply-strategy/insight/:creatorId
+router.get('/reply-strategy/insight/:creatorId', async (req, res) => {
+    try {
+        const creatorId = Number(req.params.creatorId);
+        const allowSoftAdjust = req.query.allow_soft_adjust === 'true';
+        const result = await inspectReplyStrategyForCreator({
+            creatorId,
+            trigger: 'panel_insight',
+            allowSoftAdjust,
+        });
+        if (!result.ok) {
+            return res.status(400).json(result);
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('GET /api/reply-strategy/insight/:creatorId error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // POST /api/reply-strategy/rebuild-all
 router.post('/reply-strategy/rebuild-all', async (req, res) => {
     try {
@@ -163,6 +185,46 @@ router.post('/reply-strategy/rebuild-all', async (req, res) => {
         res.json(result);
     } catch (err) {
         console.error('POST /api/reply-strategy/rebuild-all error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/reply-strategy/rebuild-missing
+router.post('/reply-strategy/rebuild-missing', async (req, res) => {
+    try {
+        const owner = String(req.body?.owner || '').trim();
+        const stage = String(req.body?.stage || '').trim().toLowerCase();
+        const trigger = String(req.body?.trigger || 'manual_rebuild_missing').trim() || 'manual_rebuild_missing';
+        const allowSoftAdjust = req.body?.allow_soft_adjust === true;
+        const limit = Math.max(0, Number(req.body?.limit) || 0);
+        const result = await rebuildMissingReplyStrategies({
+            owner,
+            stage,
+            trigger,
+            allowSoftAdjust,
+            limit,
+        });
+        if (!result.ok) {
+            return res.status(400).json(result);
+        }
+
+        await writeAudit('reply_strategy_rebuild_missing', 'client_memory', `${owner || '*'}|${stage || '*'}`, null, {
+            owner: owner || null,
+            stage: stage || null,
+            trigger,
+            allow_soft_adjust: allowSoftAdjust,
+            limit,
+            total_candidates: result.total_candidates,
+            scoped_total: result.scoped_total,
+            existing: result.existing,
+            missing: result.missing,
+            rebuilt: result.rebuilt,
+            failed: result.failed,
+        }, req);
+
+        res.json(result);
+    } catch (err) {
+        console.error('POST /api/reply-strategy/rebuild-missing error:', err);
         res.status(500).json({ error: err.message });
     }
 });

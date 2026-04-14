@@ -1,5 +1,24 @@
 @import "tailwindcss";
 
+:root {
+  --app-bg: #f7f4ee;
+  --app-panel: #fbf8f1;
+  --app-panel-strong: #fffdf9;
+  --app-panel-muted: #f3eee4;
+  --app-border: #e6dfd2;
+  --app-border-strong: #d8cfbf;
+  --app-text: #1f1d1a;
+  --app-text-muted: #6f6a62;
+  --app-accent: #0f766e;
+  --app-accent-soft: rgba(15, 118, 110, 0.1);
+  --app-hover: #f1ece2;
+  --app-selected: #ebe4d7;
+  --app-risk: #f6dcc5;
+  --app-growth: #dcebdc;
+  --app-shadow: 0 12px 40px rgba(31, 29, 26, 0.08);
+  --font-ui: "SF Pro Text", "SF Pro Display", "SF Pro", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -12,9 +31,9 @@ html, body {
 }
 
 body {
-  font-family: "SF Pro Text", "SF Pro Display", "SF Pro", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
-  background: #0f172a;
-  color: #f1f5f9;
+  font-family: var(--font-ui);
+  background: var(--app-bg);
+  color: var(--app-text);
   -webkit-overflow-scrolling: touch;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -33,4 +52,65 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+button {
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background: rgba(15, 118, 110, 0.16);
+}
+
+.app-shell {
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.72), transparent 22%),
+    linear-gradient(180deg, rgba(255, 253, 249, 0.72) 0%, rgba(247, 244, 238, 0.92) 100%);
+}
+
+.docs-panel {
+  background: var(--app-panel);
+  border: 1px solid var(--app-border);
+  border-radius: 22px;
+  box-shadow: 0 10px 28px rgba(31, 29, 26, 0.06);
+}
+
+.docs-panel-strong {
+  background: var(--app-panel-strong);
+  border: 1px solid var(--app-border);
+  border-radius: 18px;
+}
+
+.docs-kicker {
+  color: var(--app-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.docs-title {
+  color: var(--app-text);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.docs-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(111, 106, 98, 0.35) transparent;
+}
+
+.docs-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.docs-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(111, 106, 98, 0.24);
+  border-radius: 999px;
+}
+
+.docs-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
 }

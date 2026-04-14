@@ -122,6 +122,7 @@ async function analyzeWithLLM(messages = [], owner = 'Beau') {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${MINIMAX_API_KEY}`,
                 'x-api-key': MINIMAX_API_KEY,
                 'anthropic-version': '2023-06-01',
             },

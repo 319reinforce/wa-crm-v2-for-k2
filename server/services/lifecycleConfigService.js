@@ -8,7 +8,6 @@ const DEFAULT_CONFIG = {
     config: {
         revenue_requires_gmv: false,
         revenue_gmv_threshold: 2000,
-        agency_bound_mainline: true,
     },
 };
 
@@ -26,14 +25,10 @@ function normalizeConfig(raw = {}) {
     const revenueRequiresGmv = raw?.revenue_requires_gmv === true || raw?.revenue_requires_gmv === 1;
     const thresholdRaw = Number(raw?.revenue_gmv_threshold);
     const threshold = Number.isFinite(thresholdRaw) ? thresholdRaw : DEFAULT_CONFIG.config.revenue_gmv_threshold;
-    const agencyBoundMainline = raw?.agency_bound_mainline === undefined
-        ? true
-        : (raw?.agency_bound_mainline === true || raw?.agency_bound_mainline === 1);
 
     return {
         revenue_requires_gmv: revenueRequiresGmv,
         revenue_gmv_threshold: threshold,
-        agency_bound_mainline: agencyBoundMainline,
     };
 }
 
@@ -47,6 +42,15 @@ function buildDefaultPayload() {
     return {
         ...DEFAULT_CONFIG,
         config: normalizeConfig(DEFAULT_CONFIG.config),
+    };
+}
+
+function toRuntimeOptions(config = {}) {
+    const normalized = normalizeConfig(config);
+    return {
+        strictRevenueGmv: normalized.revenue_requires_gmv === true,
+        revenueGmvThreshold: normalized.revenue_gmv_threshold,
+        agencyBoundMainline: true,
     };
 }
 
@@ -77,4 +81,5 @@ module.exports = {
     normalizeConfig,
     buildDefaultPayload,
     extractPayloadFromRow,
+    toRuntimeOptions,
 };

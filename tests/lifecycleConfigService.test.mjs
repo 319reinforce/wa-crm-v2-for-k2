@@ -17,19 +17,16 @@ test('buildDefaultPayload returns default lifecycle config payload', () => {
   assert.equal(payload.policy_version, 'v1');
   assert.equal(payload.config.revenue_requires_gmv, false);
   assert.equal(payload.config.revenue_gmv_threshold, 2000);
-  assert.equal(payload.config.agency_bound_mainline, true);
 });
 
 test('normalizeConfig coerces booleans and threshold', () => {
   const config = normalizeConfig({
     revenue_requires_gmv: 1,
     revenue_gmv_threshold: '3500',
-    agency_bound_mainline: 0,
   });
 
   assert.equal(config.revenue_requires_gmv, true);
   assert.equal(config.revenue_gmv_threshold, 3500);
-  assert.equal(config.agency_bound_mainline, false);
 });
 
 test('extractPayloadFromRow falls back to defaults when row missing', () => {
@@ -52,7 +49,6 @@ test('extractPayloadFromRow uses db config when policy content is valid', () => 
       config: {
         revenue_requires_gmv: true,
         revenue_gmv_threshold: 5000,
-        agency_bound_mainline: true,
       },
     }),
   });

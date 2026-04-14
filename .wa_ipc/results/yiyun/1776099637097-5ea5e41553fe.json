@@ -1,0 +1,18 @@
+{
+  "id": "1776099637097-5ea5e41553fe",
+  "session_id": "yiyun",
+  "completed_at": "2026-04-13T17:01:19.008Z",
+  "ok": true,
+  "phone": "13373805595",
+  "name": "katieoextras",
+  "messages": [
+    {
+      "role": "me",
+      "text": "Thank you for your update!",
+      "timestamp": 1776075794000,
+      "message_id": "true_74509629538424@lid_3EB09E366691992B56A055"
+    }
+  ],
+  "routed_session_id": "yiyun",
+  "routed_operator": "Yiyun"
+}

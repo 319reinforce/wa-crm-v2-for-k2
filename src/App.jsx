@@ -42,7 +42,6 @@ const LIFECYCLE_FILTER_OPTIONS = [
   { key: 'activation', label: '激活' },
   { key: 'retention', label: '留存' },
   { key: 'revenue', label: '收入' },
-  { key: 'referral', label: '传播' },
   { key: 'terminated', label: '终止池' },
 ]
 
@@ -51,7 +50,6 @@ const LIFECYCLE_BADGE_META = {
   activation: { label: '激活', color: '#7c3aed', bg: 'rgba(124,58,237,0.12)' },
   retention: { label: '留存', color: '#0f766e', bg: 'rgba(15,118,110,0.12)' },
   revenue: { label: '收入', color: '#b45309', bg: 'rgba(180,83,9,0.12)' },
-  referral: { label: '传播', color: '#0d9488', bg: 'rgba(13,148,136,0.12)' },
   terminated: { label: '终止池', color: '#dc2626', bg: 'rgba(220,38,38,0.12)' },
 }
 
@@ -64,6 +62,26 @@ const KANBAN_COLUMNS = [
 ]
 
 const DETAIL_COLLAPSED_WIDTH = 28
+const LIST_PANEL_MIN_WIDTH = 260
+const LIST_PANEL_MAX_WIDTH = 500
+const DETAIL_PANEL_MIN_WIDTH = 360
+const DETAIL_PANEL_MAX_WIDTH = 460
+const DESKTOP_PRIMARY_TABS = [
+  { key: 'creators', label: '消息', subtitle: '达人对话与跟进' },
+  { key: 'events', label: '事件', subtitle: '事件判断与回顾' },
+  { key: 'strategy', label: '策略', subtitle: '生命周期与策略配置' },
+  { key: 'sft', label: 'SFT', subtitle: '训练与审核看板' },
+]
+const WORKSPACE_META = {
+  creators: { title: '消息工作台', subtitle: '以聊天为中心推进达人转化、跟进与维护。' },
+  events: { title: '事件面板', subtitle: '集中处理事件判定、回填和时间线检查。' },
+  strategy: { title: '策略配置', subtitle: '统一管理生命周期规则与未绑定 Agency 策略。' },
+  sft: { title: 'SFT 看板', subtitle: '查看语料、反馈与训练准备状态。' },
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max)
+}
 
 function App() {
   const [creators, setCreators] = useState([])
@@ -77,6 +95,7 @@ function App() {
   const [filterAgency, setFilterAgency] = useState('')
   const [filterEvent, setFilterEvent] = useState('')
   const [filterLifecycle, setFilterLifecycle] = useState('')
+  const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedCreator, setSelectedCreator] = useState(null)
   const [selectedCreatorIds, setSelectedCreatorIds] = useState([])
@@ -130,9 +149,15 @@ function App() {
   const [panelWidths, setPanelWidths] = useState(() => {
     try {
       const saved = localStorage.getItem('wa_panel_widths')
-      if (saved) return JSON.parse(saved)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        return {
+          list: clamp(Number(parsed?.list) || 320, LIST_PANEL_MIN_WIDTH, LIST_PANEL_MAX_WIDTH),
+          detail: clamp(Number(parsed?.detail) || 360, DETAIL_PANEL_MIN_WIDTH, DETAIL_PANEL_MAX_WIDTH),
+        }
+      }
     } catch (_) {}
-    return { list: 320, detail: 320 } // defaults: 320px each
+    return { list: 320, detail: 360 }
   })
   const [dragging, setDragging] = useState(null) // 'list-detail'
 
@@ -155,7 +180,7 @@ function App() {
       setPanelWidths(prev => {
         const next = { ...prev }
         if (dragging === 'list-detail') {
-          next.list = Math.min(Math.max(200, clientX), 500)
+          next.list = clamp(clientX, LIST_PANEL_MIN_WIDTH, LIST_PANEL_MAX_WIDTH)
         }
         try { localStorage.setItem('wa_panel_widths', JSON.stringify(next)) } catch (_) {}
         return next
@@ -238,6 +263,7 @@ function App() {
     if (!shouldShowUnread(creator)) {
       setUnreadCounts(prev => ({ ...prev, [creator.id]: 0 }))
     }
+    setActiveTab('creators')
     setDetailPanelExpanded(detailPanelPinned)
     setSelectedCreator(creator)
   }
@@ -446,10 +472,16 @@ function App() {
 
   const activeFilterCount = [filterBeta, filterPriority, filterAgency, filterEvent, filterLifecycle].filter(Boolean).length
   const selectedCreatorStatusMeta = getCreatorStatusMeta(selectedCreator)
-  const isDetailPanelOpen = !!selectedCreator && (detailPanelExpanded || detailPanelPinned)
-  const detailPanelWidth = selectedCreator
-    ? (isDetailPanelOpen ? panelWidths.detail : DETAIL_COLLAPSED_WIDTH)
-    : panelWidths.detail
+  const isCreatorWorkspace = activeTab === 'creators'
+  const showDetailPanel = isCreatorWorkspace && !!selectedCreator
+  const isDetailPanelOpen = showDetailPanel && (detailPanelExpanded || detailPanelPinned)
+  const detailPanelWidth = showDetailPanel
+    ? (isDetailPanelOpen ? clamp(panelWidths.detail, DETAIL_PANEL_MIN_WIDTH, DETAIL_PANEL_MAX_WIDTH) : DETAIL_COLLAPSED_WIDTH)
+    : clamp(panelWidths.detail, DETAIL_PANEL_MIN_WIDTH, DETAIL_PANEL_MAX_WIDTH)
+  const workspaceMeta = WORKSPACE_META[activeTab] || WORKSPACE_META.creators
+  const waStatusLabel = waQrData ? '需要扫码' : '已连接'
+  const waStatusTone = waQrData ? '#b45309' : WA.teal
+  const selectedOwnerLabel = selectedCreator?.wa_owner || (filterOwner || 'All')
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -527,329 +559,450 @@ function App() {
         </div>
       )}
 
-      {/* ===== Desktop: Three-Panel Layout ===== */}
-      <div className="hidden md:flex h-screen overflow-hidden" style={{ background: WA.lightBg }}>
-
-        {/* Panel 1: Contact List */}
-        <div className="shrink-0 flex flex-col" style={{ width: panelWidths.list, minWidth: panelWidths.list, maxWidth: panelWidths.list, background: WA.white, borderRight: `1px solid ${WA.borderLight}` }}>
-
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4" style={{ background: WA.darkHeader }}>
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: WA.teal }}>
-                WA
+      {/* ===== Desktop: Workbench Layout ===== */}
+      <div className="hidden md:flex flex-1 min-h-0 overflow-hidden p-2.5 pt-2 app-shell">
+        <div className="flex-1 min-w-0 flex flex-col gap-2.5">
+          <div className="docs-panel shrink-0 px-5 py-4 flex items-center justify-between gap-4" style={{ background: WA.shellPanelStrong }}>
+            <div className="flex items-center gap-6 min-w-0">
+              <div className="flex items-center gap-3 shrink-0">
+                <div
+                  className="w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-bold text-white"
+                  style={{ background: WA.teal, boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.18)' }}
+                >
+                  WA
+                </div>
+                <div className="min-w-0">
+                  <div className="docs-kicker">Creator Operations</div>
+                  <div className="docs-title">WA CRM</div>
+                </div>
               </div>
-              <div>
-                <div className="text-base font-semibold text-white leading-none">CRM</div>
+              <div className="flex items-center gap-2 overflow-x-auto docs-scrollbar">
+                {DESKTOP_PRIMARY_TABS.map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className="shrink-0 px-4 py-2.5 rounded-full text-sm font-medium transition-all"
+                    style={{
+                      background: activeTab === tab.key ? WA.shellActive : 'transparent',
+                      color: activeTab === tab.key ? WA.textDark : WA.textMuted,
+                      border: `1px solid ${activeTab === tab.key ? WA.shellBorderStrong : 'transparent'}`
+                    }}
+                    title={tab.subtitle}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
             </div>
-            <div className="flex gap-1.5">
+
+            <div className="flex items-center gap-2 shrink-0">
+              <div
+                className="hidden lg:flex items-center gap-2 px-3 py-2 rounded-full text-xs font-medium"
+                style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
+              >
+                <span className="w-2 h-2 rounded-full" style={{ background: waStatusTone }} />
+                {waStatusLabel}
+              </div>
+              <div
+                className="hidden xl:flex items-center gap-2 px-3 py-2 rounded-full text-xs font-medium"
+                style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
+              >
+                Owner
+                <span style={{ color: WA.textDark }}>{selectedOwnerLabel}</span>
+              </div>
+              <button
+                onClick={() => loadData()}
+                disabled={loading}
+                className="px-3.5 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-50"
+                style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
+              >
+                {loading ? '同步中' : '刷新'}
+              </button>
               <button
                 onClick={openManualModal}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                style={{ background: 'rgba(255,255,255,0.12)', color: 'white' }}
-                title="手动录入达人"
+                className="px-4 py-2 rounded-full text-sm font-semibold text-white transition-all"
+                style={{ background: WA.teal }}
               >
-                + 录入
-              </button>
-              <button onClick={() => setActiveTab('creators')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab === 'creators' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab === 'creators' ? 'white' : 'rgba(255,255,255,0.55)' }}>
-                达人
-              </button>
-              <button onClick={() => setActiveTab('sft')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab === 'sft' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab === 'sft' ? 'white' : 'rgba(255,255,255,0.55)' }}>
-                SFT
-              </button>
-              <button onClick={() => setActiveTab('events')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab === 'events' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab === 'events' ? 'white' : 'rgba(255,255,255,0.55)' }}>
-                事件
-              </button>
-              <button onClick={() => setActiveTab('strategy')} className="px-4 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: activeTab === 'strategy' ? 'rgba(255,255,255,0.18)' : 'transparent', color: activeTab === 'strategy' ? 'white' : 'rgba(255,255,255,0.55)' }}>
-                策略
+                新增达人
               </button>
             </div>
           </div>
 
-          {/* Search bar */}
-          <div className="px-4 py-3" style={{ background: WA.darkHeader }}>
-            <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl" style={{ background: WA.darkBg }}>
-              <span style={{ color: WA.textMuted }}>🔍</span>
-              <input
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="搜索姓名、电话..."
-                className="flex-1 bg-transparent text-sm text-white placeholder-slate-400 focus:outline-none"
-              />
-              {search && (
-                <button onClick={() => setSearch('')} style={{ color: 'rgba(255,255,255,0.4)' }}>✕</button>
-              )}
-            </div>
-          </div>
-
-          {/* Owner tabs + filter toggle */}
-          <div className="flex items-center gap-2 px-4 py-3 border-b" style={{ borderColor: WA.borderLight, background: WA.white }}>
-            <div className="flex items-center gap-2 flex-1 overflow-x-auto">
-              {ownerOptions.map(o => (
-                <button
-                  key={o}
-                  onClick={() => setFilterOwner(o)}
-                  className="shrink-0 px-3 py-2 rounded-xl text-sm font-semibold transition-all"
-                  style={{
-                    background: filterOwner === o ? WA.teal : 'transparent',
-                    color: filterOwner === o ? 'white' : WA.textMuted,
-                    fontSize: '13px'
-                  }}
-                >
-                  {o === '' ? '全部' : o}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => setActiveTab(prev => prev === 'creators' ? 'creators' : prev)}
-              className="relative px-3 py-2 rounded-xl text-sm font-medium transition-all"
+          <div className="flex-1 min-h-0 flex gap-1.5 overflow-hidden">
+            <div
+              className="docs-panel shrink-0 flex flex-col overflow-hidden"
               style={{
-                background: activeFilterCount > 0 ? WA.teal + '18' : 'transparent',
-                color: activeFilterCount > 0 ? WA.teal : WA.textMuted,
-                border: `1px solid ${activeFilterCount > 0 ? WA.teal + '30' : WA.borderLight}`
+                width: panelWidths.list,
+                minWidth: panelWidths.list,
+                maxWidth: panelWidths.list,
+                background: WA.shellPanel,
               }}
             >
-              ⚙️ 筛选 {activeFilterCount > 0 && <span className="ml-1 text-xs font-bold" style={{ color: WA.teal }}>{activeFilterCount}</span>}
-            </button>
-          </div>
-
-          {/* Filter bar — always visible */}
-          <div className="px-3 py-2.5 border-b space-y-2" style={{ borderColor: WA.borderLight, background: WA.lightBg }}>
-            <div className="flex gap-1.5">
-              <FilterSelect value={filterBeta} onChange={setFilterBeta} placeholder="Beta">
-                <option value="">Beta</option>
-                <option value="not_introduced">未介绍</option>
-                <option value="introduced">已介绍</option>
-                <option value="started">已开始</option>
-                <option value="completed">已完成</option>
-              </FilterSelect>
-              <FilterSelect value={filterPriority} onChange={setFilterPriority} placeholder="优先级">
-                <option value="">优先级</option>
-                <option value="high">高</option>
-                <option value="medium">中</option>
-                <option value="low">低</option>
-              </FilterSelect>
-            </div>
-            <div className="flex gap-1.5">
-              <FilterSelect value={filterAgency} onChange={setFilterAgency} placeholder="Agency">
-                <option value="">Agency</option>
-                <option value="yes">已绑定</option>
-                <option value="no">未绑定</option>
-              </FilterSelect>
-              <FilterSelect value={filterEvent} onChange={setFilterEvent} placeholder="事件">
-                <option value="">事件</option>
-                <option value="trial_7day">7天试用</option>
-                <option value="monthly_invited">月卡邀请</option>
-                <option value="monthly_joined">月卡加入</option>
-                <option value="gmv_1k">GMV&gt;1K</option>
-                <option value="churned">已流失</option>
-              </FilterSelect>
-            </div>
-            <div className="flex gap-1.5">
-              <FilterSelect value={filterLifecycle} onChange={setFilterLifecycle} placeholder="生命周期">
-                {LIFECYCLE_FILTER_OPTIONS.map(option => (
-                  <option key={option.key || 'all'} value={option.key}>{option.label}</option>
-                ))}
-              </FilterSelect>
-              <div className="flex-1" />
-            </div>
-            {(filterBeta || filterPriority || filterAgency || filterEvent || filterLifecycle) && (
-              <button
-                onClick={() => { setFilterBeta(''); setFilterPriority(''); setFilterAgency(''); setFilterEvent(''); setFilterLifecycle('') }}
-                className="w-full text-xs py-1.5 rounded-lg text-center font-medium"
-                style={{ color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}
-              >
-                清除筛选
-              </button>
-            )}
-          </div>
-
-          {/* View mode + count */}
-          <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: WA.borderLight }}>
-            <span className="text-sm font-medium" style={{ color: WA.textDark }}>
-              {filteredCreators.length} <span style={{ color: WA.textMuted }}>位达人</span>
-            </span>
-            <div className="flex gap-0.5 rounded-xl p-1" style={{ background: WA.lightBg }}>
-              <button
-                onClick={() => setViewMode('list')}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                style={{ background: viewMode === 'list' ? WA.white : 'transparent', color: viewMode === 'list' ? WA.teal : WA.textMuted, boxShadow: viewMode === 'list' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none' }}
-              >
-                ☰
-              </button>
-              <button
-                onClick={() => setViewMode('kanban')}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                style={{ background: viewMode === 'kanban' ? WA.white : 'transparent', color: viewMode === 'kanban' ? WA.teal : WA.textMuted, boxShadow: viewMode === 'kanban' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none' }}
-              >
-                ⊞
-              </button>
-            </div>
-          </div>
-
-          {activeTab === 'creators' && viewMode === 'list' && filteredCreators.length > 0 && (
-            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b" style={{ borderColor: WA.borderLight, background: WA.white }}>
-              <label className="flex items-center gap-2 text-xs" style={{ color: WA.textMuted }}>
-                <input
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={toggleSelectAllVisible}
-                />
-                <span>全选当前 {visibleCreatorIds.length} 位</span>
-                {selectedVisibleCount > 0 && (
-                  <span style={{ color: WA.textDark }}>已选 {selectedVisibleCount}</span>
-                )}
-              </label>
-              <div className="flex items-center gap-2">
-                {selectedVisibleCount > 0 && (
-                  <button
-                    onClick={clearSelectedCreators}
-                    className="px-2.5 py-1.5 rounded-lg text-xs"
-                    style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
-                  >
-                    清空
-                  </button>
-                )}
-                <button
-                  onClick={applyBatchLifecycleOption0}
-                  disabled={selectedVisibleCount === 0 || batchApplyingOption0}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
-                  style={{ background: batchApplyingOption0 ? '#9ca3af' : WA.teal }}
-                >
-                  {batchApplyingOption0 ? '写入中...' : `批量写入 Option0${selectedVisibleCount > 0 ? ` (${selectedVisibleCount})` : ''}`}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* List / Kanban content */}
-          <div className="flex-1 overflow-y-auto">
-            {activeTab === 'creators' ? (
-              loading && creators.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
-                  <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: WA.teal, borderTopColor: 'transparent' }} />
-                  <span className="text-xs">加载中...</span>
-                </div>
-              ) : filteredCreators.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: WA.lightBg }}>
-                    <span className="text-xl">🔍</span>
+              <div className="px-4 pt-4 pb-3 border-b space-y-3" style={{ borderColor: WA.shellBorder }}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="docs-kicker">Navigator</div>
+                    <div className="docs-title">达人名录</div>
+                    <div className="text-[12px] mt-0.5" style={{ color: WA.textMuted }}>
+                      用文档式列表浏览联系人、筛选阶段并进入聊天。
+                    </div>
                   </div>
-                  <span className="text-sm">没有找到达人</span>
+                  <div
+                    className="shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold"
+                    style={{ background: WA.shellAccentSoft, color: WA.teal }}
+                  >
+                    {filteredCreators.length} 人
+                  </div>
                 </div>
-              ) : viewMode === 'list' ? (
-                filteredCreators.map(c => (
-                  <ChatListItem
-                    key={c.id}
-                    creator={c}
-                    unread={unreadCounts[c.id] || 0}
-                    selectable
-                    selected={selectedCreatorIds.includes(c.id)}
-                    onToggleSelect={toggleCreatorSelection}
-                    onClick={() => handleSelectCreator(c)}
+
+                <div className="flex items-center gap-3 px-4 py-3 rounded-2xl" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+                  <span style={{ color: WA.textMuted }}>🔍</span>
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="搜索姓名、电话..."
+                    className="flex-1 bg-transparent text-sm focus:outline-none"
+                    style={{ color: WA.textDark }}
                   />
-                ))
-              ) : (
-                <KanbanView creators={filteredCreators} onCreatorClick={c => handleSelectCreator(c)} />
-              )
-            ) : activeTab === 'events' ? (
-              <EventPanel />
-            ) : activeTab === 'strategy' ? (
-              <div className="h-full overflow-y-auto p-3 space-y-3" style={{ background: WA.lightBg }}>
-                <LifecycleConfigPanel embedded />
-                <StrategyConfigPanel embedded />
-              </div>
-            ) : (
-              <SFTDashboard compact />
-            )}
-          </div>
-        </div>
-
-        {/* 分隔线 1：列表 ↔ 详情 */}
-        <div
-          className="w-1.5 shrink-0 cursor-col-resize group relative z-10"
-          style={{ background: dragging === 'list-detail' ? WA.teal : 'transparent' }}
-          onMouseDown={startDrag('list-detail')}
-          onTouchStart={startDrag('list-detail')}
-        >
-          <div className="absolute inset-y-0 -left-1 -right-1 group-hover:flex hidden items-center justify-center">
-            <div className="w-1.5 h-12 rounded-full flex flex-col items-center justify-center gap-1" style={{ background: WA.borderLight }}>
-              <span className="w-1 h-1 rounded-full" style={{ background: WA.textMuted }} />
-              <span className="w-1 h-1 rounded-full" style={{ background: WA.textMuted }} />
-              <span className="w-1 h-1 rounded-full" style={{ background: WA.textMuted }} />
-            </div>
-          </div>
-        </div>
-
-        {/* Panel 2: Chat */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {selectedCreator ? (
-            <WAMessageComposer
-              key={selectedCreator.id}
-              client={{
-                id: selectedCreator.id,
-                phone: selectedCreator.wa_phone,
-                name: selectedCreator.primary_name,
-                wa_owner: selectedCreator.wa_owner,
-                conversion_stage: selectedCreator.beta_status || 'unknown',
-              }}
-              creator={selectedCreator}
-              onClose={() => setSelectedCreator(null)}
-              onMessageSent={handleCreatorMessageSent}
-              onCreatorUpdated={handleCreatorUpdated}
-            />
-          ) : (
-            <div className="flex-1 flex items-center justify-center" style={{ background: WA.chatBg }}>
-              {waQrData ? (
-                <div className="text-center">
-                  <img src={waQrData} alt="WA QR" style={{ width: 220, height: 220, borderRadius: 12, border: '2px solid #e5e7eb', marginBottom: 16 }} />
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#856404', marginBottom: 4 }}>⚠️ 请扫码认证 WhatsApp</div>
-                  <div style={{ fontSize: 12, color: '#856404' }}>WhatsApp → ⋮ → 已关联的设备 → 关联新设备</div>
+                  {search && (
+                    <button onClick={() => setSearch('')} style={{ color: WA.textMuted }}>✕</button>
+                  )}
                 </div>
+
+                <div className="space-y-1.5">
+                  <div className="docs-kicker">Operators</div>
+                  <div className="flex flex-wrap gap-2">
+                    {ownerOptions.map(o => (
+                      <button
+                        key={o}
+                        onClick={() => setFilterOwner(o)}
+                        className="shrink-0 px-3.5 py-2 rounded-full text-[13px] font-medium transition-all"
+                        style={{
+                          background: filterOwner === o ? WA.shellActive : WA.white,
+                          color: filterOwner === o ? WA.textDark : WA.textMuted,
+                          border: `1px solid ${filterOwner === o ? WA.shellBorderStrong : WA.borderLight}`
+                        }}
+                      >
+                        {o === '' ? '全部' : o}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-4 py-3 border-b space-y-2" style={{ borderColor: WA.shellBorder, background: WA.shellPanelMuted }}>
+                <div className="flex items-center justify-between">
+                  <div className="docs-kicker">Filters</div>
+                  <div className="flex items-center gap-2">
+                    {activeFilterCount > 0 && (
+                      <span
+                        className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                        style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
+                      >
+                        {activeFilterCount} 项
+                      </span>
+                    )}
+                    {activeFilterCount > 0 && filtersExpanded && (
+                      <button
+                        onClick={() => { setFilterBeta(''); setFilterPriority(''); setFilterAgency(''); setFilterEvent(''); setFilterLifecycle('') }}
+                        className="text-[12px] font-semibold"
+                        style={{ color: '#c65f49' }}
+                      >
+                        清除全部
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setFiltersExpanded(v => !v)}
+                      className="text-[12px] font-semibold"
+                      style={{ color: WA.textMuted }}
+                    >
+                      {filtersExpanded ? '收起' : '展开'}
+                    </button>
+                  </div>
+                </div>
+                {filtersExpanded ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <FilterSelect value={filterBeta} onChange={setFilterBeta} placeholder="Beta 子流程">
+                        <option value="">Beta 子流程</option>
+                        <option value="not_introduced">未介绍</option>
+                        <option value="introduced">已介绍</option>
+                        <option value="started">已开始</option>
+                        <option value="completed">已完成</option>
+                      </FilterSelect>
+                      <FilterSelect value={filterPriority} onChange={setFilterPriority} placeholder="优先级">
+                        <option value="">优先级</option>
+                        <option value="high">高</option>
+                        <option value="medium">中</option>
+                        <option value="low">低</option>
+                      </FilterSelect>
+                      <FilterSelect value={filterAgency} onChange={setFilterAgency} placeholder="Agency">
+                        <option value="">Agency</option>
+                        <option value="yes">已绑定</option>
+                        <option value="no">未绑定</option>
+                      </FilterSelect>
+                      <FilterSelect value={filterEvent} onChange={setFilterEvent} placeholder="事件">
+                        <option value="">事件</option>
+                        <option value="trial_7day">7天试用</option>
+                        <option value="monthly_invited">月卡邀请</option>
+                        <option value="monthly_joined">月卡加入</option>
+                        <option value="gmv_1k">GMV&gt;1K</option>
+                        <option value="churned">已流失</option>
+                      </FilterSelect>
+                    </div>
+                    <FilterSelect value={filterLifecycle} onChange={setFilterLifecycle} placeholder="生命周期">
+                      {LIFECYCLE_FILTER_OPTIONS.map(option => (
+                        <option key={option.key || 'all'} value={option.key}>{option.label}</option>
+                      ))}
+                    </FilterSelect>
+                  </>
+                ) : (
+                  <div className="text-[12px] flex items-center justify-between gap-3 leading-5" style={{ color: WA.textMuted }}>
+                    <span>过滤条件已收起</span>
+                    <span>{activeFilterCount > 0 ? `当前生效 ${activeFilterCount} 项` : '未启用筛选'}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-4 py-2.5 border-b flex items-center justify-between gap-3" style={{ borderColor: WA.shellBorder }}>
+                <div>
+                  <div className="docs-kicker">Contacts</div>
+                  <div className="text-[15px] font-semibold" style={{ color: WA.textDark }}>
+                    {filteredCreators.length} 位达人
+                  </div>
+                </div>
+                <div className="flex gap-1 rounded-full p-1" style={{ background: WA.shellPanelMuted }}>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className="px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all"
+                    style={{
+                      background: viewMode === 'list' ? WA.white : 'transparent',
+                      color: viewMode === 'list' ? WA.textDark : WA.textMuted,
+                      border: `1px solid ${viewMode === 'list' ? WA.borderLight : 'transparent'}`
+                    }}
+                  >
+                    列表
+                  </button>
+                  <button
+                    onClick={() => setViewMode('kanban')}
+                    className="px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all"
+                    style={{
+                      background: viewMode === 'kanban' ? WA.white : 'transparent',
+                      color: viewMode === 'kanban' ? WA.textDark : WA.textMuted,
+                      border: `1px solid ${viewMode === 'kanban' ? WA.borderLight : 'transparent'}`
+                    }}
+                  >
+                    看板
+                  </button>
+                </div>
+              </div>
+
+              {viewMode === 'list' && filteredCreators.length > 0 && (
+                <div className="px-4 py-2.5 border-b flex items-center justify-between gap-3" style={{ borderColor: WA.shellBorder, background: WA.shellPanelStrong }}>
+                  <label className="flex items-center gap-2 text-xs" style={{ color: WA.textMuted }}>
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                    />
+                    <span>全选当前 {visibleCreatorIds.length} 位</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {selectedVisibleCount > 0 && (
+                      <button
+                        onClick={clearSelectedCreators}
+                        className="px-2.5 py-1.5 rounded-full text-xs font-medium"
+                        style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
+                      >
+                        清空
+                      </button>
+                    )}
+                    <button
+                      onClick={applyBatchLifecycleOption0}
+                      disabled={selectedVisibleCount === 0 || batchApplyingOption0}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold text-white disabled:opacity-50"
+                      style={{ background: batchApplyingOption0 ? '#9ca3af' : WA.teal }}
+                    >
+                      {batchApplyingOption0 ? '写入中...' : `批量写入 Option0${selectedVisibleCount > 0 ? ` (${selectedVisibleCount})` : ''}`}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex-1 overflow-y-auto docs-scrollbar" style={{ background: WA.shellPanel }}>
+                {loading && creators.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
+                    <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: WA.teal, borderTopColor: 'transparent' }} />
+                    <span className="text-xs">加载中...</span>
+                  </div>
+                ) : filteredCreators.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+                      <span className="text-xl">🔍</span>
+                    </div>
+                    <span className="text-sm">没有找到达人</span>
+                  </div>
+                ) : viewMode === 'list' ? (
+                  filteredCreators.map(c => (
+                    <ChatListItem
+                      key={c.id}
+                      creator={c}
+                      unread={unreadCounts[c.id] || 0}
+                      active={selectedCreator?.id === c.id && activeTab === 'creators'}
+                      selectable
+                      selected={selectedCreatorIds.includes(c.id)}
+                      onToggleSelect={toggleCreatorSelection}
+                      onClick={() => handleSelectCreator(c)}
+                    />
+                  ))
+                ) : (
+                  <KanbanView creators={filteredCreators} onCreatorClick={c => handleSelectCreator(c)} />
+                )}
+              </div>
+
+              <div className="shrink-0 px-4 py-3 border-t" style={{ borderColor: WA.shellBorder, background: WA.shellPanelStrong }}>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="docs-panel-strong px-2 py-2.5">
+                    <div className="text-sm font-semibold" style={{ color: WA.textDark }}>{stats?.total_messages?.toLocaleString?.() || 0}</div>
+                    <div className="text-[11px]" style={{ color: WA.textMuted }}>消息</div>
+                  </div>
+                  <div className="docs-panel-strong px-2 py-2.5">
+                    <div className="text-sm font-semibold" style={{ color: WA.textDark }}>{creators.filter(c => c.msg_count > 0).length}</div>
+                    <div className="text-[11px]" style={{ color: WA.textMuted }}>活跃</div>
+                  </div>
+                  <div className="docs-panel-strong px-2 py-2.5">
+                    <div className="text-sm font-semibold" style={{ color: WA.textDark }}>
+                      {creators.filter(c => c.beta_status === 'introduced' || c.beta_status === 'joined').length}
+                    </div>
+                    <div className="text-[11px]" style={{ color: WA.textMuted }}>Beta</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="w-2.5 shrink-0 cursor-col-resize group relative z-10"
+              style={{ background: 'transparent' }}
+              onMouseDown={startDrag('list-detail')}
+              onTouchStart={startDrag('list-detail')}
+            >
+              <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center justify-center">
+                <div
+                  className="w-1 h-12 rounded-full transition-all"
+                  style={{ background: dragging === 'list-detail' ? WA.teal : WA.shellBorderStrong, opacity: dragging === 'list-detail' ? 1 : 0.8 }}
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 min-w-0 docs-panel overflow-hidden" style={{ background: WA.shellPanelStrong }}>
+              {activeTab === 'creators' ? (
+                selectedCreator ? (
+                  <WAMessageComposer
+                    key={selectedCreator.id}
+                    client={{
+                      id: selectedCreator.id,
+                      phone: selectedCreator.wa_phone,
+                      name: selectedCreator.primary_name,
+                      wa_owner: selectedCreator.wa_owner,
+                      conversion_stage: selectedCreator.lifecycle?.stage_key || selectedCreator.beta_status || 'unknown',
+                      lifecycle_stage: selectedCreator.lifecycle?.stage_key || 'unknown',
+                      lifecycle_label: selectedCreator.lifecycle?.stage_label || null,
+                    }}
+                    creator={selectedCreator}
+                    onClose={() => setSelectedCreator(null)}
+                    onMessageSent={handleCreatorMessageSent}
+                    onCreatorUpdated={handleCreatorUpdated}
+                  />
+                ) : waQrData ? (
+                  <div className="flex-1 flex items-center justify-center" style={{ background: WA.chatBg }}>
+                    <div
+                      className="text-center p-8 rounded-[28px]"
+                      style={{ background: WA.white, border: `1px solid ${WA.borderLight}`, boxShadow: WA.shellShadow }}
+                    >
+                      <img src={waQrData} alt="WA QR" style={{ width: 220, height: 220, borderRadius: 18, border: `1px solid ${WA.borderLight}`, marginBottom: 20 }} />
+                      <div className="docs-title" style={{ fontSize: 20 }}>请扫码认证 WhatsApp</div>
+                      <div className="text-sm mt-2" style={{ color: WA.textMuted }}>
+                        WhatsApp → ⋮ → 已关联的设备 → 关联新设备
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <Panel2Empty stats={stats} creators={creators} />
+                )
               ) : (
-                <div className="text-center" style={{ color: WA.textMuted }}>
-                  <div className="text-5xl mb-4">💬</div>
-                  <div className="text-sm">选择一个达人开始对话</div>
+                <div className="flex flex-col h-full min-h-0" style={{ background: WA.shellPanelStrong }}>
+                  <div className="shrink-0 px-6 py-5 border-b" style={{ borderColor: WA.shellBorder }}>
+                    <div className="docs-kicker">Workspace</div>
+                    <div className="mt-1 flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="text-[28px] leading-none font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>
+                          {workspaceMeta.title}
+                        </div>
+                        <div className="text-sm mt-2" style={{ color: WA.textMuted }}>
+                          {workspaceMeta.subtitle}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="px-3 py-2 rounded-full text-xs font-medium" style={{ background: WA.shellPanelMuted, color: WA.textMuted }}>
+                          当前 Owner: <span style={{ color: WA.textDark }}>{selectedOwnerLabel}</span>
+                        </div>
+                        <div className="px-3 py-2 rounded-full text-xs font-medium" style={{ background: WA.shellPanelMuted, color: WA.textMuted }}>
+                          筛选条件: <span style={{ color: WA.textDark }}>{activeFilterCount}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto docs-scrollbar" style={{ background: WA.shellPanel }}>
+                    {activeTab === 'events' ? (
+                      <EventPanel />
+                    ) : activeTab === 'strategy' ? (
+                      <div className="h-full overflow-y-auto p-3 space-y-3" style={{ background: WA.lightBg }}>
+                        <LifecycleConfigPanel embedded />
+                        <StrategyConfigPanel embedded />
+                      </div>
+                    ) : (
+                      <SFTDashboard compact />
+                    )}
+                  </div>
                 </div>
               )}
             </div>
-          )}
-        </div>
 
-        {/* Panel 3: Right Detail Drawer */}
-        {selectedCreator && (
-          <div
-            className="shrink-0 flex flex-col"
-            style={{
-              width: detailPanelWidth,
-              minWidth: detailPanelWidth,
-              maxWidth: detailPanelWidth,
-              transition: 'width 220ms ease',
-            }}
-            onMouseEnter={() => setDetailPanelExpanded(true)}
-            onMouseLeave={() => {
-              if (!detailPanelPinned) setDetailPanelExpanded(false)
-            }}
-          >
-            <CreatorDetail
-              creatorId={selectedCreator.id}
-              creatorName={selectedCreator.primary_name}
-              onClose={() => setSelectedCreator(null)}
-              onMessageSent={handleCreatorMessageSent}
-              onCreatorUpdated={handleCreatorUpdated}
-              asPanel
-              collapsed={!isDetailPanelOpen}
-              pinned={detailPanelPinned}
-              onTogglePin={() => {
-                setDetailPanelPinned(prev => !prev)
-                setDetailPanelExpanded(true)
-              }}
-              onExpand={() => setDetailPanelExpanded(true)}
-            />
+            {showDetailPanel && (
+              <div
+                className="shrink-0 flex flex-col docs-panel overflow-hidden"
+                style={{
+                  width: detailPanelWidth,
+                  minWidth: detailPanelWidth,
+                  maxWidth: detailPanelWidth,
+                  transition: 'width 220ms ease',
+                  background: WA.shellPanel,
+                }}
+                onMouseEnter={() => setDetailPanelExpanded(true)}
+                onMouseLeave={() => {
+                  if (!detailPanelPinned) setDetailPanelExpanded(false)
+                }}
+              >
+                <CreatorDetail
+                  creatorId={selectedCreator.id}
+                  creatorName={selectedCreator.primary_name}
+                  onClose={() => setSelectedCreator(null)}
+                  onMessageSent={handleCreatorMessageSent}
+                  onCreatorUpdated={handleCreatorUpdated}
+                  asPanel
+                  collapsed={!isDetailPanelOpen}
+                  pinned={detailPanelPinned}
+                  onTogglePin={() => {
+                    setDetailPanelPinned(prev => !prev)
+                    setDetailPanelExpanded(true)
+                  }}
+                  onExpand={() => setDetailPanelExpanded(true)}
+                />
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       <WorkerStatusBar />
@@ -891,7 +1044,9 @@ function App() {
                 phone: selectedCreator.wa_phone,
                 name: selectedCreator.primary_name,
                 wa_owner: selectedCreator.wa_owner,
-                conversion_stage: selectedCreator.beta_status || 'unknown',
+                conversion_stage: selectedCreator.lifecycle?.stage_key || selectedCreator.beta_status || 'unknown',
+                lifecycle_stage: selectedCreator.lifecycle?.stage_key || 'unknown',
+                lifecycle_label: selectedCreator.lifecycle?.stage_label || null,
               }}
               creator={selectedCreator}
               onClose={() => setSelectedCreator(null)}
@@ -1114,12 +1269,13 @@ function FilterSelect({ value, onChange, placeholder, children }) {
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border focus:outline-none transition-all"
+      className="flex-1 text-[12px] px-3 py-2.5 rounded-2xl border focus:outline-none transition-all leading-5"
       style={{
         background: WA.white,
         borderColor: value ? WA.teal + '50' : WA.borderLight,
         color: value ? WA.textDark : WA.textMuted,
-        fontSize: '12px'
+        fontSize: '12px',
+        boxShadow: value ? '0 0 0 1px rgba(15,118,110,0.08)' : 'none',
       }}
     >
       {children}
@@ -1329,7 +1485,7 @@ function getPriorityBadgeMeta(priority) {
 }
 
 // ====== Chat List Item ======
-function ChatListItem({ creator, onClick, unread, selectable = false, selected = false, onToggleSelect }) {
+function ChatListItem({ creator, onClick, unread, active = false, selectable = false, selected = false, onToggleSelect }) {
   const ownerColor = getOwnerColor(creator.wa_owner, WA.textMuted)
   const full = creator._full || {}
   const wacrm = full.wacrm || {}
@@ -1338,6 +1494,9 @@ function ChatListItem({ creator, onClick, unread, selectable = false, selected =
   const priorityMeta = getPriorityBadgeMeta(wacrm.priority)
   const lifecycle = creator.lifecycle || full.lifecycle || null
   const lifecycleMeta = lifecycle?.stage_key ? LIFECYCLE_BADGE_META[lifecycle.stage_key] : null
+  const referralActive = !!lifecycle?.flags?.referral_active
+  const hasConflicts = !!lifecycle?.has_conflicts
+  const betaStatus = wacrm.beta_status || lifecycle?.flags?.beta_status || ''
 
   const lastActiveTs = getCreatorLastConversationTs(creator)
   const lastActiveLabel = lastActiveTs ? formatChatListTime(lastActiveTs) : null
@@ -1346,6 +1505,10 @@ function ChatListItem({ creator, onClick, unread, selectable = false, selected =
     : ''
 
   const activeEvents = EVENT_BADGES.filter(e => joinbrands[e.key] || full[e.key]).slice(0, 2)
+  const baseBackground = statusMeta.bg === 'transparent' ? WA.white : statusMeta.bg
+  const restBackground = active ? WA.shellActive : baseBackground
+  const hoverBackground = active ? WA.shellActive : (statusMeta.hoverBg === 'transparent' ? WA.shellHover : statusMeta.hoverBg)
+  const leftAccent = statusMeta.accent === 'transparent' ? WA.shellBorderStrong : statusMeta.accent
 
   return (
     <div
@@ -1353,13 +1516,13 @@ function ChatListItem({ creator, onClick, unread, selectable = false, selected =
       className="mx-3 my-2 flex items-center gap-3.5 px-4 py-4 cursor-pointer transition-colors"
       style={{
         border: `1px solid ${WA.borderLight}`,
-        borderLeft: `3px solid ${statusMeta.accent}`,
-        background: statusMeta.bg,
-        borderRadius: 22,
-        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+        borderLeft: `4px solid ${leftAccent}`,
+        background: restBackground,
+        borderRadius: 24,
+        boxShadow: active ? '0 10px 24px rgba(31,29,26,0.08)' : '0 1px 2px rgba(15, 23, 42, 0.04)',
       }}
-      onMouseEnter={e => e.currentTarget.style.background = statusMeta.hoverBg}
-      onMouseLeave={e => e.currentTarget.style.background = statusMeta.bg}
+      onMouseEnter={e => e.currentTarget.style.background = hoverBackground}
+      onMouseLeave={e => e.currentTarget.style.background = restBackground}
     >
       {selectable && (
         <div className="shrink-0" onClick={e => e.stopPropagation()}>
@@ -1377,7 +1540,7 @@ function ChatListItem({ creator, onClick, unread, selectable = false, selected =
           {(creator.primary_name || '?')[0]?.toUpperCase()}
         </div>
         {unread > 0 && (
-          <div className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: '#ef4444' }}>
+          <div className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: '#E96D5A' }}>
             {unread > 9 ? '9+' : unread}
           </div>
         )}
@@ -1418,33 +1581,48 @@ function ChatListItem({ creator, onClick, unread, selectable = false, selected =
         </div>
 
         {/* Tags row */}
-        {(activeEvents.length > 0 || priorityMeta || lifecycleMeta || wacrm.agency_bound > 0 || creator.keeper_gmv > 0 || statusMeta.label) && (
-          <div className="flex flex-wrap gap-1 mt-1">
+        {(activeEvents.length > 0 || priorityMeta || lifecycleMeta || wacrm.agency_bound > 0 || creator.keeper_gmv > 0 || statusMeta.label || betaStatus) && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
             {statusMeta.label && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: statusMeta.bg === 'transparent' ? 'rgba(0,0,0,0.05)' : statusMeta.bg, color: statusMeta.accent }}>
+              <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: statusMeta.bg === 'transparent' ? WA.shellPanelMuted : statusMeta.bg, color: statusMeta.accent }}>
                 {statusMeta.label}
               </span>
             )}
             {lifecycleMeta && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: lifecycleMeta.bg, color: lifecycleMeta.color }}>
+              <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: lifecycleMeta.bg, color: lifecycleMeta.color }}>
                 {lifecycleMeta.label}
               </span>
             )}
+            {referralActive && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: 'rgba(13,148,136,0.12)', color: '#0d9488' }}>
+                推荐中
+              </span>
+            )}
+            {hasConflicts && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: 'rgba(239,68,68,0.12)', color: '#dc2626' }}>
+                冲突
+              </span>
+            )}
             {activeEvents.map(e => (
-              <span key={e.key} className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: e.bg, color: e.color }}>
+              <span key={e.key} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: e.bg, color: e.color }}>
                 {e.label}
               </span>
             ))}
             {priorityMeta && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full" style={priorityMeta.style}>
+              <span className="text-[11px] px-2 py-0.5 rounded-full" style={priorityMeta.style}>
                 {priorityMeta.label}
               </span>
             )}
+            {betaStatus && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}>
+                Beta: {formatBetaStatusLabel(betaStatus)}
+              </span>
+            )}
             {wacrm.agency_bound > 0 && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: '#008069' }}>Agency</span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: '#008069' }}>Agency</span>
             )}
             {creator.keeper_gmv > 0 && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>
+              <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>
                 ${Number(creator.keeper_gmv).toLocaleString()}
               </span>
             )}
@@ -1453,6 +1631,18 @@ function ChatListItem({ creator, onClick, unread, selectable = false, selected =
       </div>
     </div>
   )
+}
+
+function formatBetaStatusLabel(value) {
+  const map = {
+    not_introduced: '未介绍',
+    introduced: '已介绍',
+    started: '已开始',
+    joined: '已加入',
+    completed: '已完成',
+    churned: '已流失',
+  }
+  return map[value] || value || '-'
 }
 
 // ====== Empty State ======
@@ -1475,6 +1665,43 @@ function EmptyState({ viewMode }) {
   )
 }
 
+function compactWorkspaceMessage(text = '') {
+  return String(text || '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildWorkspaceDigestSummary(creator) {
+  const lifecycleLabel = creator?.lifecycle?.stage_label || '待跟进'
+  const priority = creator?._full?.wacrm?.priority || creator?.priority || 'normal'
+  const messages = getCreatorMessages(creator)
+  const latestIncoming = [...messages].reverse().find(m => m?.role === 'user' && String(m?.text || '').trim())
+  const latestAny = [...messages].reverse().find(m => String(m?.text || '').trim())
+  const latestText = compactWorkspaceMessage(latestIncoming?.text || latestAny?.text || '')
+
+  if (!latestText) {
+    return `${lifecycleLabel}阶段，当前为${formatBetaStatusLabel(creator?.beta_status || creator?._full?.wacrm?.beta_status || 'not_introduced')}，建议优先查看最新会话状态。`
+  }
+
+  const prefix = latestIncoming ? '最新达人消息' : '最近会话摘要'
+  return `${prefix}：${latestText}`.slice(0, 120)
+}
+
+function buildWorkspaceDigestItems(creators = [], limit = 4) {
+  return [...creators]
+    .sort((a, b) => getCreatorLastConversationTs(b) - getCreatorLastConversationTs(a))
+    .slice(0, limit)
+    .map((creator) => ({
+      id: creator.id,
+      name: creator.primary_name || 'Unknown',
+      owner: creator.wa_owner || '-',
+      stage: creator?.lifecycle?.stage_label || '待跟进',
+      time: formatChatListTime(getCreatorLastConversationTs(creator)) || '暂无记录',
+      summary: buildWorkspaceDigestSummary(creator),
+    }))
+}
+
 // ====== Panel 2 空状态：显示全局统计 ======
 function Panel2Empty({ stats, creators }) {
   if (!stats) {
@@ -1488,41 +1715,39 @@ function Panel2Empty({ stats, creators }) {
   const totalMessages = stats.total_messages || 0
   const activeCreators = creators.filter(c => c.msg_count > 0).length
   const betaCount = creators.filter(c => c.beta_status === 'introduced' || c.beta_status === 'joined').length
+  const digestItems = buildWorkspaceDigestItems(creators, 4)
 
   return (
     <div className="flex-1 flex flex-col" style={{ background: WA.chatBg }}>
-      <div className="flex-1 overflow-y-auto p-5 space-y-4">
-        {/* 标题 */}
-        <div className="text-center mb-6">
-          <div className="text-4xl mb-2">📊</div>
-          <div className="font-semibold" style={{ color: WA.textDark }}>WA CRM</div>
-          <div className="text-xs mt-1" style={{ color: WA.textMuted }}>全局概览</div>
+      <div className="flex-1 overflow-y-auto p-8 space-y-5 docs-scrollbar">
+        <div className="text-center mb-2">
+          <div className="docs-kicker">Workspace</div>
+          <div className="text-[34px] mt-2 font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>消息工作台</div>
+          <div className="text-sm mt-2" style={{ color: WA.textMuted }}>从左侧选择一位达人，进入对话、策略和上下文协同视图。</div>
         </div>
 
-        {/* 核心统计 */}
         <div className="grid grid-cols-2 gap-3">
-          <div className="text-center p-4 rounded-xl" style={{ background: WA.white }}>
+          <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
             <div className="text-2xl font-bold" style={{ color: WA.teal }}>{totalCreators}</div>
             <div className="text-xs mt-1" style={{ color: WA.textMuted }}>总达人</div>
           </div>
-          <div className="text-center p-4 rounded-xl" style={{ background: WA.white }}>
+          <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
             <div className="text-2xl font-bold" style={{ color: WA.teal }}>{totalMessages.toLocaleString()}</div>
             <div className="text-xs mt-1" style={{ color: WA.textMuted }}>消息总数</div>
           </div>
-          <div className="text-center p-4 rounded-xl" style={{ background: WA.white }}>
+          <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
             <div className="text-2xl font-bold" style={{ color: '#10b981' }}>{activeCreators}</div>
             <div className="text-xs mt-1" style={{ color: WA.textMuted }}>活跃达人</div>
           </div>
-          <div className="text-center p-4 rounded-xl" style={{ background: WA.white }}>
+          <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
             <div className="text-2xl font-bold" style={{ color: '#8b5cf6' }}>{betaCount}</div>
-            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>Beta 已引入</div>
+            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>Beta 子流程已引入</div>
           </div>
         </div>
 
-        {/* 按负责人分布 */}
         {stats.by_owner && Object.keys(stats.by_owner).length > 0 && (
-          <div className="rounded-xl p-4" style={{ background: WA.white }}>
-            <div className="text-xs font-semibold mb-3" style={{ color: WA.textMuted }}>按负责人</div>
+          <div className="rounded-[24px] p-5" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+            <div className="docs-kicker mb-3">Owners</div>
             <div className="space-y-2">
               {Object.entries(stats.by_owner).map(([owner, count]) => (
                 <div key={owner} className="flex items-center justify-between">
@@ -1534,9 +1759,49 @@ function Panel2Empty({ stats, creators }) {
           </div>
         )}
 
-        {/* 提示 */}
-        <div className="text-center text-xs py-3 rounded-xl" style={{ background: 'rgba(0,168,132,0.08)', color: WA.textMuted }}>
-          👈 从左侧列表选择一个达人
+        <div className="text-center text-sm py-4 rounded-[24px]" style={{ background: WA.shellAccentSoft, color: WA.textMuted }}>
+          👈 从左侧名录选择达人，右侧上下文抽屉会随聊天工作流展开
+        </div>
+
+        <div
+          className="rounded-[26px] border p-5 flex flex-col gap-4"
+          style={{ background: WA.white, borderColor: WA.borderLight, minHeight: 280 }}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="docs-kicker">Quick Digest</div>
+              <div className="text-[18px] font-semibold tracking-[-0.02em]" style={{ color: WA.textDark }}>快速消息概览 AI 摘要</div>
+              <div className="text-[13px] mt-1" style={{ color: WA.textMuted }}>
+                基于最近会话与阶段信息，为你先看一眼今天最值得关注的联系人。
+              </div>
+            </div>
+            <div className="px-3 py-1.5 rounded-full text-[11px] font-semibold" style={{ background: WA.shellPanelMuted, color: WA.textMuted }}>
+              最近 {digestItems.length} 位
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {digestItems.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-[22px] border px-4 py-3 space-y-2"
+                style={{ background: WA.shellPanelStrong, borderColor: WA.borderLight }}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[15px] font-semibold truncate" style={{ color: WA.textDark }}>{item.name}</div>
+                    <div className="text-[11px]" style={{ color: WA.textMuted }}>
+                      {item.owner} · {item.stage}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-[11px]" style={{ color: WA.textMuted }}>{item.time}</div>
+                </div>
+                <div className="text-[13px] leading-5" style={{ color: WA.textDark }}>
+                  {item.summary}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

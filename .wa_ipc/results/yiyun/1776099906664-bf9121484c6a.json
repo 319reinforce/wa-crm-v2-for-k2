@@ -1,0 +1,18 @@
+{
+  "id": "1776099906664-bf9121484c6a",
+  "session_id": "yiyun",
+  "completed_at": "2026-04-13T17:05:53.301Z",
+  "ok": true,
+  "phone": "14108123788",
+  "name": "yvonnecarolina（Yvonne 🦋",
+  "messages": [
+    {
+      "role": "me",
+      "text": "Thank you! And good morning to you Yvonne 🥰☕️",
+      "timestamp": 1775574857000,
+      "message_id": "true_243357242626074@lid_3EB09AA23DB75F120C4A66"
+    }
+  ],
+  "routed_session_id": "yiyun",
+  "routed_operator": "Yiyun"
+}

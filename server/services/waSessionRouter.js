@@ -1,7 +1,13 @@
+const fs = require('fs');
+const path = require('path');
 const db = require('../../db');
 const { normalizeOperatorName } = require('../utils/operator');
 const { getStatus, getQrValue, sendMessage, sendMedia } = require('./waService');
-const { reconcileCreatorMessagesFromRaw, syncCreatorMessagesFromRaw } = require('./waMessageRepairService');
+const {
+    reconcileCreatorMessagesFromRaw,
+    syncCreatorMessagesFromRaw,
+    replaceCreatorMessagesFromRaw,
+} = require('./waMessageRepairService');
 const {
     getAssignmentByCreatorId,
     getSessionIdForOperator,
@@ -13,6 +19,123 @@ const {
     sanitizeSessionId,
     waitForSessionCommandResult,
 } = require('./waIpc');
+
+const REPAIR_QUEUE_DIR = path.join(__dirname, '../../.wa_ipc/repair-queue');
+const REPAIR_QUEUE_POLL_MS = 15000;
+let repairQueueTimer = null;
+let repairQueueBusy = false;
+
+function ensureRepairQueueDir() {
+    fs.mkdirSync(REPAIR_QUEUE_DIR, { recursive: true });
+}
+
+function repairQueuePath(sessionId) {
+    return path.join(REPAIR_QUEUE_DIR, `${sanitizeSessionId(sessionId)}.json`);
+}
+
+function readRepairQueue(sessionId) {
+    ensureRepairQueueDir();
+    const filePath = repairQueuePath(sessionId);
+    try {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function writeRepairQueue(sessionId, items) {
+    ensureRepairQueueDir();
+    const filePath = repairQueuePath(sessionId);
+    const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+    fs.writeFileSync(tempPath, JSON.stringify(items, null, 2));
+    fs.renameSync(tempPath, filePath);
+}
+
+function enqueueRepairJob(sessionId, payload) {
+    if (!sessionId) return null;
+    const queue = readRepairQueue(sessionId);
+    const key = payload.creator_id ? `creator:${payload.creator_id}` : `phone:${payload.phone || ''}`;
+    const now = new Date().toISOString();
+    const existingIndex = queue.findIndex((item) => item?.key === key);
+    const next = {
+        key,
+        created_at: now,
+        updated_at: now,
+        attempts: 0,
+        ...payload,
+    };
+    if (existingIndex >= 0) {
+        queue[existingIndex] = { ...queue[existingIndex], ...next, updated_at: now };
+    } else {
+        queue.push(next);
+    }
+    writeRepairQueue(sessionId, queue);
+    return next;
+}
+
+function startRepairQueueWorker() {
+    if (repairQueueTimer) return;
+    ensureRepairQueueDir();
+    repairQueueTimer = setInterval(() => {
+        processRepairQueue().catch((err) => {
+            console.warn('[WA Repair Queue] processing failed:', err.message);
+        });
+    }, REPAIR_QUEUE_POLL_MS);
+}
+
+async function processRepairQueue() {
+    if (repairQueueBusy) return;
+    repairQueueBusy = true;
+    try {
+        ensureRepairQueueDir();
+        const files = fs.readdirSync(REPAIR_QUEUE_DIR).filter((name) => name.endsWith('.json'));
+        for (const file of files) {
+            const sessionId = file.replace(/\.json$/, '');
+            const status = readSessionStatus(sessionId);
+            if (!status?.ready || status?.worker?.phase !== 'live') continue;
+
+            const queue = readRepairQueue(sessionId);
+            if (queue.length === 0) continue;
+
+            const remaining = [];
+            for (const item of queue) {
+                const attempts = Number(item?.attempts || 0);
+                if (attempts >= 1) continue;
+
+                const payload = {
+                    creator_id: item.creator_id || null,
+                    phone: item.phone || '',
+                    session_id: sessionId,
+                    operator: item.operator || null,
+                    fetch_limit: item.fetch_limit || 500,
+                    full_dedup: !!item.full_dedup,
+                };
+                const result = await reconcileRoutedContact(payload, { bypass: false });
+                if (!result?.ok) {
+                    remaining.push({
+                        ...item,
+                        attempts: attempts + 1,
+                        last_error: result?.error || 'unknown error',
+                        updated_at: new Date().toISOString(),
+                    });
+                    continue;
+                }
+            }
+
+            if (remaining.length === 0) {
+                try {
+                    fs.unlinkSync(repairQueuePath(sessionId));
+                } catch (_) {}
+            } else {
+                writeRepairQueue(sessionId, remaining);
+            }
+        }
+    } finally {
+        repairQueueBusy = false;
+    }
+}
 
 const SESSION_ALIASES = {
     beau: 'beau',
@@ -184,6 +307,17 @@ function buildSessionStatus(session) {
 }
 
 async function sendViaSessionCommand(sessionId, type, payload) {
+    const status = readSessionStatus(sessionId);
+    if (type === 'audit_recent_messages' && status?.worker?.phase === 'sync') {
+        return {
+            ok: false,
+            error: 'session syncing',
+            status_phase: status.worker.phase,
+            retry_after_ms: 60000,
+            routed_session_id: sessionId,
+            routed_operator: payload?.operator || status?.owner || null,
+        };
+    }
     const commandId = createSessionCommand(sessionId, {
         type,
         payload,
@@ -331,6 +465,7 @@ async function reconcileRoutedContact({
     session_id,
     operator,
     fetch_limit = 500,
+    full_dedup = true,
 }, { bypass = false } = {}) {
     const creatorId = Number(creator_id) || 0;
     const creatorRow = creatorId
@@ -364,6 +499,25 @@ async function reconcileRoutedContact({
         creator_id: creatorRow.id,
     });
     if (!rawResult?.ok) {
+        if (rawResult?.error === 'session syncing') {
+            const queued = enqueueRepairJob(resolved.session_id, {
+                creator_id: creatorRow.id,
+                phone: creatorRow.wa_phone,
+                operator: resolved.operator,
+                fetch_limit,
+                full_dedup,
+            });
+            return {
+                ok: true,
+                queued: true,
+                queued_at: queued?.created_at || new Date().toISOString(),
+                creator_id: creatorRow.id,
+                creator_name: creatorRow.primary_name,
+                wa_phone: creatorRow.wa_phone,
+                routed_session_id: resolved.session_id,
+                routed_operator: resolved.operator,
+            };
+        }
         return {
             ok: false,
             error: rawResult?.error || 'audit_recent_messages failed',
@@ -377,6 +531,7 @@ async function reconcileRoutedContact({
         creatorName: creatorRow.primary_name,
         operator: resolved.operator,
         rawMessages: rawResult.messages || [],
+        fullDedup: !!full_dedup,
         dryRun: false,
     });
 
@@ -399,6 +554,7 @@ async function syncRoutedContact({
     session_id,
     operator,
     fetch_limit = 200,
+    full_dedup = false,
 }, { bypass = false } = {}) {
     const creatorId = Number(creator_id) || 0;
     const creatorRow = creatorId
@@ -445,6 +601,7 @@ async function syncRoutedContact({
         creatorName: creatorRow.primary_name,
         operator: resolved.operator,
         rawMessages: rawResult.messages || [],
+        fullDedup: !!full_dedup,
         dryRun: false,
     });
 
@@ -461,12 +618,142 @@ async function syncRoutedContact({
     };
 }
 
+async function replaceRoutedContact({
+    creator_id,
+    phone,
+    session_id,
+    operator,
+    fetch_limit = 800,
+    force = false,
+    delete_all = false,
+    full_dedup = true,
+}, { bypass = false } = {}) {
+    const creatorId = Number(creator_id) || 0;
+    const creatorRow = creatorId
+        ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1').get(creatorId)
+        : (phone
+            ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE wa_phone = ? LIMIT 1').get(phone)
+            : null);
+
+    if (!creatorRow) {
+        return { ok: false, error: 'Creator not found' };
+    }
+    if (!creatorRow.wa_phone) {
+        return { ok: false, error: 'Creator has no wa_phone' };
+    }
+
+    const resolved = await resolveSessionTarget({
+        sessionId: session_id,
+        operator: operator || creatorRow.wa_owner,
+        creatorId: creatorRow.id,
+        phone: creatorRow.wa_phone,
+        allowFallback: false,
+    });
+    if (!resolved.session_id) {
+        return { ok: false, error: 'No target session resolved' };
+    }
+
+    const rawResult = await sendViaSessionCommand(resolved.session_id, 'audit_recent_messages', {
+        phone: creatorRow.wa_phone,
+        limit: Math.max(200, Math.min(parseInt(fetch_limit, 10) || 800, 2000)),
+        operator: resolved.operator,
+        creator_id: creatorRow.id,
+    });
+    if (!rawResult?.ok) {
+        return {
+            ok: false,
+            error: rawResult?.error || 'audit_recent_messages failed',
+            routed_session_id: resolved.session_id,
+            routed_operator: resolved.operator,
+        };
+    }
+
+    const rawMessages = Array.isArray(rawResult.messages) ? rawResult.messages : [];
+    const rawCount = rawMessages.length;
+    if (rawCount === 0) {
+        return {
+            ok: false,
+            error: 'No raw messages fetched',
+            routed_session_id: resolved.session_id,
+            routed_operator: resolved.operator,
+        };
+    }
+
+    const timestamps = rawMessages
+        .map((message) => Number(message?.timestamp) || 0)
+        .filter((ts) => ts > 0)
+        .sort((a, b) => a - b);
+    if (timestamps.length === 0) {
+        return {
+            ok: false,
+            error: 'Raw messages missing timestamps',
+            routed_session_id: resolved.session_id,
+            routed_operator: resolved.operator,
+        };
+    }
+
+    const minTs = Math.max(0, timestamps[0] - 12 * 60 * 60 * 1000);
+    const maxTs = timestamps[timestamps.length - 1] + 12 * 60 * 60 * 1000;
+    const existingRow = delete_all
+        ? await db.getDb().prepare(`
+            SELECT COUNT(*) AS count
+            FROM wa_messages
+            WHERE creator_id = ?
+        `).get(creatorRow.id)
+        : await db.getDb().prepare(`
+            SELECT COUNT(*) AS count
+            FROM wa_messages
+            WHERE creator_id = ?
+              AND timestamp BETWEEN ? AND ?
+        `).get(creatorRow.id, minTs, maxTs);
+    const existingCount = Number(existingRow?.count) || 0;
+    const minAllowed = Math.max(20, Math.floor(existingCount * 0.6));
+    if (!force && rawCount < minAllowed) {
+        return {
+            ok: false,
+            error: 'Raw messages too few to safely replace',
+            fetched_raw_count: rawCount,
+            existing_count: existingCount,
+            min_required: minAllowed,
+            routed_session_id: resolved.session_id,
+            routed_operator: resolved.operator,
+        };
+    }
+
+    const summary = await replaceCreatorMessagesFromRaw({
+        creatorId: creatorRow.id,
+        creatorName: creatorRow.primary_name,
+        operator: resolved.operator,
+        rawMessages,
+        deleteAll: delete_all,
+        fullDedup: !!full_dedup,
+        dryRun: false,
+    });
+
+    return {
+        ok: true,
+        creator_id: creatorRow.id,
+        creator_name: creatorRow.primary_name,
+        wa_phone: creatorRow.wa_phone,
+        fetched_raw_count: rawCount,
+        replacement: summary,
+        forced: !!force,
+        delete_all: !!delete_all,
+        routed_session_id: resolved.session_id,
+        routed_operator: resolved.operator,
+        bypass: !!bypass,
+    };
+}
+
+startRepairQueueWorker();
+
 module.exports = {
     getRoutedQr,
     getRoutedStatus,
     getSessionRegistry,
     reconcileRoutedContact,
     syncRoutedContact,
+    replaceRoutedContact,
     resolveSessionTarget,
     sendRoutedMessage,
     sendRoutedMedia,

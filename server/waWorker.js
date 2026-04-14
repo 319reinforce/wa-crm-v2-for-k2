@@ -147,7 +147,24 @@ function pickPreferredChatEntry(current, candidate) {
     return candidateId > currentId ? candidate : current;
 }
 
-async function buildDirectChatEntries(client) {
+const DIRECT_CHAT_CACHE_TTL_MS = 60 * 1000;
+let directChatCache = {
+    entries: null,
+    byPhone: new Map(),
+    expiresAt: 0,
+};
+
+function getCachedDirectChatEntry(phone) {
+    if (!directChatCache.entries) return null;
+    if (Date.now() > directChatCache.expiresAt) return null;
+    return directChatCache.byPhone.get(phone) || null;
+}
+
+async function buildDirectChatEntries(client, { force = false } = {}) {
+    const now = Date.now();
+    if (!force && directChatCache.entries && now <= directChatCache.expiresAt) {
+        return directChatCache.entries;
+    }
     const chats = await client.getChats();
     const byPhone = new Map();
     for (const chat of chats || []) {
@@ -166,7 +183,13 @@ async function buildDirectChatEntries(client) {
         };
         byPhone.set(phone, pickPreferredChatEntry(byPhone.get(phone), entry));
     }
-    return [...byPhone.values()];
+    const entries = [...byPhone.values()];
+    directChatCache = {
+        entries,
+        byPhone,
+        expiresAt: now + DIRECT_CHAT_CACHE_TTL_MS,
+    };
+    return entries;
 }
 
 function buildRosterIndex(rows = []) {
@@ -435,6 +458,9 @@ async function resolveChatByPhone(client, phone) {
     if (!normalizedTarget) return null;
 
     try {
+        const cached = getCachedDirectChatEntry(normalizedTarget);
+        if (cached) return cached.chat;
+
         const chatEntries = await buildDirectChatEntries(client);
         const matched = chatEntries
             .filter((entry) => entry.phone === normalizedTarget)

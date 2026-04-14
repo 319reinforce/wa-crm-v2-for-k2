@@ -19,11 +19,6 @@ const STAGE_META = {
         goal: '围绕绑定主线推进里程碑达成与奖励兑现。',
         exit_signal_hint: '若明确拒绝绑定且不继续联系，转入终止池。',
     },
-    referral: {
-        stage_label: 'Referral（传播）',
-        goal: '促成推荐裂变并将推荐结果回流主线运营。',
-        exit_signal_hint: '推荐完成后回流 Retention/Revenue。',
-    },
     terminated: {
         stage_label: 'Terminated（终止池）',
         goal: '停止主动触达，保留必要审计记录。',
@@ -64,14 +59,6 @@ const OPTION0_TEMPLATES = {
         topic_prompt_hint: '围绕绑定后的执行与兑现节奏沟通，不再停留在是否绑定的讨论。',
         topic_prompt_hint_en: 'Focus on post-binding execution and settlement cadence, not on whether to bind.',
     },
-    referral: {
-        key: 'option0_referral',
-        label: 'Option0｜推荐裂变推进',
-        next_action_template: '【Option0-传播】邀请达人推荐1位同类达人，给出简短转介绍文案和奖励说明，48小时内回收结果。',
-        next_action_template_en: '[Option0-Referral] Ask for one peer referral, provide a short share text plus incentive note, and collect result within 48h.',
-        topic_prompt_hint: '降低转介绍门槛，提供可直接转发的短文案。',
-        topic_prompt_hint_en: 'Lower referral friction with a ready-to-forward short script.',
-    },
     terminated: {
         key: 'option0_terminated',
         label: 'Option0｜终止池维护',
@@ -93,6 +80,14 @@ function toNumber(value, fallback = 0) {
 
 function toText(value) {
     return String(value || '').trim();
+}
+
+function buildGmvTier(gmvValue) {
+    if (gmvValue >= 10000) return 'gte_10k';
+    if (gmvValue >= 5000) return 'gte_5k';
+    if (gmvValue >= 2000) return 'gte_2k';
+    if (gmvValue > 0) return 'gt_0';
+    return 'lt_2k';
 }
 
 function findEventSignal(events, eventKey) {
@@ -143,8 +138,9 @@ function extractSignals(input = {}) {
     const monthlyStarted = toBool(pick({ input, joinbrands }, 'joinbrands.ev_monthly_started', 'input.ev_monthly_started')) || hasMonthlyChallengeEvent;
     const monthlyJoined = toBool(pick({ input, joinbrands }, 'joinbrands.ev_monthly_joined', 'input.ev_monthly_joined')) || hasMonthlyChallengeEvent;
     const monthlyInvited = toBool(pick({ input, joinbrands }, 'joinbrands.ev_monthly_invited', 'input.ev_monthly_invited'));
+    const gmvValue = toNumber(pick({ input, keeper, joinbrands }, 'keeper.keeper_gmv', 'input.keeper_gmv', 'joinbrands.jb_gmv', 'input.jb_gmv'), 0);
     const gmv2kEvent = toBool(pick({ input, joinbrands }, 'joinbrands.ev_gmv_2k', 'input.ev_gmv_2k'));
-    const gmv2kValue = toNumber(pick({ input, keeper, joinbrands }, 'keeper.keeper_gmv', 'input.keeper_gmv', 'joinbrands.jb_gmv', 'input.jb_gmv'), 0) > 2000;
+    const gmv2kValue = gmvValue >= 2000;
     const gmv2k = gmv2kEvent || gmv2kValue || hasGmvMilestoneEvent;
     const referralEventField = toBool(pick({ input }, 'input.ev_referral_event'));
     const terminatedEventField = toBool(pick({ input }, 'input.ev_terminated_event'));
@@ -155,7 +151,9 @@ function extractSignals(input = {}) {
         || findEventSignalByType(events, 'termination');
     const churned = toBool(pick({ input, joinbrands }, 'joinbrands.ev_churned', 'input.ev_churned')) || betaStatus === 'churned' || hasTerminatedEvent;
     const paid = monthlyFeeStatus === 'paid' || toBool(pick({ input, wacrm }, 'wacrm.monthly_fee_deducted', 'input.monthly_fee_deducted'));
-    const referral = referralEventField || source.includes('referral') || findEventSignal(events, 'referral') || findEventSignalByType(events, 'referral');
+    const referralFromEvent = referralEventField || findEventSignal(events, 'referral') || findEventSignalByType(events, 'referral');
+    const referralFromSource = source.includes('referral');
+    const referral = referralFromEvent || referralFromSource;
 
     const noContact = /不继续联系|终止|停止联系|do\s*not\s*contact|stop\s*contact|no\s*longer\s*contact/i.test(nextAction);
 
@@ -177,18 +175,29 @@ function extractSignals(input = {}) {
         betaStatus === 'completed';
 
     const retentionSignal = monthlyStarted || monthlyJoined || gmv2k;
+    const monthlyActive = monthlyStarted || monthlyJoined;
+    const churnRisk = !churned && (
+        (!!monthlyInvited && !monthlyActive)
+        || (betaStatus === 'introduced' && !trialActive && !paid && !agencyBound)
+    );
 
     return {
         agencyBound,
         trialActive,
         monthlyStarted,
         monthlyJoined,
+        monthlyActive,
         monthlyInvited,
+        gmvValue,
         gmv2k,
+        gmvTier: buildGmvTier(gmvValue),
         paid,
         referral,
+        referralFromEvent,
+        referralFromSource,
         hasTerminatedEvent,
         churned,
+        churnRisk,
         noContact,
         acquisitionSignal,
         activationSignal,
@@ -201,8 +210,58 @@ function buildOption0(stageKey) {
     return OPTION0_TEMPLATES[stageKey] || OPTION0_TEMPLATES.activation;
 }
 
+function buildLifecycleFlags(signals = {}) {
+    return {
+        referral_active: !!signals.referral,
+        agency_bound: !!signals.agencyBound,
+        trial_active: !!signals.trialActive,
+        monthly_active: !!signals.monthlyActive,
+        gmv_tier: signals.gmvTier || 'lt_2k',
+        churn_risk: !!signals.churnRisk,
+        beta_status: signals.betaStatus || null,
+    };
+}
+
+function buildLifecycleConflicts(signals = {}, stageKey, options = {}) {
+    const conflicts = [];
+    const thresholdRaw = Number(options?.revenueGmvThreshold);
+    const threshold = Number.isFinite(thresholdRaw) ? thresholdRaw : 2000;
+
+    if (signals.agencyBound && stageKey !== 'revenue') {
+        conflicts.push({
+            code: 'agency_bound_not_revenue',
+            severity: 'high',
+            message: '已绑定 Agency，但当前主阶段不是 Revenue。',
+        });
+    }
+    if (signals.gmv2k && (stageKey === 'acquisition' || stageKey === 'activation')) {
+        conflicts.push({
+            code: 'gmv_outpaces_stage',
+            severity: 'medium',
+            message: `GMV 已达到 ${threshold} 门槛，但当前主阶段仍偏前置。`,
+        });
+    }
+    if (signals.churned && stageKey !== 'terminated') {
+        conflicts.push({
+            code: 'churn_not_terminated',
+            severity: 'high',
+            message: '已检测到流失信号，但当前主阶段不是 Terminated。',
+        });
+    }
+    if (signals.referral && stageKey === 'acquisition') {
+        conflicts.push({
+            code: 'referral_without_activation',
+            severity: 'low',
+            message: '存在推荐信号，但主线仍停留在 Acquisition。',
+        });
+    }
+
+    return conflicts;
+}
+
 function buildLifecycle(input = {}, options = {}) {
     const signals = extractSignals(input);
+    const agencyBoundMainline = options?.agencyBoundMainline !== false;
     const strictRevenueGmv = options?.strictRevenueGmv === true;
     const gmvThresholdRaw = Number(options?.revenueGmvThreshold);
     const gmvThreshold = Number.isFinite(gmvThresholdRaw) ? gmvThresholdRaw : 2000;
@@ -217,11 +276,7 @@ function buildLifecycle(input = {}, options = {}) {
         entryReason = signals.churned
             ? '检测到流失信号，已进入终止池。'
             : '检测到“不继续联系”信号，已进入终止池。';
-    } else if (signals.referral) {
-        stageKey = 'referral';
-        entrySignals = ['referral'];
-        entryReason = '检测到推荐传播信号。';
-    } else if (signals.agencyBound && (!strictRevenueGmv || signals.gmv2k)) {
+    } else if (agencyBoundMainline && signals.agencyBound && (!strictRevenueGmv || signals.gmv2k)) {
         stageKey = 'revenue';
         entrySignals = strictRevenueGmv ? ['agency_bound', `gmv>${gmvThreshold}`] : ['agency_bound'];
         entryReason = strictRevenueGmv
@@ -242,16 +297,34 @@ function buildLifecycle(input = {}, options = {}) {
                 signals.trialActive ? 'trial_7day_active' : null,
                 signals.monthlyStarted ? 'monthly_challenge_started' : null,
                 signals.paid ? 'first_payment' : null,
-                (signals.betaStatus === 'started' || signals.betaStatus === 'completed') ? `beta_status:${signals.betaStatus}` : null,
+                signals.referral ? 'referral_source' : null,
+                (signals.betaStatus === 'started' || signals.betaStatus === 'joined') ? `beta_status:${signals.betaStatus}` : null,
             ].filter(Boolean)
-            : ['beta_program_pending'];
+            : [
+                'beta_program_pending',
+                signals.referral ? 'referral_source' : null,
+            ].filter(Boolean);
         entryReason = signals.activationSignal
             ? '已出现首次价值动作信号，进入激活阶段。'
-            : '处于体验引导期，进入获取阶段。';
+            : (signals.referral
+                ? '检测到推荐引入信号，但尚处体验引导期，先进入获取阶段。'
+                : '处于体验引导期，进入获取阶段。');
+    }
+
+    if (stageKey === 'acquisition' && signals.referral && !entrySignals.includes('referral_source')) {
+        entrySignals = [...entrySignals, 'referral_source'];
+        if (!entryReason || entryReason.includes('默认进入获取阶段')) {
+            entryReason = '检测到推荐引入信号，但尚处体验引导期，先进入获取阶段。';
+        }
     }
 
     const meta = STAGE_META[stageKey] || STAGE_META.activation;
     const option0 = buildOption0(stageKey);
+    const flags = buildLifecycleFlags(signals);
+    const conflicts = buildLifecycleConflicts(signals, stageKey, {
+        ...options,
+        revenueGmvThreshold: gmvThreshold,
+    });
 
     return {
         model: 'AARRR',
@@ -263,10 +336,22 @@ function buildLifecycle(input = {}, options = {}) {
         exit_signal_hint: meta.exit_signal_hint,
         is_terminal: stageKey === 'terminated',
         option0,
+        flags,
+        conflicts,
+        has_conflicts: conflicts.length > 0,
+        snapshot_version: 'lifecycle_v2',
         rule_flags: {
             revenue_relaxed_to_agency_bound: !strictRevenueGmv,
-            agency_bound_mainline: true,
+            agency_bound_mainline: agencyBoundMainline,
             revenue_gmv_threshold: gmvThreshold,
+        },
+        primary_facts: {
+            agency_bound: !!signals.agencyBound,
+            referral_active: !!signals.referral,
+            monthly_active: !!signals.monthlyActive,
+            trial_active: !!signals.trialActive,
+            gmv_tier: signals.gmvTier || 'lt_2k',
+            beta_status: signals.betaStatus || null,
         },
         evaluated_at: new Date().toISOString(),
     };
@@ -276,5 +361,7 @@ module.exports = {
     STAGE_META,
     OPTION0_TEMPLATES,
     extractSignals,
+    buildLifecycleFlags,
+    buildLifecycleConflicts,
     buildLifecycle,
 };

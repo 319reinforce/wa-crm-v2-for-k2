@@ -1,0 +1,18 @@
+{
+  "id": "1776098292669-f104de4b794a",
+  "session_id": "beau",
+  "completed_at": "2026-04-13T16:40:38.675Z",
+  "ok": true,
+  "phone": "15054527381",
+  "name": "Chrystal Dorr",
+  "messages": [
+    {
+      "role": "me",
+      "text": "I’ve checked the data, the 20-day beta test has been completed. You’ve already received $80 before, and together with last week’s amount, I’ll have finance send you $100",
+      "timestamp": 1775640339000,
+      "message_id": "true_147240823877804@lid_3BC96B02F7CBAD3CF4E3"
+    }
+  ],
+  "routed_session_id": "beau",
+  "routed_operator": "Beau"
+}

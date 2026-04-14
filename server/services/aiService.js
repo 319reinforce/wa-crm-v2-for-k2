@@ -39,6 +39,7 @@ async function generateWithDualTemperature(messages, model, maxTokens, temperatu
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${API_KEY}`,
                 'x-api-key': API_KEY,
                 'anthropic-version': '2023-06-01',
             },
@@ -54,6 +55,7 @@ async function generateWithDualTemperature(messages, model, maxTokens, temperatu
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${API_KEY}`,
                 'x-api-key': API_KEY,
                 'anthropic-version': '2023-06-01',
             },
@@ -88,6 +90,7 @@ async function translateText(text, role = 'user', timestamp = null) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${API_KEY}`,
             'x-api-key': API_KEY,
             'anthropic-version': '2023-06-01',
         },
@@ -135,6 +138,7 @@ async function translateBatch(texts) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${API_KEY}`,
             'x-api-key': API_KEY,
             'anthropic-version': '2023-06-01',
         },

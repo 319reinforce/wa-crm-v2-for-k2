@@ -1,0 +1,18 @@
+{
+  "id": "1776100026902-ccee5971cac4",
+  "session_id": "beau",
+  "completed_at": "2026-04-13T17:07:41.869Z",
+  "ok": true,
+  "phone": "18083937422",
+  "name": "Cindy Texeira",
+  "messages": [
+    {
+      "role": "user",
+      "text": "That would be great! Thanks Beau.",
+      "timestamp": 1775803962000,
+      "message_id": "false_238985083396244@lid_3ABB2DC8D5DE53C039AF"
+    }
+  ],
+  "routed_session_id": "beau",
+  "routed_operator": "Beau"
+}
