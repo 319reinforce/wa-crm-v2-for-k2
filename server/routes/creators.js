@@ -9,6 +9,7 @@ const { getCreatorFull } = require('../../db');
 const { writeAudit } = require('../middleware/audit');
 const { normalizeOperatorName } = require('../utils/operator');
 const { buildLifecycle, STAGE_META } = require('../services/lifecycleService');
+const { fetchCreatorMessageFactsMap } = require('../services/creatorMessageFactsService');
 const {
     TABLE: ROSTER_TABLE,
     applyAssignmentToCreator,
@@ -87,8 +88,8 @@ async function getLifecycleEventsMap(dbConn, creatorIds, options = {}) {
     const includeMeta = options.includeMeta !== false;
     const placeholders = normalizedIds.map(() => '?').join(', ');
     const selectFields = includeMeta
-        ? 'id, creator_id, event_key, event_type, owner, status, trigger_source, start_at, end_at, created_at, updated_at, meta'
-        : 'id, creator_id, event_key, event_type, owner, status, trigger_source, start_at, end_at, created_at, updated_at';
+        ? 'id, creator_id, event_key, event_type, owner, status, trigger_source, trigger_text, start_at, end_at, created_at, updated_at, meta'
+        : 'id, creator_id, event_key, event_type, owner, status, trigger_source, trigger_text, start_at, end_at, created_at, updated_at';
     const rows = await dbConn.prepare(`
         SELECT ${selectFields}
         FROM events
@@ -129,6 +130,7 @@ async function getLifecycleEventsMap(dbConn, creatorIds, options = {}) {
 function buildLifecycleInput(source = {}, events = []) {
     return {
         ...source,
+        message_facts: source.message_facts || source.messageFacts || null,
         wacrm: source.wacrm || {
             priority: source.priority,
             beta_status: source.beta_status,
@@ -456,9 +458,10 @@ router.get('/', async (req, res) => {
 
         const creators = await dbConn.prepare(sql).all(...params);
         const creatorIds = creators.map((item) => item.id);
-        const [eventsMap, lifecycleOptions] = await Promise.all([
+        const [eventsMap, lifecycleOptions, messageFactsMap] = await Promise.all([
             getLifecycleEventsMap(dbConn, creatorIds, { includeMeta: false }),
             getLifecycleRuntimeOptions(dbConn),
+            fetchCreatorMessageFactsMap(dbConn, creators),
         ]);
 
         const mapped = creators.map((item) => {
@@ -466,6 +469,7 @@ router.get('/', async (req, res) => {
                 ...item,
                 wa_owner: normalizeOperatorName(item.roster_operator, item.roster_operator) || item.wa_owner,
                 session_id: item.session_id || getSessionIdForOperator(item.roster_operator || item.wa_owner),
+                message_facts: messageFactsMap.get(Number(item.id)) || null,
             };
             return attachLifecycle(normalized, eventsMap.get(Number(item.id)) || [], lifecycleOptions, {
                 includeEventLists: false,
@@ -637,6 +641,7 @@ router.post('/batch-next-action', async (req, res) => {
             getLifecycleEventsMap(dbConn, creatorIds, { includeMeta: false }),
             getLifecycleRuntimeOptions(dbConn),
         ]);
+        const messageFactsMap = await fetchCreatorMessageFactsMap(dbConn, rows);
         const rowMap = new Map(rows.map((row) => [Number(row.id), row]));
         const results = [];
 
@@ -644,7 +649,10 @@ router.post('/batch-next-action', async (req, res) => {
             for (const creatorId of creatorIds) {
                 const row = rowMap.get(creatorId);
                 if (!row) continue;
-                const lifecycle = buildLifecycle(buildLifecycleInput(row, eventsMap.get(creatorId) || []), lifecycleOptions);
+                const lifecycle = buildLifecycle(buildLifecycleInput({
+                    ...row,
+                    message_facts: messageFactsMap.get(creatorId) || null,
+                }, eventsMap.get(creatorId) || []), lifecycleOptions);
                 const nextActionText = mode === 'lifecycle_option0'
                     ? String(lifecycle.option0?.next_action_template || '').trim()
                     : customText;
@@ -699,13 +707,17 @@ router.get('/:id', async (req, res) => {
         if (!creator) {
             return res.status(404).json({ error: 'Creator not found' });
         }
-        const [assignment, eventsMap, lifecycleOptions] = await Promise.all([
+        const [assignment, eventsMap, lifecycleOptions, messageFactsMap] = await Promise.all([
             getAssignmentByCreatorId(creator.id),
             getLifecycleEventsMap(dbConn, [creator.id]),
             getLifecycleRuntimeOptions(dbConn),
+            fetchCreatorMessageFactsMap(dbConn, [creator]),
         ]);
         const withAssignment = applyAssignmentToCreator(creator, assignment);
-        const detail = attachLifecycle(withAssignment, eventsMap.get(creator.id) || [], lifecycleOptions);
+        const detail = attachLifecycle({
+            ...withAssignment,
+            message_facts: messageFactsMap.get(Number(creator.id)) || null,
+        }, eventsMap.get(creator.id) || [], lifecycleOptions);
         const lifecycleSnapshot = await getLifecycleSnapshotRecord(dbConn, creator.id);
         res.json({
             ...detail,

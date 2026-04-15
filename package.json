@@ -32,6 +32,7 @@
     "lifecycle:backfill": "node migrate-lifecycle-state.js --backfill",
     "index": "node index_v2.js",
     "cleanup:creators": "node scripts/cleanup-invalid-creators.cjs",
+    "cleanup:merge-creator-duplicate": "node scripts/merge-creator-duplicate.cjs",
     "train:local": "node scripts/train-sft-local.cjs",
     "sft:prepare:safe": "node scripts/prepare-safe-finetune-jsonl.cjs",
     "rag:env:check": "node scripts/check-openai-rag-env.cjs",

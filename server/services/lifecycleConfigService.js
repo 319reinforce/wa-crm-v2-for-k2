@@ -2,11 +2,11 @@ const DEFAULT_POLICY_KEY = 'lifecycle.aarrr';
 
 const DEFAULT_CONFIG = {
     policy_key: DEFAULT_POLICY_KEY,
-    policy_version: 'v1',
+    policy_version: 'v2',
     applicable_scenarios: ['lifecycle_management'],
     is_active: 1,
     config: {
-        revenue_requires_gmv: false,
+        revenue_requires_gmv: true,
         revenue_gmv_threshold: 2000,
     },
 };
@@ -22,12 +22,11 @@ function parseJsonSafe(value, fallback) {
 }
 
 function normalizeConfig(raw = {}) {
-    const revenueRequiresGmv = raw?.revenue_requires_gmv === true || raw?.revenue_requires_gmv === 1;
     const thresholdRaw = Number(raw?.revenue_gmv_threshold);
     const threshold = Number.isFinite(thresholdRaw) ? thresholdRaw : DEFAULT_CONFIG.config.revenue_gmv_threshold;
 
     return {
-        revenue_requires_gmv: revenueRequiresGmv,
+        revenue_requires_gmv: true,
         revenue_gmv_threshold: threshold,
     };
 }
@@ -48,9 +47,8 @@ function buildDefaultPayload() {
 function toRuntimeOptions(config = {}) {
     const normalized = normalizeConfig(config);
     return {
-        strictRevenueGmv: normalized.revenue_requires_gmv === true,
         revenueGmvThreshold: normalized.revenue_gmv_threshold,
-        agencyBoundMainline: true,
+        revenueRequiresGmv: true,
     };
 }
 
