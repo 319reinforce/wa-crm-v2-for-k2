@@ -110,6 +110,12 @@ async function main() {
     if (!dashboard.stage_counts || typeof dashboard.stage_counts !== 'object') {
       throw new Error('dashboard missing stage_counts');
     }
+    if (!dashboard.funnel_counts || typeof dashboard.funnel_counts !== 'object') {
+      throw new Error('dashboard missing funnel_counts');
+    }
+    if (Number(dashboard.funnel_counts.activation || 0) < Number(dashboard.funnel_counts.retention || 0)) {
+      throw new Error(`dashboard funnel_counts invalid: activation < retention (${dashboard.funnel_counts.activation} < ${dashboard.funnel_counts.retention})`);
+    }
 
     const creators = await request(base, '/creators');
     if (!Array.isArray(creators) || creators.length === 0) {

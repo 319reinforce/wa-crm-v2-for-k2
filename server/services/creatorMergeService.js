@@ -55,6 +55,22 @@ function choosePrimaryName(target, source) {
     return targetText;
 }
 
+function normalizePhone(value) {
+    return String(value || '').replace(/\D/g, '').trim();
+}
+
+function unique(values = []) {
+    return [...new Set(values.filter(Boolean).map((item) => String(item).trim()).filter(Boolean))];
+}
+
+function isMissingTableError(err, tableName) {
+    const message = String(err?.message || '').toLowerCase();
+    const needle = String(tableName || '').toLowerCase();
+    return message.includes("doesn't exist")
+        || message.includes('no such table')
+        || (needle && message.includes(needle));
+}
+
 async function upsertAliases(tx, targetCreatorId, values = [], aliasType = 'wa_name', verified = 1) {
     for (const value of values) {
         if (isBlank(value)) continue;
@@ -149,6 +165,139 @@ async function moveRoster(tx, sourceCreatorId, targetCreatorId) {
     await tx.prepare('DELETE FROM operator_creator_roster WHERE creator_id = ?').run(sourceCreatorId);
 }
 
+async function moveLifecycleState(tx, sourceCreatorId, targetCreatorId) {
+    try {
+        const sourceSnapshot = await tx.prepare('SELECT * FROM creator_lifecycle_snapshot WHERE creator_id = ? LIMIT 1').get(sourceCreatorId);
+        const targetSnapshot = await tx.prepare('SELECT * FROM creator_lifecycle_snapshot WHERE creator_id = ? LIMIT 1').get(targetCreatorId);
+        if (sourceSnapshot && !targetSnapshot) {
+            await tx.prepare('UPDATE creator_lifecycle_snapshot SET creator_id = ? WHERE creator_id = ?').run(targetCreatorId, sourceCreatorId);
+        } else if (sourceSnapshot && targetSnapshot) {
+            await tx.prepare('DELETE FROM creator_lifecycle_snapshot WHERE creator_id = ?').run(sourceCreatorId);
+        }
+    } catch (err) {
+        if (!isMissingTableError(err, 'creator_lifecycle_snapshot')) throw err;
+    }
+    try {
+        await tx.prepare('UPDATE creator_lifecycle_transition SET creator_id = ? WHERE creator_id = ?').run(targetCreatorId, sourceCreatorId);
+    } catch (err) {
+        if (!isMissingTableError(err, 'creator_lifecycle_transition')) throw err;
+    }
+}
+
+async function getCreatorClientIds(tx, creatorId) {
+    const creator = await tx.prepare('SELECT wa_phone FROM creators WHERE id = ? LIMIT 1').get(creatorId);
+    const aliasRows = await tx.prepare(`
+        SELECT alias_value
+        FROM creator_aliases
+        WHERE creator_id = ? AND alias_type = 'wa_phone'
+    `).all(creatorId);
+    const manualMatchRows = await tx.prepare(`
+        SELECT wa_phone
+        FROM manual_match
+        WHERE creator_id = ? AND wa_phone IS NOT NULL AND wa_phone <> ''
+    `).all(creatorId);
+
+    return unique([
+        creator?.wa_phone || '',
+        ...aliasRows.map((row) => row?.alias_value || ''),
+        ...manualMatchRows.map((row) => row?.wa_phone || ''),
+    ]);
+}
+
+async function mergeClientMemory(tx, sourceClientId, targetClientId) {
+    if (!sourceClientId || !targetClientId || sourceClientId === targetClientId) return;
+    const sourceRows = await tx.prepare(`
+        SELECT memory_type, memory_key, memory_value, source_record_id, confidence
+        FROM client_memory
+        WHERE client_id = ?
+    `).all(sourceClientId);
+    for (const row of sourceRows) {
+        const existing = await tx.prepare(`
+            SELECT id, memory_value, source_record_id, confidence
+            FROM client_memory
+            WHERE client_id = ? AND memory_type = ? AND memory_key <=> ?
+            LIMIT 1
+        `).get(targetClientId, row.memory_type, row.memory_key);
+        if (!existing) {
+            await tx.prepare(`
+                INSERT INTO client_memory (client_id, memory_type, memory_key, memory_value, source_record_id, confidence)
+                VALUES (?, ?, ?, ?, ?, ?)
+            `).run(
+                targetClientId,
+                row.memory_type,
+                row.memory_key,
+                row.memory_value,
+                row.source_record_id,
+                row.confidence,
+            );
+            continue;
+        }
+        const nextValue = (!existing.memory_value && row.memory_value) ? row.memory_value : existing.memory_value;
+        const nextConfidence = Math.max(Number(existing.confidence || 0), Number(row.confidence || 0));
+        const nextSourceRecordId = existing.source_record_id || row.source_record_id || null;
+        await tx.prepare(`
+            UPDATE client_memory
+            SET memory_value = ?, confidence = ?, source_record_id = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `).run(nextValue, nextConfidence, nextSourceRecordId, existing.id);
+    }
+    await tx.prepare('DELETE FROM client_memory WHERE client_id = ?').run(sourceClientId);
+}
+
+async function mergeClientProfiles(tx, sourceClientId, targetClientId) {
+    if (!sourceClientId || !targetClientId || sourceClientId === targetClientId) return;
+    const sourceRow = await tx.prepare('SELECT * FROM client_profiles WHERE client_id = ? LIMIT 1').get(sourceClientId);
+    if (!sourceRow) return;
+    const targetRow = await tx.prepare('SELECT * FROM client_profiles WHERE client_id = ? LIMIT 1').get(targetClientId);
+    if (!targetRow) {
+        await tx.prepare('UPDATE client_profiles SET client_id = ? WHERE client_id = ?').run(targetClientId, sourceClientId);
+        return;
+    }
+
+    const updates = [];
+    const values = [];
+    const candidateColumns = ['summary', 'tags', 'tiktok_data', 'stage', 'last_interaction'];
+    for (const column of candidateColumns) {
+        if (shouldCopyValue(sourceRow[column], targetRow[column])) {
+            updates.push(`${column} = ?`);
+            values.push(sourceRow[column]);
+        }
+    }
+    if (updates.length > 0) {
+        values.push(targetClientId);
+        await tx.prepare(`UPDATE client_profiles SET ${updates.join(', ')}, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?`).run(...values);
+    }
+    await tx.prepare('DELETE FROM client_profiles WHERE client_id = ?').run(sourceClientId);
+}
+
+async function mergeClientTags(tx, sourceClientId, targetClientId) {
+    if (!sourceClientId || !targetClientId || sourceClientId === targetClientId) return;
+    await tx.prepare(`
+        INSERT IGNORE INTO client_tags (client_id, tag, source, confidence, created_at)
+        SELECT ?, tag, source, confidence, created_at
+        FROM client_tags
+        WHERE client_id = ?
+    `).run(targetClientId, sourceClientId);
+    await tx.prepare('DELETE FROM client_tags WHERE client_id = ?').run(sourceClientId);
+}
+
+async function moveClientIdTable(tx, table, sourceClientId, targetClientId) {
+    if (!sourceClientId || !targetClientId || sourceClientId === targetClientId) return;
+    await tx.prepare(`UPDATE ${table} SET client_id = ? WHERE client_id = ?`).run(targetClientId, sourceClientId);
+}
+
+async function mergeClientScopedData(tx, sourceClientIds = [], targetClientId) {
+    const sourceList = unique(sourceClientIds).filter((item) => item !== targetClientId);
+    for (const sourceClientId of sourceList) {
+        await mergeClientMemory(tx, sourceClientId, targetClientId);
+        await mergeClientProfiles(tx, sourceClientId, targetClientId);
+        await mergeClientTags(tx, sourceClientId, targetClientId);
+        await moveClientIdTable(tx, 'generation_log', sourceClientId, targetClientId);
+        await moveClientIdTable(tx, 'retrieval_snapshot', sourceClientId, targetClientId);
+        await moveClientIdTable(tx, 'sft_feedback', sourceClientId, targetClientId);
+    }
+}
+
 async function moveEvents(tx, sourceCreatorId, targetCreatorId) {
     const sourceEvents = await tx.prepare('SELECT * FROM events WHERE creator_id = ? ORDER BY id ASC').all(sourceCreatorId);
     for (const event of sourceEvents) {
@@ -171,6 +320,7 @@ async function mergeDuplicateCreatorIntoCanonical({
     sourceCreatorId,
     reason = 'duplicate_merge',
     operator = null,
+    allowDistinctPhones = false,
 }) {
     if (!targetCreatorId || !sourceCreatorId || Number(targetCreatorId) === Number(sourceCreatorId)) {
         return { merged: false, targetCreatorId, sourceCreatorId, reason: 'noop' };
@@ -185,9 +335,16 @@ async function mergeDuplicateCreatorIntoCanonical({
             return { merged: false, targetCreatorId, sourceCreatorId, reason: 'creator_missing' };
         }
 
-        if (!isBlank(target.wa_phone) && !isBlank(source.wa_phone) && String(target.wa_phone) !== String(source.wa_phone)) {
+        const targetPhoneNormalized = normalizePhone(target.wa_phone);
+        const sourcePhoneNormalized = normalizePhone(source.wa_phone);
+        const distinctPhones = targetPhoneNormalized && sourcePhoneNormalized && targetPhoneNormalized !== sourcePhoneNormalized;
+        if (distinctPhones && !allowDistinctPhones) {
             throw new Error(`merge blocked: conflicting phones target=${target.wa_phone} source=${source.wa_phone}`);
         }
+
+        const sourceClientIds = await getCreatorClientIds(tx, sourceCreatorId);
+        const targetClientIds = await getCreatorClientIds(tx, targetCreatorId);
+        const targetClientId = unique([target.wa_phone, ...targetClientIds, source.wa_phone])[0] || '';
 
         await moveMessages(tx, sourceCreatorId, targetCreatorId, normalizedOperator || target.wa_owner || source.wa_owner || null);
         await moveAliases(tx, sourceCreatorId, targetCreatorId);
@@ -197,6 +354,8 @@ async function mergeDuplicateCreatorIntoCanonical({
         await moveManualMatches(tx, sourceCreatorId, targetCreatorId);
         await moveEvents(tx, sourceCreatorId, targetCreatorId);
         await moveRoster(tx, sourceCreatorId, targetCreatorId);
+        await moveLifecycleState(tx, sourceCreatorId, targetCreatorId);
+        await mergeClientScopedData(tx, unique([...sourceClientIds, source.wa_phone]), targetClientId);
 
         await upsertAliases(tx, targetCreatorId, [source.primary_name], 'legacy_primary_name', 1);
         await upsertAliases(tx, targetCreatorId, [source.wa_phone], 'wa_phone', 1);

@@ -16,6 +16,37 @@ function isMissingTableError(err, tableName) {
         || (needle && message.includes(needle));
 }
 
+function hasReachedRevenue(flags = {}, stageKey = '') {
+    const gmvTier = String(flags?.gmv_tier || '').trim().toLowerCase();
+    return stageKey === 'revenue' || ['gte_2k', 'gte_5k', 'gte_10k'].includes(gmvTier);
+}
+
+function hasReachedRetention(flags = {}, stageKey = '') {
+    return !!flags?.agency_bound || ['retention', 'revenue'].includes(stageKey);
+}
+
+function hasReachedActivation(flags = {}, stageKey = '') {
+    return !!flags?.trial_completed
+        || !!flags?.trial_completed_semantic
+        || hasReachedRetention(flags, stageKey)
+        || hasReachedRevenue(flags, stageKey)
+        || stageKey === 'activation';
+}
+
+function hasReachedAcquisition(flags = {}) {
+    return !!flags?.wa_joined;
+}
+
+function ensureCounterGroup(map, key) {
+    map[key] = map[key] || {};
+    return map[key];
+}
+
+function incrementCounter(map, key, bucket) {
+    const group = ensureCounterGroup(map, key);
+    group[bucket] = (group[bucket] || 0) + 1;
+}
+
 async function getLifecycleDashboard(dbConn, filters = {}) {
     const params = [];
     let where = 'WHERE 1=1';
@@ -47,7 +78,10 @@ async function getLifecycleDashboard(dbConn, filters = {}) {
         return {
             total: 0,
             stage_counts: {},
+            funnel_counts: {},
             owner_stage_counts: {},
+            owner_funnel_counts: {},
+            wa_joined_count: 0,
             referral_active_count: 0,
             conflict_count: 0,
             conflicts: [],
@@ -56,20 +90,45 @@ async function getLifecycleDashboard(dbConn, filters = {}) {
     }
 
     const stageCounts = {};
+    const funnelCounts = {};
     const ownerStageCounts = {};
+    const ownerFunnelCounts = {};
     const conflicts = [];
     let referralActiveCount = 0;
+    let waJoinedCount = 0;
+    let terminatedCount = 0;
 
     for (const row of rows) {
         const flags = parseJsonSafe(row.flags_json, {});
         const rowConflicts = parseJsonSafe(row.conflicts_json, []);
         const stageKey = String(row.stage_key || 'unknown');
         const ownerKey = String(row.wa_owner || 'Unknown');
+        const inWaChannel = !!flags?.wa_joined;
 
-        stageCounts[stageKey] = (stageCounts[stageKey] || 0) + 1;
-        ownerStageCounts[ownerKey] = ownerStageCounts[ownerKey] || {};
-        ownerStageCounts[ownerKey][stageKey] = (ownerStageCounts[ownerKey][stageKey] || 0) + 1;
-        if (flags?.referral_active) referralActiveCount += 1;
+        if (inWaChannel) waJoinedCount += 1;
+        if (inWaChannel || stageKey === 'terminated') {
+            stageCounts[stageKey] = (stageCounts[stageKey] || 0) + 1;
+            incrementCounter(ownerStageCounts, ownerKey, stageKey);
+        }
+        if (stageKey === 'terminated') terminatedCount += 1;
+        if (flags?.referral_active && inWaChannel) referralActiveCount += 1;
+
+        if (hasReachedAcquisition(flags, stageKey)) {
+            funnelCounts.acquisition = (funnelCounts.acquisition || 0) + 1;
+            incrementCounter(ownerFunnelCounts, ownerKey, 'acquisition');
+        }
+        if (hasReachedActivation(flags, stageKey) && hasReachedAcquisition(flags, stageKey)) {
+            funnelCounts.activation = (funnelCounts.activation || 0) + 1;
+            incrementCounter(ownerFunnelCounts, ownerKey, 'activation');
+        }
+        if (hasReachedRetention(flags, stageKey) && hasReachedAcquisition(flags, stageKey)) {
+            funnelCounts.retention = (funnelCounts.retention || 0) + 1;
+            incrementCounter(ownerFunnelCounts, ownerKey, 'retention');
+        }
+        if (hasReachedRevenue(flags, stageKey) && hasReachedAcquisition(flags, stageKey)) {
+            funnelCounts.revenue = (funnelCounts.revenue || 0) + 1;
+            incrementCounter(ownerFunnelCounts, ownerKey, 'revenue');
+        }
 
         if (Array.isArray(rowConflicts) && rowConflicts.length > 0) {
             conflicts.push({
@@ -88,8 +147,17 @@ async function getLifecycleDashboard(dbConn, filters = {}) {
     return {
         total: rows.length,
         stage_counts: stageCounts,
+        funnel_counts: {
+            acquisition: funnelCounts.acquisition || 0,
+            activation: funnelCounts.activation || 0,
+            retention: funnelCounts.retention || 0,
+            revenue: funnelCounts.revenue || 0,
+        },
         owner_stage_counts: ownerStageCounts,
+        owner_funnel_counts: ownerFunnelCounts,
+        wa_joined_count: waJoinedCount,
         referral_active_count: referralActiveCount,
+        terminated_count: terminatedCount,
         conflict_count: conflicts.length,
         conflicts,
         snapshot_ready: true,

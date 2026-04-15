@@ -1,5 +1,6 @@
 const db = require('../../db');
 const { buildLifecycle } = require('./lifecycleService');
+const { fetchCreatorMessageFacts } = require('./creatorMessageFactsService');
 const {
     DEFAULT_POLICY_KEY: LIFECYCLE_POLICY_KEY,
     buildDefaultPayload: buildDefaultLifecyclePayload,
@@ -99,7 +100,7 @@ async function fetchLifecycleEvents(dbConn, creatorId, statuses = ['active', 'co
     const safeStatuses = Array.isArray(statuses) && statuses.length > 0 ? statuses : ['active', 'completed'];
     const placeholders = safeStatuses.map(() => '?').join(', ');
     const rows = await dbConn.prepare(`
-        SELECT id, creator_id, event_key, event_type, owner, status, trigger_source, start_at, end_at, created_at, updated_at, meta
+        SELECT id, creator_id, event_key, event_type, owner, status, trigger_source, trigger_text, start_at, end_at, created_at, updated_at, meta
         FROM events
         WHERE creator_id = ?
           AND status IN (${placeholders})
@@ -115,6 +116,7 @@ async function fetchLifecycleEvents(dbConn, creatorId, statuses = ['active', 'co
 function toLifecycleInput(source = {}, events = []) {
     return {
         ...source,
+        message_facts: source.message_facts || null,
         wacrm: {
             priority: source.priority,
             beta_status: source.beta_status,
@@ -159,9 +161,15 @@ async function evaluateCreatorLifecycle(dbConn, creatorId) {
     ]);
     if (!creator) return null;
 
-    const lifecycle = buildLifecycle(toLifecycleInput(creator, events), lifecycleOptions);
+    const messageFacts = await fetchCreatorMessageFacts(dbConn, creator);
+    const creatorWithFacts = {
+        ...creator,
+        message_facts: messageFacts,
+    };
+
+    const lifecycle = buildLifecycle(toLifecycleInput(creatorWithFacts, events), lifecycleOptions);
     return {
-        creator,
+        creator: creatorWithFacts,
         events,
         lifecycle,
         lifecycleOptions,

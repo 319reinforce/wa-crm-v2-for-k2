@@ -8,20 +8,21 @@ const {
   buildDefaultPayload,
   normalizeConfig,
   extractPayloadFromRow,
+  toRuntimeOptions,
 } = require('../server/services/lifecycleConfigService');
 
 test('buildDefaultPayload returns default lifecycle config payload', () => {
   const payload = buildDefaultPayload();
 
   assert.equal(payload.policy_key, DEFAULT_POLICY_KEY);
-  assert.equal(payload.policy_version, 'v1');
-  assert.equal(payload.config.revenue_requires_gmv, false);
+  assert.equal(payload.policy_version, 'v2');
+  assert.equal(payload.config.revenue_requires_gmv, true);
   assert.equal(payload.config.revenue_gmv_threshold, 2000);
 });
 
-test('normalizeConfig coerces booleans and threshold', () => {
+test('normalizeConfig keeps GMV gate on and coerces threshold', () => {
   const config = normalizeConfig({
-    revenue_requires_gmv: 1,
+    revenue_requires_gmv: 0,
     revenue_gmv_threshold: '3500',
   });
 
@@ -35,7 +36,7 @@ test('extractPayloadFromRow falls back to defaults when row missing', () => {
   assert.equal(payload.policy_key, DEFAULT_POLICY_KEY);
   assert.equal(payload.source, 'default');
   assert.equal(payload.updated_at, null);
-  assert.equal(payload.config.revenue_requires_gmv, false);
+  assert.equal(payload.config.revenue_requires_gmv, true);
 });
 
 test('extractPayloadFromRow uses db config when policy content is valid', () => {
@@ -47,7 +48,7 @@ test('extractPayloadFromRow uses db config when policy content is valid', () => 
     is_active: 1,
     policy_content: JSON.stringify({
       config: {
-        revenue_requires_gmv: true,
+        revenue_requires_gmv: false,
         revenue_gmv_threshold: 5000,
       },
     }),
@@ -71,6 +72,12 @@ test('extractPayloadFromRow falls back to defaults when policy content is malfor
 
   assert.equal(payload.source, 'db');
   assert.equal(payload.policy_version, 'v2');
-  assert.equal(payload.config.revenue_requires_gmv, false);
+  assert.equal(payload.config.revenue_requires_gmv, true);
   assert.equal(payload.config.revenue_gmv_threshold, 2000);
+});
+
+test('toRuntimeOptions returns fixed GMV runtime rule', () => {
+  const runtime = toRuntimeOptions({ revenue_requires_gmv: false, revenue_gmv_threshold: 4200 });
+  assert.equal(runtime.revenueRequiresGmv, true);
+  assert.equal(runtime.revenueGmvThreshold, 4200);
 });

@@ -31,18 +31,19 @@ test('getLifecycleDashboard returns empty summary when snapshot table is missing
   assert.equal(result.snapshot_ready, false);
   assert.equal(result.conflict_count, 0);
   assert.deepEqual(result.stage_counts, {});
+  assert.deepEqual(result.funnel_counts, {});
 });
 
-test('getLifecycleDashboard aggregates stage counts, referral and conflicts', async () => {
+test('getLifecycleDashboard aggregates stage buckets, funnel counts, referral and conflicts', async () => {
   const rows = [
     {
       id: 1,
       primary_name: 'Alice',
       wa_owner: 'Beau',
       stage_key: 'revenue',
-      stage_label: '收入',
-      flags_json: JSON.stringify({ referral_active: true }),
-      conflicts_json: JSON.stringify(['gmv_outpaces_stage']),
+      stage_label: '变现',
+      flags_json: JSON.stringify({ referral_active: true, wa_joined: true, agency_bound: true, gmv_tier: 'gte_2k' }),
+      conflicts_json: JSON.stringify(['gmv_not_revenue']),
       entry_reason: 'agency_bound',
       evaluated_at: '2026-04-14 10:00:00',
     },
@@ -52,7 +53,7 @@ test('getLifecycleDashboard aggregates stage counts, referral and conflicts', as
       wa_owner: 'Yiyun',
       stage_key: 'activation',
       stage_label: '激活',
-      flags_json: JSON.stringify({ referral_active: false }),
+      flags_json: JSON.stringify({ referral_active: false, wa_joined: true, trial_completed: true }),
       conflicts_json: JSON.stringify([]),
       entry_reason: 'trial_7day',
       evaluated_at: '2026-04-14 10:01:00',
@@ -65,7 +66,13 @@ test('getLifecycleDashboard aggregates stage counts, referral and conflicts', as
   assert.equal(result.stage_counts.revenue, 1);
   assert.equal(result.stage_counts.activation, 1);
   assert.equal(result.owner_stage_counts.Beau.revenue, 1);
+  assert.equal(result.wa_joined_count, 2);
   assert.equal(result.referral_active_count, 1);
+  assert.equal(result.funnel_counts.acquisition, 2);
+  assert.equal(result.funnel_counts.activation, 2);
+  assert.equal(result.funnel_counts.retention, 1);
+  assert.equal(result.funnel_counts.revenue, 1);
+  assert.equal(result.terminated_count, 0);
   assert.equal(result.conflict_count, 1);
   assert.equal(result.conflicts[0].creator_name, 'Alice');
 });
