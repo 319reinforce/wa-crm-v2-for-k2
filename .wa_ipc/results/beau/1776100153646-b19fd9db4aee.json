@@ -1,9 +1,0 @@
-{
-  "id": "1776100153646-b19fd9db4aee",
-  "session_id": "beau",
-  "completed_at": "2026-04-13T17:09:59.436Z",
-  "ok": false,
-  "error": "audit_recent_messages timeout",
-  "routed_session_id": "beau",
-  "routed_operator": "Beau"
-}
