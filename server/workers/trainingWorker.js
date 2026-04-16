@@ -19,18 +19,14 @@ const http = require('http');
 
 const DB = require('../../db');
 const { prepareDataset } = require('../../scripts/prepare-safe-finetune-jsonl.cjs');
+const { getInternalServiceHeaders } = require('../utils/internalAuth');
+const { hasPrivilegedRole } = require('../utils/ownerScope');
 
 // ========== 配置 ==========
 const EXPORT_LIMIT = parseInt(process.env.TRAINING_EXPORT_LIMIT || '5000');
 const SERVER_HOST = process.env.SERVER_HOST || 'http://localhost:3000';
 const DEEPSKILL_CHAT_ID = 'oc_5a15266d1e682f0ea9eb7a53a45b3303';
 const DRY_RUN = process.env.TRAINING_DRY_RUN === 'true';
-const INTERNAL_API_TOKEN = (
-    process.env.API_AUTH_TOKEN ||
-    process.env.AI_PROXY_TOKEN ||
-    process.env.WA_ADMIN_TOKEN ||
-    ''
-).trim();
 const INTERNAL_API_TIMEOUT_MS = Math.max(parseInt(process.env.TRAINING_API_TIMEOUT_MS || '30000', 10) || 30000, 3000);
 const PREPARE_SAFE_DATASET = process.env.TRAINING_PREPARE_SAFE_DATASET !== 'false';
 
@@ -38,10 +34,7 @@ const PREPARE_SAFE_DATASET = process.env.TRAINING_PREPARE_SAFE_DATASET !== 'fals
 function apiRequest(method, pathWithQuery, body) {
     return new Promise((resolve, reject) => {
         const url = new URL(pathWithQuery, SERVER_HOST);
-        const headers = { 'Content-Type': 'application/json' };
-        if (INTERNAL_API_TOKEN) {
-            headers.Authorization = `Bearer ${INTERNAL_API_TOKEN}`;
-        }
+        const headers = getInternalServiceHeaders({ 'Content-Type': 'application/json' });
         const options = {
             hostname: url.hostname,
             port: url.port || (url.protocol === 'https:' ? 443 : 3000),
@@ -282,16 +275,14 @@ async function runTraining(triggeredBy = 'manual') {
 // 外部 cron 定时调用:
 //   curl -X POST http://localhost:3000/api/training/trigger
 async function handleTrigger(req, res) {
-    const authHeader = (req.headers['authorization'] || '');
-    const expectedToken = process.env.TRAINING_TRIGGER_TOKEN;
-    if (!expectedToken) {
-        return res.status(503).json({ error: 'TRAINING_TRIGGER_TOKEN not configured' });
-    }
-    if (authHeader !== `Bearer ${expectedToken}`) {
+    if (!req?.auth) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
+    if (!hasPrivilegedRole(req)) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
     try {
-        const result = await runTraining('http_trigger');
+        const result = await runTraining(req.auth.role === 'service' ? 'service_trigger' : 'http_trigger');
         res.json({ ok: true, ...result });
     } catch (e) {
         res.status(500).json({ error: e.message });

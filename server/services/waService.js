@@ -5,6 +5,7 @@ const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const { EventEmitter } = require('events');
 const path = require('path');
 const fs = require('fs');
+const { assertNoGroupSend } = require('./groupSendGuard');
 const {
     normalizeOperatorName,
     getOperatorProfileByPhone,
@@ -19,11 +20,43 @@ function sanitizeSessionId(value, fallback = '3000') {
     return safe || fallback;
 }
 
+function resolveAuthRoot() {
+    const configured = String(process.env.WA_AUTH_ROOT || process.env.WWEBJS_AUTH_ROOT || '').trim();
+    if (configured) return path.resolve(configured);
+    return path.join(__dirname, '../../.wwebjs_auth');
+}
+
+function resolveChromeExecutablePath() {
+    const explicit = String(process.env.WA_CHROME_EXECUTABLE_PATH || process.env.PUPPETEER_EXECUTABLE_PATH || '').trim();
+    if (explicit) return explicit;
+
+    const candidates = process.platform === 'darwin'
+        ? [
+            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        ]
+        : [
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable',
+        ];
+
+    return candidates.find((candidate) => fs.existsSync(candidate)) || undefined;
+}
+
 // 会话目录支持显式 WA_SESSION_ID，便于同机多 session 并行
 const WA_PORT = parseInt(process.env.PORT || '3000', 10);
 const WA_SESSION_ID = sanitizeSessionId(process.env.WA_SESSION_ID, String(WA_PORT));
 const WA_OWNER = normalizeOperatorName(process.env.WA_OWNER, 'Beau');
-const SESSION_DIR = path.join(__dirname, `../../.wwebjs_auth/session-${WA_SESSION_ID}`);
+const WA_AUTH_ROOT = resolveAuthRoot();
+const SESSION_DIR = path.join(WA_AUTH_ROOT, `session-${WA_SESSION_ID}`);
+const WA_HEADLESS = process.env.WA_HEADLESS !== 'false';
+const WA_CHROME_EXECUTABLE_PATH = resolveChromeExecutablePath();
+const WA_PUPPETEER_ARGS = String(process.env.WA_PUPPETEER_ARGS || '')
+    .split(/\s+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 
 // Shared EventEmitter so waWorker can wait for ready
@@ -43,6 +76,7 @@ let lastQrAt = null;
 const VERBOSE_LOGS = process.env.LOG_VERBOSE === 'true';
 const PRINT_QR_IN_TERMINAL = process.env.WA_PRINT_QR !== 'false';
 const RECONNECT_DELAY_MS = 5000;
+const READY_PROBE_INTERVAL_MS = 2000;
 
 function maskPhone(phone) {
     const digits = String(phone || '').replace(/\D/g, '');
@@ -69,6 +103,41 @@ function extractSelfPhone(cli) {
 
 function getResolvedOwner() {
     return detectedOwner || WA_OWNER;
+}
+
+async function detectLoggedInPageState() {
+    if (!client?.pupPage || client.pupPage.isClosed()) return { loggedIn: false };
+    try {
+        return await client.pupPage.evaluate(() => ({
+            loggedIn: !!window.Store && !!window.AuthStore && !!document.querySelector('#pane-side'),
+            title: document.title || '',
+        }));
+    } catch (_) {
+        return { loggedIn: false };
+    }
+}
+
+async function ensureReadyFromPageProbe() {
+    if (ready) return true;
+    const probe = await detectLoggedInPageState();
+    if (!probe.loggedIn) return false;
+
+    ready = true;
+    qr = null;
+    lastError = null;
+    qrRefreshCount = 0;
+    lastQrAt = null;
+    clearReconnectTimer();
+    const nextPhone = extractSelfPhone(client);
+    if (nextPhone) {
+        accountPhone = nextPhone;
+        accountPushname = client?.info?.pushname || accountPushname || null;
+        detectedOwner = resolveOperatorByPhone(accountPhone, detectedOwner || null);
+        detectedOwnerProfile = getOperatorProfileByPhone(accountPhone) || detectedOwnerProfile || null;
+    }
+    console.log(`[WA Service:${WA_SESSION_ID}] 使用页面探针恢复 ready 状态 (${probe.title || 'WhatsApp'})`);
+    ee.emit('ready');
+    return true;
 }
 
 function scheduleReconnect(reason = 'unknown') {
@@ -108,19 +177,29 @@ function handleClientFailure(error, reason = '初始化失败') {
 function initClient() {
     if (client) return client;
 
-    console.log(`[WA Service:${WA_SESSION_ID}] 初始化 WhatsApp Client... (owner=${WA_OWNER})`);
+    console.log(`[WA Service:${WA_SESSION_ID}] 初始化 WhatsApp Client... (owner=${WA_OWNER}, auth_root=${WA_AUTH_ROOT}, browser=${WA_CHROME_EXECUTABLE_PATH || 'auto'})`);
     lastError = null;
+
+    const puppeteerArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        ...WA_PUPPETEER_ARGS,
+    ];
+    const puppeteerConfig = {
+        headless: WA_HEADLESS,
+        args: [...new Set(puppeteerArgs)],
+    };
+    if (WA_CHROME_EXECUTABLE_PATH) {
+        puppeteerConfig.executablePath = WA_CHROME_EXECUTABLE_PATH;
+    }
 
     client = new Client({
         authStrategy: new LocalAuth({
             dir: SESSION_DIR,
             dataPath: SESSION_DIR,
         }),
-        puppeteer: {
-            executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        },
+        puppeteer: puppeteerConfig,
     });
 
     client.on('qr', (q) => {
@@ -192,7 +271,11 @@ function start() {
 }
 
 async function sendMessage(phone, text) {
-    if (!client || !ready) {
+    const targetGuard = assertNoGroupSend(phone, { source: 'wa_service.send_message' });
+    if (!targetGuard.ok) {
+        return { ok: false, error: targetGuard.error };
+    }
+    if ((!client || !ready) && !(await ensureReadyFromPageProbe())) {
         return { ok: false, error: 'WhatsApp 未就绪，请先扫码认证' };
     }
     try {
@@ -234,7 +317,11 @@ function extractMessageId(result) {
 }
 
 async function sendMedia(phone, media = {}) {
-    if (!client || !ready) {
+    const targetGuard = assertNoGroupSend(phone, { source: 'wa_service.send_media' });
+    if (!targetGuard.ok) {
+        return { ok: false, error: targetGuard.error };
+    }
+    if ((!client || !ready) && !(await ensureReadyFromPageProbe())) {
         return { ok: false, error: 'WhatsApp 未就绪，请先扫码认证' };
     }
     try {
@@ -288,28 +375,43 @@ function getQrValue() {
  */
 function waitForReady(timeoutMs = 120000) {
     return new Promise((resolve, reject) => {
+        let probeTimer = null;
         if (ready) { resolve(); return; }
         if (lastError && !client) {
             reject(new Error(lastError));
             return;
         }
+        const runProbe = async () => {
+            try {
+                if (await ensureReadyFromPageProbe()) {
+                    onReady();
+                }
+            } catch (_) {}
+        };
         const tid = setTimeout(() => {
+            if (probeTimer) clearInterval(probeTimer);
             ee.removeListener('ready', onReady);
             ee.removeListener('failed', onFailed);
             reject(new Error('等待 WhatsApp 就绪超时'));
         }, timeoutMs);
         function onReady() {
             clearTimeout(tid);
+            if (probeTimer) clearInterval(probeTimer);
             ee.removeListener('failed', onFailed);
             resolve();
         }
         function onFailed(error) {
             clearTimeout(tid);
+            if (probeTimer) clearInterval(probeTimer);
             ee.removeListener('ready', onReady);
             reject(error instanceof Error ? error : new Error(String(error || 'WA 初始化失败')));
         }
         ee.once('ready', onReady);
         ee.once('failed', onFailed);
+        probeTimer = setInterval(() => {
+            runProbe().catch(() => {});
+        }, READY_PROBE_INTERVAL_MS);
+        runProbe().catch(() => {});
     });
 }
 

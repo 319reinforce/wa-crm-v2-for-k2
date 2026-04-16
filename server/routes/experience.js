@@ -6,9 +6,14 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
-const { extractAndSaveMemories } = require('../services/memoryExtractionService');
+const { generateReplyCandidates } = require('../services/replyGenerationService');
 const { normalizeOperatorName } = require('../utils/operator');
 const { evaluateCreatorLifecycle } = require('../services/lifecyclePersistenceService');
+const { getLockedOwner } = require('../middleware/appAuth');
+const {
+    resolveRequestedOwnerScope,
+    resolveClientAndOwnerScope,
+} = require('../utils/ownerScope');
 
 // ========== Helper Functions ==========
 
@@ -128,12 +133,13 @@ function filterPoliciesByScene(policyDocs, scene) {
     );
 }
 
-async function getOperatorByClientId(clientId) {
-    const dbInstance = db.getDb();
-    const creator = await dbInstance.prepare(
-        'SELECT wa_owner FROM creators WHERE wa_phone = ?'
-    ).get(clientId);
-    return creator ? normalizeOperatorName(creator.wa_owner, creator.wa_owner) : null;
+async function resolveExperienceScope(req, res, dbConn, { clientId, operator } = {}) {
+    return await resolveClientAndOwnerScope(req, res, dbConn, {
+        clientId,
+        requestedOwner: operator,
+        ownerFieldName: 'operator',
+        notFoundMessage: 'client not found',
+    });
 }
 
 // ========== Routes ==========
@@ -141,7 +147,11 @@ async function getOperatorByClientId(clientId) {
 router.get('/operators', async (req, res) => {
     try {
         const operators = await getAllOperatorExperiences();
-        res.json({ success: true, data: operators });
+        const lockedOwner = getLockedOwner(req);
+        const filtered = lockedOwner
+            ? operators.filter((item) => normalizeOperatorName(item.operator, item.operator) === lockedOwner)
+            : operators;
+        res.json({ success: true, data: filtered });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
@@ -149,8 +159,9 @@ router.get('/operators', async (req, res) => {
 
 router.get('/:operator', async (req, res) => {
     try {
-        const { operator } = req.params;
-        const normalizedOperator = normalizeOperatorName(operator, operator);
+        const ownerScope = resolveRequestedOwnerScope(req, res, req.params.operator, null);
+        if (!ownerScope.ok) return;
+        const normalizedOperator = ownerScope.owner;
         const exp = await getOperatorExperience(normalizedOperator);
         if (!exp) {
             return res.status(404).json({ success: false, error: `Operator ${normalizedOperator} not found` });
@@ -168,12 +179,15 @@ router.get('/:operator', async (req, res) => {
 
 router.get('/:operator/clients', async (req, res) => {
     try {
-        const { operator } = req.params;
-        const normalizedOperator = normalizeOperatorName(operator, operator);
+        const ownerScope = resolveRequestedOwnerScope(req, res, req.params.operator, null);
+        if (!ownerScope.ok) return;
+        const normalizedOperator = ownerScope.owner;
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
+        const offset = Math.max(parseInt(req.query.offset) || 0, 0);
         const dbInstance = db.getDb();
         const clients = await dbInstance.prepare(`
             SELECT
-                c.id, c.primary_name, c.wa_phone, c.wa_owner, c.is_active, c.created_at,
+                c.id, c.primary_name, c.wa_owner, c.is_active, c.created_at,
                 COUNT(wm.id) as msg_count, MAX(wm.timestamp) as last_active,
                 wc.priority, wc.beta_status
             FROM creators c
@@ -182,8 +196,9 @@ router.get('/:operator/clients', async (req, res) => {
             WHERE LOWER(c.wa_owner) = LOWER(?)
             GROUP BY c.id
             ORDER BY last_active DESC
-        `).all(normalizedOperator);
-        res.json({ success: true, data: clients, count: clients.length });
+            LIMIT ? OFFSET ?
+        `).all(normalizedOperator, limit, offset);
+        res.json({ success: true, data: clients, count: clients.length, limit, offset });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
@@ -193,160 +208,75 @@ router.post('/route', async (req, res) => {
     try {
         const { client_id, operator: directOperator, messages, scene = 'unknown',
             topicContext = '', richContext = '', conversationSummary = '' } = req.body;
+        const result = await generateReplyCandidates({
+            req,
+            res,
+            clientId: client_id,
+            operator: directOperator,
+            scene,
+            topicContext: topicContext || '',
+            richContext: richContext || '',
+            conversationSummary: conversationSummary || '',
+            messages: (messages || []).slice(-10),
+            maxTokens: 500,
+            temperature: [0.8, 0.4],
+            routeName: 'experience-route',
+            appendReplyPromptIfLastAssistant: true,
+        });
+        if (!result) return;
 
-        let operator = normalizeOperatorName(directOperator, directOperator);
-        if (!operator && client_id) {
-            operator = await getOperatorByClientId(client_id);
-        }
-        if (!operator) {
-            return res.status(400).json({ success: false, error: 'Cannot determine operator: provide client_id or operator' });
-        }
-
-        const exp = await getOperatorExperience(operator);
-        if (!exp) {
-            return res.status(404).json({ success: false, error: `Operator ${operator} experience not found` });
-        }
-
-        const dbInstance = db.getDb();
-        let clientInfo = { name: '未知', lifecycle_stage: '未知', lifecycle_label: '未知', beta_status: null };
-        if (client_id) {
-            const creator = await dbInstance.prepare(`
-                SELECT c.id, c.primary_name as name, wc.beta_status
-                FROM creators c LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
-                WHERE c.wa_phone = ?
-            `).get(client_id);
-            if (creator) {
-                const lifecycleEval = await evaluateCreatorLifecycle(dbInstance, creator.id).catch(() => null);
-                clientInfo = {
-                    name: creator.name || '未知',
-                    lifecycle_stage: lifecycleEval?.lifecycle?.stage_key || '未知',
-                    lifecycle_label: lifecycleEval?.lifecycle?.stage_label || lifecycleEval?.lifecycle?.stage_key || '未知',
-                    beta_status: creator.beta_status || null,
-                };
-            }
-        }
-
-        let clientMemory = [];
-        if (client_id) {
-            clientMemory = await dbInstance.prepare('SELECT * FROM client_memory WHERE client_id = ?').all(client_id);
-        }
-
-        const policyDocsRows = await dbInstance.prepare(
-            'SELECT * FROM policy_documents WHERE is_active = 1'
-        ).all();
-        const policyDocs = policyDocsRows.map(p => ({
-            ...p,
-            applicable_scenarios: tryParseJson(p.applicable_scenarios, [])
-        }));
-
-        const { prompt: systemPrompt, version } = await buildFullSystemPrompt(client_id, scene, messages,
-            { operator, topicContext, richContext, conversationSummary, systemPromptVersion: 'v2' });
-
-        const recentMessages = (messages || []).slice(-10);
-        const formattedMessages = recentMessages.map(msg => ({
-            role: msg.role === 'me' ? 'assistant' : 'user',
-            content: msg.text
-        }));
-
-        if (formattedMessages.length > 0 && recentMessages[recentMessages.length - 1].role === 'me') {
-            formattedMessages.push({ role: 'user', content: '[请回复这位达人]' });
-        }
-
-        const systemMsg = { role: 'system', content: systemPrompt };
-
-        const API_KEY = process.env.MINIMAX_API_KEY;
-        const API_BASE = process.env.MINIMAX_API_BASE || 'https://api.minimaxi.com/anthropic';
-
-        async function generateResponse(messages, temperature) {
-            const body = JSON.stringify({
-                model: 'mini-max-typing',
-                messages,
-                max_tokens: 500,
-                temperature,
-            });
-            const response = await fetch(`${API_BASE}/v1/messages`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json; charset=utf-8',
-                    'Authorization': `Bearer ${API_KEY}`,
-                    'x-api-key': API_KEY,
-                    'anthropic-version': '2023-06-01',
-                    'Content-Length': Buffer.byteLength(body),
-                },
-                body,
-                signal: AbortSignal.timeout(60000),
-            });
-
-            const respText = await response.text();
-            if (!response.ok) {
-                throw new Error(`MiniMax API error: ${response.status}: ${respText.slice(0, 200)}`);
-            }
-
-            const data = JSON.parse(respText);
-            const textItem = data.content?.find(item => item.type === 'text');
-            return textItem?.text || '';
-        }
-
-        let opt1 = '', opt2 = '';
-        try {
-            opt1 = await generateResponse([systemMsg, ...formattedMessages], 0.8);
-        } catch(e) {
-            console.error('[route] opt1 failed:', e.message);
-        }
-        try {
-            opt2 = await generateResponse([systemMsg, ...formattedMessages], 0.4);
-        } catch(e) {
-            console.error('[route] opt2 failed:', e.message);
-        }
-
-        // === client_memory 自动积累：AI 回复生成成功后异步提取记忆 ===
-        if (client_id && operator && recentMessages.length > 0) {
-            setImmediate(() => {
-                extractAndSaveMemories({
-                    client_id,
-                    owner: operator,
-                    messages: recentMessages,
-                    trigger_type: 'ai_generate',
-                }).catch(e => console.error('[memoryExtraction] experience.js hook error:', e.message));
-            });
-        }
-
-        if (!opt1 && !opt2) {
+        if (!result.opt1 && !result.opt2) {
             return res.status(502).json({ success: false, error: 'AI 生成失败' });
         }
+
+        const exp = result.operator ? await getOperatorExperience(result.operator).catch(() => null) : null;
         res.json({
             success: true,
-            operator,
-            experience_config: {
+            operator: result.operator,
+            experience_config: exp ? {
                 display_name: exp.display_name,
                 description: exp.description,
-                scene_config: (exp.scene_config && typeof exp.scene_config === 'object') ? exp.scene_config : {},
-            },
-            system_prompt: systemPrompt,
-            version,
-            candidates: { opt1, opt2 },
+                scene_config: tryParseJson(exp.scene_config, {}),
+            } : null,
+            system_prompt: result.systemPrompt,
+            version: result.systemPromptVersion,
+            candidates: { opt1: result.opt1, opt2: result.opt2 },
+            provider: result.provider || null,
+            model: result.model || null,
+            retrieval_snapshot_id: result.retrievalSnapshotId || null,
+            generation_log_id: result.generationLogId || null,
+            operatorDisplayName: result.operatorDisplayName,
+            operatorConfigured: result.operatorConfigured,
+            scene: result.scene,
         });
     } catch (err) {
         console.error('Experience route error:', err);
-        res.status(500).json({ success: false, error: err.message });
+        if (err.clientPayload) {
+            return res.status(err.statusCode || 500).json({ success: false, ...err.clientPayload });
+        }
+        res.status(err.statusCode || 500).json({ success: false, error: err.message });
     }
 });
 
 router.get('/:operator/system-prompt', async (req, res) => {
     try {
-        const { operator } = req.params;
-        const normalizedOperator = normalizeOperatorName(operator, operator);
         const { scene = 'unknown', client_id } = req.query;
-
         const dbInstance = db.getDb();
+        const scope = await resolveExperienceScope(req, res, dbInstance, {
+            clientId: client_id,
+            operator: req.params.operator,
+        });
+        if (!scope.ok) return;
+        const normalizedOperator = scope.owner;
+        const scopedClientId = scope.clientScope.clientId || null;
 
         let clientInfo = { name: '未知', lifecycle_stage: '未知', lifecycle_label: '未知', beta_status: null };
-        if (client_id) {
+        if (scopedClientId) {
             const creator = await dbInstance.prepare(`
                 SELECT c.id, c.primary_name as name, wc.beta_status
                 FROM creators c LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
                 WHERE c.wa_phone = ?
-            `).get(client_id);
+            `).get(scopedClientId);
             if (creator) {
                 const lifecycleEval = await evaluateCreatorLifecycle(dbInstance, creator.id).catch(() => null);
                 clientInfo = {
@@ -359,8 +289,8 @@ router.get('/:operator/system-prompt', async (req, res) => {
         }
 
         let clientMemory = [];
-        if (client_id) {
-            clientMemory = await dbInstance.prepare('SELECT * FROM client_memory WHERE client_id = ?').all(client_id);
+        if (scopedClientId) {
+            clientMemory = await dbInstance.prepare('SELECT * FROM client_memory WHERE client_id = ?').all(scopedClientId);
         }
 
         const policyDocsRows = await dbInstance.prepare(
@@ -371,13 +301,16 @@ router.get('/:operator/system-prompt', async (req, res) => {
             applicable_scenarios: tryParseJson(p.applicable_scenarios, [])
         }));
 
-        const { prompt: systemPrompt, version } = await buildFullSystemPrompt(client_id, scene, null,
+        const { prompt: systemPrompt, version } = await buildFullSystemPrompt(scopedClientId, scene, null,
             { operator: normalizedOperator, topicContext: '', richContext: '', conversationSummary: '', systemPromptVersion: 'v2' });
 
-        res.json({ success: true, operator: normalizedOperator, scene, client_id, system_prompt: systemPrompt, version });
+        res.json({ success: true, operator: normalizedOperator, scene, client_id: scopedClientId, system_prompt: systemPrompt, version });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
 module.exports = router;
+module.exports._private = {
+    resolveExperienceScope,
+};

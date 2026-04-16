@@ -1,7 +1,7 @@
 # 事件系统需求梳理
 
 > **实施进度**：Phase 1 ✅ 已完成（2026-04-08）
-> 数据库迁移脚本：`migrate-events.js`
+> 数据库定义以 `schema.sql` 为准（历史 SQLite 迁移脚本已清理）
 > 新建表：`events`、`event_periods`、`events_policy`
 
 ---
@@ -278,7 +278,7 @@ const OWNER_POLICY = {
 
 ### Phase 1 ✅ 完成
 
-**迁移脚本**：`migrate-events.js`
+**落地方式**：表结构已并入 `schema.sql`
 
 **新建表**：
 
@@ -342,7 +342,7 @@ const OWNER_POLICY = {
 
 ### Phase 2 ✅ 完成（2026-04-08）
 
-**server.js 新增端点：**
+**`server/index.cjs` 注册端点（实现位于 `server/routes/events.js`）：**
 
 | 方法 | 路径 | 说明 |
 |------|------|------|

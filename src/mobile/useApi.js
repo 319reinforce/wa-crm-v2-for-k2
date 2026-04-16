@@ -20,6 +20,7 @@ export function useCreators({ search = '', owner = '' } = {}) {
       const params = new URLSearchParams()
       if (search) params.set('search', search)
       if (owner) params.set('owner', owner)
+      params.set('fields', 'wa_phone')
       const list = await fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`, {
         signal: controller.signal,
       })

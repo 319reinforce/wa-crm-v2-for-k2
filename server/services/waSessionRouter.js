@@ -19,6 +19,7 @@ const {
     sanitizeSessionId,
     waitForSessionCommandResult,
 } = require('./waIpc');
+const { assertNoGroupSend } = require('./groupSendGuard');
 
 const REPAIR_QUEUE_DIR = path.join(__dirname, '../../.wa_ipc/repair-queue');
 const REPAIR_QUEUE_POLL_MS = 15000;
@@ -333,6 +334,9 @@ async function sendViaSessionCommand(sessionId, type, payload) {
 }
 
 async function sendRoutedMessage({ phone, text, session_id, operator, creator_id }, { bypass = false } = {}) {
+    const targetGuard = assertNoGroupSend(phone, { source: 'session_router.send_message' });
+    if (!targetGuard.ok) return { ok: false, error: targetGuard.error };
+
     if (bypass) {
         return sendMessage(phone, text);
     }
@@ -373,6 +377,9 @@ async function sendRoutedMedia({
     operator,
     creator_id,
 }, { bypass = false } = {}) {
+    const targetGuard = assertNoGroupSend(phone, { source: 'session_router.send_media' });
+    if (!targetGuard.ok) return { ok: false, error: targetGuard.error };
+
     if (bypass) {
         return sendMedia(phone, {
             caption,
@@ -530,6 +537,7 @@ async function reconcileRoutedContact({
         creatorId: creatorRow.id,
         creatorName: creatorRow.primary_name,
         operator: resolved.operator,
+        sessionId: resolved.session_id,
         rawMessages: rawResult.messages || [],
         fullDedup: !!full_dedup,
         dryRun: false,
@@ -600,6 +608,7 @@ async function syncRoutedContact({
         creatorId: creatorRow.id,
         creatorName: creatorRow.primary_name,
         operator: resolved.operator,
+        sessionId: resolved.session_id,
         rawMessages: rawResult.messages || [],
         fullDedup: !!full_dedup,
         dryRun: false,
@@ -724,11 +733,28 @@ async function replaceRoutedContact({
         creatorId: creatorRow.id,
         creatorName: creatorRow.primary_name,
         operator: resolved.operator,
+        sessionId: resolved.session_id,
         rawMessages,
+        rawFetchLimit: Math.max(200, Math.min(parseInt(fetch_limit, 10) || 800, 2000)),
         deleteAll: delete_all,
+        allowPartialWindowReplace: !!force,
         fullDedup: !!full_dedup,
         dryRun: false,
     });
+    if (summary?.applied === false) {
+        return {
+            ok: false,
+            error: 'Raw slice may be truncated; unsafe window replace skipped',
+            fetched_raw_count: rawCount,
+            existing_count: summary.existing_count,
+            skipped_reason: summary.skipped_reason,
+            replacement: summary,
+            forced: !!force,
+            delete_all: !!delete_all,
+            routed_session_id: resolved.session_id,
+            routed_operator: resolved.operator,
+        };
+    }
 
     return {
         ok: true,

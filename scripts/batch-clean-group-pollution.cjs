@@ -301,8 +301,11 @@ async function main() {
                     creatorId: creator.id,
                     creatorName: creator.primary_name,
                     operator: owner,
+                    sessionId,
                     rawMessages,
+                    rawFetchLimit: options.fetchLimit,
                     deleteAll: false,
+                    allowPartialWindowReplace: false,
                     dryRun: false,
                 });
             }
@@ -317,12 +320,16 @@ async function main() {
                 existing_total: existingTotal,
                 existing_count: existingCount,
                 polluted,
-                replaced: !!replacement,
+                replaced: !!replacement?.applied,
+                skipped: !!replacement?.skipped,
+                skipped_reason: replacement?.skipped_reason || null,
                 replacement_summary: replacement ? {
+                    applied: replacement.applied !== false,
                     inserted_count: replacement.inserted_count,
                     deleted_count: replacement.deleted_count,
                     window_start: replacement.window_start,
                     window_end: replacement.window_end,
+                    skipped_reason: replacement.skipped_reason || null,
                 } : null,
             });
             console.log('[batch-clean-group-pollution] checked', {
@@ -335,7 +342,9 @@ async function main() {
                 existing_total: existingTotal,
                 existing_count: existingCount,
                 polluted,
-                replaced: !!replacement,
+                replaced: !!replacement?.applied,
+                skipped: !!replacement?.skipped,
+                skipped_reason: replacement?.skipped_reason || null,
             });
 
             if (options.sleepMs) await sleep(options.sleepMs);

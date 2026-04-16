@@ -1,0 +1,72 @@
+services:
+  wa-crm:
+    build:
+      context: .
+      args:
+        VITE_USE_OPENAI: ${VITE_USE_OPENAI:-false}
+        VITE_OPENAI_API_KEY: ${VITE_OPENAI_API_KEY:-}
+        VITE_OPENAI_API_BASE: ${VITE_OPENAI_API_BASE:-https://api.openai.com/v1}
+        VITE_OPENAI_MODEL: ${VITE_OPENAI_MODEL:-gpt-4o}
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    environment:
+      NODE_ENV: production
+      PORT: ${PORT:-3000}
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-wa_crm_password}
+      DB_NAME: ${DB_NAME:-wa_crm_v2}
+      DISABLE_WA_SERVICE: ${DISABLE_WA_SERVICE:-false}
+      DISABLE_WA_WORKER: ${DISABLE_WA_WORKER:-false}
+      WA_SESSION_ID: ${WA_SESSION_ID:-beau}
+      WA_OWNER: ${WA_OWNER:-Beau}
+      WA_API_BASE: ${WA_API_BASE:-http://wa-crm:${PORT:-3000}}
+      WA_AUTH_ROOT: /app/.wwebjs_auth
+      WA_HEADLESS: ${WA_HEADLESS:-true}
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+      MEDIA_STORAGE_PROVIDER: ${MEDIA_STORAGE_PROVIDER:-local}
+      MEDIA_LOCAL_DIR: /app/data/media-assets
+    volumes:
+      - wa_wwebjs_auth:/app/.wwebjs_auth
+      - wa_wwebjs_cache:/app/.wwebjs_cache
+      - wa_media_assets:/app/data/media-assets
+    depends_on:
+      mysql:
+        condition: service_healthy
+    shm_size: "1gb"
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  mysql:
+    image: mysql:8
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    ports:
+      - "127.0.0.1:${DB_EXPOSE_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-wa_crm_password}
+      MYSQL_DATABASE: ${DB_NAME:-wa_crm_v2}
+    volumes:
+      - wa_mysql_data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  wa_mysql_data:
+    name: wa_crm_mysql_data
+  wa_wwebjs_auth:
+    name: wa_crm_wwebjs_auth
+  wa_wwebjs_cache:
+    name: wa_crm_wwebjs_cache
+  wa_media_assets:
+    name: wa_crm_media_assets

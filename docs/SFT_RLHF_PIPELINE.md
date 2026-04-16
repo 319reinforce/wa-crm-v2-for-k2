@@ -1,8 +1,8 @@
 # SFT / RLHF Pipeline 说明文档
 
-> 版本：2026-04-10
+> 版本：2026-04-16（generation tracking 正式列迁移 + 新主链路 generate-candidates）
 > 维护者：WA CRM v2 Backend
-> 最后更新：2026-04-10（新增改动汇总 + 前端兼容性检查）
+> 最后更新：2026-04-16
 
 ---
 
@@ -17,50 +17,47 @@
 │  │  WhatsApp    │ ◀───回复────────│      .jsx         │              │
 │  └──────────────┘                  └────────┬─────────┘              │
 │                                              │                         │
-│                              AI生成调用       │  operator 选择          │
+│                              单次 AI 调用    │  operator 选择          │
 │                                              ▼                         │
-│  ┌──────────────┐  ┌─────────────────┐ ┌────────────────────┐       │
-│  │ experience   │  │ POST /minimax   │ │  AIReplyPicker     │       │
-│  │ .route       │◀─┤ 或             ├▶│  .jsx              │       │
-│  │              │  │ POST /experience│ │                    │       │
-│  └──────┬───────┘  └─────────────────┘ └────────┬───────────┘       │
-│         │                       ▲               │                    │
-│         │ 调用                   │               │  human_selected   │
-│         ▼                       │               ▼                    │
-│  ┌─────────────────────────────────────────────────────┐            │
-│  │                    systemPromptBuilder.cjs            │            │
-│  │         推理和训练共用同一套 prompt 构建逻辑          │            │
-│  └─────────────────────────────────────────────────────┘            │
-│                              │                                         │
-│                              ▼                                         │
-│  ┌──────────────┐   写入   ┌──────────────────┐  写入                │
-│  │ sft_memory   │◀────────│  POST /sft-memory │                      │
-│  │ 表           │         └───────────────────┘                       │
-│  └──────┬───────┘                                                       │
-│         │                                                                 │
-│         │ Skip/Reject   ┌──────────────────┐                          │
-│         └──────────────▶│  POST /sft-feedback│                          │
-│                         └───────────────────┘                          │
-│                                    │                                     │
-│                                    ▼                                     │
-│                         ┌─────────────────────┐                         │
-│                         │ GET /sft-export     │                         │
-│                         │ (按月导出 approved) │                         │
-│                         └──────────┬──────────┘                         │
-│                                    │                                     │
-│                                    ▼                                     │
-│  ┌─────────────────────────────────────────────────────────────┐      │
-│  │                  trainingWorker.js                          │      │
-│  │  导出 JSONL → 写 training_log → 发飞书通知                  │      │
-│  └─────────────────────────────────────────────────────────────┘      │
-│                                    │                                     │
-│                                    ▼ (生产环境)                         │
-│                         ┌─────────────────────┐                         │
-│                         │  实际训练脚本        │                         │
-│                         │  (TRAINING_SCRIPT)  │                         │
-│                         └─────────────────────┘                         │
+│  ┌──────────────────────────────────────────────────────────┐        │
+│  │  POST /api/ai/generate-candidates（新主接口）             │        │
+│  │  replyGenerationService.generateReplyCandidates()        │        │
+│  │  ├── scope 校验                                          │        │
+│  │  ├── buildFullSystemPrompt → retrieval_snapshot 写入     │        │
+│  │  ├── provider 路由（finetuned/openai/minimax）           │        │
+│  │  └── generation_log 写入                                 │        │
+│  └──────────────────────────────────────────────────────────┘        │
+│         │ 返回 opt1/opt2 + tracking IDs                               │
+│         ▼                                                              │
+│  ┌──────────────────────────────────────────────────────────┐        │
+│  │  AIReplyPicker.jsx — human_selected                      │        │
+│  └──────────────────────────────────────────────────────────┘        │
+│         │ human_selected + tracking metadata                          │
+│         ▼                                                              │
+│  ┌──────────────┐   写入   ┌──────────────────┐  写入               │
+│  │ sft_memory   │◀────────│  POST /sft-memory │                     │
+│  │ 表（含追踪列）│         └───────────────────┘                      │
+│  └──────┬───────┘                                                      │
+│         │                                                               │
+│         │ Skip/Reject   ┌──────────────────┐                         │
+│         └──────────────▶│  POST /sft-feedback│                         │
+│                         └───────────────────┘                         │
+│                                    │                                    │
+│                                    ▼                                    │
+│                         ┌─────────────────────┐                        │
+│                         │ GET /sft-export     │                        │
+│                         │ (按月导出 approved) │                        │
+│                         └──────────┬──────────┘                        │
+│                                    │                                    │
+│                                    ▼                                    │
+│  ┌─────────────────────────────────────────────────────────────┐     │
+│  │                  trainingWorker.js                          │     │
+│  │  导出 JSONL → 写 training_log → 发飞书通知                  │     │
+│  └─────────────────────────────────────────────────────────────┘     │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **兼容入口**：`POST /api/minimax` 和 `POST /api/experience/route` 仍可用，内部均委托给 `replyGenerationService`，不再保留独立实现。
 
 ---
 
@@ -76,10 +73,10 @@
 | `human_selected` | VARCHAR(16) | `opt1` / `opt2` / `custom` |
 | `human_output` | TEXT | 最终人工选择/修改的回复 |
 | `is_custom_input` | TINYINT | 是否为人工自定义（而非从 opt1/opt2 选） |
-| `context_json` | JSON | 推理时上下文（client_id, scene, input_text） |
+| `context_json` | JSON | 推理时上下文（client_id, scene, input_text，兼容写入追踪字段） |
 | `message_history` | JSON | 前 10 轮对话历史 |
 | `system_prompt_used` | TEXT | 推理时实际使用的完整 system prompt |
-| `system_prompt_version` | VARCHAR(16) | prompt 版本，默认 `v1` |
+| `system_prompt_version` | VARCHAR(16) | prompt 版本，默认 `v2` |
 | `status` | VARCHAR(32) | `approved` / `pending_review` / `rejected` |
 | `reviewed_by` | VARCHAR(64) | `system` / `human_review` |
 | `similarity` | INT | opt1/opt2 与 human_output 的相似度（0-100） |
@@ -91,8 +88,21 @@
 | `human_output_hash` | VARCHAR(64) | SHA256(human_output)，用于去重 |
 | `created_date` | DATE | YYYY-MM-DD，用于去重窗口 |
 | `created_at` | DATETIME | 记录创建时间 |
+| `retrieval_snapshot_id` | INT | **新增（2026-04-16）** 关联 `retrieval_snapshot.id` |
+| `generation_log_id` | INT | **新增（2026-04-16）** 关联 `generation_log.id` |
+| `provider` | VARCHAR(32) | **新增（2026-04-16）** AI 服务商（minimax/openai/finetuned） |
+| `model` | VARCHAR(64) | **新增（2026-04-16）** 实际使用的模型名 |
+| `scene_source` | VARCHAR(32) | **新增（2026-04-16）** 场景来源标识 |
+| `pipeline_version` | VARCHAR(64) | **新增（2026-04-16）** 固定为 `reply_generation_v2` |
 
 **去重唯一索引**：`idx_sft_dedup (client_id_hash, input_text_hash, human_output_hash, created_date)`
+
+**新增索引（2026-04-16）**：
+- `idx_sft_retrieval_snapshot (retrieval_snapshot_id)`
+- `idx_sft_generation_log (generation_log_id)`
+- `idx_sft_provider_model (provider, model)`
+
+**兼容策略**：`sft_memory` 写入时优先写正式列；若目标库未迁移，追踪字段同时写入 `context_json`，避免老库报错。`GET /api/sft-export` 优先读正式列，回退读 `context_json`。
 
 ---
 
@@ -178,11 +188,12 @@ buildFullSystemPrompt(clientId, scene, messages = [], opts = {})
 
 | 调用方 | 传入 messages | 传入 opts | 说明 |
 |--------|--------------|-----------|------|
-| `experience.route` | `messages` | 完整 4 参数 | `topicContext/richContext/conversationSummary` 从请求体传入 |
+| `ai.js /ai/generate-candidates` | `messages` | 完整 4 参数 | **前端当前主链路**，单次完成 prompt 构建、追踪写入和候选生成 |
+| `experience.route` | `messages` | 完整 4 参数 | 兼容入口，内部委托 `replyGenerationService` |
 | `sft-export`（system_prompt_used=null 时） | `history` | 4 参数传空字符串 | 历史数据因无 `topicContext/richContext/conversationSummary` 丢失 |
-| `ai.js /ai/system-prompt` | `[]` | 完整 4 参数 | 前端通过此端点构建 prompt再送 `/minimax` |
+| `ai.js /ai/system-prompt` | `[]` | 完整 4 参数 | 兼容 / 调试端点，不再是前端推荐主链 |
 
-**关键保障**：前端 `WAMessageComposer.jsx` 在 AI 生成时通过 `POST /api/ai/system-prompt` 构建 prompt，同时将 `system_prompt_used` 存入 `sft-memory` 表。sft-export 优先使用 `system_prompt_used`，确保推理与训练 prompt 完全一致。
+**关键保障**：前端 `WAMessageComposer.jsx` 在 AI 生成时通过 `POST /api/ai/generate-candidates` 获取候选与实际使用的 system prompt，并将 `system_prompt_used` 存入 `sft-memory` 表。sft-export 优先使用 `system_prompt_used`，确保推理与训练 prompt 完全一致。
 
 ---
 
@@ -220,7 +231,8 @@ buildFullSystemPrompt(clientId, scene, messages = [], opts = {})
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/minimax` | AI 生成（含 Finetuned 灰度）|
+| POST | `/api/ai/generate-candidates` | **新主接口（2026-04-16）** 统一生成候选，含追踪写入 |
+| POST | `/api/minimax` | 兼容入口，内部委托 `replyGenerationService` |
 | POST | `/api/ai/system-prompt` | 单独构建 system prompt |
 | POST | `/api/translate` | 翻译（USE_OPENAI=true 走 OpenAI）|
 | POST | `/api/ai/generate` | 独立 OpenAI 生成 |
@@ -232,7 +244,7 @@ buildFullSystemPrompt(clientId, scene, messages = [], opts = {})
 | GET | `/api/experience/operators` | 所有 operator 列表 |
 | GET | `/api/experience/:operator` | 单个 operator 配置 |
 | GET | `/api/experience/:operator/clients` | 该 operator 负责的达人 |
-| POST | `/api/experience/route` | 核心路由（生成 opt1/opt2）|
+| POST | `/api/experience/route` | 兼容入口，内部委托 `replyGenerationService` |
 | GET | `/api/experience/:operator/system-prompt` | 获取该 operator 的 system prompt |
 
 ### 4.6 评估与审计
@@ -404,27 +416,32 @@ runTraining('http_trigger')
 
 | 端点 | 状态 | 说明 |
 |------|------|------|
-| `/api/ai/system-prompt` | ✅ 已修复 | 返回 `{ prompt, version }`（已从 `systemPrompt` 改正）|
+| `/api/ai/generate-candidates` | ✅ 当前主链 | 单次返回候选、tracking ids、provider/model、system prompt |
+| `/api/ai/system-prompt` | ✅ 兼容保留 | 仍可单独构建 prompt，但不再是前端主链 |
 | `/api/sft-memory` (GET) | ✅ 正常 | 返回 `context`（从 `context_json` parse）|
 | `/api/sft-memory/stats` | ✅ 正常 | 字段名全对 |
 | `/api/sft-memory/trends` | ⚠️ 既有小问题 | 后端返回 `volumes`，前端用 `data.volume`，"日均条数"显示 `-`（不报错）|
 | `/api/sft-memory/pending` | ✅ 正常 | |
 | `/api/sft-memory/:id/review` (PATCH) | ✅ 正常 | |
 | `/api/ab-evaluation` | ✅ 正常 | |
+| `/api/generation-log/stats` | ✅ 正常 | `SFTDashboard` 评估页聚合统计 |
+| `/api/generation-log/recent` | ✅ 正常 | 最近生成日志列表 |
+| `/api/generation-log/rag-observation` | ✅ 正常 | 24h 观测视图 |
+| `/api/generation-log/rag-sources` | ✅ 正常 | RAG 命中来源视图 |
 | `/api/experience/operators` | ✅ 正常 | |
 | `/api/experience/:operator` | ✅ 正常 | |
 | `/api/training/*` | ✅ 正常 | 前端不直接调用 |
 
 ### 10.2 关键修复确认
 
-**`/api/ai/system-prompt`** 的 `prompt` vs `systemPrompt` 是本次唯一会导致前端刷新不出来的问题——AI 生成会拿到 `undefined` system prompt，模型输出质量下降。现已改正。
+当前前端主链已经从 `POST /api/ai/system-prompt + POST /api/minimax` 双请求切换为 `POST /api/ai/generate-candidates` 单请求。`/api/ai/system-prompt` 仅作为兼容 / 调试端点保留。
 
 ### 10.3 前端对应文件
 
 | 前端文件 | 调用的后端端点 |
 |---------|--------------|
-| `WAMessageComposer.jsx` | `/api/ai/system-prompt`、`/api/minimax`、`/api/sft-memory` |
-| `SFTDashboard.jsx` | `/api/sft-memory`、`/api/sft-memory/stats`、`/api/sft-memory/trends`、`/api/sft-memory/pending`、`/api/ab-evaluation`、`/api/sft-export` |
+| `WAMessageComposer.jsx` | `/api/ai/generate-candidates`、`/api/sft-memory`、`/api/sft-feedback` |
+| `SFTDashboard.jsx` | `/api/sft-memory`、`/api/sft-memory/stats`、`/api/sft-memory/trends`、`/api/sft-memory/pending`、`/api/ab-evaluation`、`/api/sft-export`、`/api/generation-log/*` |
 
 ---
 

@@ -7,6 +7,10 @@ const { spawnSync } = require('node:child_process');
 const ROOT = process.cwd();
 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
+function shouldRunDestructiveGroupPollutionPurge(env = process.env) {
+  return env.SMOKE_PURGE_GROUP_POLLUTION === '1';
+}
+
 function runStep(label, cmd, args) {
   process.stdout.write(`\n[SMOKE] ${label}\n`);
   const result = spawnSync(cmd, args, {
@@ -44,13 +48,13 @@ function collectServerFiles() {
 
 function collectSyntaxTargets() {
   const targets = new Set(collectServerFiles());
-  const rootCandidates = [
-    'db.js',
-    'systemPromptBuilder.cjs',
-    'migrate-to-mysql.js',
-    'migrate-sft-dedup-index.js',
-    'migrate-sft-feedback-uniq.js',
-  ];
+    const rootCandidates = [
+        'db.js',
+        'systemPromptBuilder.cjs',
+        'migrate-sft-dedup-index.js',
+        'migrate-sft-feedback-uniq.js',
+        'migrate-sft-generation-columns.js',
+    ];
   for (const candidate of rootCandidates) {
     if (fs.existsSync(path.join(ROOT, candidate))) {
       targets.add(candidate);
@@ -84,8 +88,40 @@ function main() {
     if (!apiItOk) failed = true;
     const lifecycleApiItOk = runStep('npm run test:api:lifecycle', npmCmd, ['run', 'test:api:lifecycle']);
     if (!lifecycleApiItOk) failed = true;
+    const eventsApiItOk = runStep('npm run test:api:events', npmCmd, ['run', 'test:api:events']);
+    if (!eventsApiItOk) failed = true;
+    const purgeGroupPollution = shouldRunDestructiveGroupPollutionPurge(process.env);
+    if (purgeGroupPollution) {
+      const groupPurgeOk = runStep(
+        'npm run test:data:group-pollution:purge',
+        npmCmd,
+        ['run', 'test:data:group-pollution:purge']
+      );
+      if (!groupPurgeOk) failed = true;
+    } else {
+      process.stdout.write('\n[SMOKE] skip destructive group-pollution purge by default (set SMOKE_PURGE_GROUP_POLLUTION=1 to enable)\n');
+    }
+    const groupPollutionOk = runStep('npm run test:data:group-pollution', npmCmd, ['run', 'test:data:group-pollution']);
+    if (!groupPollutionOk) failed = true;
   } else {
     process.stdout.write('\n[SMOKE] skip api integration (set SMOKE_INCLUDE_API_IT=1 to enable)\n');
+  }
+
+  const includeUiIT = process.env.SMOKE_INCLUDE_UI_IT === '1';
+  if (includeUiIT) {
+    const uiAcceptanceOk = runStep('npm run test:ui:acceptance', npmCmd, ['run', 'test:ui:acceptance']);
+    if (!uiAcceptanceOk) failed = true;
+  } else {
+    process.stdout.write('\n[SMOKE] skip ui acceptance (set SMOKE_INCLUDE_UI_IT=1 to enable)\n');
+  }
+
+  const includeWaSend = process.env.SMOKE_INCLUDE_WA_SEND === '1';
+  if (includeWaSend) {
+    const phone = process.env.TEST_WA_PHONE || '+8613187012419';
+    const waSendOk = runStep(`npm run wa:smoke -> ${phone}`, npmCmd, ['run', 'wa:smoke']);
+    if (!waSendOk) failed = true;
+  } else {
+    process.stdout.write('\n[SMOKE] skip wa send smoke (set SMOKE_INCLUDE_WA_SEND=1 to enable)\n');
   }
 
   if (failed) {
@@ -96,4 +132,15 @@ function main() {
   console.log('\n[SMOKE] PASSED');
 }
 
-main();
+module.exports = {
+  main,
+  _private: {
+    shouldRunDestructiveGroupPollutionPurge,
+    collectServerFiles,
+    collectSyntaxTargets,
+  },
+};
+
+if (require.main === module) {
+  main();
+}

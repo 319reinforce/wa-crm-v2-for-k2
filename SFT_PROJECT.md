@@ -1,7 +1,7 @@
 # WA CRM v2 — SFT 语料训练项目
 
 > 本文档供其他 AI Agent 阅读学习使用
-> 更新时间：2026-04-10（画像标签提取升级：关键词→LLM + RLHF 修复 + Prompt 对齐）
+> 更新时间：2026-04-16（回复生成主链路重构 + SFT generation tracking 正式列）
 > 前置文档：`CLAUDE.md`（项目入口）、`BOT_INTEGRATION.md`（API 速查）
 
 ---
@@ -22,21 +22,25 @@ WA CRM v2 是一个面向 WhatsApp 达人（influencer）的 CRM 系统，同时
 
 ## 版本历史
 
-### v8 — 2026-04-10 client_memory 自动积累机制（方案设计）
+### v9 — 2026-04-16 回复生成主链路重构 + SFT generation tracking
 
-**背景**：`client_memory` 表当前为空（0 条记录），Profile Agent 和 Experience Router 均读取该表，但在 AI 回复生成、SFT 语料选择、事件创建等关键节点均未自动写入记忆。
+**本次重构将回复生成链路从前端双请求收口为后端单一服务，并为 SFT 语料补充生成追踪字段：**
 
-**目标**：在以下三个触发点自动提取对话内容写入 `client_memory`，形成客户画像积累：
+| 改动项 | 说明 |
+|--------|------|
+| 新主接口 | `POST /api/ai/generate-candidates`，由 `replyGenerationService` 统一编排 |
+| 前端主链路 | `WAMessageComposer/ai/experienceRouter.js` 改为单次调用新主接口 |
+| 兼容入口 | `/api/minimax` 和 `/api/experience/route` 已收口到 `replyGenerationService` |
+| SFT 追踪列 | `sft_memory` 新增 `retrieval_snapshot_id`、`generation_log_id`、`provider`、`model`、`scene_source`、`pipeline_version` 正式列 |
+| 兼容写入 | 未迁移的库仍写入 `context_json`，`sft-export` 优先读正式列 |
+| 新增索引 | `idx_sft_retrieval_snapshot`、`idx_sft_generation_log`、`idx_sft_provider_model` |
+| Dashboard | `SFTDashboard` 单条记录展示追踪字段，评估页新增 generation log 聚合视图 |
+| 迁移脚本 | `migrate-sft-generation-columns.js`（已执行） |
 
-| 触发点 | 时机 | 可提取内容 |
-|--------|------|-----------|
-| AI 回复生成后 | `generateViaExperienceRouter()` 成功时 | 客户偏好（preference）、决策（decision） |
-| SFT 人工选择后 | 人工从 opt1/opt2/custom 中确认最终发送内容时 | 客户风格偏好（style）、回复偏好（preference） |
-| 事件创建时 | `scripts/generate-events-from-chat.cjs` 分析出事件时 | 政策理解（policy）、决策状态（decision） |
-
-**去重机制**：已有 `UNIQUE(client_id, memory_type, memory_key)` 唯一索引，同一客户的同类型同 key 记录不重复写入。
-
-**实现路径详见下方「client_memory 自动积累机制」章节。**
+**新增文件：**
+- `server/services/replyGenerationService.js` — 统一回复生成编排服务
+- `server/services/directMessagePersistenceService.js` — 发送成功后后端持久化
+- `src/components/WAMessageComposer/ai/experienceRouter.js` — 前端 AI 调用入口
 
 ### v7 — 2026-04-10 画像标签提取升级：关键词 → MiniMax LLM
 
@@ -159,7 +163,7 @@ scheduleProfileRefresh(client_id)  // 5s debounce → MiniMax summary
 | 文件 | 说明 |
 |------|------|
 | `server/index.cjs` | Express 服务器入口，端口 3000 |
-| `db.js` | MySQL ORM（`mysql2/promise` 异步封装，对外接口与 better-sqlite3 一致） |
+| `db.js` | MySQL ORM（`mysql2/promise` 异步封装，对外保留 `prepare/get/all/run` 风格接口） |
 | `schema.sql` | MySQL 数据库 schema 定义 |
 | `systemPromptBuilder.cjs` | CJS 共享 prompt 构建器（experience.js 和 export 共用） |
 
@@ -192,6 +196,8 @@ scheduleProfileRefresh(client_id)  // 5s debounce → MiniMax summary
 | `waService.js` | WhatsApp 单账号 Client（LocalAuth + 扫码认证 + 重连） |
 | `sftService.js` | SFT 语料与反馈数据访问封装 |
 | `profileService.js` | 异步画像摘要刷新（debounced 5s） |
+| `replyGenerationService.js` | **新增（2026-04-16）** 统一回复生成编排（scope 校验 + prompt 构建 + provider 路由 + 追踪写入） |
+| `directMessagePersistenceService.js` | **新增（2026-04-16）** WA 发送成功后后端持久化 `wa_messages` |
 
 **Worker**
 
@@ -407,7 +413,9 @@ CREATE TABLE policy_documents (
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `POST` | `/api/minimax` | MiniMax API 代理（并发两个温度生成 opt1/opt2） |
+| `POST` | `/api/ai/generate-candidates` | 当前推荐主链，统一完成 prompt 构建、候选生成与 tracking 写入 |
+| `POST` | `/api/minimax` | 兼容入口，内部委托 `replyGenerationService` |
+| `POST` | `/api/ai/system-prompt` | 兼容 / 调试端点，单独构建 system prompt |
 | `POST` | `/api/translate` | 翻译接口（支持单条和批量） |
 | `POST` | `/api/ai/generate` | 独立 OpenAI 生成接口（需 `USE_OPENAI=true`） |
 
@@ -602,9 +610,9 @@ CREATE TABLE audit_log (
 // 通过 API（推荐，已包含完整上下文）
 const records = await fetch('http://localhost:3000/api/sft-export?limit=1000&status=approved').then(r => r.json());
 
-// 或直接读数据库
-const db = require('better-sqlite3')('./crm.db');
-const rows = db.prepare('SELECT * FROM sft_memory WHERE status = "approved"').all();
+// 或直接读数据库（在 async 上下文中）
+const db = require('/Users/depp/wa-bot/wa-crm-v2/db');
+const rows = await db.getDb().prepare('SELECT * FROM sft_memory WHERE status = ?').all('approved');
 ```
 
 ### 步骤 2：构造训练数据（v2）
@@ -1019,9 +1027,8 @@ route(client_id, messages, scene)
 
 | 文件 | 说明 |
 |------|------|
-| `routes/experience.js` | Experience Router 核心逻辑 |
-| `server.js` | 注册路由 `require('./routes/experience')` at `/api/experience` |
-| `migrate-experience.js` | 初始化 operator 体验数据 |
+| `server/routes/experience.js` | Experience Router 核心逻辑 |
+| `server/index.cjs` | 注册路由并启动 `/api/experience` |
 | `src/components/WAMessageComposer.jsx` | 前端调用 `generateViaExperienceRouter()` |
 
 ---
@@ -1435,7 +1442,7 @@ MINIMAX_API_KEY=your-key             # MiniMax API key（默认）
 | 读取方 | 文件 | 用途 |
 |--------|------|------|
 | Experience Router | `server/routes/experience.js` | 组装 system prompt 时注入客户偏好 |
-| Profile Agent | `agents/profile-agent.js` | 生成 summary 时参考历史偏好 |
+| Profile 路由/服务 | `server/routes/profile.js` + `server/services/profileService.js` | 生成 summary、提取标签并刷新画像 |
 | Profile Service | `server/services/profileService.js` | 刷新画像时聚合偏好标签 |
 
 **现有写入 API**（均需手动调用）：

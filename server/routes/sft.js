@@ -9,180 +9,126 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const { writeAudit } = require('../middleware/audit');
-const { extractAndSaveMemories } = require('../services/memoryExtractionService');
-const { sha256 } = require('../utils/crypto');
-const { parseJsonSafe, validateHumanOutput } = require('../services/sftService');
+const { getLockedOwner, matchesOwnerScope, resolveScopedOwner, sendOwnerScopeForbidden } = require('../middleware/appAuth');
+const {
+    createSftFeedback,
+    createSftMemory,
+    getSftFeedbackStats,
+    getSftMemoryStats,
+    getSftMemoryTrends,
+    listPendingSftMemory,
+    listSftMemory,
+    parseJsonSafe,
+    reviewSftMemory,
+} = require('../services/sftService');
+
+function resolveRequestedOwner(req, res, owner, fallback = null) {
+    const lockedOwner = getLockedOwner(req);
+    const requestedOwner = typeof owner === 'string' ? owner.trim() : owner;
+    if (lockedOwner && requestedOwner && !matchesOwnerScope(req, requestedOwner)) {
+        sendOwnerScopeForbidden(res, lockedOwner);
+        return null;
+    }
+    return resolveScopedOwner(req, requestedOwner, fallback);
+}
+
+async function resolveClientOwner(db2, clientId) {
+    const normalizedClientId = String(clientId || '').trim();
+    if (!normalizedClientId) return null;
+    return db2.prepare(`
+        SELECT wa_owner
+        FROM creators
+        WHERE wa_phone = ?
+        LIMIT 1
+    `).get(normalizedClientId);
+}
+
+async function ensureClientScope(req, res, clientId, { required = false } = {}) {
+    const db2 = db.getDb();
+    const lockedOwner = getLockedOwner(req);
+    const normalizedClientId = String(clientId || '').trim();
+
+    if (!normalizedClientId) {
+        if (lockedOwner || required) {
+            res.status(400).json({ ok: false, error: 'client_id required' });
+            return null;
+        }
+        return null;
+    }
+
+    const ownerRow = await resolveClientOwner(db2, normalizedClientId);
+    if (!ownerRow?.wa_owner) {
+        if (lockedOwner) {
+            res.status(404).json({ ok: false, error: 'Creator not found for client_id' });
+            return null;
+        }
+        return null;
+    }
+    if (lockedOwner && !matchesOwnerScope(req, ownerRow.wa_owner)) {
+        sendOwnerScopeForbidden(res, lockedOwner);
+        return null;
+    }
+    return ownerRow.wa_owner;
+}
+
+async function ensureSftRecordAccess(req, res, recordId) {
+    const row = await db.getDb().prepare(`
+        SELECT
+            sm.id,
+            JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id')) AS client_id,
+            c.wa_owner
+        FROM sft_memory sm
+        LEFT JOIN creators c
+          ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
+        WHERE sm.id = ?
+        LIMIT 1
+    `).get(recordId);
+    if (!row) {
+        res.status(404).json({ ok: false, error: 'Record not found' });
+        return null;
+    }
+    const lockedOwner = getLockedOwner(req);
+    if (lockedOwner && !matchesOwnerScope(req, row.wa_owner)) {
+        sendOwnerScopeForbidden(res, lockedOwner);
+        return null;
+    }
+    return row;
+}
 
 // POST /api/sft-memory
 router.post('/sft-memory', async (req, res) => {
     try {
-        const {
-            model_candidates,
-            human_selected,
-            human_output,
-            diff_analysis,
-            context,
-            messages = [],
-            system_prompt_used = null,
-            system_prompt_version = 'v2',
-            reviewed_by = 'system'
-        } = req.body;
-
-        if (!human_selected || !human_output) {
-            return res.status(400).json({ error: 'human_selected and human_output required' });
+        const client_id = String(req.body?.context?.client_id || '').trim();
+        const scopedOwner = await ensureClientScope(req, res, client_id, { required: !!getLockedOwner(req) });
+        if (getLockedOwner(req) && !scopedOwner) return;
+        const result = await createSftMemory({
+            ...req.body,
+            owner: scopedOwner || null,
+        });
+        if (!result.updated) {
+            await writeAudit('sft_create', 'sft_memory', result.id, null, {
+                human_selected: req.body?.human_selected || null,
+                human_output: req.body?.human_output || null,
+                status: result.status || null,
+                reviewed_by: req.body?.reviewed_by || 'system',
+            }, req);
         }
-
-        const validation = validateHumanOutput(human_output);
-        if (!validation.valid) {
-            return res.status(400).json({ error: validation.error });
-        }
-
-        const db2 = db.getDb();
-        const context_json = context ? JSON.stringify(context) : null;
-        const ctx = context || {};
-        const client_id = ctx.client_id || '';
-        const input_text = ctx.input_text || '';
-        const scene = ctx.scene || 'unknown';
-        const similarity = diff_analysis?.similarity ?? null;
-
-        let status = 'approved';
-        if (diff_analysis?.is_custom) {
-            status = similarity >= 85 ? 'approved' : 'pending_review';
-        } else if (similarity !== null && similarity < 85) {
-            status = 'pending_review';
-        }
-
-        const client_id_hash = sha256(client_id);
-        const input_text_hash = sha256(input_text);
-        const human_output_hash = sha256(human_output);
-        const created_date = new Date().toISOString().split('T')[0];
-        const message_history_json = messages.length > 0 ? JSON.stringify(messages.slice(-10)) : null;
-
-        const opt1 = model_candidates?.opt1 || null;
-        const opt2 = model_candidates?.opt2 || null;
-        let chosen_output = null;
-        let rejected_output = null;
-        if (human_selected === 'opt1') {
-            chosen_output = opt1; rejected_output = opt2;
-        } else if (human_selected === 'opt2') {
-            chosen_output = opt2; rejected_output = opt1;
-        } else if (human_selected === 'custom') {
-            chosen_output = human_output; rejected_output = opt1;
-        }
-
-        const existing = await db2.prepare(`
-            SELECT id FROM sft_memory
-            WHERE client_id_hash = ? AND input_text_hash = ? AND human_output_hash = ? AND created_date = ?
-        `).get(client_id_hash, input_text_hash, human_output_hash, created_date);
-
-        if (existing) {
-            const newStatus = (status === 'approved') ? existing.status || status : status;
-            await db2.prepare(`
-                UPDATE sft_memory SET
-                    human_output = ?,
-                    status = CASE WHEN ? = 'approved' THEN ? ELSE ? END,
-                    similarity = ?,
-                    chosen_output = ?,
-                    rejected_output = ?,
-                    system_prompt_used = COALESCE(?, system_prompt_used),
-                    system_prompt_version = COALESCE(?, system_prompt_version)
-                WHERE id = ?
-            `).run(human_output, status, newStatus, status, similarity, chosen_output, rejected_output, system_prompt_used, system_prompt_version, existing.id);
-            // === client_memory 自动积累：SFT 人工选择后异步提取记忆（UPDATE 路径）===
-            if (client_id && messages && messages.length > 0) {
-                const owner = await db2.prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
-                if (owner) {
-                    setImmediate(() => {
-                        extractAndSaveMemories({
-                            client_id,
-                            owner: owner.wa_owner,
-                            messages: messages.slice(-10),
-                            trigger_type: 'sft_select',
-                            source_record_id: existing.id,
-                        }).catch(e => console.error('[memoryExtraction] sft.js hook error:', e.message));
-                    });
-                }
-            }
-            return res.json({ ok: true, id: existing.id, updated: true });
-        }
-
-        const result = await db2.prepare(`
-            INSERT INTO sft_memory
-            (model_opt1, model_opt2, human_selected, human_output,
-             model_predicted, model_rejected, is_custom_input, human_reason,
-             context_json, status, reviewed_by,
-             similarity, scene, message_history,
-             client_id_hash, input_text_hash, human_output_hash, created_date,
-             chosen_output, rejected_output, system_prompt_used, system_prompt_version)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-            model_candidates?.opt1 || null,
-            model_candidates?.opt2 || null,
-            human_selected,
-            human_output,
-            diff_analysis?.model_predicted || null,
-            diff_analysis?.model_rejected || null,
-            diff_analysis?.is_custom ? 1 : 0,
-            diff_analysis?.human_reason || null,
-            context_json,
-            status,
-            reviewed_by,
-            similarity,
-            scene,
-            message_history_json,
-            client_id_hash,
-            input_text_hash,
-            human_output_hash,
-            created_date,
-            chosen_output,
-            rejected_output,
-            system_prompt_used,
-            system_prompt_version
-        );
-
-        await writeAudit('sft_create', 'sft_memory', result.lastInsertRowid, null, {
-            human_selected, human_output, status, reviewed_by
-        }, req);
-
-        // === client_memory 自动积累：SFT 人工选择后异步提取记忆 ===
-        if (client_id && messages && messages.length > 0) {
-            const owner = await db2.prepare('SELECT wa_owner FROM creators WHERE wa_phone = ?').get(client_id);
-            if (owner) {
-                setImmediate(() => {
-                    extractAndSaveMemories({
-                        client_id,
-                        owner: owner.wa_owner,
-                        messages: messages.slice(-10),
-                        trigger_type: 'sft_select',
-                        source_record_id: result.lastInsertRowid,
-                    }).catch(e => console.error('[memoryExtraction] sft.js hook error:', e.message));
-                });
-            }
-        }
-
-        res.json({ ok: true, id: result.lastInsertRowid });
+        res.json({ ok: true, id: result.id, updated: !!result.updated });
     } catch (err) {
         console.error('POST /api/sft-memory error:', err);
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
 // GET /api/sft-memory
 router.get('/sft-memory', async (req, res) => {
     try {
-        const db2 = db.getDb();
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 1000);
         const offset = Math.max(parseInt(req.query.offset) || 0, 0);
-        const rows = await db2.prepare(`
-            SELECT * FROM sft_memory
-            ORDER BY created_at DESC
-            LIMIT ${limit} OFFSET ${offset}
-        `).all();
-        res.json(rows.map(r => ({
-            ...r,
-            context: parseJsonSafe(r.context_json),
-            message_history: parseJsonSafe(r.message_history),
-        })));
+        const rows = await listSftMemory({ limit, offset, owner: effectiveOwner || null });
+        res.json(rows);
     } catch (err) {
         console.error('GET /api/sft-memory error:', err);
         res.status(500).json({ error: err.message });
@@ -192,18 +138,10 @@ router.get('/sft-memory', async (req, res) => {
 // GET /api/sft-memory/pending
 router.get('/sft-memory/pending', async (req, res) => {
     try {
-        const db2 = db.getDb();
-        const rows = await db2.prepare(`
-            SELECT * FROM sft_memory
-            WHERE status IN ('pending_review', 'needs_review')
-            ORDER BY created_at DESC
-            LIMIT 100
-        `).all();
-        res.json(rows.map(r => ({
-            ...r,
-            context: parseJsonSafe(r.context_json),
-            message_history: parseJsonSafe(r.message_history),
-        })));
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
+        const rows = await listPendingSftMemory({ owner: effectiveOwner || null, limit: 100 });
+        res.json(rows);
     } catch (err) {
         console.error('GET /api/sft-memory/pending error:', err);
         res.status(500).json({ error: err.message });
@@ -217,41 +155,24 @@ router.patch('/sft-memory/:id/review', async (req, res) => {
         if (!action || !['approve', 'reject'].includes(action)) {
             return res.status(400).json({ error: 'action must be approve or reject' });
         }
-        const db2 = db.getDb();
-        const newStatus = action === 'approve' ? 'approved' : 'rejected';
-        const result = await db2.prepare(`
-            UPDATE sft_memory SET status = ?, reviewed_by = ?, human_reason = COALESCE(?, human_reason)
-            WHERE id = ?
-        `).run(newStatus, 'human_review', comment || null, parseInt(req.params.id));
-        if (result.changes === 0) {
-            return res.status(404).json({ error: 'Record not found' });
-        }
-        res.json({ ok: true, status: newStatus });
+        const existing = await ensureSftRecordAccess(req, res, parseInt(req.params.id, 10));
+        if (!existing) return;
+        const result = await reviewSftMemory(parseInt(req.params.id, 10), action, comment || null);
+        await writeAudit('sft_review', 'sft_memory', parseInt(req.params.id), { status: existing.status }, { status: result.status, comment: comment || null, reviewed_by: 'human_review' }, req);
+        res.json(result);
     } catch (err) {
         console.error('PATCH /api/sft-memory/:id/review error:', err);
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
 // GET /api/sft-memory/stats
 router.get('/sft-memory/stats', async (req, res) => {
     try {
-        const db2 = db.getDb();
-        const total = (await db2.prepare('SELECT COUNT(*) as count FROM sft_memory').get()).count;
-        const opt1 = (await db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'opt1'").get()).count;
-        const opt2 = (await db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'opt2'").get()).count;
-        const custom = (await db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE human_selected = 'custom'").get()).count;
-        const pending = (await db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status IN ('pending_review','needs_review')").get()).count;
-        const approved = (await db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved'").get()).count;
-        res.json({
-            total,
-            opt1_selected: opt1,
-            opt2_selected: opt2,
-            custom_input: custom,
-            pending_review: pending,
-            approved,
-            model_override_rate: total > 0 ? ((custom / total) * 100).toFixed(1) + '%' : '0%'
-        });
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
+        const stats = await getSftMemoryStats(effectiveOwner || null);
+        res.json(stats);
     } catch (err) {
         console.error('GET /api/sft-memory/stats error:', err);
         res.status(500).json({ error: err.message });
@@ -262,6 +183,8 @@ router.get('/sft-memory/stats', async (req, res) => {
 router.get('/sft-training-status', async (req, res) => {
     try {
         const db2 = db.getDb();
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
 
         const THRESHOLDS = {
             approved: 200,
@@ -270,9 +193,30 @@ router.get('/sft-training-status', async (req, res) => {
         };
 
         const [approvedRow, customRow, sceneRows] = await Promise.all([
-            db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved'").get(),
-            db2.prepare("SELECT COUNT(*) as count FROM sft_memory WHERE status = 'approved' AND human_selected = 'custom'").get(),
-            db2.prepare("SELECT COUNT(DISTINCT scene) as count FROM sft_memory WHERE status = 'approved' AND scene IS NOT NULL").get(),
+            db2.prepare(`
+                SELECT COUNT(*) as count
+                FROM sft_memory sm
+                LEFT JOIN creators c
+                  ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
+                WHERE sm.status = 'approved'
+                ${effectiveOwner ? 'AND c.wa_owner = ?' : ''}
+            `).get(...(effectiveOwner ? [effectiveOwner] : [])),
+            db2.prepare(`
+                SELECT COUNT(*) as count
+                FROM sft_memory sm
+                LEFT JOIN creators c
+                  ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
+                WHERE sm.status = 'approved' AND sm.human_selected = 'custom'
+                ${effectiveOwner ? 'AND c.wa_owner = ?' : ''}
+            `).get(...(effectiveOwner ? [effectiveOwner] : [])),
+            db2.prepare(`
+                SELECT COUNT(DISTINCT sm.scene) as count
+                FROM sft_memory sm
+                LEFT JOIN creators c
+                  ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
+                WHERE sm.status = 'approved' AND sm.scene IS NOT NULL
+                ${effectiveOwner ? 'AND c.wa_owner = ?' : ''}
+            `).get(...(effectiveOwner ? [effectiveOwner] : [])),
         ]);
 
         const approved = approvedRow?.count || 0;
@@ -299,6 +243,7 @@ router.get('/sft-training-status', async (req, res) => {
         }
 
         res.json({
+            owner: effectiveOwner || null,
             ready: trainingReady,
             approved,
             approved_threshold: THRESHOLDS.approved,
@@ -308,7 +253,7 @@ router.get('/sft-training-status', async (req, res) => {
             scene_threshold: THRESHOLDS.scenes,
             blockers,
             next_action: nextAction,
-            export_url: `/api/sft-export?status=approved&limit=${THRESHOLDS.approved}&lang=en&format=jsonl`,
+            export_url: `/api/sft-export?status=approved&limit=${THRESHOLDS.approved}&lang=en&format=jsonl${effectiveOwner ? `&owner=${encodeURIComponent(effectiveOwner)}` : ''}`,
         });
     } catch (err) {
         console.error('GET /api/sft-training-status error:', err);
@@ -319,41 +264,10 @@ router.get('/sft-training-status', async (req, res) => {
 // GET /api/sft-memory/trends
 router.get('/sft-memory/trends', async (req, res) => {
     try {
-        const db2 = db.getDb();
-        const rows = await db2.prepare(`
-            SELECT
-                DATE(created_at) as date,
-                COUNT(*) as total,
-                SUM(CASE WHEN human_selected = 'opt1' THEN 1 ELSE 0 END) as opt1_cnt,
-                SUM(CASE WHEN human_selected = 'opt2' THEN 1 ELSE 0 END) as opt2_cnt,
-                SUM(CASE WHEN human_selected = 'custom' THEN 1 ELSE 0 END) as custom_cnt,
-                SUM(CASE WHEN status = 'pending_review' THEN 1 ELSE 0 END) as pending_cnt
-            FROM sft_memory
-            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-            GROUP BY DATE(created_at)
-            ORDER BY date ASC
-        `).all();
-
-        const dates = rows.map(r => r.date);
-        const volumes = rows.map(r => r.total);
-        const opt1_rate = rows.map(r => r.total > 0 ? +(r.opt1_cnt / r.total * 100).toFixed(1) : 0);
-        const opt2_rate = rows.map(r => r.total > 0 ? +(r.opt2_cnt / r.total * 100).toFixed(1) : 0);
-        const custom_rate = rows.map(r => r.total > 0 ? +(r.custom_cnt / r.total * 100).toFixed(1) : 0);
-
-        const skipRows = await db2.prepare(`
-            SELECT DATE(created_at) as date, COUNT(*) as skip_cnt
-            FROM sft_feedback
-            WHERE feedback_type = 'skip' AND created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-            GROUP BY DATE(created_at)
-        `).all();
-        const skipMap = {};
-        skipRows.forEach(r => { skipMap[r.date] = r.skip_cnt; });
-        const skip_rate = rows.map(r => {
-            const skip = skipMap[r.date] || 0;
-            return r.total > 0 ? +(skip / (r.total + skip) * 100).toFixed(1) : 0;
-        });
-
-        res.json({ dates, volumes, opt1_rate, opt2_rate, custom_rate, skip_rate });
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
+        const trends = await getSftMemoryTrends(effectiveOwner || null, 30);
+        res.json(trends);
     } catch (err) {
         console.error('GET /api/sft-memory/trends error:', err);
         res.status(500).json({ error: err.message });
@@ -367,37 +281,23 @@ router.post('/sft-feedback', async (req, res) => {
         if (!feedback_type || !['skip', 'reject', 'edit'].includes(feedback_type)) {
             return res.status(400).json({ error: 'feedback_type must be skip, reject, or edit' });
         }
-        const db2 = db.getDb();
-        const result = await db2.prepare(`
-            INSERT INTO sft_feedback (client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail, reject_reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(client_id || null, feedback_type, input_text || null, opt1 || null, opt2 || null, final_output || null, scene || null, detail || null, reject_reason || null);
-        res.json({ ok: true, id: result.lastInsertRowid });
+        const scopedOwner = await ensureClientScope(req, res, client_id, { required: !!getLockedOwner(req) });
+        if (getLockedOwner(req) && !scopedOwner) return;
+        const result = await createSftFeedback({ client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail, reject_reason });
+        res.json(result);
     } catch (err) {
         console.error('POST /api/sft-feedback error:', err);
-        res.status(500).json({ error: err.message });
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
 // GET /api/sft-feedback/stats
 router.get('/sft-feedback/stats', async (req, res) => {
     try {
-        const db2 = db.getDb();
-        const total = (await db2.prepare('SELECT COUNT(*) as count FROM sft_feedback').get()).count;
-        const byTypeRows = await db2.prepare('SELECT feedback_type, COUNT(*) as count FROM sft_feedback GROUP BY feedback_type').all();
-        const byType = {};
-        byTypeRows.forEach(r => { byType[r.feedback_type] = r.count; });
-        const byScene = await db2.prepare(`
-            SELECT scene, feedback_type, COUNT(*) as count
-            FROM sft_feedback WHERE scene IS NOT NULL
-            GROUP BY scene, feedback_type
-        `).all();
-        const sceneMap = {};
-        byScene.forEach(r => {
-            if (!sceneMap[r.scene]) sceneMap[r.scene] = { skip: 0, reject: 0, edit: 0 };
-            sceneMap[r.scene][r.feedback_type] = r.count;
-        });
-        res.json({ total, by_type: byType, by_scene: sceneMap });
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
+        const stats = await getSftFeedbackStats(effectiveOwner || null);
+        res.json(stats);
     } catch (err) {
         console.error('GET /api/sft-feedback/stats error:', err);
         res.status(500).json({ error: err.message });
@@ -410,17 +310,30 @@ router.get('/sft-export', async (req, res) => {
         const { buildFullSystemPrompt } = require('../../systemPromptBuilder.cjs');
 
         const db2 = db.getDb();
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
         const { format = 'json', status = 'approved', lang = 'all', month, include_retrieval = 'false' } = req.query;
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 1000, 1), 5000);
         const withRetrieval = include_retrieval === 'true';
 
-        let sql = `SELECT * FROM sft_memory WHERE status = ?`;
+        let sql = `
+            SELECT sm.*, c.wa_owner AS owner
+            FROM sft_memory sm
+            LEFT JOIN creators c
+              ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
+            WHERE sm.status = ?
+        `;
         const params = [status];
+        if (effectiveOwner) {
+            sql += ` AND c.wa_owner = ?`;
+            params.push(effectiveOwner);
+        }
         if (month && /^\d{4}-\d{2}$/.test(month)) {
-            sql += ` AND DATE_FORMAT(created_at, '%Y-%m') = ?`;
+            sql += ` AND DATE_FORMAT(sm.created_at, '%Y-%m') = ?`;
             params.push(month);
         }
-        sql += ` ORDER BY created_at DESC LIMIT ${limit} OFFSET 0`;
+        sql += ` ORDER BY sm.created_at DESC LIMIT ? OFFSET ?`;
+        params.push(limit, 0);
 
         const rows = await db2.prepare(sql).all(...params);
         const retrievalMap = new Map();
@@ -430,7 +343,7 @@ router.get('/sft-export', async (req, res) => {
             for (const row of rows) {
                 try {
                     const parsed = row.context_json ? JSON.parse(row.context_json) : {};
-                    const retrievalId = parsed?.retrieval_snapshot_id;
+                    const retrievalId = row.retrieval_snapshot_id || parsed?.retrieval_snapshot_id;
                     if (retrievalId) retrievalIds.push(Number(retrievalId));
                 } catch (_) {}
             }
@@ -525,9 +438,14 @@ router.get('/sft-export', async (req, res) => {
                     system_prompt_version: promptVersion || 'v2',
                     chosen_output: r.chosen_output,
                     rejected_output: r.rejected_output,
-                    retrieval_snapshot_id: ctx.retrieval_snapshot_id || null,
-                    retrieval_snapshot: withRetrieval && ctx.retrieval_snapshot_id
-                        ? retrievalMap.get(Number(ctx.retrieval_snapshot_id)) || null
+                    retrieval_snapshot_id: r.retrieval_snapshot_id || ctx.retrieval_snapshot_id || null,
+                    generation_log_id: r.generation_log_id || ctx.generation_log_id || null,
+                    provider: r.provider || ctx.provider || null,
+                    model: r.model || ctx.model || null,
+                    scene_source: r.scene_source || ctx.scene_source || null,
+                    pipeline_version: r.pipeline_version || ctx.pipeline_version || null,
+                    retrieval_snapshot: withRetrieval && (r.retrieval_snapshot_id || ctx.retrieval_snapshot_id)
+                        ? retrievalMap.get(Number(r.retrieval_snapshot_id || ctx.retrieval_snapshot_id)) || null
                         : undefined,
                 }
             };

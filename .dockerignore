@@ -3,6 +3,14 @@ node_modules
 .wwebjs_auth
 .wwebjs_cache
 *.db
+*.db-shm
+*.db-wal
+.env
 .env.local
+.DS_Store
+*.log
+.agents
+test-results
+backups
 .vite
 dist

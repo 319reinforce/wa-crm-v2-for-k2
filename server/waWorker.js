@@ -22,6 +22,13 @@ const {
     filterShortWindowDuplicates,
     toTimestampMs,
 } = require('./services/messageDedupService');
+const {
+    ensureGroupMessageSchema,
+    filterDirectMessagesAgainstGroups,
+    persistGroupMessages,
+    purgeCreatorMessagesMatchingGroups,
+} = require('./services/groupMessageService');
+const { getInternalServiceHeaders } = require('./utils/internalAuth');
 
 // ================== 配置 ==================
 
@@ -42,12 +49,20 @@ const POLL_INTERVAL_MS = parsePollIntervalMs(process.env.WA_POLL_INTERVAL_MS);  
 const HISTORY_MSG_LIMIT = 500;            // 常规历史消息拉取条数
 const POLL_FETCH_LIMIT = 50;              // 增量轮询拉取条数
 const ROSTER_HISTORY_MSG_LIMIT = 100000;  // roster 白名单全历史回溯上限
+const GROUP_HISTORY_MSG_LIMIT = 300;
+const GROUP_POLL_FETCH_LIMIT = 80;
 const WA_OWNER = normalizeOperatorName(process.env.WA_OWNER, 'Beau');
 const WA_SESSION_ID = String(process.env.WA_SESSION_ID || process.env.PORT || '3000').trim();
 const BASE_URL = process.env.WA_API_BASE || `http://localhost:${process.env.PORT || 3000}`; // 画像服务调用地址
 const WORKER_TAG = `${WA_SESSION_ID}`;
 const LOG_PREFIX = `[WA Worker:${WA_OWNER}/${WORKER_TAG}]`;
 const DIRECT_CHAT_SUFFIXES = ['@c.us', '@lid'];
+
+function maskPhone(phone) {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (digits.length <= 4) return '***';
+    return `***${digits.slice(-4)}`;
+}
 
 function resolveCurrentOwner() {
     return normalizeOperatorName(getResolvedOwner(), WA_OWNER);
@@ -99,10 +114,21 @@ function isDirectChatId(chatId) {
     return DIRECT_CHAT_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
 }
 
+function isGroupChatId(chatId) {
+    const normalized = String(chatId || '').trim().toLowerCase();
+    return normalized.endsWith('@g.us');
+}
+
 function isDirectChat(chat) {
     if (!chat) return false;
     if (chat?.isGroup === true) return false;
     return isDirectChatId(extractSerializedChatId(chat));
+}
+
+function isGroupChat(chat) {
+    if (!chat) return false;
+    if (chat?.isGroup === true) return true;
+    return isGroupChatId(extractSerializedChatId(chat));
 }
 
 function isDirectMessage(message, chat = null) {
@@ -153,6 +179,10 @@ let directChatCache = {
     byPhone: new Map(),
     expiresAt: 0,
 };
+let groupChatCache = {
+    entries: null,
+    expiresAt: 0,
+};
 
 function getCachedDirectChatEntry(phone) {
     if (!directChatCache.entries) return null;
@@ -187,6 +217,28 @@ async function buildDirectChatEntries(client, { force = false } = {}) {
     directChatCache = {
         entries,
         byPhone,
+        expiresAt: now + DIRECT_CHAT_CACHE_TTL_MS,
+    };
+    return entries;
+}
+
+async function buildGroupChatEntries(client, { force = false } = {}) {
+    const now = Date.now();
+    if (!force && groupChatCache.entries && now <= groupChatCache.expiresAt) {
+        return groupChatCache.entries;
+    }
+    const chats = await client.getChats();
+    const entries = (chats || [])
+        .filter((chat) => isGroupChat(chat))
+        .map((chat) => ({
+            chat,
+            chatId: extractSerializedChatId(chat),
+            name: chat?.name || 'Unnamed Group',
+            recencyTs: getChatRecencyTs(chat),
+        }))
+        .filter((entry) => entry.chatId);
+    groupChatCache = {
+        entries,
         expiresAt: now + DIRECT_CHAT_CACHE_TTL_MS,
     };
     return entries;
@@ -294,6 +346,24 @@ function getWaMessageText(message) {
     return isBinaryLikePayload(text) ? '' : text;
 }
 
+function getWaMessageAuthorJid(message) {
+    return String(
+        message?.author
+        ?? message?._data?.author
+        ?? message?.rawData?.author
+        ?? ''
+    ).trim() || null;
+}
+
+function getWaMessageAuthorName(message) {
+    return String(
+        message?.authorName
+        ?? message?._data?.notifyName
+        ?? message?.rawData?.notifyName
+        ?? ''
+    ).trim() || null;
+}
+
 function buildMessageHash(role, text, timestampMs) {
     return sha256(`${role || ''}|${text || ''}|${timestampMs || ''}`);
 }
@@ -360,6 +430,7 @@ const progress = {
 async function insertMessages(creatorId, messages) {
     if (!messages || messages.length === 0) return 0;
     const db2 = getDb();
+    await ensureGroupMessageSchema(db2);
     const normalizedMessages = messages.map((m) => {
         const role = m.role || getWaMessageRole(m);
         const text = m.text || getWaMessageText(m);
@@ -384,7 +455,17 @@ async function insertMessages(creatorId, messages) {
         console.warn(`${LOG_PREFIX} short-window duplicate blocked: creator=${creatorId} dropped=${dropped.length}`);
     }
 
-    const ops = kept.map((m) => {
+    const groupFiltered = await filterDirectMessagesAgainstGroups(db2, {
+        sessionId: WA_SESSION_ID,
+        operator: resolveCurrentOwner(),
+        messages: kept,
+    });
+
+    if (groupFiltered.dropped.length > 0) {
+        console.warn(`${LOG_PREFIX} group contamination blocked: creator=${creatorId} dropped=${groupFiltered.dropped.length}`);
+    }
+
+    const ops = groupFiltered.kept.map((m) => {
         const messageHash = buildMessageHash(m.role, m.text, m.timestamp);
         return [creatorId, m.role, m.operator, m.text, m.timestamp, messageHash];
     }).filter(([, , , text, timestampMs]) => text && timestampMs > 0);
@@ -400,6 +481,29 @@ async function insertMessages(creatorId, messages) {
         console.error(`${LOG_PREFIX} insertMessages error:`, e.message);
         return 0;
     }
+}
+
+async function persistGroupChatMessages(chat, messages) {
+    const db2 = getDb();
+    await ensureGroupMessageSchema(db2);
+    const chatId = extractSerializedChatId(chat);
+    if (!chatId || !isGroupChatId(chatId)) return 0;
+    const mapped = (messages || []).map((message) => ({
+        role: getWaMessageRole(message),
+        text: getWaMessageText(message),
+        timestamp: getWaMessageTimestampMs(message),
+        author_jid: getWaMessageAuthorJid(message),
+        author_name: getWaMessageAuthorName(message),
+    }));
+    const result = await persistGroupMessages({
+        dbConn: db2,
+        sessionId: WA_SESSION_ID,
+        operator: resolveCurrentOwner(),
+        chatId,
+        groupName: chat?.name || 'Unnamed Group',
+        messages: mapped,
+    });
+    return Number(result?.inserted || 0);
 }
 
 async function fetchMessagesViaStore(chat, limit = HISTORY_MSG_LIMIT) {
@@ -506,7 +610,7 @@ async function syncRosterCreatorHistory(client, assignment, chat = null) {
     try {
         wamessages = await fetchMessagesWithFallback(targetChat, ROSTER_HISTORY_MSG_LIMIT);
     } catch (e) {
-        console.warn(`${LOG_PREFIX} roster history fetch failed: creator=${assignment.creator_id} phone=${assignment.wa_phone} error=${e.message}`);
+        console.warn(`${LOG_PREFIX} roster history fetch failed: creator=${assignment.creator_id} phone=${maskPhone(assignment.wa_phone)} error=${e.message}`);
         return 0;
     }
 
@@ -534,6 +638,20 @@ async function touchCreator(creatorId) {
     } catch (_) {}
 }
 
+async function ensureCreatorRuntimeRows(creatorId) {
+    const normalizedCreatorId = Number(creatorId || 0);
+    if (!Number.isFinite(normalizedCreatorId) || normalizedCreatorId <= 0) {
+        return creatorId;
+    }
+    try {
+        const db2 = getDb();
+        await db2.prepare('INSERT IGNORE INTO wa_crm_data (creator_id) VALUES (?)').run(normalizedCreatorId);
+    } catch (error) {
+        console.warn(`${LOG_PREFIX} ensureCreatorRuntimeRows failed for creator#${normalizedCreatorId}: ${error.message}`);
+    }
+    return normalizedCreatorId;
+}
+
 async function getOrCreateCreator(phone, name) {
     const db2 = getDb();
     const normalizedPhone = normalizePhone(phone);
@@ -543,7 +661,7 @@ async function getOrCreateCreator(phone, name) {
         operator: resolveCurrentOwner(),
     });
     if (resolved?.creatorId) {
-        return resolved.creatorId;
+        return await ensureCreatorRuntimeRows(resolved.creatorId);
     }
 
     let row = await db2.prepare('SELECT id, wa_owner FROM creators WHERE wa_phone = ?').get(normalizedPhone);
@@ -555,7 +673,7 @@ async function getOrCreateCreator(phone, name) {
             await db2.prepare('UPDATE creators SET primary_name = ?, updated_at = NOW() WHERE id = ?')
                 .run(name || 'Unknown', row.id);
         }
-        return row.id;
+        return await ensureCreatorRuntimeRows(row.id);
     }
     const result = await db2.prepare(
         'INSERT INTO creators (primary_name, wa_phone, wa_owner, source) VALUES (?, ?, ?, ?)'
@@ -581,7 +699,7 @@ async function getOrCreateCreator(phone, name) {
         return { lastInsertRowid: existing.id };
     });
     invalidateOperatorCache(resolveCurrentOwner());
-    return result.lastInsertRowid;
+    return await ensureCreatorRuntimeRows(result.lastInsertRowid);
 }
 
 // ================== 历史同步 ==================
@@ -693,6 +811,31 @@ async function syncHistory(client) {
     }
 
     console.log(`\n${LOG_PREFIX} 历史同步完成: +${progress.newMessages} 条消息`);
+
+    try {
+        await syncGroupHistory(client);
+    } catch (e) {
+        console.warn(`${LOG_PREFIX} 群聊同步失败: ${e.message}`);
+        progress.errors.push(`groups: ${e.message}`);
+    }
+}
+
+async function syncGroupHistory(client) {
+    const groupEntries = await buildGroupChatEntries(client, { force: true });
+    if (groupEntries.length === 0) return;
+
+    console.log(`${LOG_PREFIX} 发现 ${groupEntries.length} 个群聊，开始独立归档...`);
+    for (const entry of groupEntries) {
+        try {
+            const groupMessages = await fetchMessagesWithFallback(entry.chat, GROUP_HISTORY_MSG_LIMIT);
+            const inserted = await persistGroupChatMessages(entry.chat, groupMessages);
+            if (inserted > 0) {
+                console.log(`${LOG_PREFIX}[Group] ${entry.name}: +${inserted} 条群聊消息`);
+            }
+        } catch (error) {
+            console.warn(`${LOG_PREFIX}[Group] ${entry.name}: ${error.message}`);
+        }
+    }
 }
 
 // ================== 实时消息监听 ==================
@@ -703,9 +846,67 @@ function registerMessageHandler(fn) {
     messageHandlers.push(fn);
 }
 
+async function notifyProfileAgentEvent(phone, text, role) {
+    try {
+        const response = await fetch(`${BASE_URL}/api/profile-agent/event`, {
+            method: 'POST',
+            headers: getInternalServiceHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({
+                event_type: 'wa_message',
+                client_id: phone,
+                data: { text, role },
+            }),
+            signal: AbortSignal.timeout(15000),
+        });
+        if (!response.ok) {
+            const detail = await response.text().catch(() => '');
+            console.warn(`${LOG_PREFIX} profile-agent event failed for ${maskPhone(phone)}: HTTP ${response.status}${detail ? ` ${detail.slice(0, 120)}` : ''}`);
+        }
+    } catch (e) {
+        console.warn(`${LOG_PREFIX} profile-agent event failed for ${maskPhone(phone)}: ${e.message}`);
+    }
+}
+
+async function notifyProfileAnalysisHook({ creatorId, phone, insertedCount = 1, sampleText = '' }) {
+    try {
+        const response = await fetch(`${BASE_URL}/api/profile-analysis/hook`, {
+            method: 'POST',
+            headers: getInternalServiceHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({
+                creator_id: creatorId || null,
+                client_id: phone || null,
+                inserted_count: Math.max(0, Number(insertedCount) || 0),
+                sample_text: String(sampleText || '').slice(0, 180),
+            }),
+            signal: AbortSignal.timeout(15000),
+        });
+        if (!response.ok) {
+            const detail = await response.text().catch(() => '');
+            console.warn(`${LOG_PREFIX} profile-analysis hook failed for ${maskPhone(phone)}: HTTP ${response.status}${detail ? ` ${detail.slice(0, 120)}` : ''}`);
+        }
+    } catch (error) {
+        console.warn(`${LOG_PREFIX} profile-analysis hook failed for ${maskPhone(phone)}: ${error.message}`);
+    }
+}
+
+async function notifyProfilePipelines({ creatorId, phone, text = '', role = 'user', insertedCount = 1 }) {
+    const safeText = String(text || '').trim();
+    const tasks = [
+        notifyProfileAnalysisHook({ creatorId, phone, insertedCount, sampleText: safeText }),
+    ];
+    if (safeText) {
+        tasks.push(notifyProfileAgentEvent(phone, safeText, role));
+    }
+    await Promise.allSettled(tasks);
+}
+
 async function handleIncomingMessage(msg) {
     try {
         const msgChat = await msg.getChat().catch(() => msg.chat || null);
+        if (isGroupChat(msgChat)) {
+            await persistGroupChatMessages(msgChat, [msg]);
+            return;
+        }
         if (!isDirectMessage(msg, msgChat)) return;
         if (isAlreadyProcessed(msg)) return;  // 防止与轮询重复
 
@@ -746,16 +947,14 @@ async function handleIncomingMessage(msg) {
                 try { fn({ phone, name, text: getWaMessageText(msg), creatorId }); } catch (_) {}
             });
 
-            // 触发客户画像系统：标签提取 + MiniMax summary 刷新
-            fetch(`${BASE_URL}/api/profile-agent/event`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    event_type: 'wa_message',
-                    client_id: phone,  // wa_phone 是 client_id
-                    data: { text: getWaMessageText(msg), role: getWaMessageRole(msg) }
-                })
-            }).catch(() => {});  // 非阻塞，不影响主流程
+            // 触发客户画像系统：旧画像链路 + profile-analysis hook
+            notifyProfilePipelines({
+                creatorId,
+                phone,
+                text: getWaMessageText(msg),
+                role: getWaMessageRole(msg),
+                insertedCount: inserted,
+            });
         }
     } catch (e) {
         console.error(`${LOG_PREFIX} handleIncomingMessage error:`, e.message);
@@ -839,17 +1038,14 @@ async function pollOnce(client) {
                 if (inserted > 0) {
                     await touchCreator(creatorId);
                     console.log(`${LOG_PREFIX}[Poll] ${name}: +${inserted} 条新消息`);
-
-                    // 触发客户画像系统（每批次只发一次，避免刷接口）
-                    fetch(`${BASE_URL}/api/profile-agent/event`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            event_type: 'wa_message',
-                            client_id: phone,
-                            data: { text: getWaMessageText(newer[0]), role: getWaMessageRole(newer[0]) }
-                        })
-                    }).catch(() => {});
+                    const sampleMessage = newer.find((item) => getWaMessageText(item)) || newer[0];
+                    notifyProfilePipelines({
+                        creatorId,
+                        phone,
+                        text: getWaMessageText(sampleMessage),
+                        role: getWaMessageRole(sampleMessage),
+                        insertedCount: inserted,
+                    });
                 }
             }
         }
@@ -892,7 +1088,29 @@ async function pollOnce(client) {
             newTotal += inserted;
             if (inserted > 0) {
                 await touchCreator(assignment.creator_id);
-                console.log(`${LOG_PREFIX}[Poll][Roster] ${assignment.primary_name || assignment.raw_name || assignment.wa_phone}: +${inserted} 条新消息`);
+                console.log(`${LOG_PREFIX}[Poll][Roster] ${assignment.primary_name || assignment.raw_name || maskPhone(assignment.wa_phone)}: +${inserted} 条新消息`);
+                const sampleMessage = newer.find((item) => getWaMessageText(item)) || newer[0];
+                notifyProfilePipelines({
+                    creatorId: assignment.creator_id,
+                    phone: assignment.wa_phone,
+                    text: getWaMessageText(sampleMessage),
+                    role: getWaMessageRole(sampleMessage),
+                    insertedCount: inserted,
+                });
+            }
+        }
+
+        const groupEntries = await buildGroupChatEntries(client);
+        for (const entry of groupEntries) {
+            let groupMessages;
+            try {
+                groupMessages = await fetchMessagesWithFallback(entry.chat, GROUP_POLL_FETCH_LIMIT);
+            } catch (_) {
+                continue;
+            }
+            const inserted = await persistGroupChatMessages(entry.chat, groupMessages);
+            if (inserted > 0) {
+                console.log(`${LOG_PREFIX}[Poll][Group] ${entry.name}: +${inserted} 条群聊消息`);
             }
         }
 

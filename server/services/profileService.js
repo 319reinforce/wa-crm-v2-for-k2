@@ -4,6 +4,7 @@
  */
 const db = require('../../db');
 const { evaluateCreatorLifecycle } = require('./lifecyclePersistenceService');
+const { buildFallbackProfileSummary } = require('./profileFallbackService');
 
 // 防止同一 client 频繁刷新的 debounce 标记
 const _pendingRefresh = new Map(); // clientId → setImmediate handle
@@ -51,6 +52,10 @@ async function refreshProfileSummary(clientId) {
         const memory = await db2.prepare(
             'SELECT * FROM client_memory WHERE client_id = ? ORDER BY created_at DESC LIMIT 5'
         ).all(clientId);
+        const existingProfile = await db2.prepare(
+            'SELECT summary FROM client_profiles WHERE client_id = ?'
+        ).get(clientId);
+        const existingSummary = String(existingProfile?.summary || '').trim();
 
         const tagLines = tags.map(t => t.tag).join(', ') || '暂无';
         const memLines = memory.map(m => m.memory_value).join('; ') || '暂无';
@@ -58,32 +63,48 @@ async function refreshProfileSummary(clientId) {
         const prompt = `客户画像分析（100-150字）。姓名:${creator.name || '未知'} | 负责人:${creator.wa_owner || '未知'} | 生命周期:${lifecycleLabel} | Beta子流程:${creator.beta_status || '未知'} | TikTok:${creator.keeper_username || '未知'} | 标签:${tagLines} | 记忆:${memLines}。请生成一段简洁的画像简介，包括用户特点、当前阶段、潜在需求。直接输出正文，不要前缀。`;
 
         const API_KEY = process.env.MINIMAX_API_KEY;
+        let summary = '';
         if (!API_KEY) {
-            console.error('MINIMAX_API_KEY not set');
-            return;
+            console.warn('MINIMAX_API_KEY not set, using profile summary fallback when needed');
+        } else {
+            try {
+                const response = await fetch('https://api.minimaxi.com/anthropic/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${API_KEY}`,
+                        'x-api-key': API_KEY,
+                        'anthropic-version': '2023-06-01',
+                    },
+                    body: JSON.stringify({
+                        model: 'mini-max-typing',
+                        messages: [{ role: 'user', content: prompt }],
+                        max_tokens: 400,
+                        temperature: 0.5,
+                    }),
+                    signal: AbortSignal.timeout(30000),
+                });
+
+                if (!response.ok) {
+                    console.warn(`refreshProfileSummary llm failed: HTTP ${response.status}`);
+                } else {
+                    const data = await response.json();
+                    const textItem = data.content?.find(item => item.type === 'text');
+                    summary = String(textItem?.text || '').trim();
+                }
+            } catch (err) {
+                console.warn('refreshProfileSummary llm error:', err.message);
+            }
         }
 
-        const response = await fetch('https://api.minimaxi.com/anthropic/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${API_KEY}`,
-                'x-api-key': API_KEY,
-                'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({
-                model: 'mini-max-typing',
-                messages: [{ role: 'user', content: prompt }],
-                max_tokens: 400,
-                temperature: 0.5,
-            }),
-            signal: AbortSignal.timeout(30000),
-        });
-
-        if (!response.ok) return;
-        const data = await response.json();
-        const textItem = data.content?.find(item => item.type === 'text');
-        const summary = textItem?.text?.trim();
+        if (!summary && !existingSummary) {
+            summary = buildFallbackProfileSummary({
+                creator,
+                lifecycleLabel,
+                tags,
+                memory,
+            });
+        }
 
         if (summary) {
             const updated = await db2.prepare(

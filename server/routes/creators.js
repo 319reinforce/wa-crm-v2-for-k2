@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const { getCreatorFull } = require('../../db');
+const { getLockedOwner, matchesOwnerScope, resolveScopedOwner, sendOwnerScopeForbidden } = require('../middleware/appAuth');
 const { writeAudit } = require('../middleware/audit');
 const { normalizeOperatorName } = require('../utils/operator');
 const { buildLifecycle, STAGE_META } = require('../services/lifecycleService');
@@ -31,6 +32,86 @@ const {
 
 function normalizeManualPhone(value) {
     return String(value || '').replace(/\D/g, '').trim();
+}
+
+function parseRequestedCreatorFields(value) {
+    return new Set(
+        String(value || '')
+            .split(',')
+            .map((item) => item.trim().toLowerCase())
+            .filter(Boolean)
+    );
+}
+
+const CREATOR_UPDATE_AUDIT_FIELDS = ['primary_name', 'wa_phone', 'wa_owner', 'keeper_username'];
+const CREATOR_WACRM_AUDIT_FIELDS = [
+    'beta_status', 'priority', 'agency_bound', 'video_count', 'video_target',
+    'monthly_fee_status', 'monthly_fee_amount', 'next_action',
+    'ev_trial_active', 'ev_monthly_started',
+    'ev_gmv_1k', 'ev_gmv_2k', 'ev_gmv_5k', 'ev_gmv_10k',
+    'ev_agency_bound', 'ev_churned',
+    'keeper_gmv', 'keeper_gmv30', 'keeper_orders',
+    'keeper_videos', 'keeper_videos_posted', 'keeper_videos_sold',
+    'keeper_card_rate', 'keeper_order_rate',
+    'keeper_reg_time', 'keeper_activate_time',
+];
+
+function pickDefinedAuditFields(payload, allowedFields) {
+    const source = payload && typeof payload === 'object' ? payload : {};
+    return allowedFields.reduce((result, field) => {
+        if (Object.prototype.hasOwnProperty.call(source, field) && source[field] !== undefined) {
+            result[field] = source[field];
+        }
+        return result;
+    }, {});
+}
+
+function shouldExposeCreatorListPhone(req, requestedFields) {
+    const role = String(req?.auth?.role || '').trim().toLowerCase();
+    const privileged = role === 'admin' || role === 'service';
+    return privileged && requestedFields.has('wa_phone');
+}
+
+function buildCreatorUpdateAuditPayload(payload) {
+    const auditPayload = pickDefinedAuditFields(payload, CREATOR_UPDATE_AUDIT_FIELDS);
+    if (auditPayload.wa_owner !== undefined) {
+        auditPayload.wa_owner = normalizeOperatorName(auditPayload.wa_owner, auditPayload.wa_owner);
+    }
+    return auditPayload;
+}
+
+function buildCreatorWacrmAuditPayload(payload, {
+    updatedFields = [],
+    beforeLifecycle = null,
+    afterLifecycle = null,
+    lifecycleChanged = false,
+    replyStrategy = null,
+} = {}) {
+    return {
+        changes: pickDefinedAuditFields(payload, CREATOR_WACRM_AUDIT_FIELDS),
+        updated: Array.isArray(updatedFields) ? updatedFields : [],
+        lifecycle_before: beforeLifecycle?.stage_key || null,
+        lifecycle_after: afterLifecycle?.stage_key || null,
+        lifecycle_changed: !!lifecycleChanged,
+        reply_strategy: replyStrategy || null,
+    };
+}
+
+async function ensureCreatorAccess(req, res, creatorId, fields = 'id, primary_name, wa_phone, wa_owner') {
+    const dbConn = db.getDb();
+    const row = await dbConn.prepare(
+        `SELECT ${fields} FROM creators WHERE id = ? LIMIT 1`
+    ).get(creatorId);
+    if (!row) {
+        res.status(404).json({ ok: false, error: 'Creator not found' });
+        return null;
+    }
+    const lockedOwner = getLockedOwner(req);
+    if (lockedOwner && !matchesOwnerScope(req, row.wa_owner)) {
+        sendOwnerScopeForbidden(res, lockedOwner);
+        return null;
+    }
+    return row;
 }
 
 async function findPhoneConflictRows(dbConn, normalizedPhone) {
@@ -348,6 +429,14 @@ async function listLifecycleHistoryForCreator(dbConn, creatorId, limit = 30) {
 router.get('/', async (req, res) => {
     try {
         const { owner, search, is_active, include_inactive, beta_status, priority, agency, event, lifecycle_stage, referral_active, has_conflict, monthly_fee_status } = req.query;
+        const lockedOwner = getLockedOwner(req);
+        const requestedOwner = normalizeOperatorName(owner, owner || null);
+        const requestedFields = parseRequestedCreatorFields(req.query.fields);
+        const includeWaPhone = shouldExposeCreatorListPhone(req, requestedFields);
+        if (lockedOwner && requestedOwner && !matchesOwnerScope(req, requestedOwner)) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
+        const effectiveOwner = resolveScopedOwner(req, requestedOwner, null);
         const rosterOnly = req.query.roster === 'all' ? false : await hasRosterAssignments();
         const dbConn = db.getDb();
 
@@ -411,13 +500,13 @@ router.get('/', async (req, res) => {
         `;
         const params = [];
 
-        if (owner) {
+        if (effectiveOwner) {
             if (rosterOnly) {
                 sql += ' AND LOWER(ocr.operator) = LOWER(?)';
             } else {
                 sql += ' AND LOWER(c.wa_owner) = LOWER(?)';
             }
-            params.push(owner);
+            params.push(effectiveOwner);
         }
         if (search) {
             sql += ' AND (c.primary_name LIKE ? OR c.wa_phone LIKE ? OR c.keeper_username LIKE ?)';
@@ -467,6 +556,7 @@ router.get('/', async (req, res) => {
         const mapped = creators.map((item) => {
             const normalized = {
                 ...item,
+                wa_phone: includeWaPhone ? item.wa_phone : undefined,
                 wa_owner: normalizeOperatorName(item.roster_operator, item.roster_operator) || item.wa_owner,
                 session_id: item.session_id || getSessionIdForOperator(item.roster_operator || item.wa_owner),
                 message_facts: messageFactsMap.get(Number(item.id)) || null,
@@ -491,6 +581,13 @@ router.get('/', async (req, res) => {
     }
 });
 
+router._private = {
+    parseRequestedCreatorFields,
+    shouldExposeCreatorListPhone,
+    buildCreatorUpdateAuditPayload,
+    buildCreatorWacrmAuditPayload,
+};
+
 // GET /api/creators/manual-check — 手动录入前去重检查（同号/重名）
 router.get('/manual-check', async (req, res) => {
     try {
@@ -499,7 +596,12 @@ router.get('/manual-check', async (req, res) => {
         const rawPhone = String(req.query.phone || '').trim();
         const normalizedPhone = normalizeManualPhone(rawPhone);
         const normalizedName = rawName.replace(/\s+/g, ' ').trim();
-        const operator = normalizeOperatorName(req.query.owner, req.query.owner || 'Yiyun');
+        const lockedOwner = getLockedOwner(req);
+        const requestedOwner = normalizeOperatorName(req.query.owner, req.query.owner || null);
+        if (lockedOwner && requestedOwner && !matchesOwnerScope(req, requestedOwner)) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
+        const operator = resolveScopedOwner(req, requestedOwner, 'Yiyun');
 
         const [samePhone, sameName] = await Promise.all([
             findPhoneConflictRows(dbConn, normalizedPhone),
@@ -538,7 +640,12 @@ router.post('/manual', async (req, res) => {
         const dbConn = db.getDb();
         const rawName = String(req.body?.primary_name || req.body?.name || '').trim();
         const rawPhone = String(req.body?.wa_phone || req.body?.phone || '').trim();
-        const operator = normalizeOperatorName(req.body?.wa_owner || req.body?.owner, 'Yiyun');
+        const lockedOwner = getLockedOwner(req);
+        const requestedOwner = normalizeOperatorName(req.body?.wa_owner || req.body?.owner, null);
+        if (lockedOwner && requestedOwner && !matchesOwnerScope(req, requestedOwner)) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
+        const operator = resolveScopedOwner(req, requestedOwner, 'Yiyun');
         const source = String(req.body?.source || 'manual').trim() || 'manual';
         const normalizedPhone = normalizeManualPhone(rawPhone);
         const normalizedName = rawName.replace(/\s+/g, ' ').trim();
@@ -552,6 +659,12 @@ router.post('/manual', async (req, res) => {
 
         const samePhoneRows = await findPhoneConflictRows(dbConn, normalizedPhone);
         const sameNameRows = await findNameConflictRows(dbConn, normalizedName);
+        if (lockedOwner && samePhoneRows.some((row) => !matchesOwnerScope(req, row.wa_owner))) {
+            return res.status(403).json({
+                ok: false,
+                error: 'phone already belongs to another owner',
+            });
+        }
         const reused = samePhoneRows.length > 0;
 
         const resultPayload = await dbConn.transaction(async (txDb) => {
@@ -627,6 +740,7 @@ router.post('/batch-next-action', async (req, res) => {
         const creatorIds = normalizeCreatorIds(req.body?.creator_ids);
         const mode = String(req.body?.mode || 'lifecycle_option0').trim() || 'lifecycle_option0';
         const customText = String(req.body?.text || '').trim();
+        const lockedOwner = getLockedOwner(req);
 
         if (creatorIds.length === 0) {
             return res.status(400).json({ ok: false, error: 'creator_ids required' });
@@ -641,6 +755,16 @@ router.post('/batch-next-action', async (req, res) => {
             getLifecycleEventsMap(dbConn, creatorIds, { includeMeta: false }),
             getLifecycleRuntimeOptions(dbConn),
         ]);
+        if (lockedOwner) {
+            const blockedRows = rows.filter((row) => !matchesOwnerScope(req, row.wa_owner));
+            if (blockedRows.length > 0) {
+                return res.status(403).json({
+                    ok: false,
+                    error: `creator_ids include other owners (locked to ${lockedOwner})`,
+                    blocked_creator_ids: blockedRows.map((row) => row.id),
+                });
+            }
+        }
         const messageFactsMap = await fetchCreatorMessageFactsMap(dbConn, rows);
         const rowMap = new Map(rows.map((row) => [Number(row.id), row]));
         const results = [];
@@ -707,6 +831,10 @@ router.get('/:id', async (req, res) => {
         if (!creator) {
             return res.status(404).json({ error: 'Creator not found' });
         }
+        const lockedOwner = getLockedOwner(req);
+        if (lockedOwner && !matchesOwnerScope(req, creator.wa_owner)) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
         const [assignment, eventsMap, lifecycleOptions, messageFactsMap] = await Promise.all([
             getAssignmentByCreatorId(creator.id),
             getLifecycleEventsMap(dbConn, [creator.id]),
@@ -738,12 +866,8 @@ router.get('/:id/lifecycle', async (req, res) => {
             return res.status(400).json({ ok: false, error: 'invalid creator id' });
         }
         const dbConn = db.getDb();
-        const creator = await dbConn.prepare(
-            'SELECT id, primary_name, wa_owner FROM creators WHERE id = ? LIMIT 1'
-        ).get(creatorId);
-        if (!creator) {
-            return res.status(404).json({ ok: false, error: 'Creator not found' });
-        }
+        const creator = await ensureCreatorAccess(req, res, creatorId, 'id, primary_name, wa_owner');
+        if (!creator) return;
 
         const snapshot = await getLifecycleSnapshotRecord(dbConn, creatorId);
         const current = snapshot || (await buildCurrentLifecycleForCreator(dbConn, creatorId));
@@ -768,12 +892,8 @@ router.get('/:id/lifecycle-history', async (req, res) => {
             return res.status(400).json({ ok: false, error: 'invalid creator id' });
         }
         const dbConn = db.getDb();
-        const creator = await dbConn.prepare(
-            'SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1'
-        ).get(creatorId);
-        if (!creator) {
-            return res.status(404).json({ ok: false, error: 'Creator not found' });
-        }
+        const creator = await ensureCreatorAccess(req, res, creatorId, 'id, primary_name, wa_phone, wa_owner');
+        if (!creator) return;
 
         const history = await listLifecycleHistoryForCreator(dbConn, creatorId, req.query.limit || 30);
         res.json({
@@ -799,6 +919,12 @@ router.put('/:id', async (req, res) => {
         const db2 = db.getDb();
         const { primary_name, wa_phone, wa_owner, keeper_username } = req.body;
         const id = parseInt(req.params.id);
+        const lockedOwner = getLockedOwner(req);
+        const creator = await ensureCreatorAccess(req, res, id, 'id, wa_owner');
+        if (!creator) return;
+        if (lockedOwner && wa_owner !== undefined && !matchesOwnerScope(req, wa_owner)) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
 
         if (wa_phone !== undefined && (wa_phone === null || String(wa_phone).trim() === '')) {
             return res.status(400).json({ error: 'wa_phone cannot be empty' });
@@ -817,7 +943,7 @@ router.put('/:id', async (req, res) => {
         values.push(id);
         await db2.prepare(`UPDATE creators SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 
-        await writeAudit('creator_update', 'creators', id, null, req.body, req);
+        await writeAudit('creator_update', 'creators', id, null, buildCreatorUpdateAuditPayload(req.body), req);
         res.json({ ok: true });
     } catch (err) {
         console.error('PUT /api/creators/:id error:', err);
@@ -840,6 +966,8 @@ router.put('/:id/wacrm', async (req, res) => {
             keeper_reg_time, keeper_activate_time,
         } = req.body;
         const creatorId = parseInt(req.params.id);
+        const creator = await ensureCreatorAccess(req, res, creatorId, 'id, wa_owner');
+        if (!creator) return;
         const beforeLifecycle = await evaluateCreatorLifecycle(db.getDb(), creatorId)
             .then((ret) => ret?.lifecycle || null)
             .catch(() => null);
@@ -976,14 +1104,13 @@ router.put('/:id/wacrm', async (req, res) => {
             }, req);
         }
 
-        await writeAudit('creator_profile_update', 'multi', creatorId, null, {
-            ...req.body,
-            updated: updatedFields,
-            lifecycle_before: beforeLifecycle?.stage_key || null,
-            lifecycle_after: afterLifecycle?.stage_key || null,
-            lifecycle_changed: lifecycleChanged,
-            reply_strategy: strategyRebuild,
-        }, req);
+        await writeAudit('creator_profile_update', 'multi', creatorId, null, buildCreatorWacrmAuditPayload(req.body, {
+            updatedFields,
+            beforeLifecycle,
+            afterLifecycle,
+            lifecycleChanged,
+            replyStrategy: strategyRebuild,
+        }), req);
         res.json({
             ok: true,
             updated: updatedFields,

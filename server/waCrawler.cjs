@@ -26,6 +26,7 @@ const {
     completeClaimedCommand,
     writeSessionStatus,
 } = require('./services/waIpc');
+const { assertNoGroupSend } = require('./services/groupSendGuard');
 const { normalizeOperatorName } = require('./utils/operator');
 const { normalizePhone } = require('./services/creatorEligibilityService');
 
@@ -376,6 +377,17 @@ async function processSessionCommands() {
 
         const payload = claimed.command || {};
         if (payload.type === 'send_message') {
+            const targetGuard = assertNoGroupSend(payload.phone, { source: 'wa_crawler.send_message' });
+            if (!targetGuard.ok) {
+                completeClaimedCommand(claimed, {
+                    ok: false,
+                    error: targetGuard.error,
+                    routed_session_id: WA_SESSION_ID,
+                    routed_operator: WA_OWNER,
+                });
+                publishStatus();
+                return;
+            }
             const result = await sendMessage(payload.phone, payload.text);
             completeClaimedCommand(claimed, {
                 ...result,
@@ -386,6 +398,17 @@ async function processSessionCommands() {
             return;
         }
         if (payload.type === 'send_media') {
+            const targetGuard = assertNoGroupSend(payload.phone, { source: 'wa_crawler.send_media' });
+            if (!targetGuard.ok) {
+                completeClaimedCommand(claimed, {
+                    ok: false,
+                    error: targetGuard.error,
+                    routed_session_id: WA_SESSION_ID,
+                    routed_operator: WA_OWNER,
+                });
+                publishStatus();
+                return;
+            }
             const mediaPayload = payload.payload || {};
             const result = await sendMedia(payload.phone, {
                 caption: mediaPayload.caption || payload.caption || '',

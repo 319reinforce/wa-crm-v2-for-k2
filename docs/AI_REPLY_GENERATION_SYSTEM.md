@@ -1,7 +1,7 @@
 # AI 回复生成系统技术文档
 
-> 版本：2026-04-09
-> 负责模块：`src/components/WAMessageComposer.jsx`
+> 版本：2026-04-16（主链路重构：双请求 → 单请求 generate-candidates）
+> 负责模块：`src/components/WAMessageComposer.jsx`、`server/services/replyGenerationService.js`
 
 ---
 
@@ -10,21 +10,33 @@
 ```
 用户点击机器人图标（或定时轮询触发）
     ↓
-generateForIncoming → generateViaExperienceRouter → POST /api/minimax
+generateForIncoming → experienceRouter.js → POST /api/ai/generate-candidates
     ↓
-MiniMax/OpenAI 返回 → extractText() → pushPicker({ opt1, opt2 })
+replyGenerationService（后端统一编排）
+    ├── owner/client scope 校验
+    ├── buildFullSystemPrompt() → retrieval_snapshot 写入
+    ├── provider 路由（finetuned / openai / minimax）
+    └── generation_log 写入
+    ↓
+返回 { opt1, opt2, retrieval_snapshot_id, generation_log_id, provider, model, pipeline_version }
+    ↓
+pushPicker({ opt1, opt2 })
 ```
 
-### 核心调用链路
+### 核心调用链路（2026-04-16 重构后）
 
 1. `checkNewMessages()` — 定时轮询（每5秒），拉取最新消息
 2. `generateForIncoming(latestMsg)` — 为最新达人消息生成候选回复
-3. `generateViaExperienceRouter({ conversation, scene, client_id, richCtx })` — Experience Router 核心
-4. `buildSystemPrompt()` — 组装 System Prompt（双模式 + 回复风格）
-5. `buildTopicContext()` — 话题上下文（差异化结构）
-6. `buildRichContextParagraph()` — 丰富上下文注入
-7. `buildConversationSummary()` — 早期消息摘要
-8. `POST /api/minimax` — 发送至 AI 服务商（USE_OPENAI 自动路由）
+3. `src/components/WAMessageComposer/ai/experienceRouter.js` — 前端 AI 调用入口，单次请求
+4. `POST /api/ai/generate-candidates` — **新主接口**，由 `replyGenerationService` 统一编排
+5. `buildTopicContext()` — 话题上下文（差异化结构，前端构建后传入）
+6. `buildRichContextParagraph()` — 丰富上下文注入（前端构建后传入）
+7. `buildConversationSummary()` — 早期消息摘要（前端构建后传入）
+
+### 兼容入口（已降级，不推荐新代码使用）
+
+- `POST /api/minimax` — 已收口到 `replyGenerationService`，不再保留独立实现
+- `POST /api/experience/route` — 已收口到 `replyGenerationService`
 
 ---
 
@@ -297,21 +309,44 @@ MiniMax/OpenAI 返回 → extractText() → pushPicker({ opt1, opt2 })
 
 ## 九、AI 服务商路由
 
-### 环境变量：`USE_OPENAI=true` → OpenAI；`false` → MiniMax
+> 路由逻辑统一在 `server/services/replyGenerationService.js` 的 `generateCandidatesFromMessages()` 中。
 
-### MiniMax（`USE_OPENAI=false`）
+### 路由优先级
 
-- 并发两路请求（`Promise.all`）：temp 0.8 vs temp 0.4
-- 返回格式：`{ content: [{type:'text', text:opt1}], content_opt2: [{type:'text', text:opt2}] }`
+```
+shouldUseFinetuned() → true  →  Finetuned 模型（FINETUNED_BASE，超时 15s，失败自动 fallback）
+USE_OPENAI=true              →  OpenAI（OPENAI_MODEL，默认 gpt-4o）
+默认                         →  MiniMax（api.minimaxi.com，超时 60s）
+```
 
-### OpenAI（`USE_OPENAI=true`）
+### 各 provider 返回结构（统一）
 
-- 调用 `generateCandidates()`：并发生成两个候选
-- 返回格式：`{ content_opt1, content_opt2 }`
+所有 provider 均返回：
+```javascript
+{
+  content:      [{ type: 'text', text: opt1 }],
+  content_opt1: [{ type: 'text', text: opt1 }],
+  content_opt2: [{ type: 'text', text: opt2 }],
+  provider:     'minimax' | 'openai' | 'finetuned',
+  model:        '<model name>',
+  generationLogId: <number>,
+  ab_bucket:    'minimax' | 'openai' | 'finetuned',
+}
+```
 
-### 前端统一
+### generation tracking 字段（2026-04-16 新增）
 
-从 `content_opt1` / `content_opt2` 字段提取
+每次生成后，`replyGenerationService` 会写入两张追踪表：
+
+| 表 | 写入时机 | 关键字段 |
+|---|---|---|
+| `retrieval_snapshot` | prompt 构建完成后 | `client_id`, `operator`, `scene`, `snapshot_hash`, `grounding_json` |
+| `generation_log` | AI 返回后 | `provider`, `model`, `route`, `ab_bucket`, `latency_ms`, `status` |
+
+`generateReplyCandidates()` 返回值中包含：
+- `retrievalSnapshotId` / `retrieval_snapshot_id`
+- `generationLogId` / `generation_log_id`
+- `provider`, `model`, `pipelineVersion` (`reply_generation_v2`)
 
 ---
 
@@ -320,8 +355,10 @@ MiniMax/OpenAI 返回 → extractText() → pushPicker({ opt1, opt2 })
 | 文件 | 路径 |
 |------|------|
 | 消息编辑器组件 | `src/components/WAMessageComposer.jsx` |
-| AI 服务路由 | `server/routes/ai.js` |
-| Experience Router | `server/routes/experience.js` |
+| 前端 AI 调用入口 | `src/components/WAMessageComposer/ai/experienceRouter.js` |
+| 回复生成统一服务 | `server/services/replyGenerationService.js` |
+| AI 路由（含新主接口） | `server/routes/ai.js` |
+| Experience Router（兼容入口） | `server/routes/experience.js` |
 | 共享 Prompt 构建器 | `systemPromptBuilder.cjs` |
 | SFT Service | `server/services/sftService.js` |
 | 数据库 Schema | `schema.sql` |

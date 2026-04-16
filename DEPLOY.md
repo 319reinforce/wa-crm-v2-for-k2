@@ -21,8 +21,8 @@ cd whatsapp-mgr
 cp .env.example .env
 # 编辑 .env，填入必要的 API Keys
 
-# 3. 启动（包含 MySQL）
-docker compose up -d
+# 3. 启动（服务器推荐：named volume 持久化 MySQL / WA session）
+docker compose -f docker-compose.server.yml up -d --build
 
 # 4. 验证服务
 curl http://localhost:3000/api/health
@@ -30,9 +30,54 @@ curl http://localhost:3000/api/health
 
 ### 停止
 ```bash
-docker compose down        # 停止服务
-docker compose down -v     # 停止并删除数据卷（慎用）
+docker compose -f docker-compose.server.yml down        # 停止服务
+docker compose -f docker-compose.server.yml down -v     # 停止并删除数据卷（慎用）
 ```
+
+### 持久化卷说明
+
+`docker-compose.server.yml` 默认使用 Docker named volumes：
+
+| 卷名 | 容器路径 | 用途 |
+|------|----------|------|
+| `wa_crm_mysql_data` | `/var/lib/mysql` | MySQL 数据 |
+| `wa_crm_wwebjs_auth` | `/app/.wwebjs_auth` | WhatsApp 登录态 / session |
+| `wa_crm_wwebjs_cache` | `/app/.wwebjs_cache` | WhatsApp 浏览器缓存 |
+| `wa_crm_media_assets` | `/app/data/media-assets` | 本地媒体文件 |
+
+这套 compose 同时会：
+- 在镜像里安装 Chromium，容器内可直接跑 `whatsapp-web.js`
+- 通过 `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium` 固定浏览器路径
+- 通过 `WA_AUTH_ROOT=/app/.wwebjs_auth` 把 session 目录指向持久化卷
+
+### 从本机迁移最小 session 到服务器卷
+
+如果你已经按最小迁移方案保留了 `.wwebjs_auth`，推荐先把它 rsync 到服务器项目目录，再导入 Docker volume：
+
+```bash
+# 本机 -> 服务器（最小 session 迁移）
+rsync -av --delete \
+  --exclude-from=docs/deploy/rsync-excludes.txt \
+  --exclude-from=docs/deploy/rsync-wwebjs-auth-minimal-excludes.txt \
+  ./ user@host:/opt/whatsapp-mgr/
+```
+
+```bash
+# 服务器内：把项目目录里的 .wwebjs_auth 灌入 named volume
+docker volume create wa_crm_wwebjs_auth
+docker run --rm \
+  -v wa_crm_wwebjs_auth:/to \
+  -v "$(pwd)/.wwebjs_auth":/from:ro \
+  alpine sh -lc 'cp -a /from/. /to/'
+```
+
+之后再启动：
+
+```bash
+docker compose -f docker-compose.server.yml up -d --build
+```
+
+如果你不需要迁移现有登录态，也可以直接启动，再在服务器上重新扫码一次。
 
 ---
 
@@ -107,6 +152,9 @@ curl http://localhost:3000/api/health
 | `MINIMAX_API_BASE` | `https://api.minimaxi.com/anthropic` | MiniMax API 地址 |
 | `WA_SESSION_ID` | 空（默认用端口） | WhatsApp 会话 ID（同机多 session 时必填，如 `beau`/`yiyun`） |
 | `WA_OWNER` | `Beau` | 当前 WA 会话归属负责人 |
+| `WA_AUTH_ROOT` | 空 | WhatsApp session 根目录；Docker 推荐 `/app/.wwebjs_auth` |
+| `WA_HEADLESS` | `true` | 是否启用无头浏览器 |
+| `PUPPETEER_EXECUTABLE_PATH` | 空 | 显式指定 Chromium/Chrome 路径；Docker 推荐 `/usr/bin/chromium` |
 | `WA_API_BASE` | `http://127.0.0.1:3000` | 独立 crawler 回调主服务地址（画像/事件） |
 
 ### Vite 前端变量（自动生效）
@@ -209,7 +257,8 @@ whatsapp-mgr/
 ├── schema.sql          # 数据库 Schema
 ├── package.json        # 依赖定义
 ├── vite.config.js      # Vite 构建配置
-├── docker-compose.yml  # Docker 部署配置
+├── docker-compose.yml  # 本地 bind mount 版 Docker 配置
+├── docker-compose.server.yml  # 服务器 named volume 版 Docker 配置
 ├── Dockerfile          # Docker 镜像
 ├── .env                # 环境变量（不上传 git）
 ├── .env.example        # 环境变量模板

@@ -1,0 +1,6 @@
+# Stateless deployment excludes for rsync.
+# Use with:
+# rsync -av --delete --exclude-from=docs/deploy/rsync-excludes.txt --exclude-from=docs/deploy/rsync-stateless-excludes.txt ./ user@host:/path/app/
+
+.wwebjs_auth
+.wwebjs_cache

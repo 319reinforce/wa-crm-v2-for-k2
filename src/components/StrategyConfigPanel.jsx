@@ -185,144 +185,180 @@ export function StrategyConfigPanel({ embedded = false }) {
   }, [loadConfig])
 
   return (
-    <div className={embedded ? 'space-y-3' : 'h-full overflow-y-auto p-3 space-y-3'} style={embedded ? undefined : { background: WA.lightBg }}>
-      <div className="rounded-xl p-3 space-y-2" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-semibold" style={{ color: WA.textDark }}>未绑定Agency策略配置</div>
-            <div className="text-xs" style={{ color: WA.textMuted }}>
-              key: {draft.policy_key} | source: {draft.source || 'default'}
+    <div className={embedded ? 'space-y-4' : 'h-full overflow-y-auto p-4 space-y-4'} style={embedded ? undefined : { background: WA.lightBg }}>
+      <div className="grid grid-cols-1 gap-4">
+        <BoardSection
+          title="未绑定 Agency 策略配置"
+          subtitle={`key: ${draft.policy_key} · source: ${draft.source || 'default'}`}
+          action={(
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={loadConfig}
+                disabled={loading}
+                className="px-3 py-1.5 rounded-full text-[12px] font-medium"
+                style={{ border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
+              >
+                {loading ? '加载中...' : '加载'}
+              </button>
+              <button
+                onClick={resetDraft}
+                disabled={!loaded || saving}
+                className="px-3 py-1.5 rounded-full text-[12px] font-medium"
+                style={{ border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
+              >
+                重置
+              </button>
+              <button
+                onClick={saveConfig}
+                disabled={saving || !!validate}
+                className="px-3 py-1.5 rounded-full text-[12px] font-medium text-white"
+                style={{ background: saving ? '#9ca3af' : WA.teal }}
+              >
+                {saving ? '保存中...' : '保存'}
+              </button>
+            </div>
+          )}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-[20px] p-4 space-y-4" style={{ background: WA.shellPanelMuted, border: `1px solid ${WA.borderLight}` }}>
+              <div className="text-[12px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>Policy Meta</div>
+              <BoardInput label="policy_version" value={draft.policy_version} onChange={(v) => setDraft((prev) => ({ ...prev, policy_version: v }))} />
+              <BoardInput label="applicable_scenarios" value={draft.applicable_scenarios_text} onChange={(v) => setDraft((prev) => ({ ...prev, applicable_scenarios_text: v }))} />
+              <label className="flex items-center gap-2 text-[12px]" style={{ color: WA.textMuted }}>
+                <input
+                  type="checkbox"
+                  checked={!!draft.is_active}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, is_active: e.target.checked }))}
+                />
+                启用策略（灰度或临时关闭时可取消勾选）
+              </label>
+            </div>
+
+            <div className="rounded-[20px] p-4 space-y-3" style={{ background: WA.shellPanelMuted, border: `1px solid ${WA.borderLight}` }}>
+              <div className="text-[12px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>Board Status</div>
+              <MetaPill label="策略数" value={`${draft.strategies.length} 条`} />
+              {savedAt && <MetaPill label="最近保存" value={savedAt} tone="success" />}
+              {validate && <MetaPill label="校验" value={validate} tone="danger" />}
+              {error && <MetaPill label="错误" value={error} tone="danger" />}
+              {!savedAt && !validate && !error && (
+                <div className="text-[13px] leading-6" style={{ color: WA.textMuted }}>
+                  每张策略卡独立维护 ID、短描述、记忆值、下一步模板和 prompt hint，减少整页长表单的阅读负担。
+                </div>
+              )}
             </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={loadConfig}
-              disabled={loading}
-              className="px-2.5 py-1.5 rounded-lg text-xs"
-              style={{ border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
-            >
-              {loading ? '加载中...' : '加载'}
-            </button>
-            <button
-              onClick={resetDraft}
-              disabled={!loaded || saving}
-              className="px-2.5 py-1.5 rounded-lg text-xs"
-              style={{ border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
-            >
-              重置
-            </button>
-            <button
-              onClick={saveConfig}
-              disabled={saving || !!validate}
-              className="px-2.5 py-1.5 rounded-lg text-xs text-white"
-              style={{ background: saving ? '#9ca3af' : WA.teal }}
-            >
-              {saving ? '保存中...' : '保存'}
-            </button>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-2">
-          <label className="text-xs" style={{ color: WA.textMuted }}>
-            policy_version
-            <input
-              value={draft.policy_version}
-              onChange={(e) => setDraft((prev) => ({ ...prev, policy_version: e.target.value }))}
-              className="mt-1 w-full rounded-lg px-2 py-1.5 text-xs"
-              style={{ border: `1px solid ${WA.borderLight}`, background: WA.white, color: WA.textDark }}
-            />
-          </label>
-          <label className="flex items-center gap-2 text-xs" style={{ color: WA.textMuted }}>
-            <input
-              type="checkbox"
-              checked={!!draft.is_active}
-              onChange={(e) => setDraft((prev) => ({ ...prev, is_active: e.target.checked }))}
-            />
-            启用策略（灰度/临时关闭时可取消勾选）
-          </label>
-          <label className="text-xs" style={{ color: WA.textMuted }}>
-            applicable_scenarios (逗号分隔)
-            <input
-              value={draft.applicable_scenarios_text}
-              onChange={(e) => setDraft((prev) => ({ ...prev, applicable_scenarios_text: e.target.value }))}
-              className="mt-1 w-full rounded-lg px-2 py-1.5 text-xs"
-              style={{ border: `1px solid ${WA.borderLight}`, background: WA.white, color: WA.textDark }}
-            />
-          </label>
-        </div>
-        {savedAt && <div className="text-xs" style={{ color: '#10b981' }}>已保存：{savedAt}</div>}
-        {validate && <div className="text-xs" style={{ color: '#ef4444' }}>校验：{validate}</div>}
-        {error && <div className="text-xs" style={{ color: '#ef4444' }}>错误：{error}</div>}
-      </div>
+        </BoardSection>
 
-      <div className="flex items-center justify-between">
-        <div className="text-xs font-semibold" style={{ color: WA.textMuted }}>策略列表（{draft.strategies.length}）</div>
-        <button
-          onClick={addStrategy}
-          className="px-2 py-1 rounded-lg text-xs"
-          style={{ border: `1px solid ${WA.borderLight}`, background: WA.white, color: WA.textDark }}
-        >
-          + 新增策略
-        </button>
-      </div>
-
-      {draft.strategies.map((item, idx) => (
-        <div key={`${item.id || 'new'}_${idx}`} className="rounded-xl p-3 space-y-2" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-semibold" style={{ color: WA.textDark }}>策略 #{idx + 1}</div>
-            <button
-              onClick={() => removeStrategy(idx)}
-              disabled={draft.strategies.length <= 1}
-              className="px-2 py-1 rounded-lg text-xs"
-              style={{ border: `1px solid ${WA.borderLight}`, background: WA.white, color: '#ef4444' }}
-            >
-              删除
-            </button>
+        <div className="flex items-center justify-between">
+          <div className="text-[12px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>
+            策略列表（{draft.strategies.length}）
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <SmallInput label="id" value={item.id} onChange={(v) => updateStrategy(idx, 'id', v)} />
-            <SmallInput label="priority" value={String(item.priority)} onChange={(v) => updateStrategy(idx, 'priority', Number(v) || 0)} />
-            <SmallInput label="name" value={item.name} onChange={(v) => updateStrategy(idx, 'name', v)} />
-            <SmallInput label="name_en" value={item.name_en} onChange={(v) => updateStrategy(idx, 'name_en', v)} />
-            <SmallInput label="memory_key" value={item.memory_key} onChange={(v) => updateStrategy(idx, 'memory_key', v)} />
-            <SmallInput label="aliases(逗号)" value={item.aliases_text} onChange={(v) => updateStrategy(idx, 'aliases_text', v)} />
-          </div>
-          <SmallTextarea label="short_desc" value={item.short_desc} onChange={(v) => updateStrategy(idx, 'short_desc', v)} />
-          <SmallTextarea label="memory_value" value={item.memory_value} onChange={(v) => updateStrategy(idx, 'memory_value', v)} />
-          <SmallTextarea label="next_action_template" value={item.next_action_template} onChange={(v) => updateStrategy(idx, 'next_action_template', v)} />
-          <SmallTextarea label="next_action_template_en" value={item.next_action_template_en} onChange={(v) => updateStrategy(idx, 'next_action_template_en', v)} />
-          <SmallTextarea label="prompt_hint" value={item.prompt_hint} onChange={(v) => updateStrategy(idx, 'prompt_hint', v)} />
-          <SmallTextarea label="prompt_hint_en" value={item.prompt_hint_en} onChange={(v) => updateStrategy(idx, 'prompt_hint_en', v)} />
+          <button
+            onClick={addStrategy}
+            className="px-3 py-1.5 rounded-full text-[12px] font-medium"
+            style={{ border: `1px solid ${WA.borderLight}`, background: WA.white, color: WA.textDark }}
+          >
+            + 新增策略
+          </button>
         </div>
-      ))}
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {draft.strategies.map((item, idx) => (
+            <BoardSection
+              key={`${item.id || 'new'}_${idx}`}
+              title={item.name || `策略 #${idx + 1}`}
+              subtitle={`${item.name_en || '未命名英文名'} · priority ${item.priority || 0}`}
+              action={(
+                <button
+                  onClick={() => removeStrategy(idx)}
+                  disabled={draft.strategies.length <= 1}
+                  className="px-3 py-1.5 rounded-full text-[12px] font-medium"
+                  style={{ border: `1px solid ${WA.borderLight}`, background: WA.white, color: '#ef4444' }}
+                >
+                  删除
+                </button>
+              )}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <BoardInput label="id" value={item.id} onChange={(v) => updateStrategy(idx, 'id', v)} />
+                <BoardInput label="priority" value={String(item.priority)} onChange={(v) => updateStrategy(idx, 'priority', Number(v) || 0)} />
+                <BoardInput label="name" value={item.name} onChange={(v) => updateStrategy(idx, 'name', v)} />
+                <BoardInput label="name_en" value={item.name_en} onChange={(v) => updateStrategy(idx, 'name_en', v)} />
+                <BoardInput label="memory_key" value={item.memory_key} onChange={(v) => updateStrategy(idx, 'memory_key', v)} />
+                <BoardInput label="aliases (逗号)" value={item.aliases_text} onChange={(v) => updateStrategy(idx, 'aliases_text', v)} />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <BoardTextarea label="short_desc" value={item.short_desc} onChange={(v) => updateStrategy(idx, 'short_desc', v)} rows={4} />
+                <BoardTextarea label="memory_value" value={item.memory_value} onChange={(v) => updateStrategy(idx, 'memory_value', v)} rows={6} />
+                <BoardTextarea label="next_action_template" value={item.next_action_template} onChange={(v) => updateStrategy(idx, 'next_action_template', v)} rows={5} />
+                <BoardTextarea label="next_action_template_en" value={item.next_action_template_en} onChange={(v) => updateStrategy(idx, 'next_action_template_en', v)} rows={5} />
+                <BoardTextarea label="prompt_hint" value={item.prompt_hint} onChange={(v) => updateStrategy(idx, 'prompt_hint', v)} rows={4} />
+                <BoardTextarea label="prompt_hint_en" value={item.prompt_hint_en} onChange={(v) => updateStrategy(idx, 'prompt_hint_en', v)} rows={4} />
+              </div>
+            </BoardSection>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
 
-function SmallInput({ label, value, onChange }) {
+function BoardSection({ title, subtitle, action, children }) {
   return (
-    <label className="text-xs" style={{ color: WA.textMuted }}>
-      {label}
+    <section className="rounded-[24px] p-5 space-y-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-[20px] font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>{title}</div>
+          {subtitle ? <div className="text-[13px] mt-1" style={{ color: WA.textMuted }}>{subtitle}</div> : null}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function BoardInput({ label, value, onChange }) {
+  return (
+    <label className="block text-[12px] space-y-2" style={{ color: WA.textMuted }}>
+      <span className="font-semibold tracking-[0.04em]">{label}</span>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg px-2 py-1.5 text-xs"
+        className="w-full rounded-[18px] px-3 py-2.5 text-[14px]"
         style={{ border: `1px solid ${WA.borderLight}`, background: WA.white, color: WA.textDark }}
       />
     </label>
   )
 }
 
-function SmallTextarea({ label, value, onChange }) {
+function BoardTextarea({ label, value, onChange, rows = 4 }) {
   return (
-    <label className="text-xs block" style={{ color: WA.textMuted }}>
-      {label}
+    <label className="block text-[12px] space-y-2" style={{ color: WA.textMuted }}>
+      <span className="font-semibold tracking-[0.04em]">{label}</span>
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        rows={3}
-        className="mt-1 w-full rounded-lg px-2 py-1.5 text-xs resize-y"
+        rows={rows}
+        className="w-full rounded-[18px] px-3 py-3 text-[14px] resize-y leading-6"
         style={{ border: `1px solid ${WA.borderLight}`, background: WA.white, color: WA.textDark }}
       />
     </label>
+  )
+}
+
+function MetaPill({ label, value, tone = 'default' }) {
+  const tones = {
+    default: { bg: WA.white, color: WA.textDark },
+    success: { bg: 'rgba(16,185,129,0.12)', color: '#0f766e' },
+    danger: { bg: 'rgba(239,68,68,0.10)', color: '#dc2626' },
+  }
+  const current = tones[tone] || tones.default
+  return (
+    <div className="rounded-[18px] px-3 py-2" style={{ background: current.bg, border: `1px solid ${WA.borderLight}` }}>
+      <div className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>{label}</div>
+      <div className="text-[13px] mt-1 leading-5" style={{ color: current.color }}>{value}</div>
+    </div>
   )
 }

@@ -189,6 +189,12 @@ CREATE TABLE IF NOT EXISTS sft_memory (
     scene               VARCHAR(64),
     message_history     JSON COMMENT '前10轮对话历史',
     system_prompt_version VARCHAR(16) DEFAULT 'v1',
+    retrieval_snapshot_id BIGINT NULL COMMENT '关联 retrieval_snapshot.id',
+    generation_log_id   BIGINT NULL COMMENT '关联 generation_log.id',
+    provider            VARCHAR(32) NULL COMMENT 'minimax|openai|finetuned',
+    model               VARCHAR(64) NULL COMMENT '本次生成使用的模型',
+    scene_source        VARCHAR(32) NULL COMMENT 'provided|detected|fallback',
+    pipeline_version    VARCHAR(64) NULL COMMENT '回复生成链路版本',
     client_id_hash      VARCHAR(64) COMMENT 'SHA256(client_id)',
     input_text_hash     VARCHAR(64) COMMENT 'SHA256(input_text)',
     human_output_hash   VARCHAR(64) COMMENT 'SHA256(human_output)',
@@ -204,6 +210,9 @@ CREATE INDEX idx_sft_status ON sft_memory(status);
 CREATE UNIQUE INDEX idx_sft_dedup ON sft_memory(client_id_hash, input_text_hash, human_output_hash, created_date);
 CREATE INDEX idx_sft_scene ON sft_memory(scene);
 CREATE INDEX idx_sft_client_hash ON sft_memory(client_id_hash);
+CREATE INDEX idx_sft_retrieval_snapshot ON sft_memory(retrieval_snapshot_id);
+CREATE INDEX idx_sft_generation_log ON sft_memory(generation_log_id);
+CREATE INDEX idx_sft_provider_model ON sft_memory(provider, model);
 
 -- ============================================================
 -- Retrieval Snapshot — 每次生成的检索上下文快照
@@ -622,4 +631,29 @@ CREATE TABLE IF NOT EXISTS operator_creator_roster (
     KEY idx_ocr_operator (operator),
     KEY idx_ocr_session (session_id),
     CONSTRAINT fk_ocr_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Operator Directory — v1 负责人名单与 TikTok 映射
+-- ============================================================
+CREATE TABLE IF NOT EXISTS operator_directory (
+    id                  VARCHAR(32) PRIMARY KEY,
+    name                VARCHAR(64) NOT NULL,
+    session_id          VARCHAR(64) DEFAULT NULL,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS operator_directory_members (
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    operator_id         VARCHAR(32) NOT NULL,
+    creator_name        VARCHAR(255) NOT NULL,
+    tiktok_username     VARCHAR(255) DEFAULT NULL,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_operator_directory_member_name (operator_id, creator_name),
+    UNIQUE KEY uk_operator_directory_member_tiktok (operator_id, tiktok_username),
+    KEY idx_operator_directory_members_operator (operator_id),
+    CONSTRAINT fk_operator_directory_members_operator
+        FOREIGN KEY (operator_id) REFERENCES operator_directory(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

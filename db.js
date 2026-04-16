@@ -2,7 +2,7 @@
  * MySQL 数据库操作库
  * WA CRM v2
  * mysql2/promise 异步封装，async/await 接口
- * 对外接口与 better-sqlite3 版本一致（prepare/get/all/run/transaction）
+ * 对外保持 SQLite 风格接口（prepare/get/all/run/transaction）
  */
 require('dotenv').config();
 const mysql = require('mysql2/promise');
@@ -286,8 +286,8 @@ async function getAllCreators(filters = {}) {
         sql += ' AND c.is_active = ?';
         params.push(filters.is_active ? 1 : 0);
     }
-    sql += ` GROUP BY c.id ORDER BY msg_count DESC LIMIT ${limit} OFFSET ${offset}`;
-    return await db.prepare(sql).all(...params);
+    sql += ` GROUP BY c.id ORDER BY msg_count DESC LIMIT ? OFFSET ?`;
+    return await db.prepare(sql).all(...params, limit, offset);
 }
 
 async function getCreatorFull(creatorId) {

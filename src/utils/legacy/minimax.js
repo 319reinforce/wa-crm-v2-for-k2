@@ -1,7 +1,7 @@
 /**
  * Legacy MiniMax API Client
  *
- * 已弃用：主流程改为 /api/ai/system-prompt + /api/minimax 统一链路
+ * 已弃用：主流程改为 /api/ai/generate-candidates 单接口链路
  * 保留仅供参考，勿在新代码中继续引入
  */
 
@@ -202,7 +202,7 @@ export async function generateCandidateResponses({ conversation, clientInfo, pol
         return data.candidates; // { opt1, opt2 }
     }
 
-    // 原有 MiniMax 路径（通过后端代理 /api/minimax）
+    // 兼容 MiniMax 路径（仅 legacy 保留，通过后端代理 /api/minimax）
     const systemMsg = { role: 'system', content: systemPrompt };
     const [opt1, opt2] = await Promise.all([
         generateResponse({ messages: [systemMsg, ...messages], client_id, temperature: 0.8, max_tokens: 500 }),

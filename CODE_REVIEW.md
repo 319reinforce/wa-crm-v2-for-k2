@@ -1,5 +1,9 @@
 # WA CRM v2 代码问题报告
 
+> 最新复核入口：2026-04-16 的细化复核结果见 `docs/CODE_REVIEW_FINDINGS_20260416.md`
+> 最新修复与验收报告：2026-04-16 的落地修改汇总见 `docs/REVIEW_FIX_REPORT_20260416.md`
+> 说明：上述两份文档分别承接“问题是否仍成立”和“实际修了什么、如何验证”的两个视角。
+
 > 审核时间：2026-04-03
 > 审核范围：server.js、db.js、schema.sql、key_creators.js
 > 更新：2026-04-08 CLAUDE.md 修正（Experience Router 已实现、systemPrompt.js 已落地）

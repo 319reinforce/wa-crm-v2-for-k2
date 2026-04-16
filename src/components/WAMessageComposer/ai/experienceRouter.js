@@ -5,7 +5,6 @@
 import { buildRichContext } from './extractors';
 import { buildConversationSummary, buildRichContextParagraph, buildTopicContext } from './systemPromptBuilder';
 import { shouldSwitchTopic, startNewTopic } from './topicDetector';
-import { fetchAppAuth } from '../../../utils/appAuth';
 import { fetchJsonOrThrow } from '../../../utils/api';
 
 const API_BASE = '/api';
@@ -109,6 +108,11 @@ export async function generateViaExperienceRouter({
         messages: allMsgs
     });
     const effectiveScene = scene || richCtx.scene || 'unknown';
+    const sceneSource = scene
+        ? 'provided'
+        : richCtx.scene
+            ? 'detected'
+            : 'fallback';
     const richContextParagraph = buildRichContextParagraph(richCtx);
 
     // 方向二：最近优先机制
@@ -131,10 +135,7 @@ export async function generateViaExperienceRouter({
         conversationMsgs.push({ role: 'user', content: '[请回复这位达人]' });
     }
 
-    // 通过后端 /api/ai/system-prompt 构建完整 system prompt（与 sft-export 对齐）
-    // 前端提供：topicContext + richContext + conversationSummary + operator + scene
-    // 后端补充：operator experience、client_memory、policy_documents、REPLY_STYLE
-    const promptRes = await fetchAppAuth(`${API_BASE}/ai/system-prompt`, {
+    const data = await fetchJsonOrThrow(`${API_BASE}/ai/generate-candidates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -144,76 +145,32 @@ export async function generateViaExperienceRouter({
             richContext: richContextParagraph,
             conversationSummary: convSummary ? convSummary.summary : '',
             latest_user_message: latestUserMessage,
-        }),
-        signal: AbortSignal.timeout(30000),
-    });
-    const {
-        systemPrompt,
-        version: systemPromptVersion,
-        operator,
-        operatorDisplayName,
-        operatorConfigured,
-        retrieval_snapshot_id: retrievalSnapshotId,
-    } = await promptRes.json();
-    if (!promptRes.ok || !systemPrompt) {
-        throw new Error('system prompt 构建失败');
-    }
-
-    // 将 system prompt 注入消息列表
-    const allMessages = [
-        { role: 'system', content: systemPrompt },
-        ...conversationMsgs,
-    ];
-
-    // 调用 /api/minimax 生成候选
-    const res = await fetchAppAuth(`${API_BASE}/minimax`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            messages: allMessages,
-            client_id: resolvedClientId,
+            messages: conversationMsgs,
             max_tokens: 500,
             temperature: [0.8, 0.4],
-            retrieval_snapshot_id: retrievalSnapshotId || null,
-            scene: effectiveScene,
-            operator: operator || null,
-            prompt_version: systemPromptVersion || 'v2',
         }),
         signal: AbortSignal.timeout(60000),
     });
-    const data = await res.json();
 
-    // 检查 API 错误
-    if (!res.ok || data.error) {
-        const msg = data.error || `HTTP ${res.status}`;
-        console.error('[generateViaExperienceRouter] API error:', msg);
-        throw new Error(msg);
-    }
-
-    // 提取 opt1 / opt2（统一从 content / content_opt2 拿）
-    // MiniMax/OpenAI 均返回: { content: [{type:"text", text:opt1}], content_opt2: [{type:"text", text:opt2}] }
-    const extractText = (d) => {
-        if (!d || !Array.isArray(d.content)) return '';
-        return d.content.find(c => c.type === 'text')?.text || '';
-    };
-    const extractOpt2 = (d) => {
-        if (!d || !Array.isArray(d.content_opt2)) return '';
-        return d.content_opt2.find(c => c.type === 'text')?.text || '';
-    };
-    const opt1 = extractText(data);
-    const opt2 = extractOpt2(data);
+    const opt1 = String(data?.opt1 || '').trim();
+    const opt2 = String(data?.opt2 || '').trim();
     if (!opt1 && !opt2) {
         throw new Error('AI 返回空候选，请重试');
     }
     return {
         opt1,
         opt2,
-        systemPrompt,
-        systemPromptVersion,
-        operator,
-        operatorDisplayName,
-        operatorConfigured,
+        systemPrompt: data.systemPrompt,
+        systemPromptVersion: data.systemPromptVersion || data.version,
+        operator: data.operator || null,
+        operatorDisplayName: data.operatorDisplayName || data.operator || null,
+        operatorConfigured: !!data.operatorConfigured,
         scene: effectiveScene,
-        retrievalSnapshotId: retrievalSnapshotId || null,
+        sceneSource,
+        retrievalSnapshotId: data.retrievalSnapshotId || data.retrieval_snapshot_id || null,
+        generationLogId: data.generationLogId || data.generation_log_id || null,
+        provider: data.provider || null,
+        model: data.model || null,
+        pipelineVersion: data.pipelineVersion || data.pipeline_version || 'reply_generation_v2',
     };
 }

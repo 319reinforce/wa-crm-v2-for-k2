@@ -24,6 +24,17 @@ function normalizeNumericRecordId(recordId) {
     return null;
 }
 
+const AUDIT_REDACTED_FIELDS = ['wa_phone', 'phone', 'password', 'token', 'secret'];
+
+function sanitizeAuditValue(obj) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+    const result = { ...obj };
+    for (const field of AUDIT_REDACTED_FIELDS) {
+        if (field in result) result[field] = '[REDACTED]';
+    }
+    return result;
+}
+
 async function writeAudit(action, tableName, recordId, beforeValue, afterValue, req) {
     try {
         const db2 = db.getDb();
@@ -38,8 +49,8 @@ async function writeAudit(action, tableName, recordId, beforeValue, afterValue, 
             action,
             tableName,
             normalizedRecordId,
-            beforeValue ? JSON.stringify(beforeValue) : null,
-            afterValue ? JSON.stringify(afterValue) : null,
+            beforeValue ? JSON.stringify(sanitizeAuditValue(beforeValue)) : null,
+            afterValue ? JSON.stringify(sanitizeAuditValue(afterValue)) : null,
             req.ip || req.connection?.remoteAddress || null,
             req.get('User-Agent') || null
         );
