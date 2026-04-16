@@ -2,8 +2,10 @@
 
 const DEFAULT_API_BASE = process.env.API_BASE || 'http://127.0.0.1:3000';
 const DEFAULT_PHONE = process.env.TEST_WA_PHONE || '+8613187012419';
-const DEFAULT_SESSION_ID = process.env.TEST_WA_SESSION_ID || 'beau';
-const DEFAULT_OPERATOR = process.env.TEST_WA_OPERATOR || 'Beau';
+const DEFAULT_SESSION_ID = process.env.TEST_WA_SESSION_ID || 'yiyun';
+const DEFAULT_OPERATOR = process.env.TEST_WA_OPERATOR || 'Yiyun';
+const DEFAULT_CREATOR_ID = process.env.TEST_WA_CREATOR_ID || '3320';
+const DEFAULT_TOKEN = process.env.TEST_WA_TOKEN || '';
 
 function parseArgs(argv) {
   const options = {};
@@ -17,10 +19,14 @@ function parseArgs(argv) {
   return options;
 }
 
-async function postJson(url, payload) {
+async function postJson(url, payload, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload),
   });
   const text = await response.text();
@@ -36,10 +42,10 @@ async function postJson(url, payload) {
   return data;
 }
 
-function buildSmokeText(explicitText) {
+function buildSmokeText(explicitText, phone) {
   if (explicitText) return explicitText;
   const stamp = new Date().toISOString();
-  return `[WA smoke ${stamp}] test message for +8613187012419`;
+  return `[WA smoke ${stamp}] test message for ${phone}`;
 }
 
 async function main() {
@@ -48,9 +54,10 @@ async function main() {
   const phone = String(args.phone || DEFAULT_PHONE);
   const sessionId = String(args['session-id'] || DEFAULT_SESSION_ID);
   const operator = String(args.operator || DEFAULT_OPERATOR);
-  const creatorIdRaw = args['creator-id'];
+  const creatorIdRaw = args['creator-id'] || DEFAULT_CREATOR_ID;
+  const token = String(args.token || DEFAULT_TOKEN).trim();
   const creatorId = creatorIdRaw ? parseInt(creatorIdRaw, 10) : null;
-  const text = buildSmokeText(args.text);
+  const text = buildSmokeText(args.text, phone);
 
   const payload = {
     phone,
@@ -69,10 +76,11 @@ async function main() {
     session_id: sessionId,
     operator,
     creator_id: payload.creator_id || null,
+    auth_token: token ? '[provided]' : '[none]',
     text,
   }, null, 2));
 
-  const data = await postJson(`${apiBase}/api/wa/send`, payload);
+  const data = await postJson(`${apiBase}/api/wa/send`, payload, token);
   console.log('[wa-send-smoke] success');
   console.log(JSON.stringify(data, null, 2));
 }

@@ -18,6 +18,11 @@ const requestsArg = args.find((item) => item.startsWith('--requests='));
 const apiBase = apiBaseArg ? apiBaseArg.split('=')[1] : (process.env.CANARY_API_BASE || 'http://localhost:3001');
 const requestCount = Math.max(parseInt(requestsArg ? requestsArg.split('=')[1] : '3', 10) || 3, 1);
 
+const REQUEST_TIMEOUT_MS = Math.max(
+    parseInt(process.env.FINETUNED_CANARY_TIMEOUT_MS || '15000', 10) || 15000,
+    3000
+);
+
 async function postJson(url, payload) {
     const proxyToken = process.env.AI_PROXY_TOKEN || process.env.WA_ADMIN_TOKEN || '';
     const headers = { 'Content-Type': 'application/json' };
@@ -26,7 +31,7 @@ async function postJson(url, payload) {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     const text = await res.text();
     let body = text;

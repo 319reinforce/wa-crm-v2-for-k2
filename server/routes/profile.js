@@ -12,6 +12,8 @@ const router = express.Router();
 const db = require('../../db');
 const { writeAudit } = require('../middleware/audit');
 const { evaluateCreatorLifecycle } = require('../services/lifecyclePersistenceService');
+const { extractTagsHeuristically } = require('../services/profileFallbackService');
+const { ensureClientScope } = require('../utils/ownerScope');
 
 function parseJsonSafe(value, fallback = null) {
     if (!value) return fallback;
@@ -110,6 +112,14 @@ async function getLatestSnapshotPortrait(db2, clientId) {
     }
 }
 
+async function ensureProfileClientScope(req, res, db2, clientId) {
+    return await ensureClientScope(req, res, db2, clientId, {
+        required: true,
+        fieldName: 'client_id',
+        notFoundMessage: 'client not found',
+    });
+}
+
 // GET /api/client-memory/:clientId
 router.get('/client-memory/:clientId', async (req, res) => {
     try {
@@ -118,11 +128,13 @@ router.get('/client-memory/:clientId', async (req, res) => {
             return res.status(400).json({ error: 'invalid clientId' });
         }
         const db2 = db.getDb();
+        const clientScope = await ensureProfileClientScope(req, res, db2, clientId);
+        if (!clientScope.ok) return;
         const rows = await db2.prepare(`
             SELECT * FROM client_memory
             WHERE client_id = ?
             ORDER BY memory_type, confidence DESC
-        `).all(clientId);
+        `).all(clientScope.clientId);
         res.json(rows);
     } catch (err) {
         console.error('GET /api/client-memory error:', err);
@@ -138,15 +150,17 @@ router.post('/client-memory', async (req, res) => {
             return res.status(400).json({ error: 'client_id, memory_type, memory_key, memory_value required' });
         }
         const db2 = db.getDb();
+        const clientScope = await ensureProfileClientScope(req, res, db2, client_id);
+        if (!clientScope.ok) return;
         await db2.prepare(`
             INSERT INTO client_memory
             (client_id, memory_type, memory_key, memory_value, confidence, updated_at)
             VALUES (?, ?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE memory_value = VALUES(memory_value), confidence = VALUES(confidence), updated_at = NOW()
-        `).run(client_id, memory_type, memory_key, memory_value, confidence);
+        `).run(clientScope.clientId, memory_type, memory_key, memory_value, confidence);
 
         await writeAudit('client_memory_update', 'client_memory', null, null, {
-            client_id, memory_type, memory_key, memory_value, confidence
+            client_id: clientScope.clientId, memory_type, memory_key, memory_value, confidence
         }, req);
         res.json({ ok: true });
     } catch (err) {
@@ -160,19 +174,21 @@ router.get('/client-profile/:clientId', async (req, res) => {
     try {
         const db2 = db.getDb();
         const { clientId } = req.params;
+        const clientScope = await ensureProfileClientScope(req, res, db2, clientId);
+        if (!clientScope.ok) return;
 
-        const profile = await db2.prepare('SELECT * FROM client_profiles WHERE client_id = ?').get(clientId);
+        const profile = await db2.prepare('SELECT * FROM client_profiles WHERE client_id = ?').get(clientScope.clientId);
         const tags = await db2.prepare(
             'SELECT * FROM client_tags WHERE client_id = ? ORDER BY confidence DESC'
-        ).all(clientId);
+        ).all(clientScope.clientId);
         const memory = await db2.prepare(
             'SELECT * FROM client_memory WHERE client_id = ? ORDER BY created_at DESC LIMIT 20'
-        ).all(clientId);
+        ).all(clientScope.clientId);
 
         const profileData = profile || { summary: null, tiktok_data: null, stage: null, last_interaction: null, last_updated: null };
         const tiktokData = parseJsonSafe(profileData.tiktok_data, {}) || {};
         const manualPortrait = normalizePortraitPayload(tiktokData.portrait_manual || tiktokData.portrait || null);
-        const snapshotPortrait = await getLatestSnapshotPortrait(db2, clientId);
+        const snapshotPortrait = await getLatestSnapshotPortrait(db2, clientScope.clientId);
         const portrait = hasPortraitValue(manualPortrait)
             ? manualPortrait
             : (hasPortraitValue(snapshotPortrait) ? snapshotPortrait : null);
@@ -188,7 +204,7 @@ router.get('/client-profile/:clientId', async (req, res) => {
             LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
             LEFT JOIN keeper_link k ON k.creator_id = c.id
             WHERE c.wa_phone = ?
-        `).get(clientId);
+        `).get(clientScope.clientId);
         const lifecycleEval = creator?.id
             ? await evaluateCreatorLifecycle(db2, creator.id).catch(() => null)
             : null;
@@ -196,7 +212,7 @@ router.get('/client-profile/:clientId', async (req, res) => {
         const lifecycleLabel = lifecycleEval?.lifecycle?.stage_label || lifecycleStage || null;
 
         res.json({
-            client_id: clientId,
+            client_id: clientScope.clientId,
             name: creator?.name || null,
             wa_owner: creator?.wa_owner || null,
             keeper_username: creator?.keeper_username || null,
@@ -230,10 +246,12 @@ router.put('/client-profile/:clientId', async (req, res) => {
         if (summary === undefined && portrait === undefined) {
             return res.status(400).json({ error: 'summary or portrait required' });
         }
+        const clientScope = await ensureProfileClientScope(req, res, db2, clientId);
+        if (!clientScope.ok) return;
 
         const existing = await db2.prepare(
             'SELECT client_id, summary, tiktok_data FROM client_profiles WHERE client_id = ? LIMIT 1'
-        ).get(clientId);
+        ).get(clientScope.clientId);
         const nextSummary = summary === undefined ? (existing?.summary || '') : String(summary || '');
         const tiktokData = parseJsonSafe(existing?.tiktok_data, {}) || {};
 
@@ -255,17 +273,17 @@ router.put('/client-profile/:clientId', async (req, res) => {
             UPDATE client_profiles
             SET summary = ?, tiktok_data = ?, last_updated = CURRENT_TIMESTAMP
             WHERE client_id = ?
-        `).run(nextSummary, nextTiktokData, clientId);
+        `).run(nextSummary, nextTiktokData, clientScope.clientId);
 
         if (updated.changes === 0) {
             await db2.prepare(`
                 INSERT INTO client_profiles (client_id, summary, tiktok_data)
                 VALUES (?, ?, ?)
-            `).run(clientId, nextSummary, nextTiktokData);
+            `).run(clientScope.clientId, nextSummary, nextTiktokData);
         }
 
         await writeAudit('client_profile_update', 'client_profiles', clientId, null, {
-            client_id: clientId,
+            client_id: clientScope.clientId,
             summary: nextSummary,
             portrait_manual: normalizedPortrait,
         }, req);
@@ -289,16 +307,18 @@ router.put('/client-profiles/:clientId/tags', async (req, res) => {
         const { tag, value, action = 'upsert', confidence = 3 } = req.body;
 
         if (!tag) return res.status(400).json({ error: 'tag required' });
+        const clientScope = await ensureProfileClientScope(req, res, db2, clientId);
+        if (!clientScope.ok) return;
 
         if (action === 'delete') {
-            await db2.prepare('DELETE FROM client_tags WHERE client_id = ? AND tag = ?').run(clientId, tag);
+            await db2.prepare('DELETE FROM client_tags WHERE client_id = ? AND tag = ?').run(clientScope.clientId, tag);
         } else {
             const fullTag = tag.includes(':') ? tag : `${tag}:${value || 'true'}`;
             await db2.prepare(`
                 INSERT INTO client_tags (client_id, tag, source, confidence)
                 VALUES (?, ?, 'manual', ?)
                 ON DUPLICATE KEY UPDATE confidence = VALUES(confidence), tag = VALUES(tag)
-            `).run(clientId, fullTag, confidence);
+            `).run(clientScope.clientId, fullTag, confidence);
         }
 
         res.json({ ok: true });
@@ -318,12 +338,14 @@ router.post('/client-profiles/:clientId/memory', async (req, res) => {
         if (!memory_type || !memory_key || memory_value === undefined) {
             return res.status(400).json({ error: 'memory_type, memory_key and memory_value required' });
         }
+        const clientScope = await ensureProfileClientScope(req, res, db2, clientId);
+        if (!clientScope.ok) return;
 
         await db2.prepare(`
             INSERT INTO client_memory (client_id, memory_type, memory_key, memory_value)
             VALUES (?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE memory_value = VALUES(memory_value)
-        `).run(clientId, memory_type, memory_key, memory_value);
+        `).run(clientScope.clientId, memory_type, memory_key, memory_value);
 
         res.json({ ok: true });
     } catch (err) {
@@ -342,9 +364,11 @@ router.delete('/client-profiles/:clientId/memory', async (req, res) => {
         if (!memory_type || !memory_key) {
             return res.status(400).json({ error: 'memory_type and memory_key required' });
         }
+        const clientScope = await ensureProfileClientScope(req, res, db2, clientId);
+        if (!clientScope.ok) return;
 
         await db2.prepare('DELETE FROM client_memory WHERE client_id = ? AND memory_type = ? AND memory_key = ?')
-            .run(clientId, memory_type, memory_key);
+            .run(clientScope.clientId, memory_type, memory_key);
 
         res.json({ ok: true });
     } catch (err) {
@@ -459,15 +483,12 @@ router.post('/profile-agent/event', async (req, res) => {
         }
 
         const db2 = db.getDb();
+        const clientScope = await ensureProfileClientScope(req, res, db2, client_id);
+        if (!clientScope.ok) return;
 
-        const creator = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(client_id);
-        if (!creator) {
-            return res.status(404).json({ error: 'client not found' });
-        }
-
-        const profile = await db2.prepare('SELECT id FROM client_profiles WHERE client_id = ?').get(client_id);
+        const profile = await db2.prepare('SELECT id FROM client_profiles WHERE client_id = ?').get(clientScope.clientId);
         if (!profile) {
-            await db2.prepare('INSERT INTO client_profiles (client_id) VALUES (?)').run(client_id);
+            await db2.prepare('INSERT INTO client_profiles (client_id) VALUES (?)').run(clientScope.clientId);
         }
 
         let tags_added = [];
@@ -477,6 +498,9 @@ router.post('/profile-agent/event', async (req, res) => {
             if (text) {
                 // LLM 标签提取（主要方式）
                 tags_added = await extractTagsWithLLM(text);
+                if (tags_added.length === 0) {
+                    tags_added = extractTagsHeuristically(text);
+                }
             }
         }
 
@@ -487,19 +511,19 @@ router.post('/profile-agent/event', async (req, res) => {
                 'VALUES (?, ?, ?, ?) ' +
                 'ON DUPLICATE KEY UPDATE ' +
                 'confidence = IF(VALUES(confidence) > confidence, VALUES(confidence), confidence)'
-            ).run(client_id, tag, source, confidence || 2);
+            ).run(clientScope.clientId, tag, source, confidence || 2);
         }
 
         // 写入审计日志
         if (tags_added.length > 0) {
             await writeAudit('profile_tags_extracted', 'client_tags', null, null, {
-                client_id, event_type, tags_added
+                client_id: clientScope.clientId, event_type, tags_added
             }, req);
         }
 
         // Trigger async profile refresh
         const { scheduleProfileRefresh } = require('../services/profileService');
-        scheduleProfileRefresh(client_id);
+        scheduleProfileRefresh(clientScope.clientId);
 
         res.json({ ok: true, tags_added });
     } catch (err) {
@@ -509,3 +533,6 @@ router.post('/profile-agent/event', async (req, res) => {
 });
 
 module.exports = router;
+module.exports._private = {
+    ensureProfileClientScope,
+};

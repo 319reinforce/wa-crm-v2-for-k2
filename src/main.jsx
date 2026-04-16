@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import AppAuthGate from './components/AppAuthGate'
 import MobileShell from './mobile/MobileShell'
 import './index.css'
 
@@ -18,6 +19,8 @@ const RootApp = (!forceLegacy && preferMobile) ? MobileShell : App
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <RootApp />
+    <AppAuthGate>
+      <RootApp />
+    </AppAuthGate>
   </React.StrictMode>
 )

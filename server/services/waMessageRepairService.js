@@ -1,6 +1,11 @@
 const db = require('../../db');
 const { sha256 } = require('../utils/crypto');
 const { normalizeMessageText } = require('./messageDedupService');
+const {
+    ensureGroupMessageSchema,
+    filterDirectMessagesAgainstGroups,
+    purgeCreatorMessagesMatchingGroups,
+} = require('./groupMessageService');
 
 const NEAR_WINDOW_MS = 2 * 60 * 1000;
 const QUERY_PADDING_MS = 12 * 60 * 60 * 1000;
@@ -133,45 +138,11 @@ function findNearest(rows, predicate, rawMessage, excludedIds = new Set()) {
     return best;
 }
 
-async function reconcileCreatorMessagesFromRaw({
-    creatorId,
-    creatorName,
-    operator,
-    rawMessages,
-    fullDedup = false,
-    dryRun = false,
-}) {
-    const normalizedRaw = normalizeRawMessages(rawMessages);
-    if (normalizedRaw.length === 0) {
-        return {
-            creator_id: creatorId,
-            creator_name: creatorName,
-            checked_messages: 0,
-            inserted_count: 0,
-            updated_count: 0,
-            deleted_count: 0,
-            inserted_samples: [],
-            updated_samples: [],
-            deleted_samples: [],
-            note: 'no useful raw messages',
-        };
-    }
+function buildReconcileSupportKey(row) {
+    return `${row.normalizedText || ''}\u0000${Number(row.timestamp) || 0}`;
+}
 
-    const db2 = db.getDb();
-    const minTs = normalizedRaw[0].timestamp - QUERY_PADDING_MS;
-    const maxTs = normalizedRaw[normalizedRaw.length - 1].timestamp + QUERY_PADDING_MS;
-    const existingRows = (await db2.prepare(`
-        SELECT id, role, text, timestamp
-        FROM wa_messages
-        WHERE creator_id = ?
-          AND timestamp BETWEEN ? AND ?
-        ORDER BY timestamp ASC, id ASC
-    `).all(creatorId, minTs, maxTs)).map((row) => ({
-        ...row,
-        timestamp: Number(row.timestamp) || 0,
-        normalizedText: normalizeMessageText(row.text),
-    }));
-
+function planReconcileOperations(existingRows, normalizedRaw) {
     const matchedIds = new Set();
     const effectiveRows = [];
     const inserts = [];
@@ -230,14 +201,11 @@ async function reconcileCreatorMessagesFromRaw({
         });
     }
 
+    const supportedKeys = new Set(effectiveRows.map((row) => buildReconcileSupportKey(row)));
     const deletes = [];
     for (const row of existingRows) {
         if (matchedIds.has(row.id)) continue;
-        const supportedByRaw = effectiveRows.some((effective) =>
-            effective.normalizedText === row.normalizedText
-            && Math.abs(effective.timestamp - row.timestamp) <= NEAR_WINDOW_MS
-        );
-        if (!supportedByRaw) continue;
+        if (!supportedKeys.has(buildReconcileSupportKey(row))) continue;
         deletes.push({
             id: row.id,
             role: row.role,
@@ -245,6 +213,90 @@ async function reconcileCreatorMessagesFromRaw({
             timestamp: row.timestamp,
         });
     }
+
+    return {
+        matchedIds,
+        effectiveRows,
+        inserts,
+        roleUpdates,
+        deletes,
+    };
+}
+
+function assessWindowedReplaceSafety({
+    deleteAll = false,
+    rawCount = 0,
+    rawFetchLimit = 0,
+    allowPartialWindowReplace = false,
+}) {
+    if (deleteAll) {
+        return { safe: true, reason: 'delete_all' };
+    }
+    if (allowPartialWindowReplace) {
+        return { safe: true, reason: 'partial_window_override' };
+    }
+    const limit = Number(rawFetchLimit) || 0;
+    if (limit <= 0) {
+        return { safe: false, reason: 'raw_fetch_limit_unknown' };
+    }
+    if (Number(rawCount) >= limit) {
+        return { safe: false, reason: 'raw_slice_limit_reached' };
+    }
+    return { safe: true, reason: 'raw_slice_complete' };
+}
+
+async function reconcileCreatorMessagesFromRaw({
+    creatorId,
+    creatorName,
+    operator,
+    sessionId,
+    rawMessages,
+    fullDedup = false,
+    dryRun = false,
+}) {
+    const db2 = db.getDb();
+    await ensureGroupMessageSchema(db2);
+    const normalizedRawBase = normalizeRawMessages(rawMessages);
+    const groupFiltered = await filterDirectMessagesAgainstGroups(db2, {
+        sessionId,
+        operator,
+        messages: normalizedRawBase,
+    });
+    const normalizedRaw = groupFiltered.kept;
+    if (normalizedRaw.length === 0) {
+        return {
+            creator_id: creatorId,
+            creator_name: creatorName,
+            checked_messages: 0,
+            inserted_count: 0,
+            updated_count: 0,
+            deleted_count: 0,
+            dropped_group_count: groupFiltered.dropped.length,
+            inserted_samples: [],
+            updated_samples: [],
+            deleted_samples: [],
+            note: 'no useful raw messages',
+        };
+    }
+    const minTs = normalizedRaw[0].timestamp - QUERY_PADDING_MS;
+    const maxTs = normalizedRaw[normalizedRaw.length - 1].timestamp + QUERY_PADDING_MS;
+    const existingRows = (await db2.prepare(`
+        SELECT id, role, text, timestamp
+        FROM wa_messages
+        WHERE creator_id = ?
+          AND timestamp BETWEEN ? AND ?
+        ORDER BY timestamp ASC, id ASC
+    `).all(creatorId, minTs, maxTs)).map((row) => ({
+        ...row,
+        timestamp: Number(row.timestamp) || 0,
+        normalizedText: normalizeMessageText(row.text),
+    }));
+
+    const {
+        inserts,
+        roleUpdates,
+        deletes,
+    } = planReconcileOperations(existingRows, normalizedRaw);
 
     let cleanup = null;
     if (!dryRun) {
@@ -284,7 +336,14 @@ async function reconcileCreatorMessagesFromRaw({
 
         const duplicateDeleted = await cleanupDuplicateMessages(db2, creatorId, minTs, maxTs, { full: fullDedup });
         const hashBackfill = await backfillMessageHashes(db2, creatorId, minTs, maxTs, { full: fullDedup });
-        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill };
+        const groupPurged = await purgeCreatorMessagesMatchingGroups(db2, {
+            creatorId,
+            sessionId,
+            operator,
+            minTs,
+            maxTs,
+        });
+        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill, group_purged: groupPurged };
     }
 
     return {
@@ -294,6 +353,7 @@ async function reconcileCreatorMessagesFromRaw({
         inserted_count: inserts.length,
         updated_count: roleUpdates.length,
         deleted_count: deletes.length,
+        dropped_group_count: groupFiltered.dropped.length,
         inserted_samples: inserts.slice(0, 3),
         updated_samples: roleUpdates.slice(0, 3),
         deleted_samples: deletes.slice(0, 3),
@@ -305,11 +365,20 @@ async function syncCreatorMessagesFromRaw({
     creatorId,
     creatorName,
     operator,
+    sessionId,
     rawMessages,
     fullDedup = false,
     dryRun = false,
 }) {
-    const normalizedRaw = normalizeRawMessages(rawMessages);
+    const db2 = db.getDb();
+    await ensureGroupMessageSchema(db2);
+    const normalizedRawBase = normalizeRawMessages(rawMessages);
+    const groupFiltered = await filterDirectMessagesAgainstGroups(db2, {
+        sessionId,
+        operator,
+        messages: normalizedRawBase,
+    });
+    const normalizedRaw = groupFiltered.kept;
     if (normalizedRaw.length === 0) {
         return {
             creator_id: creatorId,
@@ -317,12 +386,11 @@ async function syncCreatorMessagesFromRaw({
             checked_messages: 0,
             inserted_count: 0,
             skipped_count: 0,
+            dropped_group_count: groupFiltered.dropped.length,
             inserted_samples: [],
             note: 'no useful raw messages',
         };
     }
-
-    const db2 = db.getDb();
     const minTs = Math.max(0, normalizedRaw[0].timestamp - QUERY_PADDING_MS);
     const maxTs = normalizedRaw[normalizedRaw.length - 1].timestamp + QUERY_PADDING_MS;
     const existingRows = await db2.prepare(`
@@ -367,7 +435,14 @@ async function syncCreatorMessagesFromRaw({
     if (!dryRun) {
         const duplicateDeleted = await cleanupDuplicateMessages(db2, creatorId, minTs, maxTs, { full: fullDedup });
         const hashBackfill = await backfillMessageHashes(db2, creatorId, minTs, maxTs, { full: fullDedup });
-        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill };
+        const groupPurged = await purgeCreatorMessagesMatchingGroups(db2, {
+            creatorId,
+            sessionId,
+            operator,
+            minTs,
+            maxTs,
+        });
+        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill, group_purged: groupPurged };
     }
 
     return {
@@ -376,6 +451,7 @@ async function syncCreatorMessagesFromRaw({
         checked_messages: normalizedRaw.length,
         inserted_count: inserts.length,
         skipped_count: normalizedRaw.length - inserts.length,
+        dropped_group_count: groupFiltered.dropped.length,
         inserted_samples: inserts.slice(0, 3),
         cleanup,
     };
@@ -385,12 +461,23 @@ async function replaceCreatorMessagesFromRaw({
     creatorId,
     creatorName,
     operator,
+    sessionId,
     rawMessages,
+    rawFetchLimit = 0,
     deleteAll = false,
+    allowPartialWindowReplace = false,
     fullDedup = false,
     dryRun = false,
 }) {
-    const normalizedRaw = normalizeRawMessages(rawMessages);
+    const db2 = db.getDb();
+    await ensureGroupMessageSchema(db2);
+    const normalizedRawBase = normalizeRawMessages(rawMessages);
+    const groupFiltered = await filterDirectMessagesAgainstGroups(db2, {
+        sessionId,
+        operator,
+        messages: normalizedRawBase,
+    });
+    const normalizedRaw = groupFiltered.kept;
     if (normalizedRaw.length === 0) {
         return {
             creator_id: creatorId,
@@ -398,12 +485,11 @@ async function replaceCreatorMessagesFromRaw({
             checked_messages: 0,
             inserted_count: 0,
             deleted_count: 0,
+            dropped_group_count: groupFiltered.dropped.length,
             inserted_samples: [],
             note: 'no useful raw messages',
         };
     }
-
-    const db2 = db.getDb();
     const minTs = Math.max(0, normalizedRaw[0].timestamp - QUERY_PADDING_MS);
     const maxTs = normalizedRaw[normalizedRaw.length - 1].timestamp + QUERY_PADDING_MS;
     const existingCountRow = deleteAll
@@ -419,6 +505,34 @@ async function replaceCreatorMessagesFromRaw({
               AND timestamp BETWEEN ? AND ?
         `).get(creatorId, minTs, maxTs);
     const existingCount = Number(existingCountRow?.count) || 0;
+    const replaceSafety = assessWindowedReplaceSafety({
+        deleteAll,
+        rawCount: normalizedRaw.length,
+        rawFetchLimit,
+        allowPartialWindowReplace,
+    });
+
+    if (!replaceSafety.safe) {
+        return {
+            creator_id: creatorId,
+            creator_name: creatorName,
+            checked_messages: normalizedRaw.length,
+            inserted_count: 0,
+            deleted_count: 0,
+            dropped_group_count: groupFiltered.dropped.length,
+            inserted_samples: [],
+            deleted_scope: deleteAll ? 'all' : 'window',
+            window_start: minTs,
+            window_end: maxTs,
+            applied: false,
+            skipped: true,
+            skipped_reason: replaceSafety.reason,
+            existing_count: existingCount,
+            raw_fetch_limit: Number(rawFetchLimit) || 0,
+            allow_partial_window_replace: !!allowPartialWindowReplace,
+            note: 'replace skipped because raw slice may be incomplete',
+        };
+    }
 
     let cleanup = null;
     if (!dryRun) {
@@ -453,7 +567,14 @@ async function replaceCreatorMessagesFromRaw({
 
         const duplicateDeleted = await cleanupDuplicateMessages(db2, creatorId, minTs, maxTs, { full: fullDedup });
         const hashBackfill = await backfillMessageHashes(db2, creatorId, minTs, maxTs, { full: fullDedup });
-        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill };
+        const groupPurged = await purgeCreatorMessagesMatchingGroups(db2, {
+            creatorId,
+            sessionId,
+            operator,
+            minTs,
+            maxTs,
+        });
+        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill, group_purged: groupPurged };
     }
 
     return {
@@ -462,10 +583,12 @@ async function replaceCreatorMessagesFromRaw({
         checked_messages: normalizedRaw.length,
         inserted_count: normalizedRaw.length,
         deleted_count: existingCount,
+        dropped_group_count: groupFiltered.dropped.length,
         inserted_samples: normalizedRaw.slice(0, 3),
         deleted_scope: deleteAll ? 'all' : 'window',
         window_start: minTs,
         window_end: maxTs,
+        applied: true,
         cleanup,
     };
 }
@@ -474,4 +597,9 @@ module.exports = {
     reconcileCreatorMessagesFromRaw,
     syncCreatorMessagesFromRaw,
     replaceCreatorMessagesFromRaw,
+    _private: {
+        assessWindowedReplaceSafety,
+        buildReconcileSupportKey,
+        planReconcileOperations,
+    },
 };

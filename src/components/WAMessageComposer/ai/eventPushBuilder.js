@@ -2,6 +2,16 @@
  * eventPushBuilder.js — 事件阶段判断和推进文案构建
  */
 
+function parseEventMeta(meta) {
+    if (!meta) return {};
+    if (typeof meta === 'object') return meta;
+    try {
+        return JSON.parse(meta);
+    } catch (_) {
+        return {};
+    }
+}
+
 // 事件阶段判断
 export function getEventPhase(startAt, endAt, policy) {
     if (!startAt) return 'unknown';
@@ -48,7 +58,7 @@ export function buildEventPushText(event, policy, phase) {
     }
 
     if (event.event_key === 'gmv_milestone') {
-        const gmv = event.meta ? JSON.parse(event.meta).gmv_current : null;
+        const gmv = parseEventMeta(event.meta).gmv_current || null;
         return `恭喜你的GMV达到${gmv ? '$' + gmv.toLocaleString() : '里程碑'}！相关奖励会尽快发放，继续保持💪`;
     }
 
@@ -78,8 +88,7 @@ export function buildEventPushSection(activeEvents, owner) {
         };
         const policy = policyMap[evt.event_key] || {};
 
-        let meta = {};
-        try { meta = evt.meta ? JSON.parse(evt.meta) : {}; } catch (_) {}
+        const meta = parseEventMeta(evt.meta);
 
         const phase = getEventPhase(evt.start_at, evt.end_at, policy);
         const phaseLabel = { phase1: '刚加入', phase2: '进行中', phase3: '即将结束', unknown: '未知' }[phase];

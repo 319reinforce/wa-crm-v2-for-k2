@@ -1,10 +1,12 @@
+import { getAppAuthToken } from './appAuth'
+
 const WA_ADMIN_TOKEN_KEY = 'wa_admin_token'
 
 export function getWaAdminToken() {
   try {
-    return localStorage.getItem(WA_ADMIN_TOKEN_KEY) || ''
+    return localStorage.getItem(WA_ADMIN_TOKEN_KEY) || getAppAuthToken() || ''
   } catch (_) {
-    return ''
+    return getAppAuthToken() || ''
   }
 }
 

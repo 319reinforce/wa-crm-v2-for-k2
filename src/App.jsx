@@ -6,8 +6,10 @@ import { LifecycleConfigPanel } from './components/LifecycleConfigPanel'
 import { StrategyConfigPanel } from './components/StrategyConfigPanel'
 import { WorkerStatusBar } from './components/WorkerStatusBar'
 import { CreatorDetail } from './components/CreatorDetail'
+import { WAGroupChatViewer } from './components/WAGroupChatViewer'
 import { MobileEventTagsBar } from './components/MobileEventTagsBar'
-import { buildAppAuthUrl } from './utils/appAuth'
+import AuthSessionControls from './components/AuthSessionControls'
+import { getAppAuthScopeOwner, isAppAuthOwnerLocked } from './utils/appAuth'
 import { fetchJsonOrThrow } from './utils/api'
 import { getCreatorMessages, getCreatorStatusMeta } from './utils/creatorMeta'
 import { buildOwnerOptions, getOwnerColor } from './utils/operators'
@@ -41,7 +43,7 @@ const LIFECYCLE_FILTER_OPTIONS = [
   { key: 'acquisition', label: '获取' },
   { key: 'activation', label: '激活' },
   { key: 'retention', label: '留存' },
-  { key: 'revenue', label: '收入' },
+  { key: 'revenue', label: '变现' },
   { key: 'terminated', label: '终止池' },
 ]
 
@@ -49,7 +51,7 @@ const LIFECYCLE_BADGE_META = {
   acquisition: { label: '获取', color: '#2563eb', bg: 'rgba(37,99,235,0.12)' },
   activation: { label: '激活', color: '#7c3aed', bg: 'rgba(124,58,237,0.12)' },
   retention: { label: '留存', color: '#0f766e', bg: 'rgba(15,118,110,0.12)' },
-  revenue: { label: '收入', color: '#b45309', bg: 'rgba(180,83,9,0.12)' },
+  revenue: { label: '变现', color: '#b45309', bg: 'rgba(180,83,9,0.12)' },
   terminated: { label: '终止池', color: '#dc2626', bg: 'rgba(220,38,38,0.12)' },
 }
 
@@ -78,18 +80,34 @@ const WORKSPACE_META = {
   strategy: { title: '策略配置', subtitle: '统一管理生命周期规则与未绑定 Agency 策略。' },
   sft: { title: 'SFT 看板', subtitle: '查看语料、反馈与训练准备状态。' },
 }
+const MORAS_GROUP_KEYWORDS = [
+  'moras monthly beta tester',
+  'morasbetatester',
+  'moras creator group 1',
+  'moras creator1',
+  'moras creator group 2',
+  'moras creator2',
+]
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max)
 }
 
+function isMorasCoreGroup(groupName) {
+  const normalized = String(groupName || '').toLowerCase().replace(/\s+/g, ' ').trim()
+  if (!normalized) return false
+  return MORAS_GROUP_KEYWORDS.some((keyword) => normalized.includes(keyword))
+}
+
 function App() {
+  const lockedOwner = getAppAuthScopeOwner()
+  const ownerLocked = isAppAuthOwnerLocked() && !!lockedOwner
   const [creators, setCreators] = useState([])
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState(null)
   const [activeTab, setActiveTab] = useState('creators')
   const [viewMode, setViewMode] = useState('list')
-  const [filterOwner, setFilterOwner] = useState('')
+  const [filterOwner, setFilterOwner] = useState(lockedOwner || '')
   const [filterBeta, setFilterBeta] = useState('')
   const [filterPriority, setFilterPriority] = useState('')
   const [filterAgency, setFilterAgency] = useState('')
@@ -98,7 +116,15 @@ function App() {
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedCreator, setSelectedCreator] = useState(null)
+  const [groupChats, setGroupChats] = useState([])
+  const [selectedGroupChat, setSelectedGroupChat] = useState(null)
+  const [groupsLoading, setGroupsLoading] = useState(false)
+  const [conversationScope, setConversationScope] = useState('creators')
   const [selectedCreatorIds, setSelectedCreatorIds] = useState([])
+  const [chatJumpTarget, setChatJumpTarget] = useState(null)
+  const [selectedEventId, setSelectedEventId] = useState(null)
+  const [eventReturnContext, setEventReturnContext] = useState(null)
+  const [eventPanelRestoreState, setEventPanelRestoreState] = useState(null)
   const [batchApplyingOption0, setBatchApplyingOption0] = useState(false)
   const [unreadCounts, setUnreadCounts] = useState({}) // creatorId -> unread count
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -109,7 +135,7 @@ function App() {
   const [manualOpen, setManualOpen] = useState(false)
   const [manualSaving, setManualSaving] = useState(false)
   const [manualError, setManualError] = useState('')
-  const [manualForm, setManualForm] = useState({ name: '', phone: '', owner: 'Yiyun' })
+  const [manualForm, setManualForm] = useState({ name: '', phone: '', owner: lockedOwner || 'Yiyun' })
   const [manualCheckLoading, setManualCheckLoading] = useState(false)
   const [manualCheck, setManualCheck] = useState(null)
 
@@ -205,6 +231,7 @@ function App() {
     try {
       const params = new URLSearchParams()
       if (filterOwner) params.set('owner', filterOwner)
+      params.set('fields', 'wa_phone')
 
       const [creatorsData, statsData] = await Promise.all([
         fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`),
@@ -232,6 +259,25 @@ function App() {
     }
   }, [filterOwner])
 
+  const loadGroupChats = useCallback(async () => {
+    setGroupsLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (filterOwner) params.set('operator', filterOwner)
+      const data = await fetchJsonOrThrow(`${API_BASE}/wa/groups?${params.toString()}`)
+      const groups = Array.isArray(data?.groups) ? data.groups : []
+      setGroupChats(groups)
+      setSelectedGroupChat(prev => {
+        if (!prev?.id) return prev
+        return groups.find(group => group.id === prev.id) || null
+      })
+    } catch (e) {
+      console.error('[WA Groups] 加载失败:', e)
+    } finally {
+      setGroupsLoading(false)
+    }
+  }, [filterOwner])
+
   // loadData ref：确保 SSE 回调永远调用最新版本的 loadData（带当前 filter 值）
   const loadDataRef = useRef(loadData)
   useEffect(() => { loadDataRef.current = loadData }, [loadData])
@@ -242,11 +288,23 @@ function App() {
     return () => clearInterval(interval)
   }, [loadData])
 
+  useEffect(() => {
+    loadGroupChats()
+    const interval = setInterval(loadGroupChats, 20000)
+    return () => clearInterval(interval)
+  }, [loadGroupChats])
+
+  useEffect(() => {
+    if (ownerLocked && filterOwner !== lockedOwner) {
+      setFilterOwner(lockedOwner)
+    }
+  }, [filterOwner, lockedOwner, ownerLocked])
+
   // SSE 实时订阅（populate_db.cjs 写完 MySQL 后会收到广播）
   useEffect(() => {
     let es
     try {
-      es = new EventSource(buildAppAuthUrl('/api/events/subscribe'))
+      es = new EventSource('/api/events/subscribe')
       es.addEventListener('creators-updated', () => {
         loadDataRef.current?.()
       })
@@ -263,10 +321,24 @@ function App() {
     if (!shouldShowUnread(creator)) {
       setUnreadCounts(prev => ({ ...prev, [creator.id]: 0 }))
     }
+    setEventReturnContext(null)
+    setChatJumpTarget(null)
     setActiveTab('creators')
+    setConversationScope('creators')
+    setSelectedGroupChat(null)
     setDetailPanelExpanded(detailPanelPinned)
     setSelectedCreator(creator)
   }
+
+  const handleSelectGroupChat = useCallback((groupChat) => {
+    setEventReturnContext(null)
+    setChatJumpTarget(null)
+    setActiveTab('creators')
+    setConversationScope('groups')
+    setSelectedCreator(null)
+    setDetailPanelExpanded(false)
+    setSelectedGroupChat(groupChat)
+  }, [])
 
   const handleCreatorMessageSent = useCallback((creatorId) => {
     if (!creatorId) return
@@ -302,13 +374,74 @@ function App() {
     })
   }, [])
 
+  const handleOpenCreatorChatFromEvent = useCallback(async (jumpPayload) => {
+    const creatorId = Number(jumpPayload?.creatorId || 0)
+    if (!creatorId) return
+
+    try {
+      const detail = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}`)
+      const previous =
+        creators.find(c => Number(c.id) === creatorId)
+        || (selectedCreator?.id === creatorId ? selectedCreator : {})
+      const vm = buildCreatorViewModel(detail, previous)
+
+      setSelectedEventId(jumpPayload?.eventId || null)
+      setEventReturnContext(jumpPayload?.eventId ? {
+        source: 'events',
+        eventId: Number(jumpPayload.eventId),
+        scrollTop: Number(jumpPayload.returnScrollTop || 0),
+      } : null)
+      setActiveTab('creators')
+      setConversationScope('creators')
+      setSelectedGroupChat(null)
+      setDetailPanelExpanded(detailPanelPinned)
+      setSelectedCreator(vm)
+      setChatJumpTarget({
+        requestId: Date.now(),
+        creatorId,
+        sourceMessageId: jumpPayload?.sourceMessageId || null,
+        sourceMessageTimestamp: jumpPayload?.sourceMessageTimestamp || null,
+        sourceText: jumpPayload?.sourceText || '',
+        triggerText: jumpPayload?.triggerText || '',
+        eventKey: jumpPayload?.eventKey || '',
+      })
+    } catch (e) {
+      console.error('handleOpenCreatorChatFromEvent error:', e)
+    }
+  }, [creators, detailPanelPinned, selectedCreator])
+
+  const handleCloseConversation = useCallback(() => {
+    setChatJumpTarget(null)
+    setSelectedGroupChat(null)
+    setSelectedCreator(null)
+    setDetailPanelExpanded(false)
+
+    if (eventReturnContext?.source === 'events' && eventReturnContext?.eventId) {
+      setConversationScope('creators')
+      setActiveTab('events')
+      setSelectedEventId(eventReturnContext.eventId)
+      setEventPanelRestoreState({
+        token: Date.now(),
+        eventId: eventReturnContext.eventId,
+        scrollTop: Number(eventReturnContext.scrollTop || 0),
+      })
+      setEventReturnContext(null)
+      return
+    }
+
+    setConversationScope('creators')
+    setEventReturnContext(null)
+  }, [eventReturnContext])
+
   const openManualModal = useCallback(() => {
-    const suggestedOwner = filterOwner && filterOwner !== '' ? filterOwner : (selectedCreator?.wa_owner || 'Yiyun')
+    const suggestedOwner = ownerLocked
+      ? lockedOwner
+      : (filterOwner && filterOwner !== '' ? filterOwner : (selectedCreator?.wa_owner || 'Yiyun'))
     setManualForm({ name: '', phone: '', owner: suggestedOwner })
     setManualCheck(null)
     setManualError('')
     setManualOpen(true)
-  }, [filterOwner, selectedCreator?.wa_owner])
+  }, [filterOwner, lockedOwner, ownerLocked, selectedCreator?.wa_owner])
 
   const closeManualModal = useCallback(() => {
     if (manualSaving) return
@@ -411,14 +544,23 @@ function App() {
     return true
   }), [creators, search, filterBeta, filterPriority, filterAgency, filterEvent, filterLifecycle])
 
+  const filteredGroupChats = useMemo(() => groupChats.filter(group => {
+    if (!isMorasCoreGroup(group.group_name || '')) return false
+    if (!search) return true
+    const s = search.toLowerCase()
+    return (group.group_name || '').toLowerCase().includes(s)
+      || (group.session_id || '').toLowerCase().includes(s)
+  }), [groupChats, search])
+
   const ownerOptions = useMemo(() => {
+    if (ownerLocked) return buildOwnerOptions([lockedOwner], { includeAll: false })
     return buildOwnerOptions([
       ...Object.keys(stats?.by_owner || {}),
       ...creators.map(c => c.wa_owner),
       selectedCreator?.wa_owner,
       filterOwner,
     ], { includeAll: true })
-  }, [creators, stats, selectedCreator?.wa_owner, filterOwner])
+  }, [creators, filterOwner, lockedOwner, ownerLocked, selectedCreator?.wa_owner, stats])
 
   const visibleCreatorIds = useMemo(() => filteredCreators.map(c => c.id), [filteredCreators])
   const selectedVisibleCreatorIds = useMemo(
@@ -473,7 +615,7 @@ function App() {
   const activeFilterCount = [filterBeta, filterPriority, filterAgency, filterEvent, filterLifecycle].filter(Boolean).length
   const selectedCreatorStatusMeta = getCreatorStatusMeta(selectedCreator)
   const isCreatorWorkspace = activeTab === 'creators'
-  const showDetailPanel = isCreatorWorkspace && !!selectedCreator
+  const showDetailPanel = isCreatorWorkspace && conversationScope === 'creators' && !!selectedCreator
   const isDetailPanelOpen = showDetailPanel && (detailPanelExpanded || detailPanelPinned)
   const detailPanelWidth = showDetailPanel
     ? (isDetailPanelOpen ? clamp(panelWidths.detail, DETAIL_PANEL_MIN_WIDTH, DETAIL_PANEL_MAX_WIDTH) : DETAIL_COLLAPSED_WIDTH)
@@ -481,7 +623,7 @@ function App() {
   const workspaceMeta = WORKSPACE_META[activeTab] || WORKSPACE_META.creators
   const waStatusLabel = waQrData ? '需要扫码' : '已连接'
   const waStatusTone = waQrData ? '#b45309' : WA.teal
-  const selectedOwnerLabel = selectedCreator?.wa_owner || (filterOwner || 'All')
+  const selectedOwnerLabel = selectedCreator?.wa_owner || selectedGroupChat?.operator || (filterOwner || 'All')
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -497,7 +639,7 @@ function App() {
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: WA.teal }}>WA</div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-white leading-none">达人列表</div>
+                  <div className="text-sm font-semibold text-white leading-none">{conversationScope === 'groups' ? '群聊列表' : '达人列表'}</div>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -538,8 +680,12 @@ function App() {
               {/* Owner tabs */}
               <div className="flex items-center gap-1 px-3 py-2 border-b overflow-x-auto" style={{ borderColor: WA.borderLight }}>
                 {ownerOptions.map(o => (
-                  <button key={o} onClick={() => setFilterOwner(o)} className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" style={{ background: filterOwner === o ? WA.teal : 'transparent', color: filterOwner === o ? 'white' : WA.textMuted }}>{o === '' ? '全部' : o}</button>
+                  <button key={o} onClick={() => !ownerLocked && setFilterOwner(o)} className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" style={{ background: filterOwner === o ? WA.teal : 'transparent', color: filterOwner === o ? 'white' : WA.textMuted, opacity: ownerLocked ? 0.92 : 1 }}>{o === '' ? '全部' : o}</button>
                 ))}
+              </div>
+              <div className="flex items-center gap-1 px-3 py-2 border-b overflow-x-auto" style={{ borderColor: WA.borderLight }}>
+                <button onClick={() => setConversationScope('creators')} className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" style={{ background: conversationScope === 'creators' ? WA.teal : 'transparent', color: conversationScope === 'creators' ? 'white' : WA.textMuted }}>私聊</button>
+                <button onClick={() => setConversationScope('groups')} className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors" style={{ background: conversationScope === 'groups' ? WA.teal : 'transparent', color: conversationScope === 'groups' ? 'white' : WA.textMuted }}>群聊</button>
               </div>
               <div className="px-3 py-2 border-b" style={{ borderColor: WA.borderLight }}>
                 <FilterSelect value={filterLifecycle} onChange={setFilterLifecycle} placeholder="生命周期">
@@ -550,9 +696,13 @@ function App() {
               </div>
               {/* Creator list */}
               <div>
-                {filteredCreators.map(c => (
-                  <ChatListItem key={c.id} creator={c} unread={unreadCounts[c.id] || 0} onClick={() => { handleSelectCreator(c); setMobileSidebarOpen(false) }} />
-                ))}
+                {conversationScope === 'groups'
+                  ? filteredGroupChats.map(group => (
+                    <GroupChatListItem key={group.id} groupChat={group} active={selectedGroupChat?.id === group.id} onClick={() => { handleSelectGroupChat(group); setMobileSidebarOpen(false) }} />
+                  ))
+                  : filteredCreators.map(c => (
+                    <ChatListItem key={c.id} creator={c} unread={unreadCounts[c.id] || 0} onClick={() => { handleSelectCreator(c); setMobileSidebarOpen(false) }} />
+                  ))}
               </div>
             </div>
           </div>
@@ -596,6 +746,7 @@ function App() {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              <AuthSessionControls />
               <div
                 className="hidden lg:flex items-center gap-2 px-3 py-2 rounded-full text-xs font-medium"
                 style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
@@ -642,16 +793,16 @@ function App() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="docs-kicker">Navigator</div>
-                    <div className="docs-title">达人名录</div>
+                    <div className="docs-title">{conversationScope === 'groups' ? '群聊归档' : '达人名录'}</div>
                     <div className="text-[12px] mt-0.5" style={{ color: WA.textMuted }}>
-                      用文档式列表浏览联系人、筛选阶段并进入聊天。
+                      {conversationScope === 'groups' ? '群聊消息单独归档展示，不再混入达人私聊。' : '用文档式列表浏览联系人、筛选阶段并进入聊天。'}
                     </div>
                   </div>
                   <div
                     className="shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold"
                     style={{ background: WA.shellAccentSoft, color: WA.teal }}
                   >
-                    {filteredCreators.length} 人
+                    {conversationScope === 'groups' ? `${filteredGroupChats.length} 群` : `${filteredCreators.length} 人`}
                   </div>
                 </div>
 
@@ -676,17 +827,46 @@ function App() {
                     {ownerOptions.map(o => (
                       <button
                         key={o}
-                        onClick={() => setFilterOwner(o)}
+                        onClick={() => !ownerLocked && setFilterOwner(o)}
                         className="shrink-0 px-3.5 py-2 rounded-full text-[13px] font-medium transition-all"
                         style={{
                           background: filterOwner === o ? WA.shellActive : WA.white,
                           color: filterOwner === o ? WA.textDark : WA.textMuted,
-                          border: `1px solid ${filterOwner === o ? WA.shellBorderStrong : WA.borderLight}`
+                          border: `1px solid ${filterOwner === o ? WA.shellBorderStrong : WA.borderLight}`,
+                          opacity: ownerLocked ? 0.92 : 1,
                         }}
                       >
                         {o === '' ? '全部' : o}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="docs-kicker">Scope</div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setConversationScope('creators')}
+                      className="shrink-0 px-3.5 py-2 rounded-full text-[13px] font-medium transition-all"
+                      style={{
+                        background: conversationScope === 'creators' ? WA.shellActive : WA.white,
+                        color: conversationScope === 'creators' ? WA.textDark : WA.textMuted,
+                        border: `1px solid ${conversationScope === 'creators' ? WA.shellBorderStrong : WA.borderLight}`
+                      }}
+                    >
+                      私聊达人
+                    </button>
+                    <button
+                      onClick={() => setConversationScope('groups')}
+                      className="shrink-0 px-3.5 py-2 rounded-full text-[13px] font-medium transition-all"
+                      style={{
+                        background: conversationScope === 'groups' ? WA.shellActive : WA.white,
+                        color: conversationScope === 'groups' ? WA.textDark : WA.textMuted,
+                        border: `1px solid ${conversationScope === 'groups' ? WA.shellBorderStrong : WA.borderLight}`
+                      }}
+                    >
+                      群聊归档
+                    </button>
                   </div>
                 </div>
               </div>
@@ -769,36 +949,38 @@ function App() {
                 <div>
                   <div className="docs-kicker">Contacts</div>
                   <div className="text-[15px] font-semibold" style={{ color: WA.textDark }}>
-                    {filteredCreators.length} 位达人
+                    {conversationScope === 'groups' ? `${filteredGroupChats.length} 个群聊` : `${filteredCreators.length} 位达人`}
                   </div>
                 </div>
-                <div className="flex gap-1 rounded-full p-1" style={{ background: WA.shellPanelMuted }}>
-                  <button
-                    onClick={() => setViewMode('list')}
-                    className="px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all"
-                    style={{
-                      background: viewMode === 'list' ? WA.white : 'transparent',
-                      color: viewMode === 'list' ? WA.textDark : WA.textMuted,
-                      border: `1px solid ${viewMode === 'list' ? WA.borderLight : 'transparent'}`
-                    }}
-                  >
-                    列表
-                  </button>
-                  <button
-                    onClick={() => setViewMode('kanban')}
-                    className="px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all"
-                    style={{
-                      background: viewMode === 'kanban' ? WA.white : 'transparent',
-                      color: viewMode === 'kanban' ? WA.textDark : WA.textMuted,
-                      border: `1px solid ${viewMode === 'kanban' ? WA.borderLight : 'transparent'}`
-                    }}
-                  >
-                    看板
-                  </button>
-                </div>
+                {conversationScope === 'creators' && (
+                  <div className="flex gap-1 rounded-full p-1" style={{ background: WA.shellPanelMuted }}>
+                    <button
+                      onClick={() => setViewMode('list')}
+                      className="px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all"
+                      style={{
+                        background: viewMode === 'list' ? WA.white : 'transparent',
+                        color: viewMode === 'list' ? WA.textDark : WA.textMuted,
+                        border: `1px solid ${viewMode === 'list' ? WA.borderLight : 'transparent'}`
+                      }}
+                    >
+                      列表
+                    </button>
+                    <button
+                      onClick={() => setViewMode('kanban')}
+                      className="px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all"
+                      style={{
+                        background: viewMode === 'kanban' ? WA.white : 'transparent',
+                        color: viewMode === 'kanban' ? WA.textDark : WA.textMuted,
+                        border: `1px solid ${viewMode === 'kanban' ? WA.borderLight : 'transparent'}`
+                      }}
+                    >
+                      看板
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {viewMode === 'list' && filteredCreators.length > 0 && (
+              {conversationScope === 'creators' && viewMode === 'list' && filteredCreators.length > 0 && (
                 <div className="px-4 py-2.5 border-b flex items-center justify-between gap-3" style={{ borderColor: WA.shellBorder, background: WA.shellPanelStrong }}>
                   <label className="flex items-center gap-2 text-xs" style={{ color: WA.textMuted }}>
                     <input
@@ -836,6 +1018,24 @@ function App() {
                     <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: WA.teal, borderTopColor: 'transparent' }} />
                     <span className="text-xs">加载中...</span>
                   </div>
+                ) : conversationScope === 'groups' ? (
+                  filteredGroupChats.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
+                      <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+                        <span className="text-xl">👥</span>
+                      </div>
+                      <span className="text-sm">{groupsLoading ? '群聊加载中...' : '没有找到群聊'}</span>
+                    </div>
+                  ) : (
+                    filteredGroupChats.map(group => (
+                      <GroupChatListItem
+                        key={group.id}
+                        groupChat={group}
+                        active={selectedGroupChat?.id === group.id}
+                        onClick={() => handleSelectGroupChat(group)}
+                      />
+                    ))
+                  )
                 ) : filteredCreators.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
                     <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
@@ -873,23 +1073,23 @@ function App() {
                   </div>
                   <div className="docs-panel-strong px-2 py-2.5">
                     <div className="text-sm font-semibold" style={{ color: WA.textDark }}>
-                      {creators.filter(c => c.beta_status === 'introduced' || c.beta_status === 'joined').length}
+                      {Number(stats?.yesterday_new_events || 0).toLocaleString()}
                     </div>
-                    <div className="text-[11px]" style={{ color: WA.textMuted }}>Beta</div>
+                    <div className="text-[11px]" style={{ color: WA.textMuted }}>昨日新增事件数</div>
                   </div>
                 </div>
               </div>
             </div>
 
             <div
-              className="w-2.5 shrink-0 cursor-col-resize group relative z-10"
+              className="w-1.5 shrink-0 cursor-col-resize group relative z-10"
               style={{ background: 'transparent' }}
               onMouseDown={startDrag('list-detail')}
               onTouchStart={startDrag('list-detail')}
             >
               <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center justify-center">
                 <div
-                  className="w-1 h-12 rounded-full transition-all"
+                  className="w-0.5 h-12 rounded-full transition-all"
                   style={{ background: dragging === 'list-detail' ? WA.teal : WA.shellBorderStrong, opacity: dragging === 'list-detail' ? 1 : 0.8 }}
                 />
               </div>
@@ -897,7 +1097,9 @@ function App() {
 
             <div className="flex-1 min-w-0 docs-panel overflow-hidden" style={{ background: WA.shellPanelStrong }}>
               {activeTab === 'creators' ? (
-                selectedCreator ? (
+                conversationScope === 'groups' ? (
+                  <WAGroupChatViewer groupChat={selectedGroupChat} apiBase={API_BASE} />
+                ) : selectedCreator ? (
                   <WAMessageComposer
                     key={selectedCreator.id}
                     client={{
@@ -910,7 +1112,8 @@ function App() {
                       lifecycle_label: selectedCreator.lifecycle?.stage_label || null,
                     }}
                     creator={selectedCreator}
-                    onClose={() => setSelectedCreator(null)}
+                    jumpTarget={selectedCreator?.id === chatJumpTarget?.creatorId ? chatJumpTarget : null}
+                    onClose={handleCloseConversation}
                     onMessageSent={handleCreatorMessageSent}
                     onCreatorUpdated={handleCreatorUpdated}
                   />
@@ -955,11 +1158,18 @@ function App() {
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto docs-scrollbar" style={{ background: WA.shellPanel }}>
                     {activeTab === 'events' ? (
-                      <EventPanel />
+                      <EventPanel
+                        onOpenCreatorChat={handleOpenCreatorChatFromEvent}
+                        selectedEventId={selectedEventId}
+                        onSelectedEventChange={setSelectedEventId}
+                        restoreState={eventPanelRestoreState}
+                      />
                     ) : activeTab === 'strategy' ? (
-                      <div className="h-full overflow-y-auto p-3 space-y-3" style={{ background: WA.lightBg }}>
-                        <LifecycleConfigPanel embedded />
-                        <StrategyConfigPanel embedded />
+                      <div className="h-full overflow-y-auto p-4" style={{ background: WA.lightBg }}>
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+                          <LifecycleConfigPanel embedded />
+                          <StrategyConfigPanel embedded />
+                        </div>
                       </div>
                     ) : (
                       <SFTDashboard compact />
@@ -987,7 +1197,7 @@ function App() {
                 <CreatorDetail
                   creatorId={selectedCreator.id}
                   creatorName={selectedCreator.primary_name}
-                  onClose={() => setSelectedCreator(null)}
+                  onClose={handleCloseConversation}
                   onMessageSent={handleCreatorMessageSent}
                   onCreatorUpdated={handleCreatorUpdated}
                   asPanel
@@ -1008,53 +1218,64 @@ function App() {
       <WorkerStatusBar />
 
       {/* ===== Mobile: Full-screen Chat (shown when creator selected) ===== */}
-      {selectedCreator && (
+      {(selectedCreator || (conversationScope === 'groups' && selectedGroupChat)) && (
         <div className="flex-1 flex flex-col md:hidden" style={{ background: WA.chatBg }}>
           {/* Mobile top bar */}
           <div className="flex items-center gap-3 px-4 py-3" style={{ background: WA.darkHeader }}>
             <button onClick={() => setMobileSidebarOpen(true)} className="text-white/70 hover:text-white text-lg shrink-0">☰</button>
             <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0" style={{ background: WA.teal }}>
-              {(selectedCreator.primary_name || '?')[0]?.toUpperCase()}
+              {conversationScope === 'groups'
+                ? '#'
+                : (selectedCreator?.primary_name || '?')[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-white truncate">{selectedCreator.primary_name}</div>
-              <div className="text-xs text-white/50">{selectedCreator.wa_phone}</div>
+              <div className="text-sm font-semibold text-white truncate">{conversationScope === 'groups' ? (selectedGroupChat?.group_name || '群聊') : selectedCreator?.primary_name}</div>
+              <div className="text-xs text-white/50">{conversationScope === 'groups' ? (selectedGroupChat?.session_id || '') : selectedCreator?.wa_phone}</div>
             </div>
-            <button
-              onClick={() => setTagsVisible(v => !v)}
-              className="text-white/70 hover:text-white text-base shrink-0 px-2 py-1 rounded-lg"
-              title={tagsVisible ? '隐藏标签' : '显示标签'}
-            >
-              🏷
-            </button>
-            <button onClick={() => setSelectedCreator(null)} className="text-white/70 hover:text-white text-lg shrink-0">✕</button>
+            {conversationScope === 'creators' && (
+              <button
+                onClick={() => setTagsVisible(v => !v)}
+                className="text-white/70 hover:text-white text-base shrink-0 px-2 py-1 rounded-lg"
+                title={tagsVisible ? '隐藏标签' : '显示标签'}
+              >
+                🏷
+              </button>
+            )}
+            <button onClick={handleCloseConversation} className="text-white/70 hover:text-white text-lg shrink-0">✕</button>
           </div>
 
-          <MobileEventTagsBar
-            creator={selectedCreator}
-            statusMeta={selectedCreatorStatusMeta}
-            visible={tagsVisible}
-          />
+          {conversationScope === 'creators' && (
+            <MobileEventTagsBar
+              creator={selectedCreator}
+              statusMeta={selectedCreatorStatusMeta}
+              visible={tagsVisible}
+            />
+          )}
 
           {/* WAMessageComposer — as panel, no internal mobile header */}
           <div className="flex-1 overflow-hidden">
-            <WAMessageComposer
-              client={{
-                id: selectedCreator.id,
-                phone: selectedCreator.wa_phone,
-                name: selectedCreator.primary_name,
-                wa_owner: selectedCreator.wa_owner,
-                conversion_stage: selectedCreator.lifecycle?.stage_key || selectedCreator.beta_status || 'unknown',
-                lifecycle_stage: selectedCreator.lifecycle?.stage_key || 'unknown',
-                lifecycle_label: selectedCreator.lifecycle?.stage_label || null,
-              }}
-              creator={selectedCreator}
-              onClose={() => setSelectedCreator(null)}
-              onSwipeLeft={() => setMobileSidebarOpen(true)}
-              onMessageSent={handleCreatorMessageSent}
-              onCreatorUpdated={handleCreatorUpdated}
-              asPanel
-            />
+            {conversationScope === 'groups' ? (
+              <WAGroupChatViewer groupChat={selectedGroupChat} apiBase={API_BASE} />
+            ) : (
+              <WAMessageComposer
+                client={{
+                  id: selectedCreator.id,
+                  phone: selectedCreator.wa_phone,
+                  name: selectedCreator.primary_name,
+                  wa_owner: selectedCreator.wa_owner,
+                  conversion_stage: selectedCreator.lifecycle?.stage_key || selectedCreator.beta_status || 'unknown',
+                  lifecycle_stage: selectedCreator.lifecycle?.stage_key || 'unknown',
+                  lifecycle_label: selectedCreator.lifecycle?.stage_label || null,
+                }}
+                creator={selectedCreator}
+                jumpTarget={selectedCreator?.id === chatJumpTarget?.creatorId ? chatJumpTarget : null}
+                onClose={handleCloseConversation}
+                onSwipeLeft={() => setMobileSidebarOpen(true)}
+                onMessageSent={handleCreatorMessageSent}
+                onCreatorUpdated={handleCreatorUpdated}
+                asPanel
+              />
+            )}
           </div>
         </div>
       )}
@@ -1062,6 +1283,8 @@ function App() {
       <ManualCreatorModal
         open={manualOpen}
         form={manualForm}
+        ownerLocked={ownerLocked}
+        lockedOwner={lockedOwner}
         onFormChange={setManualForm}
         onClose={closeManualModal}
         onSave={saveManualCreator}
@@ -1077,6 +1300,8 @@ function App() {
 function ManualCreatorModal({
   open,
   form,
+  ownerLocked,
+  lockedOwner,
   onFormChange,
   onClose,
   onSave,
@@ -1120,13 +1345,20 @@ function ManualCreatorModal({
             <select
               value={form.owner}
               onChange={e => onFormChange(prev => ({ ...prev, owner: e.target.value }))}
+              disabled={ownerLocked}
               className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
-              style={{ borderColor: WA.borderLight, color: WA.textDark }}
+              style={{ borderColor: WA.borderLight, color: WA.textDark, background: ownerLocked ? WA.lightBg : WA.white }}
             >
-              <option value="Yiyun">Yiyun</option>
-              <option value="Beau">Beau</option>
-              <option value="Jiawen">Jiawen</option>
-              <option value="WangYouKe">WangYouKe</option>
+              {ownerLocked ? (
+                <option value={lockedOwner}>{lockedOwner}</option>
+              ) : (
+                <>
+                  <option value="Yiyun">Yiyun</option>
+                  <option value="Beau">Beau</option>
+                  <option value="Jiawen">Jiawen</option>
+                  <option value="WangYouKe">WangYouKe</option>
+                </>
+              )}
             </select>
           </label>
           <label className="md:col-span-3 text-xs space-y-1">
@@ -1495,6 +1727,7 @@ function ChatListItem({ creator, onClick, unread, active = false, selectable = f
   const lifecycle = creator.lifecycle || full.lifecycle || null
   const lifecycleMeta = lifecycle?.stage_key ? LIFECYCLE_BADGE_META[lifecycle.stage_key] : null
   const referralActive = !!lifecycle?.flags?.referral_active
+  const waJoined = !!lifecycle?.flags?.wa_joined
   const hasConflicts = !!lifecycle?.has_conflicts
   const betaStatus = wacrm.beta_status || lifecycle?.flags?.beta_status || ''
 
@@ -1593,6 +1826,11 @@ function ChatListItem({ creator, onClick, unread, active = false, selectable = f
                 {lifecycleMeta.label}
               </span>
             )}
+            {!waJoined && lifecycle?.stage_key === 'acquisition' && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: 'rgba(100,116,139,0.12)', color: '#475569' }}>
+                未入WA
+              </span>
+            )}
             {referralActive && (
               <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: 'rgba(13,148,136,0.12)', color: '#0d9488' }}>
                 推荐中
@@ -1628,6 +1866,51 @@ function ChatListItem({ creator, onClick, unread, active = false, selectable = f
             )}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function GroupChatListItem({ groupChat, onClick, active = false }) {
+  const lastActiveTs = Number(groupChat?.last_active || 0)
+  const lastActiveLabel = lastActiveTs ? formatChatListTime(lastActiveTs) : null
+  const restBackground = active ? WA.shellActive : WA.white
+  const hoverBackground = active ? WA.shellActive : WA.shellHover
+
+  return (
+    <div
+      onClick={onClick}
+      className="mx-3 my-2 flex items-center gap-3.5 px-4 py-4 cursor-pointer transition-colors"
+      style={{
+        border: `1px solid ${WA.borderLight}`,
+        borderLeft: `4px solid ${WA.teal}`,
+        background: restBackground,
+        borderRadius: 24,
+        boxShadow: active ? '0 10px 24px rgba(31,29,26,0.08)' : '0 1px 2px rgba(15, 23, 42, 0.04)',
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = hoverBackground}
+      onMouseLeave={e => e.currentTarget.style.background = restBackground}
+    >
+      <div className="relative shrink-0">
+        <div className="rounded-full flex items-center justify-center text-white font-medium" style={{ background: WA.teal, width: 48, height: 48, fontSize: 16 }}>
+          #
+        </div>
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between">
+          <span className="font-medium text-sm truncate" style={{ color: WA.textDark }}>{groupChat.group_name || 'Unnamed Group'}</span>
+          {lastActiveLabel && (
+            <span className="shrink-0 ml-2 text-xs" style={{ color: WA.textMuted }}>
+              {lastActiveLabel}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 mt-0.5">
+          <span className="text-xs" style={{ color: WA.textMuted }}>{groupChat.session_id || '-'}</span>
+          <span className="text-xs" style={{ color: WA.borderLight }}>·</span>
+          <span className="text-xs" style={{ color: WA.textMuted }}>{groupChat.msg_count || 0} 条</span>
+        </div>
       </div>
     </div>
   )
@@ -1714,7 +1997,9 @@ function Panel2Empty({ stats, creators }) {
   const totalCreators = creators.length
   const totalMessages = stats.total_messages || 0
   const activeCreators = creators.filter(c => c.msg_count > 0).length
-  const betaCount = creators.filter(c => c.beta_status === 'introduced' || c.beta_status === 'joined').length
+  const generationReplyHitRate = Number(stats.generation_reply_hit_rate || 0)
+  const totalEvents = Number(stats.total_events || 0)
+  const yesterdayNewEvents = Number(stats.yesterday_new_events || 0)
   const digestItems = buildWorkspaceDigestItems(creators, 4)
 
   return (
@@ -1726,7 +2011,7 @@ function Panel2Empty({ stats, creators }) {
           <div className="text-sm mt-2" style={{ color: WA.textMuted }}>从左侧选择一位达人，进入对话、策略和上下文协同视图。</div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
           <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
             <div className="text-2xl font-bold" style={{ color: WA.teal }}>{totalCreators}</div>
             <div className="text-xs mt-1" style={{ color: WA.textMuted }}>总达人</div>
@@ -1740,8 +2025,16 @@ function Panel2Empty({ stats, creators }) {
             <div className="text-xs mt-1" style={{ color: WA.textMuted }}>活跃达人</div>
           </div>
           <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
-            <div className="text-2xl font-bold" style={{ color: '#8b5cf6' }}>{betaCount}</div>
-            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>Beta 子流程已引入</div>
+            <div className="text-2xl font-bold" style={{ color: '#8b5cf6' }}>{generationReplyHitRate.toFixed(1)}%</div>
+            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>生成回复命中率</div>
+          </div>
+          <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+            <div className="text-2xl font-bold" style={{ color: '#f59e0b' }}>{totalEvents.toLocaleString()}</div>
+            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>总共事件数</div>
+          </div>
+          <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+            <div className="text-2xl font-bold" style={{ color: '#2563eb' }}>{yesterdayNewEvents.toLocaleString()}</div>
+            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>昨日最新事件数</div>
           </div>
         </div>
 

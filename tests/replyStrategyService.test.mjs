@@ -89,14 +89,14 @@ test('parseAutoStrategyMeta extracts trigger and lifecycle markers', () => {
   const parsed = _private.parseAutoStrategyMeta(`
 [AUTO_REPLY_STRATEGY:auto_reply_strategy_v2]
 trigger: lifecycle_change
-lifecycle: Revenue（收入）
+lifecycle: Revenue（变现）
 frequency: high (c3)
 focus: 推进单一动作
 `);
   assert.equal(parsed.is_auto, true);
   assert.equal(parsed.version, 'auto_reply_strategy_v2');
   assert.equal(parsed.trigger, 'lifecycle_change');
-  assert.equal(parsed.lifecycle, 'Revenue（收入）');
+  assert.equal(parsed.lifecycle, 'Revenue（变现）');
   assert.equal(parsed.profile_signals.length, 1);
   assert.equal(parsed.focus, '推进单一动作');
 });

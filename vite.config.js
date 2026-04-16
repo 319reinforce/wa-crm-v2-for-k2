@@ -95,6 +95,7 @@ export default defineConfig(async () => {
       }
     },
     server: {
+      host: '0.0.0.0',
       port: 3001,
       proxy: {
         '/api': {
@@ -102,6 +103,10 @@ export default defineConfig(async () => {
           changeOrigin: true
         }
       }
+    },
+    preview: {
+      host: '0.0.0.0',
+      port: 3001,
     }
   }
 })

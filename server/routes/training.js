@@ -6,20 +6,22 @@ const express = require('express');
 const router = express.Router();
 const { runTraining, ensureTrainingLogTable } = require('../workers/trainingWorker');
 const db = require('../../db');
+const { hasPrivilegedRole } = require('../utils/ownerScope');
+
+function ensureTrainingTriggerAccess(req, res) {
+    if (!hasPrivilegedRole(req)) {
+        res.status(403).json({ ok: false, error: 'Forbidden' });
+        return false;
+    }
+    return true;
+}
 
 // POST /api/training/trigger — 触发训练（外部 cron 或 MetaBot Scheduler 调用）
 router.post('/trigger', async (req, res) => {
-    // Token 校验
-    const token = process.env.TRAINING_TRIGGER_TOKEN;
-    if (!token) {
-        return res.status(503).json({ error: 'TRAINING_TRIGGER_TOKEN not configured' });
-    }
-    const auth = req.headers['authorization'] || '';
-    if (auth !== `Bearer ${token}`) {
-        return res.status(401).json({ error: 'Unauthorized: invalid token' });
-    }
+    if (!ensureTrainingTriggerAccess(req, res)) return;
     try {
-        const result = await runTraining('http_trigger');
+        const triggeredBy = req.auth?.role === 'service' ? 'service_trigger' : 'http_trigger';
+        const result = await runTraining(triggeredBy);
         res.json({ ok: true, ...result });
     } catch (err) {
         console.error('Training trigger error:', err);
@@ -66,3 +68,6 @@ router.get('/logs', async (req, res) => {
 });
 
 module.exports = router;
+module.exports._private = {
+    ensureTrainingTriggerAccess,
+};

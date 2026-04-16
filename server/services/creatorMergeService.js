@@ -1,5 +1,6 @@
 const db = require('../../db');
 const { normalizeOperatorName } = require('../utils/operator');
+const { purgeCreatorMessagesMatchingGroups } = require('./groupMessageService');
 
 const WACRM_COLUMNS = [
     'priority', 'next_action', 'event_score', 'urgency_level', 'monthly_fee_status',
@@ -100,6 +101,20 @@ async function moveMessages(tx, sourceCreatorId, targetCreatorId, fallbackOperat
     `).run(targetCreatorId, fallbackOperator, sourceCreatorId);
 
     await tx.prepare('DELETE FROM wa_messages WHERE creator_id = ?').run(sourceCreatorId);
+}
+
+async function purgeMergedMessagesAgainstGroups(tx, targetCreatorId, operators = []) {
+    const normalizedOperators = unique(
+        operators.map((item) => normalizeOperatorName(item, item || null))
+    );
+    let purged = 0;
+    for (const operator of normalizedOperators) {
+        purged += await purgeCreatorMessagesMatchingGroups(tx, {
+            creatorId: targetCreatorId,
+            operator,
+        });
+    }
+    return purged;
 }
 
 async function mergeOneToOneTable(tx, table, columns, sourceCreatorId, targetCreatorId) {
@@ -347,6 +362,11 @@ async function mergeDuplicateCreatorIntoCanonical({
         const targetClientId = unique([target.wa_phone, ...targetClientIds, source.wa_phone])[0] || '';
 
         await moveMessages(tx, sourceCreatorId, targetCreatorId, normalizedOperator || target.wa_owner || source.wa_owner || null);
+        const groupPurged = await purgeMergedMessagesAgainstGroups(tx, targetCreatorId, [
+            normalizedOperator,
+            target.wa_owner,
+            source.wa_owner,
+        ]);
         await moveAliases(tx, sourceCreatorId, targetCreatorId);
         await mergeOneToOneTable(tx, 'wa_crm_data', WACRM_COLUMNS, sourceCreatorId, targetCreatorId);
         await mergeOneToOneTable(tx, 'keeper_link', KEEPER_COLUMNS, sourceCreatorId, targetCreatorId);
@@ -397,6 +417,7 @@ async function mergeDuplicateCreatorIntoCanonical({
             reason,
             phone: finalPhone || null,
             owner: finalOwner || null,
+            groupPurged,
         };
     });
 }

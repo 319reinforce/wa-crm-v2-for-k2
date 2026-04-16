@@ -52,6 +52,78 @@ function getLatestMessageTimestamp(messages = []) {
     return messages.reduce((max, message) => Math.max(max, toTimestampMs(message?.timestamp)), 0);
 }
 
+function normalizeJumpText(value) {
+    return String(value || '')
+        .toLowerCase()
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/[^a-z0-9\u4e00-\u9fff\s$]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function buildJumpTokens(value) {
+    const normalized = normalizeJumpText(value);
+    if (!normalized) return [];
+    return [...new Set(normalized.split(' ').filter(token => token && token.length >= 2))];
+}
+
+function findMessageMatch(messages = [], jumpTarget = null) {
+    if (!jumpTarget || !Array.isArray(messages) || messages.length === 0) return null;
+
+    const exactId = jumpTarget?.sourceMessageId ? String(jumpTarget.sourceMessageId) : '';
+    const sourceText = normalizeJumpText(jumpTarget?.sourceText || '');
+    const fallbackText = normalizeJumpText(jumpTarget?.triggerText || '');
+    const sourceTokens = buildJumpTokens(jumpTarget?.sourceText || '');
+    const fallbackTokens = buildJumpTokens(jumpTarget?.triggerText || '');
+    const targetTimestamp = toTimestampMs(jumpTarget?.sourceMessageTimestamp || 0);
+
+    let best = null;
+    let bestScore = 0;
+
+    messages.forEach((message, index) => {
+        const messageId = message?.id ? String(message.id) : '';
+        const messageText = normalizeJumpText(message?.text || '');
+        const messageTokens = buildJumpTokens(message?.text || '');
+        const renderKey = getMessageRenderKey(message, `jump_${index}`);
+
+        let score = 0;
+        if (exactId && messageId && messageId === exactId) {
+            score += 1000;
+        }
+        if (sourceText && messageText) {
+            if (messageText.includes(sourceText) || sourceText.includes(messageText)) {
+                score += 240;
+            }
+        }
+        if (fallbackText && messageText) {
+            if (messageText.includes(fallbackText) || fallbackText.includes(messageText)) {
+                score += 160;
+            }
+        }
+
+        sourceTokens.forEach((token) => {
+            if (messageTokens.includes(token) || messageText.includes(token)) score += token.length >= 4 ? 14 : 8;
+        });
+        fallbackTokens.forEach((token) => {
+            if (messageTokens.includes(token) || messageText.includes(token)) score += token.length >= 4 ? 9 : 5;
+        });
+
+        if (targetTimestamp > 0) {
+            const diff = Math.abs(toTimestampMs(message?.timestamp) - targetTimestamp);
+            if (diff <= 60 * 1000) score += 120;
+            else if (diff <= 10 * 60 * 1000) score += 70;
+            else if (diff <= 60 * 60 * 1000) score += 35;
+        }
+
+        if (score > bestScore) {
+            bestScore = score;
+            best = { message, renderKey, score };
+        }
+    });
+
+    return bestScore >= 20 ? best : null;
+}
+
 function mergeChronologicalMessages(existing = [], incoming = []) {
     const merged = new Map();
 
@@ -137,7 +209,7 @@ function getConversationStatusMeta(creator) {
     return null;
 }
 
-export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMessageSent, onCreatorUpdated, asPanel }) {
+export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwipeLeft, onMessageSent, onCreatorUpdated, asPanel }) {
     const [inputText, setInputText] = useState('');
     const [generating, setGenerating] = useState(false);
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -221,8 +293,12 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     const chatScrollRef = useRef(null);
     const inputRef = useRef(null);
     const mediaInputRef = useRef(null);
+    const messageNodeRefs = useRef(new Map());
+    const processedJumpRequestRef = useRef(null);
     const olderLoadCooldownRef = useRef(false);
+    const jumpContextUntilRef = useRef(0);
     const prependInFlightRef = useRef(false);
+    const [highlightedMessageKey, setHighlightedMessageKey] = useState(null);
 
     // 滚动到底部
     const scrollToBottom = useCallback(() => {
@@ -317,6 +393,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         setCurrentTopic(null);
         setAutoDetectedTopic(null);
         clearPendingImage();
+        jumpContextUntilRef.current = 0;
         pendingCandidatesRef.current = [];
         lastActivityRef.current = null;
 
@@ -411,7 +488,12 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 operatorDisplayName: result.operatorDisplayName,
                 operatorConfigured: result.operatorConfigured,
                 scene: result.scene,
+                sceneSource: result.sceneSource || null,
                 retrievalSnapshotId: result.retrievalSnapshotId || null,
+                generationLogId: result.generationLogId || null,
+                provider: result.provider || null,
+                model: result.model || null,
+                pipelineVersion: result.pipelineVersion || 'reply_generation_v2',
                 generated_at: Date.now(),
                 policyDocs,
             };
@@ -439,6 +521,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     useMessagePolling({
         client,
         setMessages: (freshMsgs) => {
+            if (Date.now() < jumpContextUntilRef.current) return;
             setMessages((prev) => mergeChronologicalMessages(prev, freshMsgs));
             setLoadedServerCount((prev) => Math.max(prev, freshMsgs.length));
         },
@@ -607,9 +690,14 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 throw new Error(sendData?.error || `send media failed: HTTP ${sendRes.status}`);
             }
 
-            const timelineText = caption ? `🖼️ [Image] ${caption}` : '🖼️ [Image]';
-            const sentAt = Date.now();
-            await persistCrmSentMessage(timelineText, sentAt);
+            const timelineText = sendData?.crm_message?.text
+                || (caption ? `🖼️ [Image] ${caption}` : '🖼️ [Image]');
+            const sentAt = Number(sendData?.crm_message?.timestamp) > 0
+                ? Number(sendData.crm_message.timestamp)
+                : Date.now();
+            if (!sendData?.crm_message) {
+                await persistCrmSentMessage(timelineText, sentAt);
+            }
             setMessages((prev) => [...prev, {
                 role: 'me',
                 text: timelineText,
@@ -675,7 +763,12 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 operatorDisplayName: result.operatorDisplayName,
                 operatorConfigured: result.operatorConfigured,
                 scene: result.scene,
+                sceneSource: result.sceneSource || null,
                 retrievalSnapshotId: result.retrievalSnapshotId || null,
+                generationLogId: result.generationLogId || null,
+                provider: result.provider || null,
+                model: result.model || null,
+                pipelineVersion: result.pipelineVersion || 'reply_generation_v2',
                 generated_at: Date.now(),
                 policyDocs,
             });
@@ -770,7 +863,12 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 operatorDisplayName: result.operatorDisplayName,
                 operatorConfigured: result.operatorConfigured,
                 scene: result.scene,
+                sceneSource: result.sceneSource || null,
                 retrievalSnapshotId: result.retrievalSnapshotId || null,
+                generationLogId: result.generationLogId || null,
+                provider: result.provider || null,
+                model: result.model || null,
+                pipelineVersion: result.pipelineVersion || 'reply_generation_v2',
                 generated_at: Date.now(),
                 policyDocs,
             }));
@@ -1026,6 +1124,7 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
     const sendOutboundMessage = async (sentText, { onError } = {}) => {
         const reportError = onError || ((message) => alert(`发送失败: ${message}`));
 
+        let data;
         try {
             const res = await fetchWaAdmin(`${API_BASE}/wa/send`, {
                 method: 'POST',
@@ -1038,23 +1137,28 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                     session_id: creator?.session_id || client.session_id || null,
                 })
             });
-            const data = await res.json();
+            data = await res.json();
             if (!data.ok) {
                 reportError(data.error || '未知错误');
-                return false;
+                return { ok: false };
             }
         } catch (e) {
             console.error('[WA Send] 发送失败:', e);
             reportError(e.message || '请求失败');
-            return false;
+            return { ok: false };
         }
 
-        const sentAt = Date.now();
-        await persistCrmSentMessage(sentText, sentAt);
+        const crmMessage = data?.crm_message || null;
+        const sentAt = Number(crmMessage?.timestamp) > 0
+            ? Number(crmMessage.timestamp)
+            : Date.now();
+        if (!crmMessage) {
+            await persistCrmSentMessage(sentText, sentAt);
+        }
         setMessages(prev => [...prev, { role: 'me', text: sentText, timestamp: sentAt }]);
         setMessageTotal((prev) => prev + 1);
         onMessageSent?.(client.id);
-        return true;
+        return { ok: true, sentAt, crmMessage };
     };
 
     const persistSftRecord = async ({
@@ -1066,6 +1170,11 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         promptUsed = null,
         promptVersion = 'v2',
         retrievalSnapshotId = null,
+        generationLogId = null,
+        provider = null,
+        model = null,
+        sceneSource = null,
+        pipelineVersion = null,
     }) => {
         try {
             const richContext = buildRichContext({
@@ -1089,10 +1198,21 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                     context: {
                         ...richContext,
                         retrieval_snapshot_id: retrievalSnapshotId,
+                        generation_log_id: generationLogId,
+                        provider,
+                        model,
+                        scene_source: sceneSource,
+                        pipeline_version: pipelineVersion,
                     },
                     messages,
                     system_prompt_used: promptUsed,
                     system_prompt_version: promptVersion,
+                    retrieval_snapshot_id: retrievalSnapshotId,
+                    generation_log_id: generationLogId,
+                    provider,
+                    model,
+                    scene_source: sceneSource,
+                    pipeline_version: pipelineVersion,
                 }),
                 signal: AbortSignal.timeout(15000),
             });
@@ -1115,10 +1235,10 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
 
         setPickerError(null);
 
-        const sendOk = await sendOutboundMessage(sentText, {
+        const sendResult = await sendOutboundMessage(sentText, {
             onError: (message) => setPickerError(message),
         });
-        if (!sendOk) return;
+        if (!sendResult?.ok) return;
 
         const sim1 = computeSimilarity(activePicker.candidates.opt1, sentText);
         const sim2 = computeSimilarity(activePicker.candidates.opt2, sentText);
@@ -1146,6 +1266,11 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
             promptUsed: activePicker.systemPrompt || null,
             promptVersion: activePicker.systemPromptVersion || 'v2',
             retrievalSnapshotId: activePicker.retrievalSnapshotId || null,
+            generationLogId: activePicker.generationLogId || null,
+            provider: activePicker.provider || null,
+            model: activePicker.model || null,
+            sceneSource: activePicker.sceneSource || null,
+            pipelineVersion: activePicker.pipelineVersion || 'reply_generation_v2',
         });
 
         await extractAndSaveMemory(activePicker.incomingMsg, sentText);
@@ -1224,7 +1349,12 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                 operatorDisplayName: result.operatorDisplayName,
                 operatorConfigured: result.operatorConfigured,
                 scene: result.scene,
+                sceneSource: result.sceneSource || null,
                 retrievalSnapshotId: result.retrievalSnapshotId || null,
+                generationLogId: result.generationLogId || null,
+                provider: result.provider || null,
+                model: result.model || null,
+                pipelineVersion: result.pipelineVersion || 'reply_generation_v2',
                 generated_at: Date.now(),
                 policyDocs,
             });
@@ -1242,8 +1372,8 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         if (!text?.trim() || !client?.id) return;
         const sentText = text.trim();
 
-        const sendOk = await sendOutboundMessage(sentText);
-        if (!sendOk) return;
+        const sendResult = await sendOutboundMessage(sentText);
+        if (!sendResult?.ok) return;
 
         await persistSftRecord({
             sentText,
@@ -1298,6 +1428,80 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
         if (prependInFlightRef.current) return;
         scrollToBottom();
     }, [messages.length]);
+
+    useEffect(() => {
+        if (!jumpTarget?.requestId || Number(jumpTarget?.creatorId) !== Number(client?.id)) return;
+        if (processedJumpRequestRef.current === jumpTarget.requestId) return;
+
+        let cancelled = false;
+
+        const highlightMatch = (match) => {
+            if (!match) return false;
+            const scroll = () => {
+                const node = messageNodeRefs.current.get(match.renderKey);
+                if (!node || cancelled) return;
+                node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                setHighlightedMessageKey(match.renderKey);
+                window.setTimeout(() => {
+                    setHighlightedMessageKey((current) => current === match.renderKey ? null : current);
+                }, 2400);
+            };
+            window.requestAnimationFrame(scroll);
+            processedJumpRequestRef.current = jumpTarget.requestId;
+            return true;
+        };
+
+        const run = async () => {
+            const localMatch = findMessageMatch(messages, jumpTarget);
+            if (highlightMatch(localMatch)) return;
+
+            try {
+                if (jumpTarget?.sourceMessageId || jumpTarget?.sourceMessageTimestamp) {
+                    const anchorParams = new URLSearchParams();
+                    if (jumpTarget?.sourceMessageId) anchorParams.set('around_message_id', String(jumpTarget.sourceMessageId));
+                    if (jumpTarget?.sourceMessageTimestamp) anchorParams.set('around_timestamp', String(jumpTarget.sourceMessageTimestamp));
+                    anchorParams.set('window_before', '5');
+                    anchorParams.set('window_after', '4');
+                    const anchorData = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}/messages?${anchorParams.toString()}`, {
+                        signal: AbortSignal.timeout(15000),
+                    });
+                    if (cancelled) return;
+                    const { msgs, total } = unpackMessageResponse(anchorData);
+                    if (msgs.length > 0) {
+                        jumpContextUntilRef.current = Date.now() + 12000;
+                        setMessages(msgs);
+                        setMessageTotal(total);
+                        setLoadedServerCount(Math.max(total, msgs.length));
+
+                        const anchorMatch = findMessageMatch(msgs, jumpTarget);
+                        if (highlightMatch(anchorMatch)) return;
+                    }
+                }
+
+                const fetchLimit = Math.max(300, Math.min(Math.max(messageTotal, loadedServerCount, 300), 500));
+                const data = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}/messages?limit=${fetchLimit}`, {
+                    signal: AbortSignal.timeout(15000),
+                });
+                if (cancelled) return;
+                const { msgs, total } = unpackMessageResponse(data);
+                setMessages(msgs);
+                setMessageTotal(total);
+                setLoadedServerCount(msgs.length);
+
+                const remoteMatch = findMessageMatch(msgs, jumpTarget);
+                if (highlightMatch(remoteMatch)) return;
+            } catch (e) {
+                console.error('[jumpToSourceMessage] error:', e);
+            }
+
+            processedJumpRequestRef.current = jumpTarget.requestId;
+        };
+
+        run();
+        return () => {
+            cancelled = true;
+        };
+    }, [jumpTarget, client?.id, loadedServerCount, messageTotal, messages, unpackMessageResponse]);
 
     const handleChatScroll = useCallback(() => {
         const node = chatScrollRef.current;
@@ -1661,15 +1865,26 @@ export function WAMessageComposer({ client, creator, onClose, onSwipeLeft, onMes
                         const isImage = hasMediaAttachment(item) && isImageMessage(item);
                         const isFile = hasMediaAttachment(item) && !isImage;
                         return (
-                            <div key={item.uiKey} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                            <div
+                                key={item.uiKey}
+                                ref={(node) => {
+                                    if (node) messageNodeRefs.current.set(item.uiKey, node);
+                                    else messageNodeRefs.current.delete(item.uiKey);
+                                }}
+                                className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
+                            >
                                 <div
                                     className="max-w-[74%] px-4 py-3 text-sm leading-relaxed"
                                     style={{
                                         background: isMe ? '#DCF8C6' : WA.bubbleIn,
                                         color: WA.textDark,
                                         borderRadius: isMe ? '10px 10px 3px 10px' : '10px 10px 10px 3px',
-                                        boxShadow: '0 1px 1px rgba(17,29,26,0.12)',
-                                        border: isMe ? '1px solid rgba(169,220,146,0.55)' : `1px solid ${WA.borderLight}`,
+                                        boxShadow: highlightedMessageKey === item.uiKey
+                                            ? '0 0 0 2px rgba(0,168,132,0.18), 0 10px 26px rgba(0,168,132,0.14)'
+                                            : '0 1px 1px rgba(17,29,26,0.12)',
+                                        border: highlightedMessageKey === item.uiKey
+                                            ? '1px solid rgba(0,168,132,0.55)'
+                                            : isMe ? '1px solid rgba(169,220,146,0.55)' : `1px solid ${WA.borderLight}`,
                                     }}
                                 >
                                     {isImage ? (

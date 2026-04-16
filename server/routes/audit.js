@@ -5,6 +5,12 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../db');
+const {
+    getLockedOwner,
+    matchesOwnerScope,
+    resolveScopedOwner,
+    sendOwnerScopeForbidden,
+} = require('../middleware/appAuth');
 
 function parseJsonSafe(value, fallback = null) {
     if (value === null || value === undefined) return fallback;
@@ -45,6 +51,43 @@ function aggregateTopSources(rows) {
     return Array.from(map.values()).sort((a, b) => b.hit_count - a.hit_count).slice(0, 12);
 }
 
+function resolveRequestedOwner(req, res, owner, fallback = null) {
+    const lockedOwner = getLockedOwner(req);
+    const requestedOwner = typeof owner === 'string' ? owner.trim() : owner;
+    if (lockedOwner && requestedOwner && !matchesOwnerScope(req, requestedOwner)) {
+        sendOwnerScopeForbidden(res, lockedOwner);
+        return null;
+    }
+    return resolveScopedOwner(req, requestedOwner, fallback);
+}
+
+function parsePositiveId(value) {
+    const id = parseInt(value, 10);
+    return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function resolveAuditRowOwner(row = {}) {
+    return row.owner || row.operator || row.retrieval_operator || null;
+}
+
+function ensureAuditDetailAccess(req, res, row) {
+    const lockedOwner = getLockedOwner(req);
+    if (!lockedOwner) return true;
+    const rowOwner = resolveAuditRowOwner(row);
+    if (!rowOwner || !matchesOwnerScope(req, rowOwner)) {
+        sendOwnerScopeForbidden(res, lockedOwner);
+        return false;
+    }
+    return true;
+}
+
+function normalizeGenerationRowLimit(limit) {
+    if (limit === null || limit === undefined || limit === '') return null;
+    const parsed = parseInt(limit, 10);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.min(Math.max(parsed, 1), 500);
+}
+
 async function fetchGenerationRows({ startAt = null, endAt = null, owner = null, limit = null, hours = null } = {}) {
     const db2 = db.getDb();
     const params = [];
@@ -67,8 +110,8 @@ async function fetchGenerationRows({ startAt = null, endAt = null, owner = null,
         where += ' AND c.wa_owner = ?';
         params.push(owner);
     }
-    const limitSql = limit ? `LIMIT ${Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500)}` : '';
-    const rows = await db2.prepare(`
+    const normalizedLimit = normalizeGenerationRowLimit(limit);
+    const baseSql = `
         SELECT gl.id, gl.client_id, gl.retrieval_snapshot_id, gl.provider, gl.model, gl.route, gl.ab_bucket,
                gl.scene, gl.operator, gl.message_count, gl.prompt_version, gl.latency_ms, gl.status, gl.error_message,
                gl.created_at, rs.grounding_json
@@ -77,8 +120,10 @@ async function fetchGenerationRows({ startAt = null, endAt = null, owner = null,
         LEFT JOIN retrieval_snapshot rs ON rs.id = gl.retrieval_snapshot_id
         ${where}
         ORDER BY gl.created_at DESC
-        ${limitSql}
-    `).all(...params);
+    `;
+    const rows = normalizedLimit === null
+        ? await db2.prepare(baseSql).all(...params)
+        : await db2.prepare(`${baseSql}\nLIMIT ?`).all(...params, normalizedLimit);
 
     return rows.map((row) => {
         const grounding = parseJsonSafe(row.grounding_json, {});
@@ -153,7 +198,8 @@ async function fetchSftRows({ startAt = null, endAt = null, owner = null, hours 
         params.push(owner);
     }
     return db2.prepare(`
-        SELECT sm.id, sm.human_selected, sm.status, sm.context_json, sm.scene, sm.created_at
+        SELECT sm.id, sm.human_selected, sm.status, sm.context_json, sm.scene, sm.created_at,
+               sm.retrieval_snapshot_id, sm.generation_log_id, sm.provider, sm.model, sm.pipeline_version
         FROM sft_memory sm
         ${joinClause}
         ${where}
@@ -197,7 +243,7 @@ function buildSftSummary(rows, skipCount) {
     const adopted = rows.filter((r) => r.human_selected === 'opt1' || r.human_selected === 'opt2').length;
     const retrievalLinked = rows.filter((row) => {
         const ctx = parseJsonSafe(row.context_json, {});
-        return !!ctx?.retrieval_snapshot_id;
+        return !!(row?.retrieval_snapshot_id || ctx?.retrieval_snapshot_id);
     }).length;
     return {
         total_records: total,
@@ -211,9 +257,133 @@ function buildSftSummary(rows, skipCount) {
     };
 }
 
+async function fetchGenerationLogDetail(id) {
+    const row = await db.getDb().prepare(`
+        SELECT
+            gl.id,
+            gl.client_id,
+            gl.retrieval_snapshot_id,
+            gl.provider,
+            gl.model,
+            gl.route,
+            gl.ab_bucket,
+            gl.scene,
+            gl.operator,
+            gl.temperature_json,
+            gl.message_count,
+            gl.prompt_version,
+            gl.latency_ms,
+            gl.status,
+            gl.error_message,
+            gl.created_at,
+            rs.operator AS retrieval_operator,
+            rs.scene AS retrieval_scene,
+            rs.system_prompt_version AS retrieval_prompt_version,
+            rs.snapshot_hash,
+            rs.grounding_json,
+            rs.topic_context,
+            rs.rich_context,
+            rs.conversation_summary,
+            c.wa_owner AS owner
+        FROM generation_log gl
+        LEFT JOIN retrieval_snapshot rs ON rs.id = gl.retrieval_snapshot_id
+        LEFT JOIN creators c ON c.wa_phone = gl.client_id
+        WHERE gl.id = ?
+        LIMIT 1
+    `).get(id);
+
+    if (!row) return null;
+
+    const temperature = parseJsonSafe(row.temperature_json, null);
+    const grounding = parseJsonSafe(row.grounding_json, {});
+    const rag = grounding?.rag || {};
+
+    return {
+        id: row.id,
+        client_id: row.client_id,
+        retrieval_snapshot_id: row.retrieval_snapshot_id,
+        provider: row.provider,
+        model: row.model,
+        route: row.route,
+        ab_bucket: row.ab_bucket,
+        scene: row.scene,
+        operator: row.operator,
+        message_count: row.message_count,
+        prompt_version: row.prompt_version,
+        latency_ms: row.latency_ms,
+        status: row.status,
+        error_message: row.error_message,
+        created_at: row.created_at,
+        owner: row.owner || null,
+        temperature,
+        grounding,
+        rag: {
+            enabled: !!rag?.enabled,
+            hit_count: Number.isFinite(Number(rag?.hit_count)) ? Number(rag.hit_count) : 0,
+            hits: Array.isArray(rag?.hits) ? rag.hits : [],
+        },
+        retrieval_snapshot: row.retrieval_snapshot_id ? {
+            id: row.retrieval_snapshot_id,
+            operator: row.retrieval_operator || null,
+            scene: row.retrieval_scene || null,
+            system_prompt_version: row.retrieval_prompt_version || null,
+            snapshot_hash: row.snapshot_hash || null,
+            grounding,
+            topic_context: row.topic_context || null,
+            rich_context: row.rich_context || null,
+            conversation_summary: row.conversation_summary || null,
+        } : null,
+    };
+}
+
+async function fetchRetrievalSnapshotDetail(id) {
+    const row = await db.getDb().prepare(`
+        SELECT
+            rs.id,
+            rs.client_id,
+            rs.operator,
+            rs.scene,
+            rs.system_prompt_version,
+            rs.snapshot_hash,
+            rs.grounding_json,
+            rs.topic_context,
+            rs.rich_context,
+            rs.conversation_summary,
+            rs.created_at,
+            c.wa_owner AS owner
+        FROM retrieval_snapshot rs
+        LEFT JOIN creators c ON c.wa_phone = rs.client_id
+        WHERE rs.id = ?
+        LIMIT 1
+    `).get(id);
+
+    if (!row) return null;
+
+    const grounding = parseJsonSafe(row.grounding_json, {});
+    return {
+        id: row.id,
+        client_id: row.client_id,
+        operator: row.operator,
+        scene: row.scene,
+        system_prompt_version: row.system_prompt_version,
+        snapshot_hash: row.snapshot_hash,
+        topic_context: row.topic_context,
+        rich_context: row.rich_context,
+        conversation_summary: row.conversation_summary,
+        created_at: row.created_at,
+        owner: row.owner || null,
+        grounding,
+        grounding_json: grounding,
+    };
+}
+
 // GET /api/audit-log
 router.get('/audit-log', async (req, res) => {
     try {
+        const lockedOwner = getLockedOwner(req);
+        if (lockedOwner) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
         const db2 = db.getDb();
         const { action } = req.query;
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 1000);
@@ -224,7 +394,8 @@ router.get('/audit-log', async (req, res) => {
             sql += ' AND action = ?';
             params.push(action);
         }
-        sql += ` ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+        sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+        params.push(limit, offset);
         const rows = await db2.prepare(sql).all(...params);
         res.json(rows.map(r => ({
             ...r,
@@ -249,18 +420,20 @@ router.get('/audit-log', async (req, res) => {
 router.get('/ab-evaluation', async (req, res) => {
     try {
         const db2 = db.getDb();
-        const { start_date, end_date, owner } = req.query;
+        const { start_date, end_date } = req.query;
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
 
         let where = 'WHERE 1=1';
         const params = [];
-        if (start_date) { where += ' AND created_at >= ?'; params.push(start_date); }
-        if (end_date) { where += ' AND created_at <= ?'; params.push(end_date); }
+        if (start_date) { where += ' AND sm.created_at >= ?'; params.push(start_date); }
+        if (end_date) { where += ' AND sm.created_at <= ?'; params.push(end_date); }
 
         let joinCreators = '';
-        if (owner) {
-            joinCreators = ' LEFT JOIN creators c ON c.wa_phone = JSON_EXTRACT(sm.context_json, "$.client_id")';
+        if (effectiveOwner) {
+            joinCreators = ' LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, "$.client_id"))';
             where += ' AND c.wa_owner = ?';
-            params.push(owner);
+            params.push(effectiveOwner);
         }
 
         const countsRow = (await db2.prepare(`
@@ -304,10 +477,11 @@ router.get('/ab-evaluation', async (req, res) => {
                 COUNT(*) as total,
                 SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
             FROM sft_memory sm
-            LEFT JOIN creators c ON c.wa_phone = JSON_EXTRACT(sm.context_json, '$.client_id')
+            LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
+            ${effectiveOwner ? 'WHERE c.wa_owner = ?' : ''}
             GROUP BY c.wa_owner
             ORDER BY total DESC
-        `).all();
+        `).all(...(effectiveOwner ? [effectiveOwner] : []));
 
         const byOwner = {};
         for (const row of byOwnerRows) {
@@ -321,14 +495,16 @@ router.get('/ab-evaluation', async (req, res) => {
 
         const byDayRows = await db2.prepare(`
             SELECT
-                DATE(created_at) as date,
+                DATE(sm.created_at) as date,
                 COUNT(*) as total,
-                SUM(CASE WHEN human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
-            FROM sft_memory
-            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-            GROUP BY DATE(created_at)
+                SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
+            FROM sft_memory sm
+            LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
+            WHERE sm.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            ${effectiveOwner ? 'AND c.wa_owner = ?' : ''}
+            GROUP BY DATE(sm.created_at)
             ORDER BY date ASC
-        `).all();
+        `).all(...(effectiveOwner ? [effectiveOwner] : []));
 
         const byDay = byDayRows.map(row => ({
             date: row.date,
@@ -361,7 +537,8 @@ router.get('/generation-log/stats', async (req, res) => {
     try {
         const db2 = db.getDb();
         const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 60);
-        const { owner } = req.query;
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
         const startAt = new Date(Date.now() - (days * 24 * 60 * 60 * 1000))
             .toISOString()
             .slice(0, 19)
@@ -369,14 +546,14 @@ router.get('/generation-log/stats', async (req, res) => {
 
         let joinClause = '';
         const params = [startAt];
-        if (owner) {
+        if (effectiveOwner) {
             joinClause = 'LEFT JOIN creators c ON c.wa_phone = gl.client_id';
         }
 
         let whereClause = 'WHERE gl.created_at >= ?';
-        if (owner) {
+        if (effectiveOwner) {
             whereClause += ' AND c.wa_owner = ?';
-            params.push(owner);
+            params.push(effectiveOwner);
         }
 
         const totalRow = await db2.prepare(`
@@ -422,7 +599,7 @@ router.get('/generation-log/stats', async (req, res) => {
 
         res.json({
             window_days: days,
-            owner: owner || null,
+            owner: effectiveOwner || null,
             total: totalRow?.total || 0,
             success_count: totalRow?.success_count || 0,
             failed_count: totalRow?.failed_count || 0,
@@ -440,16 +617,27 @@ router.get('/generation-log/stats', async (req, res) => {
 // GET /api/generation-log/recent
 router.get('/generation-log/recent', async (req, res) => {
     try {
-        const db2 = db.getDb();
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 500);
-        const rows = await db2.prepare(`
-            SELECT id, client_id, retrieval_snapshot_id, provider, model, route, ab_bucket, scene, operator,
-                   message_count, prompt_version, latency_ms, status, error_message, created_at
-            FROM generation_log
-            ORDER BY created_at DESC
-            LIMIT ${limit}
-        `).all();
-        res.json(rows);
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
+        const rows = await fetchGenerationRows({ owner: effectiveOwner, limit });
+        res.json(rows.map((row) => ({
+            id: row.id,
+            client_id: row.client_id,
+            retrieval_snapshot_id: row.retrieval_snapshot_id,
+            provider: row.provider,
+            model: row.model,
+            route: row.route,
+            ab_bucket: row.ab_bucket,
+            scene: row.scene,
+            operator: row.operator,
+            message_count: row.message_count,
+            prompt_version: row.prompt_version,
+            latency_ms: row.latency_ms,
+            status: row.status,
+            error_message: row.error_message,
+            created_at: row.created_at,
+        })));
     } catch (err) {
         console.error('GET /api/generation-log/recent error:', err);
         res.status(500).json({ error: err.message });
@@ -461,8 +649,9 @@ router.get('/generation-log/rag-sources', async (req, res) => {
     try {
         const hours = Math.min(Math.max(parseInt(req.query.hours) || 24, 1), 24 * 14);
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 500);
-        const owner = req.query.owner || null;
-        const rows = await fetchGenerationRows({ hours, owner, limit });
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
+        const rows = await fetchGenerationRows({ hours, owner: effectiveOwner, limit });
         const summary = buildGenerationSummary(rows);
         const recent = rows.map((row) => ({
             id: row.id,
@@ -479,7 +668,7 @@ router.get('/generation-log/rag-sources', async (req, res) => {
         }));
         res.json({
             window_hours: hours,
-            owner,
+            owner: effectiveOwner || null,
             summary,
             recent,
         });
@@ -493,19 +682,20 @@ router.get('/generation-log/rag-sources', async (req, res) => {
 router.get('/generation-log/rag-observation', async (req, res) => {
     try {
         const hours = Math.min(Math.max(parseInt(req.query.hours) || 24, 1), 24 * 14);
-        const owner = req.query.owner || null;
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
 
         const [generationRows, sftRows, skipCount] = await Promise.all([
-            fetchGenerationRows({ hours, owner }),
-            fetchSftRows({ hours, owner }),
-            fetchSkipCount({ hours, owner }),
+            fetchGenerationRows({ hours, owner: effectiveOwner }),
+            fetchSftRows({ hours, owner: effectiveOwner }),
+            fetchSkipCount({ hours, owner: effectiveOwner }),
         ]);
         const generation = buildGenerationSummary(generationRows);
         const sft = buildSftSummary(sftRows, skipCount);
 
         res.json({
             window_hours: hours,
-            owner,
+            owner: effectiveOwner || null,
             start_at: null,
             end_at: null,
             generation,
@@ -517,4 +707,55 @@ router.get('/generation-log/rag-observation', async (req, res) => {
     }
 });
 
+// GET /api/generation-log/:id
+router.get('/generation-log/:id', async (req, res) => {
+    try {
+        const id = parsePositiveId(req.params.id);
+        if (!id) {
+            return res.status(400).json({ error: 'invalid generation log id' });
+        }
+
+        const detail = await fetchGenerationLogDetail(id);
+        if (!detail) {
+            return res.status(404).json({ error: 'generation log not found' });
+        }
+        if (!ensureAuditDetailAccess(req, res, detail)) return;
+
+        res.json(detail);
+    } catch (err) {
+        console.error('GET /api/generation-log/:id error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/retrieval-snapshot/:id
+router.get('/retrieval-snapshot/:id', async (req, res) => {
+    try {
+        const id = parsePositiveId(req.params.id);
+        if (!id) {
+            return res.status(400).json({ error: 'invalid retrieval snapshot id' });
+        }
+
+        const detail = await fetchRetrievalSnapshotDetail(id);
+        if (!detail) {
+            return res.status(404).json({ error: 'retrieval snapshot not found' });
+        }
+        if (!ensureAuditDetailAccess(req, res, detail)) return;
+
+        res.json(detail);
+    } catch (err) {
+        console.error('GET /api/retrieval-snapshot/:id error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
+module.exports._private = {
+    parsePositiveId,
+    normalizeGenerationRowLimit,
+    resolveAuditRowOwner,
+    ensureAuditDetailAccess,
+    fetchGenerationRows,
+    fetchGenerationLogDetail,
+    fetchRetrievalSnapshotDetail,
+};

@@ -4,13 +4,19 @@
  */
 require('dotenv').config();
 const express = require('express');
+const os = require('os');
 const path = require('path');
 const net = require('net');
 const db = require('../db');
 
 const jsonBody = require('./middleware/jsonBody');
 const timeout = require('./middleware/timeout');
-const { requireAppAuth } = require('./middleware/appAuth');
+const {
+    requireAppAuth,
+    getPrimaryLoginTokenEntry,
+    setAppAuthCookie,
+    clearAppAuthCookie,
+} = require('./middleware/appAuth');
 const messagesRouter = require('./routes/messages');
 const creatorsRouter = require('./routes/creators');
 const statsRouter = require('./routes/stats');
@@ -19,6 +25,7 @@ const sftRouter = require('./routes/sft');
 const policyRouter = require('./routes/policy');
 const auditRouter = require('./routes/audit');
 const profileRouter = require('./routes/profile');
+const profileAnalysisRouter = require('./routes/profileAnalysis');
 const eventsRouter = require('./routes/events');
 const experienceRouter = require('./routes/experience');
 const strategyRouter = require('./routes/strategy');
@@ -36,10 +43,18 @@ const EVENT_BROADCAST_TOKEN = process.env.EVENT_BROADCAST_TOKEN;
 const WA_SESSION_ID = String(process.env.WA_SESSION_ID || PORT).trim();
 const WA_OWNER = process.env.WA_OWNER || 'Beau';
 
+function getConfiguredLogin() {
+    return {
+        username: String(process.env.APP_LOGIN_USERNAME || '').trim(),
+        password: String(process.env.APP_LOGIN_PASSWORD || '').trim(),
+    };
+}
+
 // ================== SSE 实时广播 ==================
 const sseClients = new Set();
 
 // GET /api/events/subscribe — 前端 SSE 订阅
+// EventSource 通过同源 httpOnly cookie 复用认证态
 app.get('/api/events/subscribe', requireAppAuth, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -57,7 +72,8 @@ app.get('/api/events/subscribe', requireAppAuth, (req, res) => {
 });
 
 // POST /api/events/broadcast — populate_db.cjs 调用，广播刷新事件
-app.post('/api/events/broadcast', (req, res) => {
+// 该路由注册在全局 jsonBody 之前，因此显式挂载一次解析中间件
+app.post('/api/events/broadcast', jsonBody, (req, res) => {
     if (!EVENT_BROADCAST_TOKEN) {
         return res.status(503).json({ ok: false, error: 'EVENT_BROADCAST_TOKEN not configured' });
     }
@@ -65,7 +81,9 @@ app.post('/api/events/broadcast', (req, res) => {
     if (auth !== `Bearer ${EVENT_BROADCAST_TOKEN}`) {
         return res.status(401).json({ ok: false, error: 'Unauthorized' });
     }
-    const { event = 'creators-updated' } = req.body || {};
+    const ALLOWED_EVENTS = ['creators-updated', 'refresh', 'sft-updated', 'events-updated'];
+    const rawEvent = (req.body || {}).event;
+    const event = ALLOWED_EVENTS.includes(rawEvent) ? rawEvent : 'creators-updated';
     const message = `event: ${event}\ndata: ${JSON.stringify({ refreshed: true })}\n\n`;
     sseClients.forEach(client => {
         try { client.write(message); } catch (e) { sseClients.delete(client); }
@@ -118,6 +136,18 @@ function isWaRuntimeError(error) {
     );
 }
 
+function getLanUrls(port) {
+    const interfaces = os.networkInterfaces();
+    const urls = [];
+    for (const addresses of Object.values(interfaces)) {
+        for (const address of addresses || []) {
+            if (!address || address.family !== 'IPv4' || address.internal) continue;
+            urls.push(`http://${address.address}:${port}`);
+        }
+    }
+    return [...new Set(urls)];
+}
+
 /**
  * 带重试的端口绑定
  * @param {object} app - Express app
@@ -152,6 +182,48 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+app.post('/api/auth/login', (req, res) => {
+    const { username: expectedUsername, password: expectedPassword } = getConfiguredLogin();
+    const loginTokenEntry = getPrimaryLoginTokenEntry();
+    const issuedToken = loginTokenEntry?.token || '';
+    if (!expectedUsername || !expectedPassword || !issuedToken) {
+        return res.status(503).json({ error: 'Login auth not configured' });
+    }
+
+    const username = String(req.body?.username || '').trim();
+    const password = String(req.body?.password || '');
+    if (username !== expectedUsername || password !== expectedPassword) {
+        return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    setAppAuthCookie(res, issuedToken);
+    res.json({
+        ok: true,
+        authenticated: true,
+        username: expectedUsername,
+        token: issuedToken,
+    });
+});
+
+// 轻量认证探针：前端用它判断当前 token 是否有效
+app.get('/api/auth/session', requireAppAuth, (req, res) => {
+    setAppAuthCookie(res, req.auth?.token || '');
+    res.json({
+        ok: true,
+        authenticated: true,
+        username: req.auth?.username || 'authorized',
+        role: req.auth?.role || 'admin',
+        owner: req.auth?.owner || null,
+        owner_locked: !!req.auth?.owner_locked,
+        session_id: req.auth?.session_id || null,
+    });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+    clearAppAuthCookie(res);
+    res.json({ ok: true, authenticated: false });
+});
+
 // 路由注册
 // 注意：messages 路由需要在 creators 路由之前挂载
 app.use('/api/creators/:id/messages', requireAppAuth, messagesRouter);
@@ -162,6 +234,7 @@ app.use('/api', requireAppAuth, sftRouter);
 app.use('/api', requireAppAuth, policyRouter);
 app.use('/api', requireAppAuth, auditRouter);
 app.use('/api', requireAppAuth, profileRouter);
+app.use('/api', requireAppAuth, profileAnalysisRouter);
 app.use('/api/events', requireAppAuth, eventsRouter);
 app.use('/api/experience', requireAppAuth, experienceRouter);
 app.use('/api', requireAppAuth, strategyRouter);
@@ -179,9 +252,14 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
 (async () => {
     try {
         const server = await tryListenWithRetry(app, PORT, 3);
+        const lanUrls = getLanUrls(PORT);
         console.log(`\n✅ WA CRM v2 Server (modular)`);
         console.log(`   Local:   http://localhost:${PORT}`);
-        console.log(`   LAN:     http://192.168.1.51:${PORT}`);
+        if (lanUrls.length > 0) {
+            console.log(`   LAN:     ${lanUrls.join(', ')}`);
+        } else {
+            console.log(`   LAN:     unavailable`);
+        }
         console.log(`   PID:     ${process.pid}`);
         console.log(`   MySQL:   ${process.env.DB_NAME || 'wa_crm_v2'}\n`);
 

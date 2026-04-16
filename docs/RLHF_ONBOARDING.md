@@ -2,7 +2,7 @@
 
 > 本文档供其他 AI Agent 阅读，作为 RLHF 链路工作的入口
 > 项目路径：`/Users/depp/wa-bot/wa-crm-v2/`
-> 后端端口：`3000`，数据库：`crm.db`（SQLite）
+> 后端端口：`3000`，数据库：MySQL（`schema.sql` 为准）
 
 ---
 
@@ -10,7 +10,7 @@
 
 ```bash
 cd /Users/depp/wa-bot/wa-crm-v2
-node server.js        # 启动服务（端口 3000）
+npm start             # 启动服务（实际入口: server/index.cjs）
 ```
 
 ---
@@ -19,14 +19,14 @@ node server.js        # 启动服务（端口 3000）
 
 ```
 wa-crm-v2/
-├── server.js                    # Express REST API（端口 3000）
-├── db.js                        # SQLite ORM
+├── server/index.cjs             # Express REST API（端口 3000）
+├── db.js                        # MySQL 兼容数据库封装
 ├── schema.sql                   # 数据库 schema（含所有表定义）
 ├── systemPromptBuilder.cjs       # 【核心】CJS 共享 prompt 构建器
-│                               #   → experience.js（推理）和 server.js（导出）共用
-├── routes/experience.js         # Experience Router（Beau/Yiyun AI 体验路由）
+│                               #   → experience.js（推理）和 export 流程共用
+├── server/routes/experience.js  # Experience Router（Beau/Yiyun AI 体验路由）
+├── server/routes/profile.js     # Profile 路由（画像 + 标签提取）
 ├── src/utils/systemPrompt.js    # 【前端专用】ESM 共享 system prompt 模板
-├── agents/profile-agent.js       # Profile Agent（客户画像 + 标签提取）
 └── src/components/
     ├── SFTDashboard.jsx          # SFT 语料看板（records/review/trends）
     ├── EventPanel.jsx            # 事件管理面板
@@ -116,7 +116,7 @@ GET /api/sft-export?status=approved&limit=1000&lang=en&format=jsonl
 ### 语言过滤
 
 ```javascript
-// 英文检测正则（server.js sft-export 内部逻辑）
+// 英文检测正则（server/routes/sft.js 导出逻辑内部）
 const isEnglish = (text) => /^[a-zA-Z\s.,!?]+$/.test((text || '').slice(0, 100));
 // 传入 lang=en 时：input_text 和 human_output 都不是纯英文 → 该记录跳过
 ```
@@ -128,7 +128,7 @@ const isEnglish = (text) => /^[a-zA-Z\s.,!?]+$/.test((text || '').slice(0, 100))
 ### 架构
 
 ```
-systemPromptBuilder.cjs（CommonJS，server.js 和 experience.js 共用）
+systemPromptBuilder.cjs（CommonJS，server/routes/experience.js 和 server/routes/sft.js 导出逻辑共用）
   ├─ buildFullSystemPrompt(clientId, scene, messages)
   │   ├─ 查询 creator 信息（wa_owner / beta_status）
   │   ├─ 查询 operator_experiences 配置
@@ -230,7 +230,7 @@ trainer:
 ### 环境变量配置
 
 ```bash
-# server.js 使用哪个模型
+# 后端使用哪个模型
 USE_FINETUNED=true                    # true = 使用微调后模型
 FINETUNED_BASE=https://your-endpoint.com/v1  # 微调模型 API 地址
 AB_RATIO=0.1                          # 灰度比例（10% 流量走新模型）
@@ -259,11 +259,11 @@ def infer(messages: list, temperature: float = 0.7):
 
 | 资源 | 路径 |
 |------|------|
-| SFT 语料数据库 | `/Users/depp/wa-bot/wa-crm-v2/crm.db` |
+| SFT 语料数据库 | MySQL `wa_crm_v2`（运行时；schema 见 `/Users/depp/wa-bot/wa-crm-v2/schema.sql`） |
 | SFT Dashboard | `/Users/depp/wa-bot/wa-crm-v2/src/components/SFTDashboard.jsx` |
 | 共享 Prompt 构建器 | `/Users/depp/wa-bot/wa-crm-v2/systemPromptBuilder.cjs` |
-| Experience Router | `/Users/depp/wa-bot/wa-crm-v2/routes/experience.js` |
-| 后端 API | `/Users/depp/wa-bot/wa-crm-v2/server.js` |
+| Experience Router | `/Users/depp/wa-bot/wa-crm-v2/server/routes/experience.js` |
+| 后端 API | `/Users/depp/wa-bot/wa-crm-v2/server/index.cjs` |
 | 数据库 Schema | `/Users/depp/wa-bot/wa-crm-v2/schema.sql` |
 | SFT 项目文档 | `/Users/depp/wa-bot/wa-crm-v2/SFT_PROJECT.md` |
 
@@ -271,7 +271,7 @@ def infer(messages: list, temperature: float = 0.7):
 
 ## 八、禁止事项
 
-1. **禁止**直接修改 `crm.db`（通过 audit_log 追溯变更）
+1. **禁止**恢复或重新引入 `crm.db` / SQLite 历史链路
 2. **禁止**在未调用 `GET /api/policy-documents` 的情况下输出涉及政策内容的回复
 3. **禁止**将 `wa_phone` 泄露到日志或外部系统
 4. **禁止**使用非对应 operator 的话术体系（Beau / Yiyun 规则不同）

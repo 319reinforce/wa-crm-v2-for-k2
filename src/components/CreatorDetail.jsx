@@ -538,6 +538,15 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
         <InfoRow label="退出提示" value={lifecycle.exit_signal_hint} />
       )}
       <div className="mt-2 flex flex-wrap gap-1.5">
+        {lifecycleFlags.wa_joined ? (
+          <span className="text-[9px] px-2 py-1 rounded-full font-semibold" style={{ background: 'rgba(37,99,235,0.12)', color: '#2563eb' }}>
+            已入WA
+          </span>
+        ) : (
+          <span className="text-[9px] px-2 py-1 rounded-full font-semibold" style={{ background: 'rgba(100,116,139,0.12)', color: '#475569' }}>
+            未入WA
+          </span>
+        )}
         {lifecycleFlags.referral_active && (
           <span className="text-[9px] px-2 py-1 rounded-full font-semibold" style={{ background: 'rgba(13,148,136,0.12)', color: '#0d9488' }}>
             推荐中
@@ -548,9 +557,14 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
             Agency 已绑定
           </span>
         )}
-        {lifecycleFlags.monthly_active && (
+        {lifecycleFlags.trial_in_progress && (
+          <span className="text-[9px] px-2 py-1 rounded-full font-semibold" style={{ background: 'rgba(59,130,246,0.12)', color: '#2563eb' }}>
+            7日挑战进行中
+          </span>
+        )}
+        {lifecycleFlags.trial_completed && (
           <span className="text-[9px] px-2 py-1 rounded-full font-semibold" style={{ background: 'rgba(124,58,237,0.12)', color: '#7c3aed' }}>
-            月度执行中
+            7日挑战已完成
           </span>
         )}
         {lifecycleFlags.gmv_tier && lifecycleFlags.gmv_tier !== 'none' && (
@@ -1786,10 +1800,12 @@ function formatLifecycleFlagValue(key, value) {
 
 function formatLifecycleConflict(code) {
   const map = {
-    agency_bound_not_revenue: '已绑定 Agency，但主阶段还没进入 Revenue。',
-    gmv_outpaces_stage: 'GMV 里程碑已经领先于当前主阶段，建议检查 Revenue 判定或历史回灌。',
+    mainline_without_wa_channel: '尚未确认进入 WA 渠道，但已经被放入生命周期主线。',
+    completed_trial_not_activated: '7 日挑战已完成，但主阶段仍停留在获取。',
+    agency_bound_not_retention: '已绑定 Agency，但主阶段还没进入留存或变现。',
+    gmv_not_revenue: 'GMV 已达到门槛，但主阶段还没进入变现。',
     churn_not_terminated: '已经出现流失信号，但当前主阶段还没进入终止池。',
-    referral_without_activation: '已出现推荐信号，但主线还没有完成激活。',
+    referral_without_wa_join: '已出现推荐信号，但还没有确认进入 WA 渠道。',
   }
   return map[code] || code || '-'
 }

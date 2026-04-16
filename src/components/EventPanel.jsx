@@ -1,13 +1,23 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import JudgeQuickForm from './JudgeQuickForm'
 import { OWNER_ORDER, getOwnerColor } from '../utils/operators'
+import { getAppAuthScopeOwner, isAppAuthOwnerLocked } from '../utils/appAuth'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 
 const API_BASE = '/api';
 const DISPLAY_TIME_ZONE = 'Asia/Shanghai';
 
+function toDisplayTimestamp(value) {
+  const numeric = Number(value)
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric > 1e12 ? numeric : numeric * 1000
+  }
+  const ts = new Date(value || 0).getTime()
+  return Number.isFinite(ts) ? ts : 0
+}
+
 function formatDateCN(value) {
-  const ts = new Date(value || 0).getTime();
+  const ts = toDisplayTimestamp(value);
   if (!ts) return '-';
   return new Intl.DateTimeFormat('zh-CN', {
     timeZone: DISPLAY_TIME_ZONE,
@@ -18,7 +28,7 @@ function formatDateCN(value) {
 }
 
 function formatDateTimeCN(value) {
-  const ts = new Date(value || 0).getTime();
+  const ts = toDisplayTimestamp(value);
   if (!ts) return '-';
   return new Intl.DateTimeFormat('zh-CN', {
     timeZone: DISPLAY_TIME_ZONE,
@@ -43,6 +53,7 @@ const WA = {
   tealDark: '#008069',
   lightBg: '#f0f2f5',
   chatBg: '#efeae2',
+  shellPanelMuted: '#f6f2ea',
   white: '#ffffff',
   borderLight: '#e9edef',
   textDark: '#111b21',
@@ -62,33 +73,49 @@ const EVENT_TYPE_LABELS = {
 }
 
 const STATUS_LABELS = {
+  draft: { label: '待确认', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
   pending: { label: '待确认', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
   active: { label: '进行中', color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
   completed: { label: '已完成', color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' },
   cancelled: { label: '已取消', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
 }
 
+const VERIFICATION_LABELS = {
+  pending: { label: '待二审', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+  confirmed: { label: '已核对通过', color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
+  rejected: { label: '已核对驳回', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
+  uncertain: { label: '核对不确定', color: '#64748b', bg: 'rgba(100,116,139,0.15)' },
+}
+
 const OWNER_OPTIONS = OWNER_ORDER
 
-export function EventPanel() {
+export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEventChange, restoreState }) {
+  const lockedOwner = getAppAuthScopeOwner()
+  const ownerLocked = isAppAuthOwnerLocked() && !!lockedOwner
+  const ownerOptions = ownerLocked ? [lockedOwner] : OWNER_OPTIONS
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
   const [filterStatus, setFilterStatus] = useState('')
-  const [filterOwner, setFilterOwner] = useState('')
+  const [filterOwner, setFilterOwner] = useState(lockedOwner || '')
   const [filterEventKey, setFilterEventKey] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [creators, setCreators] = useState([])
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [judging, setJudging] = useState(false)
   const [judgeResult, setJudgeResult] = useState(null)
+  const [verifyingEventId, setVerifyingEventId] = useState(null)
+  const [verificationPreview, setVerificationPreview] = useState(null)
+  const eventCardRefs = useRef(new Map())
+  const contentScrollRef = useRef(null)
+  const [flashEventId, setFlashEventId] = useState(null)
 
   // 创建表单
   const [createForm, setCreateForm] = useState({
     creator_id: '',
     event_key: 'trial_7day',
     event_type: 'challenge',
-    owner: OWNER_OPTIONS[0],
+    owner: lockedOwner || OWNER_OPTIONS[0],
     trigger_source: 'manual',
     trigger_text: '',
     start_at: toLocalDateTimeInputValue(),
@@ -129,7 +156,10 @@ export function EventPanel() {
 
   const fetchCreators = useCallback(async () => {
     try {
-      const data = await fetchJsonOrThrow(`${API_BASE}/creators?limit=500`, { signal: AbortSignal.timeout(15000) })
+      const params = new URLSearchParams()
+      params.set('limit', '500')
+      params.set('fields', 'wa_phone')
+      const data = await fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`, { signal: AbortSignal.timeout(15000) })
       setCreators(Array.isArray(data) ? data : [])
     } catch (e) {
       console.error('fetchCreators error:', e)
@@ -142,11 +172,93 @@ export function EventPanel() {
   }, [fetchEvents, fetchCreators])
 
   useEffect(() => {
+    if (!ownerLocked || !lockedOwner) return
+    setFilterOwner(lockedOwner)
+    setCreateForm((current) => ({
+      ...current,
+      owner: lockedOwner,
+    }))
+  }, [ownerLocked, lockedOwner])
+
+  useEffect(() => {
+    const eventId = Number(selectedEventId || 0)
+    if (!eventId) return
+
+    let cancelled = false
+    const syncSelectedEvent = async () => {
+      if (Number(selectedEvent?.id || 0) === eventId) return
+      try {
+        const data = await fetchJsonOrThrow(`${API_BASE}/events/${eventId}`, { signal: AbortSignal.timeout(15000) })
+        if (cancelled) return
+        setSelectedEvent(data)
+        setJudgeResult(null)
+      } catch (e) {
+        if (!cancelled) console.error('syncSelectedEvent error:', e)
+      }
+    }
+
+    syncSelectedEvent()
+    return () => { cancelled = true }
+  }, [selectedEventId, selectedEvent?.id])
+
+  const ensureEventVisible = useCallback((eventId, behavior = 'smooth') => {
+    const numericId = Number(eventId || 0)
+    if (!numericId) return
+    const node = eventCardRefs.current.get(numericId)
+    const container = contentScrollRef.current
+    if (!node || !container) return
+
+    const nodeRect = node.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const isVisible = nodeRect.top >= containerRect.top + 18 && nodeRect.bottom <= containerRect.bottom - 18
+    if (!isVisible) {
+      node.scrollIntoView({ behavior, block: 'center' })
+    }
+  }, [])
+
+  useEffect(() => {
+    const eventId = Number(selectedEventId || 0)
+    if (!eventId || typeof window === 'undefined') return
+    const raf = window.requestAnimationFrame(() => {
+      ensureEventVisible(eventId, 'smooth')
+    })
+    return () => window.cancelAnimationFrame(raf)
+  }, [selectedEventId, events, ensureEventVisible])
+
+  useEffect(() => {
+    const token = Number(restoreState?.token || 0)
+    const eventId = Number(restoreState?.eventId || 0)
+    if (!token || !eventId) return
+
+    const container = contentScrollRef.current
+    if (container) {
+      container.scrollTop = Number(restoreState?.scrollTop || 0)
+    }
+
+    setFlashEventId(eventId)
+    const raf = window.requestAnimationFrame(() => {
+      ensureEventVisible(eventId, 'auto')
+    })
+    const timer = window.setTimeout(() => {
+      setFlashEventId((current) => current === eventId ? null : current)
+    }, 2200)
+
+    return () => {
+      window.cancelAnimationFrame(raf)
+      window.clearTimeout(timer)
+    }
+  }, [restoreState, ensureEventVisible])
+
+  useEffect(() => {
     if (!selectedCreator) return
+    const creatorOwner = selectedCreator.wa_owner || selectedCreator?._full?.wa_owner || lockedOwner || ''
+    if (creatorOwner && createForm.owner !== creatorOwner) {
+      setCreateForm((f) => ({ ...f, owner: creatorOwner }))
+    }
     if (selectedAgencyBound && agencyOnlyKeys.has(createForm.event_key)) {
       setCreateForm(f => ({ ...f, event_key: 'trial_7day', event_type: 'challenge' }))
     }
-  }, [selectedCreator, selectedAgencyBound, createForm.event_key])
+  }, [selectedCreator, selectedAgencyBound, createForm.event_key, createForm.owner, lockedOwner])
 
   const handleCreate = async () => {
     try {
@@ -161,7 +273,7 @@ export function EventPanel() {
         creator_id: '',
         event_key: 'trial_7day',
         event_type: 'challenge',
-        owner: OWNER_OPTIONS[0],
+        owner: lockedOwner || OWNER_OPTIONS[0],
         trigger_source: 'manual',
         trigger_text: '',
         start_at: toLocalDateTimeInputValue(),
@@ -223,6 +335,7 @@ export function EventPanel() {
 
   const handleViewEvent = async (eventId) => {
     try {
+      onSelectedEventChange?.(eventId)
       const data = await fetchJsonOrThrow(`${API_BASE}/events/${eventId}`, { signal: AbortSignal.timeout(15000) })
       setSelectedEvent(data)
       setJudgeResult(null)
@@ -231,19 +344,52 @@ export function EventPanel() {
     }
   }
 
-  const activeFilterCount = [filterStatus, filterOwner, filterEventKey].filter(Boolean).length
+  const handleVerify = async (eventId) => {
+    setVerifyingEventId(eventId)
+    try {
+      const data = await fetchJsonOrThrow(`${API_BASE}/events/${eventId}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context_window: { before: 5, after: 4 } }),
+        signal: AbortSignal.timeout(45000),
+      })
+      if (data?.event) {
+        setSelectedEvent(data.event)
+      } else {
+        await handleViewEvent(eventId)
+      }
+      await fetchEvents(true)
+    } catch (e) {
+      alert(`二次核对失败: ${e.message}`)
+    } finally {
+      setVerifyingEventId(null)
+    }
+  }
+
+  const handleViewVerificationContext = async (eventId) => {
+    try {
+      const data = await fetchJsonOrThrow(`${API_BASE}/events/${eventId}/verification-context`, {
+        signal: AbortSignal.timeout(15000),
+      })
+      setVerificationPreview(data)
+    } catch (e) {
+      alert(`加载核对上下文失败: ${e.message}`)
+    }
+  }
+
+  const activeFilterCount = [filterStatus, ownerLocked ? '' : filterOwner, filterEventKey].filter(Boolean).length
 
   return (
     <div className="flex flex-col h-full" style={{ background: WA.lightBg }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4" style={{ background: WA.darkHeader }}>
+      <div className="flex items-center justify-between px-6 py-5 border-b" style={{ background: WA.white, borderColor: WA.borderLight }}>
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: WA.teal }}>
+          <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: WA.teal }}>
             E
           </div>
           <div>
-            <div className="text-base font-semibold text-white leading-none">事件管理</div>
-            <div className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            <div className="text-[20px] font-semibold leading-none" style={{ color: WA.textDark }}>事件管理</div>
+            <div className="text-[13px] mt-1" style={{ color: WA.textMuted }}>
               {total} 个事件
             </div>
           </div>
@@ -252,14 +398,14 @@ export function EventPanel() {
           <button
             onClick={() => fetchEvents()}
             disabled={loading}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium"
-            style={{ background: 'rgba(255,255,255,0.15)', color: 'white' }}
+            className="px-3 py-1.5 rounded-full text-[12px] font-medium"
+            style={{ background: WA.white, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
           >
-            {loading ? '⏳' : '🔄'}
+            {loading ? '刷新中...' : '刷新'}
           </button>
           <button
             onClick={() => setShowCreate(true)}
-            className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white"
+            className="px-4 py-1.5 rounded-full text-[12px] font-semibold text-white"
             style={{ background: WA.teal }}
           >
             + 新建事件
@@ -268,11 +414,11 @@ export function EventPanel() {
       </div>
 
       {/* Filters */}
-      <div className="px-4 py-3 border-b flex items-center gap-2 flex-wrap" style={{ background: WA.white, borderColor: WA.borderLight }}>
+      <div className="px-6 py-4 border-b flex items-center gap-2 flex-wrap" style={{ background: WA.white, borderColor: WA.borderLight }}>
         <select
           value={filterStatus}
           onChange={e => setFilterStatus(e.target.value)}
-          className="text-sm px-3 py-2 rounded-xl border focus:outline-none"
+          className="text-[13px] px-3 py-2.5 rounded-full border focus:outline-none"
           style={{ borderColor: filterStatus ? WA.teal + '50' : WA.borderLight, color: filterStatus ? WA.textDark : WA.textMuted }}
         >
           <option value="">全部状态</option>
@@ -283,18 +429,24 @@ export function EventPanel() {
         <select
           value={filterOwner}
           onChange={e => setFilterOwner(e.target.value)}
-          className="text-sm px-3 py-2 rounded-xl border focus:outline-none"
-          style={{ borderColor: filterOwner ? WA.teal + '50' : WA.borderLight, color: filterOwner ? WA.textDark : WA.textMuted }}
+          disabled={ownerLocked}
+          className="text-[13px] px-3 py-2.5 rounded-full border focus:outline-none"
+          style={{
+            borderColor: filterOwner ? WA.teal + '50' : WA.borderLight,
+            color: filterOwner ? WA.textDark : WA.textMuted,
+            background: ownerLocked ? WA.shellPanelMuted : WA.white,
+            opacity: ownerLocked ? 0.92 : 1,
+          }}
         >
-          <option value="">全部负责人</option>
-          {OWNER_OPTIONS.map(owner => (
+          <option value="">{ownerLocked ? '当前负责人' : '全部负责人'}</option>
+          {ownerOptions.map(owner => (
             <option key={owner} value={owner}>{owner}</option>
           ))}
         </select>
         <select
           value={filterEventKey}
           onChange={e => setFilterEventKey(e.target.value)}
-          className="text-sm px-3 py-2 rounded-xl border focus:outline-none"
+          className="text-[13px] px-3 py-2.5 rounded-full border focus:outline-none"
           style={{ borderColor: filterEventKey ? WA.teal + '50' : WA.borderLight, color: filterEventKey ? WA.textDark : WA.textMuted }}
         >
           <option value="">全部类型</option>
@@ -304,19 +456,24 @@ export function EventPanel() {
         </select>
         {activeFilterCount > 0 && (
           <button
-            onClick={() => { setFilterStatus(''); setFilterOwner(''); setFilterEventKey(''); }}
-            className="text-xs px-3 py-2 rounded-xl font-medium"
+            onClick={() => {
+              setFilterStatus('')
+              setFilterOwner(ownerLocked ? lockedOwner : '')
+              setFilterEventKey('')
+            }}
+            className="text-[12px] px-3 py-2 rounded-full font-medium"
             style={{ color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}
           >
             🗑 清除
           </button>
         )}
+        <div className="ml-auto text-[12px] font-medium px-3 py-2 rounded-full" style={{ background: WA.shellPanelMuted, color: WA.textMuted }}>
+          看板模式 · 两列事件卡
+        </div>
       </div>
 
-      {/* Content: list + detail */}
-      <div className="flex-1 overflow-hidden flex">
-        {/* Event list */}
-        <div className="flex-1 overflow-y-auto">
+      {/* Content */}
+      <div ref={contentScrollRef} className="flex-1 overflow-y-auto docs-scrollbar p-4">
           {loading && events.length === 0 ? (
             <div className="flex items-center justify-center py-16" style={{ color: WA.textMuted }}>
               <span>⏳ 加载中...</span>
@@ -327,221 +484,275 @@ export function EventPanel() {
               <span className="text-sm">暂无事件</span>
             </div>
           ) : (
-            events.map(event => {
-              const typeInfo = EVENT_TYPE_LABELS[event.event_key] || { label: event.event_key, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
-              const statusInfo = STATUS_LABELS[event.status] || { label: event.status, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
-              const ownerColor = getOwnerColor(event.owner)
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+            {events.map(event => {
               const isSelected = selectedEvent?.id === event.id
+              const displayEvent = isSelected && selectedEvent?.id === event.id ? { ...event, ...selectedEvent } : event
+              const typeInfo = EVENT_TYPE_LABELS[displayEvent.event_key] || { label: displayEvent.event_key, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
+              const statusInfo = STATUS_LABELS[displayEvent.status] || { label: displayEvent.status, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' }
+              const ownerColor = getOwnerColor(displayEvent.owner)
+              const meta = parseEventMeta(displayEvent.meta)
+              const verificationMeta = meta.verification || meta.llm_verification || {}
+              const verificationStatus = displayEvent.verification_status || verificationMeta.review_status || 'pending'
+              const verificationInfo = VERIFICATION_LABELS[verificationStatus] || VERIFICATION_LABELS.pending
+              const transitionSuggestion = displayEvent.transition_suggestion || verificationMeta.transition_suggestion || null
+              const sourcePreview = displayEvent.trigger_text || meta.source_text || meta.note || '暂无原始触发文本'
+              const displayStartAt = displayEvent.display_start_at || displayEvent.created_at || displayEvent.start_at || null
+              const displayStartLabel = displayEvent.display_start_label || (displayEvent.source_message_timestamp ? '原始消息时间' : displayEvent.created_at ? '识别时间' : '开始时间')
+              const jumpPayload = {
+                eventId: displayEvent.id,
+                creatorId: displayEvent.creator_id,
+                triggerText: displayEvent.trigger_text || '',
+                sourceText: displayEvent.source_message_text || sourcePreview,
+                sourceMessageId: displayEvent.source_message_id || null,
+                sourceMessageTimestamp: displayEvent.source_message_timestamp || null,
+                displayStartAt,
+                eventKey: displayEvent.event_key,
+                returnScrollTop: contentScrollRef.current?.scrollTop || 0,
+              }
+              const isFlashing = flashEventId === Number(displayEvent.id)
 
               return (
-                <div
-                  key={event.id}
-                  onClick={() => handleViewEvent(event.id)}
-                  className="px-5 py-4 cursor-pointer transition-all"
+                <article
+                  key={displayEvent.id}
+                  ref={(node) => {
+                    if (node) eventCardRefs.current.set(Number(displayEvent.id), node)
+                    else eventCardRefs.current.delete(Number(displayEvent.id))
+                  }}
+                  onClick={() => handleViewEvent(displayEvent.id)}
+                  className="p-5 cursor-pointer transition-all rounded-[24px] space-y-4"
                   style={{
-                    borderBottom: `1px solid ${WA.borderLight}`,
-                    background: isSelected ? 'rgba(0,168,132,0.06)' : 'transparent',
+                    border: `1px solid ${isSelected ? 'rgba(0,168,132,0.28)' : WA.borderLight}`,
+                    background: isSelected || isFlashing ? 'rgba(0,168,132,0.08)' : WA.white,
+                    boxShadow: isFlashing
+                      ? '0 0 0 3px rgba(0,168,132,0.18), 0 14px 34px rgba(0,168,132,0.16)'
+                      : isSelected
+                        ? '0 10px 26px rgba(0,168,132,0.08)'
+                        : '0 2px 8px rgba(15,23,42,0.03)',
                   }}
                   onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = WA.hover }}
-                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
+                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = WA.white }}
                 >
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ background: typeInfo.bg, color: typeInfo.color }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[12px] px-3 py-1 rounded-full font-semibold" style={{ background: typeInfo.bg, color: typeInfo.color }}>
                         {typeInfo.label}
                       </span>
-                      <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ background: statusInfo.bg, color: statusInfo.color }}>
+                      <span className="text-[12px] px-3 py-1 rounded-full font-semibold" style={{ background: statusInfo.bg, color: statusInfo.color }}>
                         {statusInfo.label}
                       </span>
-                    </div>
-                    <span className="text-xs shrink-0" style={{ color: ownerColor, fontWeight: 600 }}>
-                      {event.owner}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-semibold" style={{ color: WA.textDark }}>
-                        {event.creator_name || `达人 #${event.creator_id}`}
-                      </div>
-                      <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>
-                        {event.trigger_source === 'semantic_auto' ? '🤖 语义自动' : event.trigger_source === 'gmv_crosscheck' ? '📊 GMV核对' : '✏️ 手动'}
-                        {event.start_at ? ` · ${formatDateCN(event.start_at)}` : ''}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {event.meta && (() => {
-                        try {
-                          const m = JSON.parse(event.meta)
-                          if (m.bonus_per_video) return <span className="text-xs font-semibold" style={{ color: '#10b981' }}>${m.bonus_per_video}/条</span>
-                        } catch (_) {}
-                        return null
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
-
-        {/* Detail panel */}
-        {selectedEvent && (
-          <div
-            className="w-80 shrink-0 overflow-y-auto border-l"
-            style={{ background: WA.white, borderColor: WA.borderLight }}
-          >
-            <div className="p-5 space-y-4">
-              {/* Detail header */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-base font-bold" style={{ color: WA.textDark }}>
-                    {EVENT_TYPE_LABELS[selectedEvent.event_key]?.label || selectedEvent.event_key}
-                  </div>
-                  <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>
-                    事件 #{selectedEvent.id}
-                  </div>
-                </div>
-                <button onClick={() => setSelectedEvent(null)} className="text-lg" style={{ color: WA.textMuted }}>✕</button>
-              </div>
-
-              {/* Status badge */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs px-3 py-1.5 rounded-full font-semibold" style={{
-                  background: STATUS_LABELS[selectedEvent.status]?.bg,
-                  color: STATUS_LABELS[selectedEvent.status]?.color,
-                }}>
-                  {STATUS_LABELS[selectedEvent.status]?.label || selectedEvent.status}
-                </span>
-                <span className="text-xs px-3 py-1.5 rounded-full font-semibold" style={{
-                  background: getOwnerColor(selectedEvent.owner) + '20',
-                  color: getOwnerColor(selectedEvent.owner),
-                }}>
-                  {selectedEvent.owner}
-                </span>
-              </div>
-
-              {/* Creator info */}
-              <div className="p-3 rounded-xl" style={{ background: WA.lightBg }}>
-                <div className="text-xs font-semibold mb-1" style={{ color: WA.textMuted }}>达人</div>
-                <div className="text-sm font-semibold" style={{ color: WA.textDark }}>
-                  {selectedEvent.creator_name || `ID: ${selectedEvent.creator_id}`}
-                </div>
-                <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>{selectedEvent.creator_phone || '-'}</div>
-              </div>
-
-              {/* Time info */}
-              <div className="space-y-2">
-                <InfoRow label="开始时间" value={selectedEvent.start_at ? formatDateTimeCN(selectedEvent.start_at) : '-'} />
-                <InfoRow label="结束时间" value={selectedEvent.end_at ? formatDateTimeCN(selectedEvent.end_at) : '进行中'} />
-                <InfoRow label="触发来源" value={selectedEvent.trigger_source} />
-              </div>
-
-              {/* Trigger text */}
-              {selectedEvent.trigger_text && (
-                <div>
-                  <div className="text-xs font-semibold mb-1.5" style={{ color: WA.textMuted }}>触发文本</div>
-                  <div className="text-xs p-3 rounded-xl leading-relaxed" style={{ background: WA.lightBg, color: WA.textDark }}>
-                    {selectedEvent.trigger_text}
-                  </div>
-                </div>
-              )}
-
-              {/* Policy */}
-              {selectedEvent.policy && (
-                <div>
-                  <div className="text-xs font-semibold mb-1.5" style={{ color: WA.textMuted }}>策略配置</div>
-                  <div className="text-xs p-3 rounded-xl space-y-1" style={{ background: WA.lightBg }}>
-                    {Object.entries(selectedEvent.policy).map(([k, v]) => (
-                      <div key={k} className="flex justify-between">
-                        <span style={{ color: WA.textMuted }}>{k}</span>
-                        <span className="font-semibold" style={{ color: WA.textDark }}>{String(v)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Periods */}
-              {selectedEvent.periods && selectedEvent.periods.length > 0 && (
-                <div>
-                  <div className="text-xs font-semibold mb-2" style={{ color: WA.textMuted }}>周期记录</div>
-                  <div className="space-y-2">
-                    {selectedEvent.periods.map(p => (
-                      <div key={p.id} className="p-3 rounded-xl" style={{ background: WA.lightBg }}>
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-xs font-medium" style={{ color: WA.textMuted }}>
-                            {formatDateCN(p.period_start)} – {formatDateCN(p.period_end)}
-                          </span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${p.status === 'settled' ? 'text-green-600 bg-green-50' : 'text-yellow-600 bg-yellow-50'}`}>
-                            {p.status === 'settled' ? '✓ 已结算' : '⏳ 待结算'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-xs" style={{ color: WA.textMuted }}>发布 {p.video_count} 条</span>
-                          <span className="text-xs font-bold" style={{ color: '#10b981' }}>
-                            {p.bonus_earned > 0 ? `+$${p.bonus_earned}` : '无 Bonus'}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Judge result */}
-              {judgeResult && (
-                <div className="p-3 rounded-xl" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}>
-                  <div className="text-xs font-bold mb-2" style={{ color: '#10b981' }}>判定结果</div>
-                  <div className="space-y-1 text-xs">
-                    <div className="flex justify-between">
-                      <span style={{ color: WA.textMuted }}>视频数</span>
-                      <span className="font-semibold" style={{ color: WA.textDark }}>{judgeResult.video_count}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span style={{ color: WA.textMuted }}>目标</span>
-                      <span className="font-semibold" style={{ color: WA.textDark }}>≥ {judgeResult.weekly_target} 条/周</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span style={{ color: WA.textMuted }}>Bonus</span>
-                      <span className="font-bold" style={{ color: '#10b981' }}>
-                        {judgeResult.bonus_earned > 0 ? `$${judgeResult.bonus_earned}` : '无'}
+                      <span className="text-[12px] px-3 py-1 rounded-full font-semibold" style={{ background: ownerColor + '16', color: ownerColor }}>
+                        {displayEvent.owner}
+                      </span>
+                      <span className="text-[12px] px-3 py-1 rounded-full font-semibold" style={{ background: verificationInfo.bg, color: verificationInfo.color }}>
+                        {verificationInfo.label}
                       </span>
                     </div>
+                    <span className="text-[12px] shrink-0" style={{ color: WA.textMuted }}>
+                      {displayStartAt ? formatDateCN(displayStartAt) : '-'}
+                    </span>
                   </div>
-                </div>
-              )}
 
-              {/* Actions */}
-              <div className="space-y-2 pt-2">
-                {/* Status actions */}
-                {selectedEvent.status === 'pending' && (
-                  <>
-                    <ActionBtn label="✅ 确认激活" color="#10b981" onClick={() => handleStatusChange(selectedEvent.id, 'active')} />
-                    <ActionBtn label="❌ 取消" color="#ef4444" onClick={() => handleStatusChange(selectedEvent.id, 'cancelled')} />
-                  </>
-                )}
-                {selectedEvent.status === 'active' && (
-                  <>
-                    <ActionBtn label="📊 判定 Bonus" color="#f59e0b" onClick={() => handleJudge(selectedEvent.id)} loading={judging} />
-                    <ActionBtn label="🏁 标记完成" color="#8b5cf6" onClick={() => handleStatusChange(selectedEvent.id, 'completed')} />
-                    <ActionBtn label="❌ 取消" color="#ef4444" onClick={() => handleStatusChange(selectedEvent.id, 'cancelled')} />
-                  </>
-                )}
-                {selectedEvent.status === 'active' && (
-                  <div className="pt-2">
-                    <div className="text-xs font-semibold mb-2" style={{ color: WA.textMuted }}>快速判定</div>
-                    <JudgeQuickForm
-                      eventId={selectedEvent.id}
-                      policy={selectedEvent.policy}
-                      onJudge={(result) => setJudgeResult(result)}
-                      onClose={() => {}}
-                    />
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-[22px] font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>
+                        {displayEvent.creator_name || `达人 #${displayEvent.creator_id}`}
+                      </div>
+                      <div className="text-[13px] mt-1" style={{ color: WA.textMuted }}>
+                        {formatTriggerSource(displayEvent.trigger_source)} · {displayEvent.creator_phone || '-'}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {meta.bonus_per_video ? <span className="text-[12px] font-semibold" style={{ color: '#10b981' }}>${meta.bonus_per_video}/条</span> : null}
+                    </div>
                   </div>
-                )}
-              </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onOpenCreatorChat?.(jumpPayload)
+                    }}
+                    className="w-full text-left rounded-[20px] p-4 space-y-2 transition-all"
+                    style={{ background: WA.shellPanelMuted, border: `1px solid ${WA.borderLight}` }}
+                    title="打开原始达人聊天并定位到相关消息"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>
+                        原始信源
+                      </div>
+                      <span className="text-[12px] font-semibold" style={{ color: WA.teal }}>
+                        打开原始聊天 →
+                      </span>
+                    </div>
+                    <div className="text-[13px]" style={{ color: WA.textMuted }}>
+                      {formatTriggerSource(displayEvent.trigger_source)}
+                    </div>
+                    <div className="text-[14px] leading-6" style={{ color: WA.textDark }}>
+                      {sourcePreview}
+                    </div>
+                    {displayEvent.source_message_text ? (
+                      <div className="text-[12px] leading-5 rounded-[14px] px-3 py-2" style={{ color: WA.textMuted, background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+                        命中原始消息: {displayEvent.source_message_text}
+                      </div>
+                    ) : (
+                      <div className="text-[12px]" style={{ color: WA.textMuted }}>
+                        当前按 source anchor 回溯上下文；如无精确锚点则回退到最近相关消息。
+                      </div>
+                    )}
+                  </button>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <InfoCard label={displayStartLabel} value={displayStartAt ? formatDateTimeCN(displayStartAt) : '-'} />
+                    <InfoCard label="结束时间" value={displayEvent.end_at ? formatDateTimeCN(displayEvent.end_at) : '进行中'} />
+                  </div>
+
+                  {isSelected && (
+                    <div className="space-y-4 pt-2">
+                      <div className="rounded-[20px] p-4 space-y-3" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>二次语义核对</div>
+                            <div className="text-[14px] mt-1" style={{ color: WA.textDark }}>
+                              {verificationInfo.label}
+                              {displayEvent.verification_confidence ? ` · 置信度 ${displayEvent.verification_confidence}/5` : ''}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleViewVerificationContext(displayEvent.id)
+                              }}
+                              className="px-3 py-1.5 rounded-full text-[12px] font-medium"
+                              style={{ background: WA.shellPanelMuted, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
+                            >
+                              查看上下文
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleVerify(displayEvent.id)
+                              }}
+                              disabled={verifyingEventId === displayEvent.id}
+                              className="px-3 py-1.5 rounded-full text-[12px] font-semibold text-white disabled:opacity-60"
+                              style={{ background: WA.teal }}
+                            >
+                              {verifyingEventId === displayEvent.id ? '核对中...' : 'OpenAI 二次核对'}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <InfoCard compact label="建议事件" value={displayEvent.verification_event_key || displayEvent.event_key || '-'} />
+                          <InfoCard compact label="建议状态" value={displayEvent.verification_suggested_status || '-'} />
+                        </div>
+                        <div className="text-[13px] leading-6" style={{ color: WA.textMuted }}>
+                          {displayEvent.verification_reason || '当前还没有二次核对结论。'}
+                        </div>
+                        {displayEvent.verification_quote ? (
+                          <div className="text-[12px] leading-5 rounded-[14px] px-3 py-2" style={{ color: WA.textMuted, background: WA.shellPanelMuted, border: `1px solid ${WA.borderLight}` }}>
+                            证据原句: {displayEvent.verification_quote}
+                          </div>
+                        ) : null}
+                        {transitionSuggestion?.suggested ? (
+                          <div className="text-[12px] leading-5 rounded-[14px] px-3 py-2" style={{ color: '#92400e', background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.22)' }}>
+                            建议流转：{transitionSuggestion.from_status} → {transitionSuggestion.to_status}。当前仅为模型建议，仍需人工复核后再正式流转。
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {selectedEvent?.policy && (
+                        <div className="rounded-[20px] p-4 space-y-2" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+                          <div className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>策略配置</div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {Object.entries(selectedEvent.policy).map(([k, v]) => (
+                              <InfoCard key={k} label={k} value={String(v)} compact />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedEvent?.periods && selectedEvent.periods.length > 0 && (
+                        <div className="rounded-[20px] p-4 space-y-3" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+                          <div className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>周期记录</div>
+                          <div className="grid grid-cols-1 gap-3">
+                            {selectedEvent.periods.map(p => (
+                              <div key={p.id} className="rounded-[18px] p-3" style={{ background: WA.shellPanelMuted, border: `1px solid ${WA.borderLight}` }}>
+                                <div className="flex justify-between items-center mb-2">
+                                  <span className="text-[12px] font-medium" style={{ color: WA.textMuted }}>
+                                    {formatDateCN(p.period_start)} – {formatDateCN(p.period_end)}
+                                  </span>
+                                  <span className={`text-[12px] px-2.5 py-1 rounded-full font-semibold ${p.status === 'settled' ? 'text-green-600 bg-green-50' : 'text-yellow-600 bg-yellow-50'}`}>
+                                    {p.status === 'settled' ? '✓ 已结算' : '⏳ 待结算'}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between text-[13px]">
+                                  <span style={{ color: WA.textMuted }}>发布 {p.video_count} 条</span>
+                                  <span style={{ color: '#10b981', fontWeight: 700 }}>{p.bonus_earned > 0 ? `+$${p.bonus_earned}` : '无 Bonus'}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {judgeResult && selectedEvent?.id === displayEvent.id && (
+                        <div className="rounded-[20px] p-4" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                          <div className="text-[11px] font-bold mb-2 tracking-[0.08em] uppercase" style={{ color: '#10b981' }}>判定结果</div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <InfoCard label="视频数" value={judgeResult.video_count} compact />
+                            <InfoCard label="目标" value={`≥ ${judgeResult.weekly_target}`} compact />
+                            <InfoCard label="Bonus" value={judgeResult.bonus_earned > 0 ? `$${judgeResult.bonus_earned}` : '无'} compact />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-2">
+                        <ActionBtn
+                          label="🧠 二次核对"
+                          color={WA.teal}
+                          onClick={() => handleVerify(selectedEvent.id)}
+                          loading={verifyingEventId === selectedEvent.id}
+                        />
+                        <ActionBtn
+                          label="🗂 查看上下文"
+                          color="#64748b"
+                          onClick={() => handleViewVerificationContext(selectedEvent.id)}
+                        />
+                        {selectedEvent?.status === 'draft' && (
+                          <>
+                            <ActionBtn label={transitionSuggestion?.suggested ? "✅ 人工确认流转" : "✅ 确认激活"} color="#10b981" onClick={() => handleStatusChange(selectedEvent.id, 'active')} />
+                            <ActionBtn label="❌ 取消" color="#ef4444" onClick={() => handleStatusChange(selectedEvent.id, 'cancelled')} />
+                          </>
+                        )}
+                        {selectedEvent?.status === 'active' && (
+                          <>
+                            <ActionBtn label="📊 判定 Bonus" color="#f59e0b" onClick={() => handleJudge(selectedEvent.id)} loading={judging} />
+                            <ActionBtn label="🏁 标记完成" color="#8b5cf6" onClick={() => handleStatusChange(selectedEvent.id, 'completed')} />
+                            <ActionBtn label="❌ 取消" color="#ef4444" onClick={() => handleStatusChange(selectedEvent.id, 'cancelled')} />
+                          </>
+                        )}
+                      </div>
+
+                      {selectedEvent?.status === 'active' && (
+                        <div className="rounded-[20px] p-4 space-y-3" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+                          <div className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>快速判定</div>
+                          <JudgeQuickForm
+                            eventId={selectedEvent.id}
+                            policy={selectedEvent.policy}
+                            onJudge={(result) => setJudgeResult(result)}
+                            onClose={() => {}}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </article>
+              )
+            })}
             </div>
-          </div>
-        )}
+          )}
       </div>
 
       {/* Create modal */}
@@ -601,11 +812,15 @@ export function EventPanel() {
                   <label className="block text-xs font-semibold mb-1.5" style={{ color: WA.textMuted }}>负责人</label>
                   <select
                     className="w-full text-sm px-3 py-2.5 rounded-xl border focus:outline-none"
-                    style={{ borderColor: WA.borderLight, background: WA.lightBg }}
-                  value={createForm.owner}
-                  onChange={e => setCreateForm(f => ({ ...f, owner: e.target.value }))}
-                >
-                    {OWNER_OPTIONS.map(owner => (
+                    style={{
+                      borderColor: WA.borderLight,
+                      background: ownerLocked || !!selectedCreator ? WA.shellPanelMuted : WA.lightBg,
+                    }}
+                    value={createForm.owner}
+                    onChange={e => setCreateForm(f => ({ ...f, owner: e.target.value }))}
+                    disabled={ownerLocked || !!selectedCreator}
+                  >
+                    {ownerOptions.map(owner => (
                       <option key={owner} value={owner}>{owner}</option>
                     ))}
                   </select>
@@ -664,17 +879,75 @@ export function EventPanel() {
           </div>
         </div>
       )}
+
+      {verificationPreview && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl rounded-2xl overflow-hidden" style={{ background: WA.white }}>
+            <div className="flex items-center justify-between px-6 py-4" style={{ background: WA.darkHeader }}>
+              <div className="flex items-center gap-3">
+                <span className="text-lg">🧠</span>
+                <span className="font-semibold text-white">核对上下文</span>
+              </div>
+              <button onClick={() => setVerificationPreview(null)} className="text-white/60 hover:text-white text-xl">✕</button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto docs-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <InfoCard compact label="事件ID" value={verificationPreview.event_id || '-'} />
+                <InfoCard compact label="锚点消息" value={verificationPreview.source_anchor?.message_id || '-'} />
+                <InfoCard compact label="锚点解析" value={verificationPreview.source_anchor?.resolution || '-'} />
+              </div>
+              <div className="text-[12px]" style={{ color: WA.textMuted }}>
+                使用消息数: {verificationPreview.stats?.used_count || 0}，前文 {verificationPreview.stats?.before_count || 0} 条，后文 {verificationPreview.stats?.after_count || 0} 条
+              </div>
+              <div className="space-y-3">
+                {(verificationPreview.messages || []).map((message) => (
+                  <div key={message.id} className="rounded-[18px] px-4 py-3" style={{ background: WA.shellPanelMuted, border: `1px solid ${WA.borderLight}` }}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[12px] font-semibold" style={{ color: message.role === 'me' ? WA.teal : WA.textDark }}>
+                        {message.role === 'me' ? '运营' : '达人'} · #{message.id}
+                      </span>
+                      <span className="text-[12px]" style={{ color: WA.textMuted }}>
+                        {formatDateTimeCN(message.timestamp)}
+                      </span>
+                    </div>
+                    <div className="text-[14px] leading-6 mt-2" style={{ color: WA.textDark }}>
+                      {message.text || '[空消息]'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-// Quick judge form inline in detail panel
+function parseEventMeta(raw) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw
+  try {
+    return raw ? JSON.parse(raw) : {}
+  } catch (_) {
+    return {}
+  }
+}
 
-function InfoRow({ label, value }) {
+function formatTriggerSource(value) {
+  if (value === 'semantic_auto') return '🤖 语义自动'
+  if (value === 'gmv_crosscheck') return '📊 GMV核对'
+  if (value === 'manual') return '✏️ 手动创建'
+  return value || '未标注来源'
+}
+
+function InfoCard({ label, value, compact = false }) {
   return (
-    <div className="flex justify-between items-center py-1.5 px-3 rounded-lg" style={{ background: WA.lightBg }}>
-      <span className="text-xs" style={{ color: WA.textMuted }}>{label}</span>
-      <span className="text-xs font-semibold" style={{ color: WA.textDark }}>{value}</span>
+    <div
+      className={compact ? 'rounded-[16px] px-3 py-2.5' : 'rounded-[18px] px-3 py-3'}
+      style={{ background: WA.shellPanelMuted, border: `1px solid ${WA.borderLight}` }}
+    >
+      <div className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>{label}</div>
+      <div className={compact ? 'text-[13px] mt-1 font-semibold' : 'text-[14px] mt-1.5 font-semibold'} style={{ color: WA.textDark }}>{value}</div>
     </div>
   )
 }
@@ -684,7 +957,7 @@ function ActionBtn({ label, color, onClick, loading }) {
     <button
       onClick={onClick}
       disabled={loading}
-      className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:opacity-80 disabled:opacity-50"
+      className="flex items-center gap-2 px-4 py-2.5 rounded-full text-[13px] font-medium transition-all hover:opacity-80 disabled:opacity-50"
       style={{ background: color + '18', color }}
     >
       <span>{loading ? '⏳' : label.split(' ')[0]}</span>

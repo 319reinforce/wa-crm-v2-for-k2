@@ -1,0 +1,24 @@
+{
+  "url": "http://127.0.0.1:50649",
+  "nav": {
+    "ok": true,
+    "status": 200
+  },
+  "checks": {
+    "bodyTextLen": 10637,
+    "hasOverlay": false,
+    "homeHasTitle": true,
+    "groupButtonVisible": true,
+    "groupViewVisible": true,
+    "groupEmptyOrSelectedVisible": true,
+    "consoleErrorCount": 0,
+    "pageErrorCount": 0
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "screenshots": {
+    "home": "/Users/depp/wa-bot/wa-crm-v2/reports/acceptance/ui-home.png",
+    "groups": "/Users/depp/wa-bot/wa-crm-v2/reports/acceptance/ui-groups.png"
+  },
+  "reportPath": "/Users/depp/wa-bot/wa-crm-v2/reports/acceptance/ui-acceptance.json"
+}

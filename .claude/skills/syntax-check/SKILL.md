@@ -15,7 +15,6 @@ context: fork
 - **后端入口**: `server/index.cjs`
 - **模块化后端**: `server/`
 - **前端**: `src/`
-- **根目录旧文件**（检查是否残留）: `server.js`, `routes/`, `db.js`
 
 ## 检查范围
 
@@ -31,6 +30,7 @@ for f in server/index.cjs \
     server/utils/*.js \
     server/constants/*.js \
     server/waWorker.js; do
+  [ -f "$f" ] || continue
   echo "=== $f ==="
   node -c "$f" 2>&1
 done
@@ -42,19 +42,13 @@ cd /Users/depp/wa-bot/wa-crm-v2
 for f in src/App.jsx \
     src/components/*.jsx \
     src/utils/*.js; do
+  [ -f "$f" ] || continue
   echo "=== $f ==="
   node -c "$f" 2>&1 || echo "FAIL"
 done
 ```
 
-### 3. 根目录残留文件检查
-```bash
-cd /Users/depp/wa-bot/wa-crm-v2
-# 检查旧文件是否还存在（MySQL 迁移后这些应该被移除或废弃）
-ls server.js routes/ db.js 2>&1
-```
-
-### 4. 关键 SQL 语法验证（静态检查）
+### 3. 关键 SQL 语法验证（静态检查）
 
 检查是否有 MySQL 非法的 VALUES() 用法（在纯 UPDATE 中）：
 ```bash
@@ -62,7 +56,7 @@ cd /Users/depp/wa-bot/wa-crm-v2
 grep -rn "UPDATE.*VALUES(" server/ --include="*.js" | grep -v "ON DUPLICATE KEY"
 ```
 
-### 5. 时间戳处理一致性检查
+### 4. 时间戳处理一致性检查
 
 检查 waWorker.js 中是否有遗留的 `* 1000`（WhatsApp API 使用秒，不应乘1000）：
 ```bash
@@ -70,26 +64,40 @@ cd /Users/depp/wa-bot/wa-crm-v2
 grep -n "timestamp.*1000\|1000.*timestamp" server/waWorker.js
 ```
 
-### 6. 缺失列/表引用检查
-
-检查代码中引用的列是否存在于 schema.sql：
+### 5. 缺失列/表引用检查
 ```bash
 cd /Users/depp/wa-bot/wa-crm-v2
-# ev_replied 不应出现在 UPDATE 语句中（它是 SQL 子查询动态计算的）
 grep -rn "UPDATE.*ev_replied\|SET ev_replied" server/
 ```
 
-### 7. JSON.parse 保护检查
+### 6. JSON.parse 保护检查
 ```bash
 cd /Users/depp/wa-bot/wa-crm-v2
 grep -rn "JSON\.parse" server/ --include="*.js" | while read line; do
   file=$(echo "$line" | cut -d: -f1)
-  lineno=$(echo "$line" | cut -d: -f2)
-  # 检查前后5行是否有 try 或 function 包裹
   if ! grep -B5 "JSON\.parse" "$file" | grep -q "try"; then
-    echo "POTENTIAL UNPROTECTED: $file:$lineno"
+    echo "POTENTIAL UNPROTECTED: $line"
   fi
 done
+```
+
+### 7. 新增服务文件检查
+```bash
+cd /Users/depp/wa-bot/wa-crm-v2
+for f in server/services/replyGenerationService.js \
+    server/services/sftService.js \
+    server/services/directMessagePersistenceService.js \
+    server/services/profileService.js; do
+  [ -f "$f" ] || { echo "MISSING: $f"; continue; }
+  echo "=== $f ==="
+  node -c "$f" 2>&1
+done
+```
+
+### 8. 单元测试
+```bash
+cd /Users/depp/wa-bot/wa-crm-v2
+node --test tests/*.test.mjs 2>&1
 ```
 
 ## 输出格式
@@ -118,8 +126,14 @@ done
 ### JSON.parse 保护
 - [LIST any unprotected JSON.parse calls]
 
-### 残留文件
-- [LIST any old files still present]
+### 新增服务文件
+- replyGenerationService.js: PASS/FAIL/MISSING
+- sftService.js: PASS/FAIL/MISSING
+- directMessagePersistenceService.js: PASS/FAIL/MISSING
+
+### 单元测试
+- tests/replyGenerationService.test.mjs: PASS/FAIL
+- tests/sftService.test.mjs: PASS/FAIL
 
 ### 总结
 **READY** / **ISSUES FOUND** (N issues)
