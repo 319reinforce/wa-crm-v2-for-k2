@@ -5,6 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../../db');
+const { sanitizeAuditLogRow } = require('../middleware/audit');
 const {
     getLockedOwner,
     matchesOwnerScope,
@@ -397,19 +398,7 @@ router.get('/audit-log', async (req, res) => {
         sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
         params.push(limit, offset);
         const rows = await db2.prepare(sql).all(...params);
-        res.json(rows.map(r => ({
-            ...r,
-            after_value: (() => {
-                if (r.after_value == null) return null;
-                if (typeof r.after_value !== 'string') return r.after_value;
-                try { return JSON.parse(r.after_value); } catch (_) { return r.after_value; }
-            })(),
-            before_value: (() => {
-                if (r.before_value == null) return null;
-                if (typeof r.before_value !== 'string') return r.before_value;
-                try { return JSON.parse(r.before_value); } catch (_) { return r.before_value; }
-            })(),
-        })));
+        res.json(rows.map((row) => sanitizeAuditLogRow(row)));
     } catch (err) {
         console.error('GET /api/audit-log error:', err);
         res.status(500).json({ error: err.message });
