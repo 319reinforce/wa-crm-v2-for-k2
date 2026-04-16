@@ -1,6 +1,7 @@
 node_modules/
 public/assets/
 data/*.json
+.wa_ipc/
 *.db
 *.db-shm
 *.db-wal
