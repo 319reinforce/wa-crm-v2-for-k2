@@ -12,12 +12,12 @@
 
 - P0-1：`LOCAL_API_AUTH_BYPASS` 默认值从 `!== 'false'`（默认开）改为 `=== 'true'`（默认关），防止 NODE_ENV 未设置时绕过生效
 - P0-2：`extractToken` 移除 query string token 读取，只接受 `Authorization: Bearer` header
-- linter 自动：`buildTokenEntries` 加模块级缓存 `_tokenEntriesCache`，避免每次请求重建
-- linter 自动：新增 `sendOwnerScopeForbidden(res, lockedOwner)` 并 export，解决 P2-1 重复定义问题
+- 顺带完成：`buildTokenEntries` 加模块级缓存 `_tokenEntriesCache`，避免每次请求重建
+- 顺带完成：新增 `sendOwnerScopeForbidden(res, lockedOwner)` 并 export，解决 P2-1 重复定义问题
 
 ### 2. `server/middleware/audit.js`
 
-- P0-4：新增 `AUDIT_REDACTED_FIELDS` 和 `sanitizeAuditValue(obj)`，在 `writeAudit` 内对 `beforeValue`/`afterValue` 统一脱敏，`wa_phone`、`phone`、`password`、`token`、`secret` 字段自动替换为 `[REDACTED]`
+- P0-4：新增递归脱敏的 `sanitizeAuditValue(obj)` 与 `sanitizeAuditRecordId(recordId)`，在 `writeAudit` 内对 `beforeValue`/`afterValue`/`record_id` 统一脱敏，`wa_phone`、`phone`、`client_id`、`record_id`、`password`、`token`、`secret` 字段自动替换为 `[REDACTED]`
 
 ### 3. `server/utils/internalAuth.js`
 
@@ -39,7 +39,7 @@
 | `server/services/sftService.js` | 140 |
 | `db.js` | 289 |
 
-### 6. linter 自动修复（顺带完成的 P1/P2）
+### 6. 顺带完成的清理项（P1/P2）
 
 - `server/routes/events.js:695`：`DELETE /api/events/:id` 改用 `db2.transaction()` 包裹两步删除（P1-6）
 - `server/routes/sft.js:381`：`PATCH /api/sft-memory/:id/review` 加 `writeAudit('sft_review', ...)` 审计记录（P1-5）

@@ -86,51 +86,59 @@ export default function AIReplyPicker({
                 />
             </div>
 
-            <details
-                className="rounded-[18px] px-3 py-2.5"
+            <div
+                className="rounded-[18px] px-3 py-3"
                 style={{ background: WA.white, border: `1px dashed ${WA.borderLight}` }}
             >
-                <summary className="cursor-pointer text-[11px] font-semibold tracking-[0.05em] uppercase" style={{ color: WA.textMuted }}>
-                    自定义回复
-                </summary>
-                <div className="mt-3 space-y-2.5">
-                    <textarea
-                        value={customText}
-                        onChange={e => onCustomChange(e.target.value)}
-                        placeholder="在这里输入你的自定义回复..."
-                        rows={compactMobile ? 3 : 2}
-                        className="w-full text-sm rounded-[16px] px-3 py-2.5 focus:outline-none resize-y"
-                        style={{
-                            background: WA.shellPanelMuted,
-                            color: WA.textDark,
-                            border: `1px solid ${WA.borderLight}`,
-                            minHeight: compactMobile ? '92px' : '74px',
-                        }}
-                    />
-                    <div className="flex flex-wrap gap-2">
-                        <ToolButton
-                            onClick={onTranslateCustom}
-                            disabled={customDisabled || translatingCustom || emojiCustomizing}
-                            icon={translatingCustom ? <SpinnerIcon /> : <GlobeIcon />}
-                            label="翻译"
-                        />
-                        <ToolButton
-                            onClick={onEmojiCustom}
-                            disabled={customDisabled || translatingCustom || emojiCustomizing}
-                            icon={emojiCustomizing ? <SpinnerIcon /> : <SmileIcon />}
-                            label="Emoji"
-                        />
-                        <button
-                            onClick={() => onSelect('custom')}
-                            disabled={customDisabled}
-                            className="px-3.5 py-2 rounded-full text-xs font-semibold text-white disabled:opacity-50"
-                            style={{ background: WA.teal }}
-                        >
-                            发送自定义
-                        </button>
-                    </div>
+                <div className="flex items-center gap-2 mb-2.5">
+                    <span
+                        className="text-[11px] font-bold px-2 py-0.5 rounded-full"
+                        style={{ background: 'rgba(245,158,11,0.16)', color: '#b45309' }}
+                    >
+                        Custom
+                    </span>
+                    <span className="text-[11px] font-medium" style={{ color: WA.textMuted }}>
+                        可直接翻译、加 Emoji 或人工改写后发送
+                    </span>
                 </div>
-            </details>
+
+                <textarea
+                    value={customText}
+                    onChange={e => onCustomChange(e.target.value)}
+                    placeholder="在这里输入要翻译或发送的文本..."
+                    rows={compactMobile ? 3 : 2}
+                    className="w-full text-sm rounded-[16px] px-3 py-2.5 focus:outline-none resize-y"
+                    style={{
+                        background: WA.shellPanelMuted,
+                        color: WA.textDark,
+                        border: `1px solid ${WA.borderLight}`,
+                        minHeight: compactMobile ? '92px' : '84px',
+                    }}
+                />
+
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                    <ToolButton
+                        onClick={onTranslateCustom}
+                        disabled={customDisabled || translatingCustom || emojiCustomizing}
+                        icon={translatingCustom ? <SpinnerIcon /> : <GlobeIcon />}
+                        label="翻译"
+                    />
+                    <ToolButton
+                        onClick={onEmojiCustom}
+                        disabled={customDisabled || translatingCustom || emojiCustomizing}
+                        icon={emojiCustomizing ? <SpinnerIcon /> : <SmileIcon />}
+                        label="Emoji"
+                    />
+                    <button
+                        onClick={() => onSelect('custom')}
+                        disabled={customDisabled}
+                        className="px-3.5 py-2 rounded-full text-xs font-semibold text-white disabled:opacity-50"
+                        style={{ background: WA.teal }}
+                    >
+                        发送自定义
+                    </button>
+                </div>
+            </div>
         </div>
     );
 

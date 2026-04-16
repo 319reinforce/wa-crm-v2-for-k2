@@ -48,6 +48,7 @@ async function withDbStub(stubDb, fn) {
 
 const getGenerationLogDetail = getRouteHandler(auditRouter, 'get', '/generation-log/:id')
 const getRetrievalSnapshotDetail = getRouteHandler(auditRouter, 'get', '/retrieval-snapshot/:id')
+const getAuditLog = getRouteHandler(auditRouter, 'get', '/audit-log')
 
 test('fetchGenerationRows uses a parameterized LIMIT when one is requested', async () => {
   let capturedSql = ''
@@ -93,6 +94,59 @@ test('fetchGenerationRows keeps the unlimited query path free of LIMIT interpola
 
   assert.doesNotMatch(capturedSql, /\bLIMIT\b/)
   assert.deepEqual(capturedArgs, [12])
+})
+
+test('audit-log response redacts record_id and nested sensitive payload fields', async () => {
+  const res = createRes()
+  const stubDb = {
+    prepare(sql) {
+      assert.match(sql, /SELECT \* FROM audit_log WHERE 1=1/)
+      return {
+        async all(...args) {
+          assert.deepEqual(args, [50, 0])
+          return [{
+            id: 1,
+            action: 'client_profile_update',
+            table_name: 'client_profiles',
+            record_id: '15550001111',
+            after_value: JSON.stringify({
+              client_id: '15550001111',
+              nested: {
+                wa_phone: '+1 555 000 2222',
+                items: [{ record_id: '15550003333' }],
+              },
+            }),
+            before_value: {
+              token: 'top-secret',
+              details: {
+                phone: '+1 555 000 4444',
+              },
+            },
+          }]
+        },
+      }
+    },
+  }
+
+  await withDbStub(stubDb, async () => {
+    await getAuditLog({ query: {}, auth: { role: 'admin' } }, res)
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body[0].record_id, '[REDACTED]')
+  assert.deepEqual(res.body[0].after_value, {
+    client_id: '[REDACTED]',
+    nested: {
+      wa_phone: '[REDACTED]',
+      items: [{ record_id: '[REDACTED]' }],
+    },
+  })
+  assert.deepEqual(res.body[0].before_value, {
+    token: '[REDACTED]',
+    details: {
+      phone: '[REDACTED]',
+    },
+  })
 })
 
 test('generation-log detail returns parsed payloads and retrieval snapshot summary', async () => {

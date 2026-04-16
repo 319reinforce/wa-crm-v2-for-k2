@@ -43,7 +43,11 @@ const allowLocalBypass = process.env.LOCAL_API_AUTH_BYPASS === 'true';
 ### 4. audit log 敏感字段脱敏
 **文件：** `server/middleware/audit.js`
 
-新增 `sanitizeAuditValue`，所有写入 `audit_log` 的对象自动将 `wa_phone`、`phone`、`password`、`token`、`secret` 替换为 `[REDACTED]`。
+新增递归版 `sanitizeAuditValue` 与 `sanitizeAuditRecordId`：
+- `wa_phone`、`phone`、`client_id`、`record_id`、`password`、`token`、`secret` 会被统一替换为 `[REDACTED]`
+- 数组 / 嵌套对象内的敏感字段也会继续递归脱敏
+- phone-like 的 audit `record_id` 在写入时不再原样落库
+- `GET /api/audit-log` 返回前会再做一层脱敏，避免历史脏数据继续泄露
 
 ### 5. LIMIT/OFFSET 参数化
 **文件：** `server/routes/sft.js`、`server/routes/events.js`、`server/routes/audit.js`、`server/services/sftService.js`、`db.js`
@@ -52,13 +56,14 @@ const allowLocalBypass = process.env.LOCAL_API_AUTH_BYPASS === 'true';
 
 ---
 
-## Linter 顺带完成（P2）
+## 顺带完成的清理项（P1/P2）
 
 - `buildTokenEntries` 加了模块级缓存 `_tokenEntriesCache`，避免每次请求重建
 - `sendOwnerScopeForbidden` 提取到 `appAuth.js` 并 export，消除重复定义
 - `events.js` DELETE 事件改用 `db2.transaction()` 包裹（P1-6）
 - `sft.js` review 操作补充了 `writeAudit` 调用（P1-5）
 - `.env.example` 中 `LOCAL_API_AUTH_BYPASS` 默认值已改为 `false`
+- 当前仓库未新增正式 `lint` 命令，因此这里不再使用 “linter” 表述
 
 ---
 
@@ -93,17 +98,21 @@ const allowLocalBypass = process.env.LOCAL_API_AUTH_BYPASS === 'true';
 - audit 现在只保留允许字段、更新字段列表、lifecycle 变化和 reply strategy 结果
 
 ### 3. 补充回归测试
-**文件：** `tests/auditRoutes.test.mjs`、`tests/creatorListFields.test.mjs`
+**文件：** `tests/auditMiddleware.test.mjs`、`tests/auditRoutes.test.mjs`、`tests/creatorListFields.test.mjs`
 
 - 覆盖 `fetchGenerationRows` 的参数化 `LIMIT ?` 查询路径
 - 覆盖 unlimited 查询路径不含 `LIMIT`
+- 覆盖 `writeAudit` 的递归脱敏与 phone-like `record_id` 脱敏
+- 覆盖 `/api/audit-log` 返回前的 `record_id` / `client_id` / 嵌套字段脱敏
 - 覆盖 creator 基础信息更新 audit 白名单
 - 覆盖 creator WA CRM 更新 audit 白名单
 
 ### 4. 本次落盘文件
 
+- `server/middleware/audit.js`
 - `server/routes/audit.js`
 - `server/routes/creators.js`
+- `tests/auditMiddleware.test.mjs`
 - `tests/auditRoutes.test.mjs`
 - `tests/creatorListFields.test.mjs`
 - `docs/SECURITY_CHANGES_2026-04-16.md`
@@ -119,7 +128,7 @@ const allowLocalBypass = process.env.LOCAL_API_AUTH_BYPASS === 'true';
 ## 测试结果
 
 ``` 
-111/111 tests passed
+114/114 tests passed
 SMOKE: PASSED
 Syntax check: ALL OK
 ```
