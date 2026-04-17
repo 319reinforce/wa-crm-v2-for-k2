@@ -779,7 +779,7 @@ function App() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 flex gap-3 overflow-hidden">
+          <div className="flex-1 min-h-0 flex gap-1.5 overflow-hidden">
             <div
               className="docs-panel shrink-0 flex flex-col overflow-hidden"
               style={{
@@ -1086,7 +1086,7 @@ function App() {
               </div>
             </div>
 
-            <div className="flex-1 min-w-0 docs-panel overflow-hidden" style={{ background: WA.shellPanelStrong }}>
+            <div className="flex-1 min-w-0 docs-panel overflow-hidden flex flex-col" style={{ background: WA.shellPanelStrong }}>
               {activeTab === 'creators' ? (
                 conversationScope === 'groups' ? (
                   <WAGroupChatViewer groupChat={selectedGroupChat} apiBase={API_BASE} />
@@ -1492,12 +1492,17 @@ function FilterSelect({ value, onChange, placeholder, children }) {
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="flex-1 text-[12px] px-3 py-2.5 rounded-2xl border focus:outline-none transition-all leading-5"
+      className="flex-1 min-w-0 h-9 text-[12px] pl-3 pr-8 rounded-2xl border focus:outline-none transition-all appearance-none bg-no-repeat"
       style={{
-        background: WA.white,
+        backgroundColor: WA.white,
+        backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 20 20' fill='none' stroke='%236f6a62' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 8 10 12 14 8' /></svg>\")",
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right 10px center',
+        backgroundSize: '12px 12px',
         borderColor: value ? WA.teal + '50' : WA.borderLight,
         color: value ? WA.textDark : WA.textMuted,
         fontSize: '12px',
+        lineHeight: 1,
         boxShadow: value ? '0 0 0 1px rgba(15,118,110,0.08)' : 'none',
       }}
     >
@@ -1994,8 +1999,8 @@ function Panel2Empty({ stats, creators }) {
   const digestItems = buildWorkspaceDigestItems(creators, 4)
 
   return (
-    <div className="flex-1 flex flex-col" style={{ background: WA.chatBg }}>
-      <div className="flex-1 overflow-y-auto p-8 space-y-5 docs-scrollbar">
+    <div className="flex-1 min-h-0 flex flex-col" style={{ background: WA.chatBg }}>
+      <div className="flex-1 min-h-0 overflow-y-auto p-8 space-y-5 docs-scrollbar">
         <div className="text-center mb-2">
           <div className="docs-kicker">Workspace</div>
           <div className="text-[34px] mt-2 font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>消息工作台</div>
