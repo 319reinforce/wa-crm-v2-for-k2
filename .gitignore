@@ -20,3 +20,6 @@ docs/rag/observation-reports/*
 !docs/rag/observation-reports/.gitkeep
 data/media-assets/
 backups/
+
+# 设计/内部文档不随代码仓库分发
+docs/
