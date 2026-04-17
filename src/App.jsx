@@ -789,24 +789,46 @@ function App() {
                 background: WA.shellPanel,
               }}
             >
-              <div className="px-4 pt-4 pb-3 border-b space-y-3" style={{ borderColor: WA.shellBorder }}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="docs-kicker">Navigator</div>
+              <div className="px-4 pt-3 pb-3 border-b space-y-2.5" style={{ borderColor: WA.shellBorder }}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex items-center gap-2">
                     <div className="docs-title">{conversationScope === 'groups' ? '群聊归档' : '达人名录'}</div>
-                    <div className="text-[12px] mt-0.5" style={{ color: WA.textMuted }}>
-                      {conversationScope === 'groups' ? '群聊消息单独归档展示，不再混入达人私聊。' : '用文档式列表浏览联系人、筛选阶段并进入聊天。'}
+                    <div
+                      className="shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-semibold"
+                      style={{ background: WA.shellAccentSoft, color: WA.teal }}
+                    >
+                      {conversationScope === 'groups' ? `${filteredGroupChats.length} 群` : `${filteredCreators.length} 人`}
                     </div>
                   </div>
-                  <div
-                    className="shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold"
-                    style={{ background: WA.shellAccentSoft, color: WA.teal }}
-                  >
-                    {conversationScope === 'groups' ? `${filteredGroupChats.length} 群` : `${filteredCreators.length} 人`}
+                  <div className="flex gap-1 rounded-full p-0.5 shrink-0" style={{ background: WA.shellPanelMuted }}>
+                    <button
+                      onClick={() => setConversationScope('creators')}
+                      className="px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all"
+                      style={{
+                        background: conversationScope === 'creators' ? WA.white : 'transparent',
+                        color: conversationScope === 'creators' ? WA.textDark : WA.textMuted,
+                        border: `1px solid ${conversationScope === 'creators' ? WA.borderLight : 'transparent'}`
+                      }}
+                      title="私聊达人"
+                    >
+                      私聊
+                    </button>
+                    <button
+                      onClick={() => setConversationScope('groups')}
+                      className="px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all"
+                      style={{
+                        background: conversationScope === 'groups' ? WA.white : 'transparent',
+                        color: conversationScope === 'groups' ? WA.textDark : WA.textMuted,
+                        border: `1px solid ${conversationScope === 'groups' ? WA.borderLight : 'transparent'}`
+                      }}
+                      title="群聊归档"
+                    >
+                      群聊
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-4 py-3 rounded-2xl" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+                <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-2xl" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
                   <span style={{ color: WA.textMuted }}>🔍</span>
                   <input
                     type="text"
@@ -821,53 +843,22 @@ function App() {
                   )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <div className="docs-kicker">Operators</div>
-                  <div className="flex flex-wrap gap-2">
-                    {ownerOptions.map(o => (
-                      <button
-                        key={o}
-                        onClick={() => !ownerLocked && setFilterOwner(o)}
-                        className="shrink-0 px-3.5 py-2 rounded-full text-[13px] font-medium transition-all"
-                        style={{
-                          background: filterOwner === o ? WA.shellActive : WA.white,
-                          color: filterOwner === o ? WA.textDark : WA.textMuted,
-                          border: `1px solid ${filterOwner === o ? WA.shellBorderStrong : WA.borderLight}`,
-                          opacity: ownerLocked ? 0.92 : 1,
-                        }}
-                      >
-                        {o === '' ? '全部' : o}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="docs-kicker">Scope</div>
-                  <div className="flex flex-wrap gap-2">
+                <div className="flex items-center gap-2 overflow-x-auto docs-scrollbar pb-1">
+                  {ownerOptions.map(o => (
                     <button
-                      onClick={() => setConversationScope('creators')}
-                      className="shrink-0 px-3.5 py-2 rounded-full text-[13px] font-medium transition-all"
+                      key={o}
+                      onClick={() => !ownerLocked && setFilterOwner(o)}
+                      className="shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-all"
                       style={{
-                        background: conversationScope === 'creators' ? WA.shellActive : WA.white,
-                        color: conversationScope === 'creators' ? WA.textDark : WA.textMuted,
-                        border: `1px solid ${conversationScope === 'creators' ? WA.shellBorderStrong : WA.borderLight}`
+                        background: filterOwner === o ? WA.shellActive : WA.white,
+                        color: filterOwner === o ? WA.textDark : WA.textMuted,
+                        border: `1px solid ${filterOwner === o ? WA.shellBorderStrong : WA.borderLight}`,
+                        opacity: ownerLocked ? 0.92 : 1,
                       }}
                     >
-                      私聊达人
+                      {o === '' ? '全部' : o}
                     </button>
-                    <button
-                      onClick={() => setConversationScope('groups')}
-                      className="shrink-0 px-3.5 py-2 rounded-full text-[13px] font-medium transition-all"
-                      style={{
-                        background: conversationScope === 'groups' ? WA.shellActive : WA.white,
-                        color: conversationScope === 'groups' ? WA.textDark : WA.textMuted,
-                        border: `1px solid ${conversationScope === 'groups' ? WA.shellBorderStrong : WA.borderLight}`
-                      }}
-                    >
-                      群聊归档
-                    </button>
-                  </div>
+                  ))}
                 </div>
               </div>
 
