@@ -1,35 +1,84 @@
-name: CI
+# PR workflow: build + push wa-crm image + deploy to test env only.
+# 参考 K2Lab/keeper/.gitea/workflows/test-backend-build.yaml
+name: test-wa-crm-build
 
 on:
-  push:
   pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/**"
+      - "server/**"
+      - "src/**"
+      - "public/**"
+      - "scripts/**"
+      - "db.js"
+      - "schema.sql"
+      - "Dockerfile"
+      - "package.json"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "vite.config.js"
+      - "postcss.config.mjs"
+      - "tailwind.config.js"
+      - "systemPromptBuilder.cjs"
+      - "migrate-*.js"
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Login to Gitea registry
+        uses: docker/login-action@v3
         with:
-          node-version: 20
-          cache: npm
+          registry: git.k2lab.ai
+          username: ${{ github.actor }}
+          password: ${{ secrets.RUNNER_PAT }}
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Set Tag
+        id: set_tag
+        run: |
+          SHORT_SHA="$(echo ${{ github.sha }} | cut -c1-7)"
+          DATE_TAG="$(date +%Y%m%d)-${SHORT_SHA}"
+          echo "tag=${DATE_TAG}" >> $GITHUB_OUTPUT
+          echo "${DATE_TAG}" > wa_crm_tag.txt
+          echo "Generated tag: ${DATE_TAG}"
 
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Build and push
+        run: |
+          DATE_TAG="${{ steps.set_tag.outputs.tag }}"
+          IMAGE="git.k2lab.ai/k2lab/wa-crm"
+          docker build -t "${IMAGE}:${DATE_TAG}" -t "${IMAGE}:latest" -f Dockerfile .
+          docker push "${IMAGE}:${DATE_TAG}"
 
-      - name: Run CI test suite
-        run: npm run test:ci
-
-      - name: Upload acceptance artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Upload Tag Artifact
+        uses: actions/upload-artifact@v3
         with:
-          name: acceptance-reports
-          path: reports/acceptance
-          if-no-files-found: warn
+          name: wa-crm-tag
+          path: wa_crm_tag.txt
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Tag Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: wa-crm-tag
+
+      - name: Read Tag
+        run: echo "TAG=$(cat wa_crm_tag.txt)" >> $GITHUB_ENV
+
+      - name: Deploy to Test Server
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.TEST_SERVER_HOST }}
+          username: ${{ secrets.TEST_SERVER_USER }}
+          key: ${{ secrets.TEST_SERVER_SSH_KEY }}
+          envs: TAG
+          script: |
+            echo "Deploying with TAG=${TAG}"
+            cd /home/dev/moras-composer
+            ./scripts/deploy-service.sh test wa-crm "${TAG}"

@@ -28,11 +28,14 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制依赖文件
-COPY package*.json ./
+# 安装 pnpm（固定主版本 9，抗 tarball integrity 污染）
+RUN npm install -g pnpm@9
 
-# 安装依赖
-RUN npm install
+# 复制依赖文件
+COPY package.json pnpm-lock.yaml ./
+
+# 安装依赖（pnpm 对网络抖动和 tarball 损坏更健壮）
+RUN pnpm install --frozen-lockfile
 
 # 复制源代码
 COPY . .
@@ -41,7 +44,7 @@ COPY . .
 RUN mkdir -p /app/.wwebjs_auth /app/.wwebjs_cache /app/data/media-assets
 
 # 构建前端（Vite 输出到 public/）
-RUN npm run build
+RUN pnpm run build
 
 # 暴露端口
 EXPOSE 3000
