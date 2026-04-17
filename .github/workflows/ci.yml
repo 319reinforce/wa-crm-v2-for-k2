@@ -2,11 +2,18 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,3 +40,85 @@ jobs:
           name: acceptance-reports
           path: reports/acceptance
           if-no-files-found: warn
+
+  build-image:
+    needs: [test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: meta
+        run: |
+          SHORT=$(git rev-parse --short=7 HEAD)
+          DATE=$(date -u +%Y%m%d)
+          TAG="${DATE}-${SHORT}"
+          echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Computed image tag: $TAG"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Gitea registry
+        uses: docker/login-action@v3
+        with:
+          registry: git.k2lab.ai
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build & push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            git.k2lab.ai/k2lab/wa-crm:${{ steps.meta.outputs.image_tag }}
+            git.k2lab.ai/k2lab/wa-crm:test
+          cache-from: type=registry,ref=git.k2lab.ai/k2lab/wa-crm:test
+          cache-to: type=inline
+
+  deploy-test:
+    needs: [build-image]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: deploy-test-wa-crm
+      cancel-in-progress: false
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${DEPLOY_SSH_PORT:-22}" -H "${{ secrets.DEPLOY_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+        env:
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+
+      - name: Deploy to test server
+        env:
+          TAG: ${{ needs.build-image.outputs.image_tag }}
+          HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          USER: ${{ secrets.DEPLOY_SSH_USER }}
+          PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -p "${PORT:-22}" \
+              -o StrictHostKeyChecking=accept-new \
+              "$USER@$HOST" \
+              "cd /home/dev/moras-composer && ./scripts/deploy-service.sh test wa-crm '$TAG'"
+
+      - name: Verify health
+        env:
+          HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          USER: ${{ secrets.DEPLOY_SSH_USER }}
+          PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -p "${PORT:-22}" \
+              -o StrictHostKeyChecking=accept-new \
+              "$USER@$HOST" \
+              "for i in \$(seq 1 12); do status=\$(docker inspect -f '{{.State.Health.Status}}' test-wa-crm-1 2>/dev/null); echo \"try \$i: \$status\"; [ \"\$status\" = healthy ] && exit 0; sleep 5; done; docker logs test-wa-crm-1 --tail 30; exit 1"
