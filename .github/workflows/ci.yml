@@ -1,124 +1,84 @@
-name: CI
+# PR workflow: build + push wa-crm image + deploy to test env only.
+# 参考 K2Lab/keeper/.gitea/workflows/test-backend-build.yaml
+name: test-wa-crm-build
 
 on:
-  push:
-    branches: [main]
   pull_request:
-    branches: [main]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [ main ]
+    paths:
+      - ".github/workflows/**"
+      - "server/**"
+      - "src/**"
+      - "public/**"
+      - "scripts/**"
+      - "db.js"
+      - "schema.sql"
+      - "Dockerfile"
+      - "package.json"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "vite.config.js"
+      - "postcss.config.mjs"
+      - "tailwind.config.js"
+      - "systemPromptBuilder.cjs"
+      - "migrate-*.js"
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Run CI test suite
-        run: npm run test:ci
-
-      - name: Upload acceptance artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: acceptance-reports
-          path: reports/acceptance
-          if-no-files-found: warn
-
-  build-image:
-    needs: [test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    outputs:
-      image_tag: ${{ steps.meta.outputs.image_tag }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Compute image tag
-        id: meta
-        run: |
-          SHORT=$(git rev-parse --short=7 HEAD)
-          DATE=$(date -u +%Y%m%d)
-          TAG="${DATE}-${SHORT}"
-          echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Computed image tag: $TAG"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
 
       - name: Login to Gitea registry
         uses: docker/login-action@v3
         with:
           registry: git.k2lab.ai
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.RUNNER_PAT }}
 
-      - name: Build & push image
-        uses: docker/build-push-action@v5
+      - name: Set Tag
+        id: set_tag
+        run: |
+          SHORT_SHA="$(echo ${{ github.sha }} | cut -c1-7)"
+          DATE_TAG="$(date +%Y%m%d)-${SHORT_SHA}"
+          echo "tag=${DATE_TAG}" >> $GITHUB_OUTPUT
+          echo "${DATE_TAG}" > wa_crm_tag.txt
+          echo "Generated tag: ${DATE_TAG}"
+
+      - name: Build and push
+        run: |
+          DATE_TAG="${{ steps.set_tag.outputs.tag }}"
+          IMAGE="git.k2lab.ai/k2lab/wa-crm"
+          docker build -t "${IMAGE}:${DATE_TAG}" -t "${IMAGE}:latest" -f Dockerfile .
+          docker push "${IMAGE}:${DATE_TAG}"
+
+      - name: Upload Tag Artifact
+        uses: actions/upload-artifact@v3
         with:
-          context: .
-          push: true
-          tags: |
-            git.k2lab.ai/k2lab/wa-crm:${{ steps.meta.outputs.image_tag }}
-            git.k2lab.ai/k2lab/wa-crm:test
-          cache-from: type=registry,ref=git.k2lab.ai/k2lab/wa-crm:test
-          cache-to: type=inline
+          name: wa-crm-tag
+          path: wa_crm_tag.txt
 
-  deploy-test:
-    needs: [build-image]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  deploy:
+    needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    concurrency:
-      group: deploy-test-wa-crm
-      cancel-in-progress: false
     steps:
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p "${DEPLOY_SSH_PORT:-22}" -H "${{ secrets.DEPLOY_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
-        env:
-          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+      - name: Download Tag Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: wa-crm-tag
 
-      - name: Deploy to test server
-        env:
-          TAG: ${{ needs.build-image.outputs.image_tag }}
-          HOST: ${{ secrets.DEPLOY_SSH_HOST }}
-          USER: ${{ secrets.DEPLOY_SSH_USER }}
-          PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-        run: |
-          ssh -i ~/.ssh/id_ed25519 -p "${PORT:-22}" \
-              -o StrictHostKeyChecking=accept-new \
-              "$USER@$HOST" \
-              "cd /home/dev/moras-composer && ./scripts/deploy-service.sh test wa-crm '$TAG'"
+      - name: Read Tag
+        run: echo "TAG=$(cat wa_crm_tag.txt)" >> $GITHUB_ENV
 
-      - name: Verify health
-        env:
-          HOST: ${{ secrets.DEPLOY_SSH_HOST }}
-          USER: ${{ secrets.DEPLOY_SSH_USER }}
-          PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-        run: |
-          ssh -i ~/.ssh/id_ed25519 -p "${PORT:-22}" \
-              -o StrictHostKeyChecking=accept-new \
-              "$USER@$HOST" \
-              "for i in \$(seq 1 12); do status=\$(docker inspect -f '{{.State.Health.Status}}' test-wa-crm-1 2>/dev/null); echo \"try \$i: \$status\"; [ \"\$status\" = healthy ] && exit 0; sleep 5; done; docker logs test-wa-crm-1 --tail 30; exit 1"
+      - name: Deploy to Test Server
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.TEST_SERVER_HOST }}
+          username: ${{ secrets.TEST_SERVER_USER }}
+          key: ${{ secrets.TEST_SERVER_SSH_KEY }}
+          envs: TAG
+          script: |
+            echo "Deploying with TAG=${TAG}"
+            cd "${{ secrets.TEST_SERVER_COMPOSER_PATH || '/root/moras-composer' }}"
+            ./scripts/deploy-service.sh test wa-crm "${TAG}"
