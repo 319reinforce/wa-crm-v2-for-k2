@@ -1,7 +1,7 @@
 services:
   wa-crm:
     build:
-      .
+      context: .
       args:
         - VITE_USE_OPENAI=${VITE_USE_OPENAI:-false}
         - VITE_OPENAI_API_KEY=${VITE_OPENAI_API_KEY:-}
