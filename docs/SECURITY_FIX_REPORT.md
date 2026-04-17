@@ -1,97 +1,66 @@
 # Security & Quality Fix Report
 
-Date: 2026-04-14
+> 状态更新：2026-04-17
+> Canonical plan：`docs/SECURITY_FIX_PLAN.md`
+> 变更记录：`docs/SECURITY_CHANGES_2026-04-16.md`、`docs/SECURITY_CHANGES_2026-04-17.md`
 
-## Summary
+## 当前结论
 
-本次修复覆盖 9 项安全/质量问题，全部通过语法检查。
+截至 2026-04-17，安全修复主线已经完成：
 
----
+- P0 全部完成
+- P1 全部完成
+- P2 中 P2-1、P2-4、P2-7 已完成
+- 当前剩余项只剩 P2-2、P2-3、P2-5、P2-6
 
-## P1 — 安全修复
+## 已完成项
 
-### P1-1: broadcast event 字段 allowlist
-**文件**: `server/index.cjs`
+### P0 — 高优先级安全修复
 
-`POST /api/events/broadcast` 的 `event` 字段改为 allowlist 校验，非白名单值 fallback 到 `creators-updated`，防止任意字符串注入 SSE 流。
+- P0-1：`LOCAL_API_AUTH_BYPASS` 默认关闭，需显式设为 `true` 才启用 localhost 绕过
+- P0-2：移除 URL query token；普通 API 走 `Authorization: Bearer`，SSE/EventSource 走同源 `httpOnly` cookie
+- P0-3：内部服务 token 不再回退 admin token
+- P0-4：`audit_log` 写入前和读取前统一递归脱敏，遮罩 `wa_phone` / `phone` / `client_id` / `record_id` / `password` / `token` / `secret`
+- P0-5：`LIMIT/OFFSET` 与 generation log `LIMIT` 残留已全部参数化
 
-白名单: `['creators-updated', 'refresh', 'sft-updated', 'events-updated']`
+### P1 — 已全部完成
 
-### P1-2: GET /api/creators 过滤 wa_phone
-**文件**: `server/routes/creators.js`
+- P1-1：`/api/events/broadcast` 显式挂载 `jsonBody`，并对 SSE event 名做 allowlist
+- P1-2：`GET /api/creators` 默认隐藏 `wa_phone`；仅在 `?fields=wa_phone` 且为 admin/service token 时返回
+- P1-3：`PUT /api/creators/:id` 与 `PUT /api/creators/:id/wacrm` 改为 audit 白名单字段写入
+- P1-4：SFT 路由逻辑已收口到 `server/services/sftService.js`
+- P1-5：SFT review 已补齐 `writeAudit('sft_review', ...)`
+- P1-6：DELETE `/api/events/:id` 已使用事务包裹
+- P1-7：`GET /:operator/clients` 已支持 `limit` / `offset`，并且不返回 `wa_phone`
 
-列表接口对非 admin token 不返回 `wa_phone` 字段，减少手机号泄露面。admin token (`req.auth.role === 'admin'`) 仍可获取完整数据。
+### P2 — 已完成部分
 
-### P1-3: PUT /api/creators/:id/wacrm audit 白名单
-**文件**: `server/routes/creators.js`
+- P2-1：`sendOwnerScopeForbidden` 已提取到 `server/middleware/appAuth.js`
+- P2-4：`POST /api/wa/send` 响应体已移除 `wa_phone`
+- P2-7：`buildTokenEntries` 已加模块级缓存 `_tokenEntriesCache`
 
-`writeAudit` 调用不再传 `...req.body`，改为只传白名单字段（`updated`, `lifecycle_before`, `lifecycle_after`, `lifecycle_changed`, `reply_strategy`），防止用户可控数据写入 audit log。
+## 剩余项
 
-### P1-5: SFT review 操作加 audit log
-**文件**: `server/routes/sft.js`
+| 编号 | 当前状态 |
+|------|------|
+| P2-2 | `resolveRequestedOwner` 仍在 `sft.js` / `events.js` / `audit.js` 重复实现，需统一收口到 `ownerScope.js` |
+| P2-3 | `db.getCreatorFull()` 仍是串行查询，需评估并行化 messages / aliases / keeper 读取 |
+| P2-5 | `schema.sql` 的函数索引仍缺少 MySQL `8.0.13+` 注释 |
+| P2-6 | `index.cjs`、`waService.js`、`waWorker.js` 等处仍有较多 `console.log` |
 
-`PATCH /api/sft-memory/:id/review` 在状态变更后调用 `writeAudit('sft_review', ...)`，记录 before/after status、comment、reviewed_by，满足操作可追溯要求。
+## 验证结果
 
-### P1-6: DELETE /api/events/:id 两步删除加事务
-**文件**: `server/routes/events.js`
+### `npm test`（2026-04-17 实测）
 
-删除 `event_periods` 和 `events` 两步操作用 `db2.transaction()` 包裹，防止中间失败导致孤儿记录。
+- backend syntax check：通过
+- `vite build`：通过
+- `node --test`：`114/114` passed
+- smoke 总结果：`[SMOKE] PASSED`
 
-### P1-7: experience /:operator/clients 加分页
-**文件**: `server/routes/experience.js`
+### 默认跳过项
 
-`GET /:operator/clients` 加入分页参数，防止全表扫描：
-- `limit`: 默认 50，最大 200
-- `offset`: 默认 0
-- 响应新增 `limit`、`offset` 字段
-- 同时移除响应中的 `wa_phone` 字段
+- API integration smoke
+- UI acceptance smoke
+- WA send smoke
 
----
-
-## P2 — 质量改进
-
-### P2-1: sendOwnerScopeForbidden 提取到 appAuth.js
-**文件**: `server/middleware/appAuth.js` + 5 个路由文件
-
-`sendOwnerScopeForbidden` 函数原本在 5 个路由文件中各自重复定义，现统一提取到 `appAuth.js` 并 export。各路由文件改为从 `appAuth` import，消除重复代码。
-
-涉及文件: `creators.js`, `sft.js`, `events.js`, `messages.js`, `wa.js`
-
-### P2-4: POST /api/wa/send 响应体删除 wa_phone
-**文件**: `server/routes/wa.js`
-
-发送消息接口的响应体移除 `wa_phone` 字段，减少手机号在 API 响应中的暴露。
-
-### P2-7: buildTokenEntries 模块级缓存
-**文件**: `server/middleware/appAuth.js`
-
-`buildTokenEntries()` 每次调用都重新遍历 env 变量，加入模块级缓存 `_tokenEntriesCache`，进程生命周期内只构建一次，减少重复计算。env 变更需重启进程（可接受行为）。
-
----
-
-## 未处理项（需单独评估）
-
-| 编号 | 描述 | 原因 |
-|------|------|------|
-| P1-4 | sftService 与 sft 路由重复逻辑 | 涉及业务逻辑重构，风险较高 |
-| P2-2 | resolveRequestedOwner 3处重复 | 需确认各处语义是否完全一致 |
-| P2-3 | getCreatorFull 并行查询优化 | 性能优化，非安全问题 |
-| P2-5 | schema 注释补全 | 文档类，低优先级 |
-| P2-6 | console.log 清理 | 仅保留 error/warn 级别 |
-
----
-
-## 验证
-
-所有修改文件通过 `node -c` 语法检查：
-
-```
-server/middleware/appAuth.js: OK
-server/routes/creators.js: OK
-server/routes/sft.js: OK
-server/routes/events.js: OK
-server/routes/messages.js: OK
-server/routes/wa.js: OK
-server/routes/experience.js: OK
-server/index.cjs: OK
-```
+这些仍按环境变量开关控制，未包含在本次默认 `npm test` 中。

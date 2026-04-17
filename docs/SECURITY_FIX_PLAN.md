@@ -1,12 +1,13 @@
 # Security Fix Plan — WA CRM v2
 
 > 生成日期：2026-04-16
-> 状态更新：2026-04-16
+> 状态更新：2026-04-17
 > 审核来源：全量代码审核（review-agent + checklist）
+> 验证更新：2026-04-17 `npm test` => `114/114` passed, `[SMOKE] PASSED`
 
 ---
 
-## 状态快照（截至 2026-04-16）
+## 状态快照（截至 2026-04-17）
 
 ### 已完成
 
@@ -21,11 +22,17 @@
 - P1-4：SFT 路由逻辑收口到 `sftService`
 - P1-5：SFT review 补齐 audit log
 - P1-6：DELETE `/api/events/:id` 使用事务包裹
+- P1-7：`experience.js` 客户列表分页已落地，响应回传 `limit` / `offset`
+- P2-1：`sendOwnerScopeForbidden` 已提取到 `appAuth.js`
+- P2-4：`POST /api/wa/send` 响应体已移除 `wa_phone`
+- P2-7：`buildTokenEntries` 已加模块级缓存 `_tokenEntriesCache`
 
 ### 仍待处理
 
-- P1-7：`experience.js` 客户列表分页
-- 部分 P2 清理项，见下文表格
+- P2-2：`resolveRequestedOwner` 仍在多处重复实现
+- P2-3：`getCreatorFull` 仍是串行查询
+- P2-5：`schema.sql` 仍缺少 MySQL 函数索引版本注释
+- P2-6：`console.log` 清理尚未完成
 
 ---
 
@@ -197,7 +204,7 @@ const rows = db.prepare(sql).all(...params, safeLimit, safeOffset);
 | P1-4 | sftService 与 sft 路由业务逻辑重复且不同步 | `sftService.js` / `sft.js` | 已完成：路由层调用 service，service 负责统一 create/list/review/stats 逻辑 |
 | P1-5 | SFT review 操作无 audit log | `sft.js:364–386` | 已完成：approve/reject 路径补齐 `writeAudit('sft_review', ...)` |
 | P1-6 | DELETE /api/events/:id 两步删除不在事务内 | `events.js:694–695` | 已完成：使用事务包裹删除 |
-| P1-7 | experience.js 客户列表无分页 | `experience.js:180–202` | 加 `LIMIT ? OFFSET ?` 参数，默认 limit=50 |
+| P1-7 | experience.js 客户列表无分页 | `experience.js:180–202` | 已完成：加 `LIMIT ? OFFSET ?` 参数，默认 limit=50、最大 200，响应回传 `limit` / `offset` 且不返回 `wa_phone` |
 
 ---
 
@@ -205,22 +212,23 @@ const rows = db.prepare(sql).all(...params, safeLimit, safeOffset);
 
 | # | 问题 | 文件 | 修复方式 |
 |---|------|------|---------|
-| P2-1 | `sendOwnerScopeForbidden` 5处复制粘贴 | `creators.js`, `sft.js`, `events.js`, `messages.js`, `wa.js` | 提取到 `appAuth.js` 并 export，各文件改为 import 调用 |
-| P2-2 | `resolveRequestedOwner` 3处重复实现 | `sft.js:33`, `events.js:60`, `experience.js:162` | 统一使用 `ownerScope.js` 中已有的实现 |
-| P2-3 | `getCreatorFull` 3个串行查询 | `db.js:369–378` | `Promise.all` 并行 messages + aliases；删除冗余的 keeper 单独查询 |
-| P2-4 | `POST /api/wa/send` 响应体含 wa_phone | `wa.js:244` | 从响应中删除 `wa_phone` 字段 |
-| P2-5 | schema.sql 函数索引未注明 MySQL 版本要求 | `schema.sql:528` | 加注释 `-- requires MySQL 8.0.13+` |
-| P2-6 | console.log 残留 | `index.cjs`, `waService.js`, `waWorker.js` 等 | 替换为结构化日志或删除 |
-| P2-7 | `buildTokenEntries` 每次请求重建 | `appAuth.js` | 模块级缓存，进程启动时构建一次，env 变更时失效 |
+| P2-1 | `sendOwnerScopeForbidden` 5处复制粘贴 | `creators.js`, `sft.js`, `events.js`, `messages.js`, `wa.js` | 已完成：提取到 `appAuth.js` 并 export，各文件改为 import 调用 |
+| P2-2 | `resolveRequestedOwner` 3处重复实现 | `sft.js:33`, `events.js:60`, `audit.js:55` | 待处理：统一收口到 `ownerScope.js` 中已有实现，并校对 owner-locked 语义一致性 |
+| P2-3 | `getCreatorFull` 3个串行查询 | `db.js:369–378` | 待处理：`Promise.all` 并行 messages + aliases，并评估 keeper 查询是否合并或保留独立读取 |
+| P2-4 | `POST /api/wa/send` 响应体含 wa_phone | `wa.js:244` | 已完成：响应体移除 `wa_phone` 字段 |
+| P2-5 | schema.sql 函数索引未注明 MySQL 版本要求 | `schema.sql:528` | 待处理：补注释 `-- requires MySQL 8.0.13+` |
+| P2-6 | console.log 残留 | `index.cjs`, `waService.js`, `waWorker.js` 等 | 待处理：替换为结构化日志或删除，仅保留必要启动/运维输出 |
+| P2-7 | `buildTokenEntries` 每次请求重建 | `appAuth.js` | 已完成：模块级缓存 `_tokenEntriesCache`，进程启动后只构建一次 |
 
 ---
 
-## 建议修复顺序
+## 剩余建议修复顺序
 
 ```
-P0-4（wa_phone 脱敏）→ P0-2（token URL）→ P0-1（bypass 默认值）→ P0-3（internal token）→ P0-5（LIMIT 参数化）
-→ P1-1（broadcast body 顺序）→ P1-6（事务）→ P1-2（creators 字段过滤）
-→ P2-1/P2-2（重复代码提取）→ 其余 P2
+P2-2（owner scope helper 收口）
+→ P2-3（getCreatorFull 并行查询）
+→ P2-5（schema 注释补全）
+→ P2-6（console.log 清理）
 ```
 
-P0-4 优先是因为它是数据合规问题，且改动最小（只改 `audit.js` 一处）。
+P0/P1 以及 P2-1、P2-4、P2-7 已完成；当前只剩低风险 P2 清理项。

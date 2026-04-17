@@ -1,73 +1,31 @@
-# Security Changes — 2026-04-16
+# Security Changes — 2026-04-16 (Compatibility Entry)
 
-## 背景
+此文件保留给旧链接和旧会话引用使用。
 
-全量代码审核后，针对 P0 安全问题完成修复。审核文档见 `docs/SECURITY_FIX_PLAN.md`。
+当前 canonical 变更记录：
 
----
+- `docs/SECURITY_CHANGES_2026-04-16.md`
 
-## 今日改动
+截至 2026-04-17 的真实状态已同步为：
 
-### 1. `server/middleware/appAuth.js`
+- P0：全部完成
+- P1：全部完成
+- P2：P2-1 / P2-4 / P2-7 已完成
+- 剩余项：P2-2 / P2-3 / P2-5 / P2-6
 
-- P0-1：`LOCAL_API_AUTH_BYPASS` 默认值从 `!== 'false'`（默认开）改为 `=== 'true'`（默认关），防止 NODE_ENV 未设置时绕过生效
-- P0-2：`extractToken` 移除 query string token 读取，只接受 `Authorization: Bearer` header
-- 顺带完成：`buildTokenEntries` 加模块级缓存 `_tokenEntriesCache`，避免每次请求重建
-- 顺带完成：新增 `sendOwnerScopeForbidden(res, lockedOwner)` 并 export，解决 P2-1 重复定义问题
+最新验证结果：
 
-### 2. `server/middleware/audit.js`
+- `npm test` => `114/114` passed
+- `[SMOKE] PASSED`
+- 默认仍跳过 API integration smoke、UI acceptance smoke、WA send smoke
 
-- P0-4：新增递归脱敏的 `sanitizeAuditValue(obj)` 与 `sanitizeAuditRecordId(recordId)`，在 `writeAudit` 内对 `beforeValue`/`afterValue`/`record_id` 统一脱敏，`wa_phone`、`phone`、`client_id`、`record_id`、`password`、`token`、`secret` 字段自动替换为 `[REDACTED]`
+补充说明：
 
-### 3. `server/utils/internalAuth.js`
+- SSE/EventSource 当前通过同源 `httpOnly` cookie 复用认证态，不再依赖 query token
+- 本地开发只有在 `.env` 显式设置 `LOCAL_API_AUTH_BYPASS=true` 时才允许 localhost 无 token 访问
+- 服务间调用必须使用专用 `INTERNAL_SERVICE_TOKEN`，不能复用 admin token
 
-- P0-3：`INTERNAL_SERVICE_TOKEN_ENV_KEYS` 移除 `API_AUTH_TOKEN`、`CRM_ADMIN_TOKEN`、`WA_ADMIN_TOKEN`，防止 admin token 以 `role: 'service'` 双重注册
+详细内容请查看：
 
-### 4. `server/index.cjs`
-
-- P0-2 SSE 兼容：`/api/events/subscribe` 端点加前置中间件，将 query string token 注入 `Authorization` header，解决原生 `EventSource` 不支持自定义 header 的问题。其他所有端点不受影响
-
-### 5. LIMIT/OFFSET 参数化（P0-5）
-
-6 处模板字符串拼接全部改为 `?` 占位符：
-
-| 文件 | 行号 |
-|------|------|
-| `server/routes/sft.js` | 323, 652 |
-| `server/routes/events.js` | 399 |
-| `server/routes/audit.js` | 252 |
-| `server/services/sftService.js` | 140 |
-| `db.js` | 289 |
-
-### 6. 顺带完成的清理项（P1/P2）
-
-- `server/routes/events.js:695`：`DELETE /api/events/:id` 改用 `db2.transaction()` 包裹两步删除（P1-6）
-- `server/routes/sft.js:381`：`PATCH /api/sft-memory/:id/review` 加 `writeAudit('sft_review', ...)` 审计记录（P1-5）
-- `server/middleware/appAuth.js`：`sendOwnerScopeForbidden` 提取并 export（P2-1）
-
----
-
-## 测试结果
-
-```
-87/87 tests passed
-[SMOKE] PASSED
-```
-
----
-
-## 待处理（未动）
-
-- P1-1：`/api/events/broadcast` body 解析顺序 + SSE event 名 allowlist
-- P1-2：`GET /api/creators` 返回全量 `wa_phone`，需字段过滤
-- P1-3：`PUT /api/creators/:id/wacrm` req.body 写入 audit
-- P1-4：sftService 与 sft 路由业务逻辑重复
-- P1-7：`experience.js` 客户列表无分页
-- P2-2/P2-3/P2-4/P2-5/P2-6：见 `SECURITY_FIX_PLAN.md`
-
----
-
-## 注意事项
-
-- 本地开发需在 `.env` 中显式设置 `LOCAL_API_AUTH_BYPASS=true` 才能启用 localhost 无 token 访问
-- 如需服务间调用，必须配置专用 `INTERNAL_SERVICE_TOKEN`，不能复用 admin token
+- `docs/SECURITY_FIX_PLAN.md`
+- `docs/SECURITY_CHANGES_2026-04-17.md`

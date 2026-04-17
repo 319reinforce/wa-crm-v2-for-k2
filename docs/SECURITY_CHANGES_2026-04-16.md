@@ -1,5 +1,8 @@
 # Security Changes — 2026-04-16
 
+> 当前状态已于 2026-04-17 根据代码与实测结果重新核对。
+> 当前总状态：P0 全部完成，P1 全部完成，P2 中仅剩 P2-2 / P2-3 / P2-5 / P2-6。
+
 ## 背景
 
 全量代码审核后，针对 P0 安全问题完成修复。
@@ -119,7 +122,12 @@ const allowLocalBypass = process.env.LOCAL_API_AUTH_BYPASS === 'true';
 
 ---
 
-## 待处理（P1/P2）
+## 当前剩余项（截至 2026-04-17）
+
+- P2-2：`resolveRequestedOwner` 仍在 `sft.js` / `events.js` / `audit.js` 重复实现
+- P2-3：`db.getCreatorFull()` 仍是串行查询
+- P2-5：`schema.sql` 的函数索引仍缺少 MySQL `8.0.13+` 注释
+- P2-6：`console.log` 清理尚未完成
 
 详见 `docs/SECURITY_FIX_PLAN.md`
 
@@ -132,3 +140,8 @@ const allowLocalBypass = process.env.LOCAL_API_AUTH_BYPASS === 'true';
 SMOKE: PASSED
 Syntax check: ALL OK
 ```
+
+补充说明：
+
+- 本次 `npm test` 默认包含 backend syntax check、`vite build`、unit tests
+- API integration smoke、UI acceptance smoke、WA send smoke 仍按环境开关默认跳过

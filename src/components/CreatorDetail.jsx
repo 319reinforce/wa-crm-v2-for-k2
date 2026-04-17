@@ -525,6 +525,9 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   const portraitBaseline = normalizePortraitForSave(clientProfile?.portrait || null)
   const portraitCurrent = normalizePortraitForSave(portraitDraft || null)
   const portraitDirty = JSON.stringify(portraitCurrent) !== JSON.stringify(portraitBaseline)
+  const strategyMemories = Array.isArray(clientProfile?.memory)
+    ? clientProfile.memory.filter((memory) => memory?.type === 'strategy')
+    : []
 
   const lifecyclePanel = lifecycle && (
     <DetailCard title="生命周期">
@@ -1110,9 +1113,9 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
         </div>
       )}
 
-      {clientProfile?.memory?.filter(m => m.type === 'strategy').length > 0 && (
+      {strategyMemories.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {clientProfile.memory.filter(m => m.type === 'strategy').map((m, i) => (
+          {strategyMemories.map((m, i) => (
             <span key={i} className="flex items-center gap-1 text-[9px] px-2 py-1 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: WA.teal }}>
               {m.key}
               <button onClick={() => deleteStrategyMemory(m.key)} className="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>

@@ -1,49 +1,66 @@
-# Security & Quality Fixes — 2026-04-14
+# Security & Quality Fixes Handoff — 2026-04-14 to 2026-04-17
 
-## 背景
-对 WA CRM v2 后端进行了一轮安全审查，修复了 6 项 P1 安全问题和 3 项 P2 质量问题。
+> 文件名保留 `2026-04-14` 仅为兼容旧会话引用；内容已同步到 2026-04-17 当前状态。
 
-## 已完成修复
+## Canonical 文档入口
 
-### appAuth.js
-- `buildTokenEntries()` 加模块级缓存 `_tokenEntriesCache`，进程生命周期内只构建一次
-- 新增 `sendOwnerScopeForbidden(res, lockedOwner)` 函数并 export，统一 403 响应格式
-- 新增 `setAppAuthCookie` / `clearAppAuthCookie` / `APP_AUTH_COOKIE_NAME` export（linter 同步）
+- `docs/SECURITY_FIX_PLAN.md`：当前状态和剩余项的主文档
+- `docs/SECURITY_CHANGES_2026-04-16.md`：P0 主修复 + 后续补修记录
+- `docs/SECURITY_CHANGES_2026-04-17.md`：audit 脱敏补修和文档同步记录
+- `docs/SECURITY_FIX_REPORT.md`：精简版状态摘要
+- `docs/SECURITY_CHANGES_20260416.md`：旧路径兼容入口
 
-### server/index.cjs — broadcast allowlist
-`POST /api/events/broadcast` 的 `event` 字段改为 allowlist 校验：
-```js
-const ALLOWED_EVENTS = ['creators-updated', 'refresh', 'sft-updated', 'events-updated'];
-const event = ALLOWED_EVENTS.includes(rawEvent) ? rawEvent : 'creators-updated';
-```
+## 当前真实状态
 
-### server/routes/creators.js
-- `GET /api/creators` 列表：非 admin token 不返回 `wa_phone`（`req.auth.role === 'admin'` 才返回）
-- `PUT /api/creators/:id/wacrm` audit：删除 `...req.body`，只传白名单字段
-- 5 个路由文件统一从 `appAuth` import `sendOwnerScopeForbidden`，删除本地重复定义
+- P0：全部完成
+- P1：全部完成
+- P2：P2-1 / P2-4 / P2-7 已完成
+- 当前剩余项：P2-2 / P2-3 / P2-5 / P2-6
 
-### server/routes/sft.js
-- `PATCH /api/sft-memory/:id/review` 加 `writeAudit('sft_review', ...)` 审计记录
+## 关键决策
 
-### server/routes/events.js
-- `DELETE /api/events/:id` 两步删除（event_periods + events）用 `db2.transaction()` 包裹
+### 鉴权
 
-### server/routes/experience.js
-- `GET /:operator/clients` 加分页：`limit`（默认 50，最大 200）、`offset`（默认 0）
-- 响应移除 `wa_phone` 字段
+- `LOCAL_API_AUTH_BYPASS` 已改为默认关闭，必须显式设 `true` 才允许 localhost 绕过
+- URL query token 已移除；普通 API 走 `Authorization: Bearer`，SSE/EventSource 走同源 `httpOnly` cookie
+- internal service token 不再回退 admin token
+- `buildTokenEntries()` 已加模块级缓存 `_tokenEntriesCache`
 
-### server/routes/wa.js
-- `POST /api/wa/send` 响应体删除 `wa_phone` 字段
+### audit / 隐私
 
-## 未处理项（待后续跟进）
-- P1-4: sftService 与 sft 路由重复逻辑提取（业务逻辑重构，风险较高）
-- P2-2: resolveRequestedOwner 3处重复（sft/events 各有本地实现，需确认语义一致）
-- P2-3: getCreatorFull 并行查询优化
-- P2-5: schema 注释补全
-- P2-6: console.log 清理（只保留 error/warn）
+- `writeAudit()` 写入前统一做递归脱敏
+- `sanitizeAuditRecordId()` 会遮罩 phone-like `record_id`
+- `GET /api/audit-log` 返回前也会再次脱敏，兜底历史脏数据
+- creators 更新类 audit 已改为白名单字段，不再写整包 `req.body`
 
-## 关键约定
-- `req.auth.role` 取值：`'admin'` | `'owner'` | `'service'`
-- admin token 可获取完整数据（含 wa_phone），owner/service token 受限
-- audit log 只传白名单字段，不传 req.body
-- SSE broadcast event 字段必须在 allowlist 内
+### 数据暴露面
+
+- `GET /api/creators` 默认隐藏 `wa_phone`；只有显式 `?fields=wa_phone` 且为 admin/service token 时才返回
+- `GET /:operator/clients` 已分页且不返回 `wa_phone`
+- `POST /api/wa/send` 响应体已移除 `wa_phone`
+- `sendOwnerScopeForbidden` 已统一提取到 `appAuth.js`
+
+### 一致性 / 结构
+
+- `POST /api/events/broadcast` 已显式挂载 `jsonBody`，并使用 event allowlist
+- SFT 路由主逻辑已收口到 `server/services/sftService.js`
+- DELETE `/api/events/:id` 已用事务包裹
+
+## 剩余未处理项
+
+- P2-2：`resolveRequestedOwner` 仍在 `sft.js` / `events.js` / `audit.js` 重复实现
+- P2-3：`db.getCreatorFull()` 仍是串行查询
+- P2-5：`schema.sql` 的函数索引仍缺少 MySQL `8.0.13+` 注释
+- P2-6：`index.cjs`、`waService.js`、`waWorker.js` 等处仍有较多 `console.log`
+
+## 最新验证
+
+- 2026-04-17 实测 `npm test`：`114/114` passed
+- `[SMOKE] PASSED`
+- 默认仍跳过 API integration smoke、UI acceptance smoke、WA send smoke
+
+## 下次会话建议
+
+- 先读 `docs/SECURITY_FIX_PLAN.md`
+- 如果要继续修代码，优先做 P2-2 -> P2-3 -> P2-5 -> P2-6
+- 如果要继续审计数据风险，重点查历史 `audit_log` 中是否还有旧的未脱敏记录
