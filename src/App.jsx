@@ -710,8 +710,8 @@ function App() {
       )}
 
       {/* ===== Desktop: Workbench Layout ===== */}
-      <div className="hidden md:flex flex-1 min-h-0 overflow-hidden p-2.5 pt-2 app-shell">
-        <div className="flex-1 min-w-0 flex flex-col gap-2.5">
+      <div className="hidden md:flex flex-1 min-h-0 overflow-hidden p-4 app-shell">
+        <div className="flex-1 min-w-0 flex flex-col gap-3">
           <div className="docs-panel shrink-0 px-5 py-4 flex items-center justify-between gap-4" style={{ background: WA.shellPanelStrong }}>
             <div className="flex items-center gap-6 min-w-0">
               <div className="flex items-center gap-3 shrink-0">
@@ -779,7 +779,7 @@ function App() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 flex gap-1.5 overflow-hidden">
+          <div className="flex-1 min-h-0 flex gap-3 overflow-hidden">
             <div
               className="docs-panel shrink-0 flex flex-col overflow-hidden"
               style={{
@@ -1063,26 +1063,26 @@ function App() {
 
               <div className="shrink-0 px-4 py-3 border-t" style={{ borderColor: WA.shellBorder, background: WA.shellPanelStrong }}>
                 <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="docs-panel-strong px-2 py-2.5">
+                  <div className="docs-panel-strong px-3 py-3">
                     <div className="text-sm font-semibold" style={{ color: WA.textDark }}>{stats?.total_messages?.toLocaleString?.() || 0}</div>
-                    <div className="text-[11px]" style={{ color: WA.textMuted }}>消息</div>
+                    <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>消息</div>
                   </div>
-                  <div className="docs-panel-strong px-2 py-2.5">
+                  <div className="docs-panel-strong px-3 py-3">
                     <div className="text-sm font-semibold" style={{ color: WA.textDark }}>{creators.filter(c => c.msg_count > 0).length}</div>
-                    <div className="text-[11px]" style={{ color: WA.textMuted }}>活跃</div>
+                    <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>活跃</div>
                   </div>
-                  <div className="docs-panel-strong px-2 py-2.5">
+                  <div className="docs-panel-strong px-3 py-3">
                     <div className="text-sm font-semibold" style={{ color: WA.textDark }}>
                       {Number(stats?.yesterday_new_events || 0).toLocaleString()}
                     </div>
-                    <div className="text-[11px]" style={{ color: WA.textMuted }}>昨日新增事件数</div>
+                    <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>昨日新增事件数</div>
                   </div>
                 </div>
               </div>
             </div>
 
             <div
-              className="w-1.5 shrink-0 cursor-col-resize group relative z-10"
+              className="w-3 shrink-0 cursor-col-resize group relative z-10"
               style={{ background: 'transparent' }}
               onMouseDown={startDrag('list-detail')}
               onTouchStart={startDrag('list-detail')}
