@@ -105,9 +105,9 @@ export function SFTDashboard() {
   ]
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2">
+    <div className="space-y-8 px-6 py-6">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-wrap gap-2">
           {TABS.map(([key, label]) => (
             <button
               key={key}
@@ -195,16 +195,16 @@ export function SFTDashboard() {
 
           {/* 最近记录 */}
           <div className="rounded-[24px] overflow-hidden" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
-            <div className="px-5 py-4 border-b" style={{ borderColor: WA.borderLight, background: WA.shellPanelMuted }}>
+            <div className="px-6 py-5 border-b" style={{ borderColor: WA.borderLight, background: WA.shellPanelMuted }}>
               <h3 className="font-semibold text-[16px]" style={{ color: WA.textDark }}>最近 SFT 记录</h3>
             </div>
 
             {loading ? (
-              <div className="p-8 text-center" style={{ color: WA.textMuted }}>加载中...</div>
+              <div className="p-10 text-center" style={{ color: WA.textMuted }}>加载中...</div>
             ) : records.length === 0 ? (
-              <div className="p-8 text-center" style={{ color: WA.textMuted }}>
-                暂无 SFT 记录<br />
-                <span className="text-xs">在达人详情中发送消息并审核后将自动生成</span>
+              <div className="p-10 text-center space-y-2" style={{ color: WA.textMuted }}>
+                <div>暂无 SFT 记录</div>
+                <div className="text-xs">在达人详情中发送消息并审核后将自动生成</div>
               </div>
             ) : (
               <div className="p-4 md:p-5" style={{ borderTop: `1px solid ${WA.borderLight}` }}>
@@ -308,9 +308,9 @@ function StatCard({ label, value, color = 'slate' }) {
     slate: WA.textDark
   }
   return (
-    <div className="rounded-[24px] p-5" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
-      <div className="text-[34px] font-semibold tracking-[-0.03em]" style={{ color: colors[color] }}>{value ?? '-'}</div>
-      <div className="text-[13px] mt-1.5" style={{ color: WA.textMuted }}>{label}</div>
+    <div className="rounded-[24px] p-6" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+      <div className="text-[34px] leading-none font-semibold tracking-[-0.03em]" style={{ color: colors[color] }}>{value ?? '-'}</div>
+      <div className="text-[13px] mt-4" style={{ color: WA.textMuted }}>{label}</div>
     </div>
   )
 }
