@@ -80,5 +80,5 @@ jobs:
           envs: TAG
           script: |
             echo "Deploying with TAG=${TAG}"
-            cd "${{ secrets.TEST_SERVER_COMPOSER_PATH || '/root/moras-composer' }}"
+            cd /home/dev/moras-composer
             ./scripts/deploy-service.sh test wa-crm "${TAG}"
