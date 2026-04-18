@@ -310,6 +310,22 @@ function App() {
       es.addEventListener('creators-updated', () => {
         loadDataRef.current?.()
       })
+      // Step 7: 新消息到达时立即刷新列表(替代 5s 轮询 + populate broadcast)
+      es.addEventListener('wa-message', (event) => {
+        try {
+          const data = event.data ? JSON.parse(event.data) : null
+          // 派发 window 事件,让 useMessagePolling / CreatorDetail 等子组件也能收到
+          window.dispatchEvent(new CustomEvent('wa-message-received', { detail: data }))
+        } catch (_) {}
+        loadDataRef.current?.()
+      })
+      // session 状态变化(ready/qr/disconnected/error)
+      es.addEventListener('wa-session-status', (event) => {
+        try {
+          const data = event.data ? JSON.parse(event.data) : null
+          window.dispatchEvent(new CustomEvent('wa-session-status-changed', { detail: data }))
+        } catch (_) {}
+      })
       es.onerror = () => {
         console.warn('[SSE] 连接断开，5秒后自动重连')
       }

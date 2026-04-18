@@ -38,6 +38,7 @@ const waSessionsMigration = require('../migrate-wa-sessions');
 const legacySessionsBootstrap = require('./bootstrap/migrateLegacySessions');
 const sessionRepository = require('./services/sessionRepository');
 const { initRegistry } = require('./services/sessionRegistry');
+const sseBus = require('./events/sseBus');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -51,7 +52,7 @@ function getConfiguredLogin() {
 }
 
 // ================== SSE 实时广播 ==================
-const sseClients = new Set();
+// 底层 bus 从 sseBus 模块拿,这里只负责 HTTP 侧订阅和 broadcast 接口
 
 // GET /api/events/subscribe — 前端 SSE 订阅
 // EventSource 通过同源 httpOnly cookie 复用认证态
@@ -62,17 +63,15 @@ app.get('/api/events/subscribe', requireAppAuth, (req, res) => {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
-    sseClients.add(res);
-    console.log(`[SSE] Client connected (total: ${sseClients.size})`);
+    sseBus.addClient(res);
+    console.log(`[SSE] Client connected (total: ${sseBus.count()})`);
 
     req.on('close', () => {
-        sseClients.delete(res);
-        console.log(`[SSE] Client disconnected (total: ${sseClients.size})`);
+        console.log(`[SSE] Client disconnected (total: ${sseBus.count()})`);
     });
 });
 
 // POST /api/events/broadcast — populate_db.cjs 调用，广播刷新事件
-// 该路由注册在全局 jsonBody 之前，因此显式挂载一次解析中间件
 app.post('/api/events/broadcast', jsonBody, (req, res) => {
     if (!EVENT_BROADCAST_TOKEN) {
         return res.status(503).json({ ok: false, error: 'EVENT_BROADCAST_TOKEN not configured' });
@@ -84,22 +83,13 @@ app.post('/api/events/broadcast', jsonBody, (req, res) => {
     const ALLOWED_EVENTS = ['creators-updated', 'refresh', 'sft-updated', 'events-updated'];
     const rawEvent = (req.body || {}).event;
     const event = ALLOWED_EVENTS.includes(rawEvent) ? rawEvent : 'creators-updated';
-    const message = `event: ${event}\ndata: ${JSON.stringify({ refreshed: true })}\n\n`;
-    sseClients.forEach(client => {
-        try { client.write(message); } catch (e) { sseClients.delete(client); }
-    });
-    console.log(`[SSE] Broadcast "${event}" to ${sseClients.size} clients`);
-    res.json({ ok: true, clients: sseClients.size });
+    const remaining = sseBus.broadcast(event, { refreshed: true });
+    console.log(`[SSE] Broadcast "${event}" to ${remaining} clients`);
+    res.json({ ok: true, clients: remaining });
 });
 
-// SSE 心跳：每 25 秒向所有客户端发送一次 ping，防止连接被中间件关闭
-setInterval(() => {
-    if (sseClients.size === 0) return;
-    const ping = `: ping ${Date.now()}\n\n`;
-    sseClients.forEach(client => {
-        try { client.write(ping); } catch (e) { sseClients.delete(client); }
-    });
-}, 25000);
+// SSE 心跳:每 25s 防中间件关闭
+setInterval(() => sseBus.ping(), 25000);
 
 // ================== 端口检测 ==================
 

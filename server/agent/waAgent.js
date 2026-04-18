@@ -44,6 +44,7 @@ const {
     EVT_ERROR,
     EVT_DISCONNECTED,
     EVT_HEARTBEAT,
+    EVT_WA_MESSAGE,
     TYPE_CMD,
     makeCommandResult,
     makeEvent,
@@ -397,6 +398,37 @@ async function main() {
     } catch (err) {
         console.error(`[waAgent:${AGENT_TAG}] waWorker start failed:`, err.message);
         emitEvent(EVT_ERROR, { message: `waWorker start failed: ${err.message}` });
+    }
+
+    // Step 7: 实时转发 WA message 事件给父进程,供 SSE 广播给前端
+    // 独立于 waWorker 的持久化监听,仅做 "UI refresh hint"
+    const client = getClient();
+    if (client) {
+        const forwardMessage = (message) => {
+            try {
+                const chatId = message?.from || message?.to || message?.id?.remote || null;
+                const fromMe = !!(message?.fromMe || message?.id?.fromMe);
+                const fromDigits = String(message?.from || '').replace(/@.*$/, '').replace(/\D/g, '');
+                const toDigits = String(message?.to || '').replace(/@.*$/, '').replace(/\D/g, '');
+                const text = getWaMessageText(message);
+                const timestamp = getWaMessageTimestampMs(message);
+                emitEvent(EVT_WA_MESSAGE, {
+                    chat_id: chatId,
+                    from_phone: fromDigits ? `+${fromDigits}` : null,
+                    to_phone: toDigits ? `+${toDigits}` : null,
+                    role: fromMe ? 'me' : 'user',
+                    text,
+                    timestamp,
+                    message_id: typeof message?.id === 'string' ? message.id : (message?.id?._serialized || null),
+                });
+            } catch (err) {
+                console.error(`[waAgent:${AGENT_TAG}] forwardMessage failed:`, err.message);
+            }
+        };
+        client.on('message', forwardMessage);
+        client.on('message_create', (msg) => {
+            if (msg?.fromMe) forwardMessage(msg);  // 只转发自己发的,避免和 'message' 重复
+        });
     }
 }
 

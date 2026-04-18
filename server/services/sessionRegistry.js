@@ -17,6 +17,7 @@ const { fork } = require('child_process');
 const { EventEmitter } = require('events');
 
 const sessionRepository = require('./sessionRepository');
+const sseBus = require('../events/sseBus');
 const {
     CMD_SHUTDOWN,
     TYPE_CMD_RESULT,
@@ -26,6 +27,7 @@ const {
     EVT_ERROR,
     EVT_DISCONNECTED,
     EVT_HEARTBEAT,
+    EVT_WA_MESSAGE,
     makeCommand,
 } = require('../agent/ipcProtocol');
 
@@ -316,10 +318,39 @@ class SessionRegistry {
                         error: msg.reason || null,
                     }).catch(() => {});
                     break;
+                case EVT_WA_MESSAGE:
+                    // 不入 Registry state,只转发给 SSE(实际消息持久化在 agent 侧 worker 里)
+                    sseBus.broadcast('wa-message', {
+                        session_id: sessionId,
+                        owner: agent.owner,
+                        chat_id: msg.chat_id || null,
+                        from_phone: msg.from_phone || null,
+                        to_phone: msg.to_phone || null,
+                        role: msg.role || null,
+                        text: msg.text || '',
+                        timestamp: msg.timestamp || Date.now(),
+                        message_id: msg.message_id || null,
+                    });
+                    break;
                 default:
-                    // 其它事件(wa-message 等,Step 7 用)透传给外部订阅者
+                    // 其它事件(未来扩展用)透传给外部订阅者
                     break;
             }
+
+            // 状态类事件对外广播(前端 WorkerStatusBar 可替代 5s 轮询)
+            if (msg.kind === EVT_READY || msg.kind === EVT_DISCONNECTED || msg.kind === EVT_QR || msg.kind === EVT_ERROR) {
+                sseBus.broadcast('wa-session-status', {
+                    session_id: sessionId,
+                    owner: agent.owner,
+                    kind: msg.kind,
+                    ready: agent.ready,
+                    has_qr: !!agent.qrValue,
+                    account_phone: agent.accountPhone,
+                    account_pushname: agent.accountPushname,
+                    last_error: agent.lastError,
+                });
+            }
+
             this.emitter.emit('agent-event', { sessionId, kind: msg.kind, payload: msg });
         }
     }
