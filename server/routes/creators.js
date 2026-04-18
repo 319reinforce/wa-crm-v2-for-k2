@@ -72,6 +72,18 @@ function shouldExposeCreatorListPhone(req, requestedFields) {
     return privileged && requestedFields.has('wa_phone');
 }
 
+// 列表响应里 lifecycle 对象只保留下列字段（详情页走 /api/creators/:id 拿完整）
+// 前端所有 list 场景消费路径（App.jsx/MobileListScreen/MobileChatScreen/EventPanel）都只访问这四个
+const LIST_LIFECYCLE_ALLOWED_KEYS = ['stage_key', 'stage_label', 'flags', 'has_conflicts'];
+function projectLifecycleForList(lifecycle) {
+    if (!lifecycle || typeof lifecycle !== 'object') return null;
+    const projected = {};
+    for (const k of LIST_LIFECYCLE_ALLOWED_KEYS) {
+        if (lifecycle[k] !== undefined) projected[k] = lifecycle[k];
+    }
+    return projected;
+}
+
 function buildCreatorUpdateAuditPayload(payload) {
     const auditPayload = pickDefinedAuditFields(payload, CREATOR_UPDATE_AUDIT_FIELDS);
     if (auditPayload.wa_owner !== undefined) {
@@ -653,9 +665,19 @@ router.get('/', async (req, res) => {
             if (has_conflict === '1' && !(item.lifecycle?.has_conflicts)) return false;
             if (has_conflict === '0' && item.lifecycle?.has_conflicts) return false;
             return true;
+        }).map((item) => {
+            // 响应瘦身：剥离 message_facts（前端不用，仅服务端 lifecycleService 需要，已在 attachLifecycle 消费完）
+            // 投影 lifecycle 只保留列表消费的字段，剥离 option0/rule_flags/primary_facts/goal/conflicts 等大字段
+            // 详情和 AI 所需的完整 lifecycle 通过 /api/creators/:id 单查走另一条路径
+            const { message_facts: _facts, lifecycle, ...rest } = item;
+            return {
+                ...rest,
+                lifecycle: projectLifecycleForList(lifecycle),
+            };
         });
         __perfEnd(__perfPost);
 
+        res.set('Cache-Control', 'private, max-age=15, stale-while-revalidate=60');
         res.json(mapped);
         __perfEnd(__perfTotal);
     } catch (err) {
@@ -669,6 +691,8 @@ router._private = {
     shouldExposeCreatorListPhone,
     buildCreatorUpdateAuditPayload,
     buildCreatorWacrmAuditPayload,
+    projectLifecycleForList,
+    LIST_LIFECYCLE_ALLOWED_KEYS,
 };
 
 // GET /api/creators/manual-check — 手动录入前去重检查（同号/重名）

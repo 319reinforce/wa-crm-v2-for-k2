@@ -150,6 +150,10 @@ async function tryListenWithRetry(app, port, retries = 3) {
 }
 
 // 中间件
+// compression: 让 origin 自己回 gzip，避免 Cloudflare 再做一次 Brotli 压缩
+// （动态 API 无法边缘缓存，Cloudflare 每次都要重新压缩 350KB 响应，占 TTFB 500-900ms）
+// origin 回 gzip 后 Cloudflare 默认会透传已压缩响应，不再重编
+app.use(require('compression')({ threshold: 1024 }));
 app.use(jsonBody);
 app.use(timeout);
 
