@@ -629,4 +629,72 @@ router.get('/qr', async (req, res) => {
     }
 });
 
+// GET /api/wa/messages/:id/media
+// 获取指定消息的媒体信息
+router.get('/messages/:id/media', async (req, res) => {
+    try {
+        const messageId = parsePositiveInt(req.params.id, null);
+        if (!messageId) {
+            return res.status(400).json({ ok: false, error: 'invalid message id' });
+        }
+
+        const dbConn = db.getDb();
+        const row = await dbConn.prepare(`
+            SELECT wm.*, c.wa_owner, c.wa_phone
+            FROM wa_messages wm
+            JOIN creators c ON c.id = wm.creator_id
+            WHERE wm.id = ?
+            LIMIT 1
+        `).get(messageId);
+
+        if (!row) {
+            return res.status(404).json({ ok: false, error: 'message not found' });
+        }
+
+        const lockedOwner = getLockedOwner(req);
+        if (lockedOwner && !matchesOwnerScope(req, row.wa_owner)) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
+
+        if (!row.media_asset_id) {
+            return res.status(404).json({
+                ok: false,
+                error: 'message has no media',
+                media_download_status: row.media_download_status || null,
+            });
+        }
+
+        const asset = await dbConn.prepare(`
+            SELECT * FROM media_assets WHERE id = ? AND status = 'active'
+        `).get(row.media_asset_id, 'active');
+
+        if (!asset) {
+            return res.status(404).json({ ok: false, error: 'media asset not found or inactive' });
+        }
+
+        res.json({
+            ok: true,
+            message_id: row.id,
+            media: {
+                id: asset.id,
+                creator_id: asset.creator_id,
+                file_name: asset.file_name,
+                mime_type: asset.mime_type,
+                file_size: asset.file_size,
+                file_url: asset.file_url,
+                sha256_hash: asset.sha256_hash,
+                width: row.media_width,
+                height: row.media_height,
+                caption: row.media_caption,
+                thumbnail: row.media_thumbnail,
+                download_status: row.media_download_status,
+                created_at: asset.created_at,
+            },
+        });
+    } catch (err) {
+        console.error('[WA Route] get message media error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
 module.exports = router;

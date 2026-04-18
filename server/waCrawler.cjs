@@ -333,14 +333,28 @@ async function fetchAuditMessagesByPhone(phone, limit = 120) {
                 ok: true,
                 phone: normalizedTarget,
                 name: resolved.contact?.name || resolved.contact?.pushname || resolved.chat.name || 'Unknown',
-                messages: (messages || []).map((message) => ({
-                    role: getWaMessageRole(message),
-                    text: getWaMessageText(message),
-                    timestamp: getWaMessageTimestampMs(message),
-                    message_id: typeof message?.id === 'string'
-                        ? message.id
-                        : message?.id?._serialized || message?.id?.id || null,
-                })),
+                messages: (messages || []).map((message) => {
+                    const base = {
+                        role: getWaMessageRole(message),
+                        text: getWaMessageText(message),
+                        timestamp: getWaMessageTimestampMs(message),
+                        message_id: typeof message?.id === 'string'
+                            ? message.id
+                            : message?.id?._serialized || message?.id?.id || null,
+                    };
+                    if (message.hasMedia) {
+                        return {
+                            ...base,
+                            has_media: true,
+                            media_type: message.type || null,
+                            mime: message.mimetype || null,
+                            caption: message.caption || null,
+                            thumbnail_available: !!message.thumbnailUrl,
+                            download_required: true,
+                        };
+                    }
+                    return base;
+                }),
             };
         } catch (error) {
             if (!isRecoverableFrameError(error) || attempt === 3) {

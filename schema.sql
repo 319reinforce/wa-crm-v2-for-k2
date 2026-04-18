@@ -56,6 +56,17 @@ CREATE TABLE IF NOT EXISTS wa_messages (
     message_hash  VARCHAR(64) COMMENT 'SHA256(role|text|timestamp_ms) - legacy 兜底键',
     wa_message_id VARCHAR(128) DEFAULT NULL COMMENT 'WhatsApp 原生 message id (Message.id._serialized)',
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- 媒体字段（incoming media via downloadMedia）
+    media_asset_id         BIGINT NULL COMMENT 'FK to media_assets.id',
+    media_type             VARCHAR(32) NULL COMMENT 'image|video|audio|document',
+    media_mime             VARCHAR(64) NULL COMMENT 'e.g. image/jpeg',
+    media_size             BIGINT NULL COMMENT 'file size in bytes',
+    media_width            INT NULL COMMENT 'image width in px',
+    media_height           INT NULL COMMENT 'image height in px',
+    media_caption          TEXT NULL COMMENT 'caption text (for media with caption)',
+    media_thumbnail        TEXT NULL COMMENT 'base64 thumbnail for quick preview',
+    media_download_status  VARCHAR(16) NULL COMMENT 'pending|success|failed',
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -65,6 +76,10 @@ CREATE UNIQUE INDEX idx_messages_dedup_hash ON wa_messages(creator_id, message_h
 CREATE UNIQUE INDEX uk_wa_message_id ON wa_messages(wa_message_id);
 CREATE INDEX idx_messages_creator_timestamp ON wa_messages(creator_id, timestamp DESC);
 CREATE INDEX idx_messages_creator_role_ts ON wa_messages(creator_id, role, timestamp);
+-- 媒体索引
+CREATE INDEX idx_messages_media_asset  ON wa_messages(media_asset_id);
+CREATE INDEX idx_messages_media_status ON wa_messages(media_download_status);
+CREATE INDEX idx_messages_media_type   ON wa_messages(media_type);
 
 -- ============================================================
 -- WA CRM 扩展数据

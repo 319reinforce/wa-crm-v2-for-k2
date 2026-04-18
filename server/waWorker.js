@@ -42,6 +42,7 @@ const {
 } = require('./services/groupMessageService');
 const { getInternalServiceHeaders } = require('./utils/internalAuth');
 const { perfLog } = require('./services/perfLog');
+const { downloadAndStoreIncomingMedia } = require('./services/waIncomingMediaService');
 
 // ================== 配置 ==================
 
@@ -461,6 +462,16 @@ async function insertMessages(creatorId, messages) {
             text,
             timestamp: timestampMs,
             wa_message_id: waMessageId || null,
+            // 媒体字段（来自 downloadAndStoreIncomingMedia 结果）
+            media_asset_id:         m.mediaInfo?.mediaAssetId || null,
+            media_type:             m.mediaInfo?.mediaType || null,
+            media_mime:             m.mediaInfo?.mime || null,
+            media_size:             m.mediaInfo?.size || null,
+            media_width:            m.mediaInfo?.width || null,
+            media_height:           m.mediaInfo?.height || null,
+            media_caption:          m.mediaInfo?.caption || null,
+            media_thumbnail:        m.mediaInfo?.thumbnail || null,
+            media_download_status:  m.mediaInfo?.mediaAssetId ? 'success' : (m.mediaInfo?.media_download_status || null),
         };
     });
 
@@ -491,14 +502,26 @@ async function insertMessages(creatorId, messages) {
 
     const ops = groupFiltered.kept.map((m) => {
         const messageHash = buildMessageHash(m.role, m.text, m.timestamp);
-        return [creatorId, m.role, m.operator, m.text, m.timestamp, messageHash, m.wa_message_id || null];
-    }).filter(([, , , text, timestampMs]) => text && timestampMs > 0);
-    const placeholders = ops.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+        return [
+            creatorId, m.role, m.operator, m.text, m.timestamp, messageHash,
+            m.wa_message_id || null,
+            m.media_asset_id, m.media_type, m.media_mime, m.media_size,
+            m.media_width, m.media_height, m.media_caption, m.media_thumbnail,
+            m.media_download_status,
+        ];
+    }).filter(([, , , text, timestampMs, , , mediaAssetId]) =>
+        (text && timestampMs > 0) || mediaAssetId
+    );
     if (ops.length === 0) return 0;
     try {
         const result = await db2.prepare(
-            `INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash, wa_message_id)
-             VALUES ${placeholders}`
+            `INSERT IGNORE INTO wa_messages
+             (creator_id, role, operator, text, timestamp, message_hash,
+              wa_message_id,
+              media_asset_id, media_type, media_mime, media_size,
+              media_width, media_height, media_caption, media_thumbnail,
+              media_download_status)
+             VALUES ${ops.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}`
         ).run(...ops.flat());
         const changes = Number(result?.changes || 0);
         if (changes > 0) {
@@ -980,16 +1003,40 @@ async function handleIncomingMessage(msg) {
         }
 
         const creatorId = existingCreator.id;
+
+        // 下载并存储媒体（图片）
+        let mediaInfo = null;
+        if (msg.hasMedia) {
+            try {
+                mediaInfo = await Promise.race([
+                    downloadAndStoreIncomingMedia(msg, {
+                        creatorId,
+                        operator: resolveCurrentOwner(),
+                    }),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('media_download_timeout')), 30000)
+                    ),
+                ]);
+            } catch (err) {
+                console.warn(`${LOG_PREFIX}[media] download failed: ${err.message}`);
+                mediaInfo = { media_download_status: 'failed' };
+            }
+        }
+
         const inserted = await insertMessages(creatorId, [{
             role: getWaMessageRole(msg),
             text: getWaMessageText(msg),
             timestamp: getWaMessageTimestampMs(msg),
             wa_message_id: extractWaMessageId(msg),
+            mediaInfo,
         }]);
 
         if (inserted > 0) {
             await touchCreator(creatorId);  // 更新达人活跃时间
-            console.log(`${LOG_PREFIX} 📩 ${name}: ${getWaMessageText(msg).slice(0, 50)}`);
+            const preview = msg.hasMedia
+                ? `[Media: ${msg.mimetype || 'image'}] ${getWaMessageText(msg).slice(0, 40)}`
+                : getWaMessageText(msg).slice(0, 50);
+            console.log(`${LOG_PREFIX} 📩 ${name}: ${preview}`);
             messageHandlers.forEach(fn => {
                 try { fn({ phone, name, text: getWaMessageText(msg), creatorId }); } catch (_) {}
             });
