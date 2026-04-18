@@ -104,7 +104,7 @@ doctor() {
   echo "[doctor] expected apps: ${APP_NAMES[*]}"
   if ! curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
     echo "[doctor] warning: API http://127.0.0.1:3000/api/health unreachable"
-    echo "[doctor] suggestion: run API separately (DISABLE_WA_SERVICE=true DISABLE_WA_WORKER=true PORT=3000 npm start)"
+    echo "[doctor] suggestion: run API separately (PORT=3000 npm start)"
   fi
   pm2 jlist | node -e '
 let data="";

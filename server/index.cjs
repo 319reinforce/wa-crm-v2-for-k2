@@ -32,16 +32,11 @@ const strategyRouter = require('./routes/strategy');
 const lifecycleRouter = require('./routes/lifecycle');
 const waRouter = require('./routes/wa');
 const trainingRouter = require('./routes/training');
-const { start: startWaWorker, stop: stopWaWorker, getProgress: getWaWorkerProgress } = require('./waWorker');
-const { start: startWaService } = require('./services/waService');
+const { listStatusSessions, readSessionStatus } = require('./services/waIpc');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const DISABLE_WA_SERVICE = process.env.DISABLE_WA_SERVICE === 'true';
-const DISABLE_WA_WORKER = process.env.DISABLE_WA_WORKER === 'true';
 const EVENT_BROADCAST_TOKEN = process.env.EVENT_BROADCAST_TOKEN;
-const WA_SESSION_ID = String(process.env.WA_SESSION_ID || PORT).trim();
-const WA_OWNER = process.env.WA_OWNER || 'Beau';
 
 function getConfiguredLogin() {
     return {
@@ -123,17 +118,6 @@ function isPortAvailable(port) {
         });
         server.listen(port, '0.0.0.0');
     });
-}
-
-function isWaRuntimeError(error) {
-    const text = `${error?.stack || ''}\n${error?.message || error || ''}`;
-    return (
-        text.includes('whatsapp-web.js') ||
-        text.includes('puppeteer-core') ||
-        text.includes('Execution context was destroyed') ||
-        text.includes('Could not load response body for this request') ||
-        text.includes('Protocol error (Runtime.callFunctionOn)')
-    );
 }
 
 function getLanUrls(port) {
@@ -243,8 +227,35 @@ app.use('/api/wa', requireAppAuth, waRouter);
 app.use('/api/training', requireAppAuth, trainingRouter);
 
 // WA Worker 路由
+// 聚合所有 agent 进程的 worker 状态,从 .wa_ipc/status/*.json 读
+// 为兼容 WorkerStatusBar 保留单 session 形状:owner-scoped token 只返回自己的,
+// admin token 返回第一个 ready 的 session(或第一个 session)
 app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
-    res.json(getWaWorkerProgress());
+    const lockedOwner = req.auth?.owner || null;
+    const sessions = listStatusSessions()
+        .map((sessionId) => readSessionStatus(sessionId))
+        .filter(Boolean);
+
+    const matchOwner = lockedOwner
+        ? sessions.find((s) => (s.owner || s.configured_owner) === lockedOwner)
+        : null;
+    const primary = matchOwner
+        || sessions.find((s) => s.ready)
+        || sessions[0]
+        || null;
+
+    if (!primary) {
+        res.json({ phase: 'idle', clientReady: false, clientError: null });
+        return;
+    }
+    res.json({
+        ...(primary.worker || {}),
+        session_id: primary.session_id,
+        owner: primary.owner || primary.configured_owner || null,
+        clientReady: !!primary.ready,
+        clientError: primary.error || null,
+        last_heartbeat_at: primary.updated_at || null,
+    });
 });
 
 // ================== 启动服务器 ==================
@@ -266,13 +277,11 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
         // graceful shutdown
         const shutdown = async (signal) => {
             console.log(`${signal} received, shutting down gracefully...`);
-            stopWaWorker();
             server.close(async () => {
                 await db.closeDb();
                 console.log('Server closed.');
                 process.exit(0);
             });
-            // 强制退出，防止 WA Worker 卡住
             setTimeout(() => {
                 console.log('Forcing exit after timeout.');
                 process.exit(1);
@@ -282,39 +291,12 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
         process.on('SIGTERM', () => shutdown('SIGTERM'));
         process.on('SIGINT', () => shutdown('SIGINT'));
         process.on('unhandledRejection', (reason) => {
-            if (isWaRuntimeError(reason)) {
-                console.error('[WA Service] 捕获到非致命 unhandledRejection，已隔离 WA 模块:', reason?.message || reason);
-                stopWaWorker();
-                return;
-            }
             console.error('[Process] Unhandled rejection:', reason);
         });
         process.on('uncaughtException', (error) => {
-            if (isWaRuntimeError(error)) {
-                console.error('[WA Service] 捕获到非致命 uncaughtException，已隔离 WA 模块:', error?.message || error);
-                stopWaWorker();
-                return;
-            }
             console.error('[Process] Uncaught exception:', error);
             process.exit(1);
         });
-
-        // 先启动 WhatsApp Service（端口确认可用后才初始化）
-        if (!DISABLE_WA_SERVICE) {
-            console.log(`[WA Service] 启动 WhatsApp Client (PORT=${PORT}, session=${WA_SESSION_ID}, owner=${WA_OWNER})...`);
-            startWaService();
-        } else {
-            console.log('[WA Service] 已禁用（DISABLE_WA_SERVICE=true）');
-        }
-
-        // 再启动 WA Worker（后台运行，不阻塞 HTTP）
-        if (!DISABLE_WA_WORKER) {
-            startWaWorker({ syncHistory: true }).catch(err => {
-                console.error('[WA Worker] 启动失败:', err.message);
-            });
-        } else {
-            console.log('[WA Worker] 已禁用（DISABLE_WA_WORKER=true）');
-        }
     } catch (err) {
         console.error(`\n❌ 服务器启动失败: ${err.message}`);
         process.exit(1);
