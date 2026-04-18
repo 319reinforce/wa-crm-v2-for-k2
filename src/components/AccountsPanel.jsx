@@ -260,12 +260,128 @@ function AddAccountModal({ onClose, onCreated }) {
   )
 }
 
+function QrModal({ sessionId, onClose }) {
+  const [qrDataUrl, setQrDataUrl] = useState(null)
+  const [lastQrAt, setLastQrAt] = useState(null)
+  const [refreshCount, setRefreshCount] = useState(0)
+  const [status, setStatus] = useState('loading')
+  const [error, setError] = useState(null)
+  const pollTimerRef = useRef(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const data = await fetchJsonOrThrow(`${API_BASE}/wa/sessions/${sessionId}/qr`)
+        if (cancelled) return
+        if (data?.qr) {
+          setQrDataUrl(data.qr)
+          setLastQrAt(data.last_qr_at || new Date().toISOString())
+          setRefreshCount(data.qr_refresh_count || 0)
+          setStatus('has_qr')
+        }
+      } catch (err) {
+        if (cancelled) return
+        const msg = err.message || String(err)
+        if (/already authenticated|ready/i.test(msg)) {
+          setStatus('ready')
+          setTimeout(onClose, 1500)
+        } else if (/no QR available/i.test(msg)) {
+          setStatus('waiting')
+        } else {
+          setError(msg)
+          setStatus('error')
+        }
+      }
+    }
+    poll()
+    pollTimerRef.current = setInterval(poll, QR_POLL_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+    }
+  }, [sessionId, onClose])
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
+    }}>
+      <div style={{
+        background: 'white', borderRadius: 12, padding: 24, width: 420,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>扫码登录 {sessionId}</h3>
+          <button onClick={onClose} style={{
+            background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: WA.textMuted,
+          }}>×</button>
+        </div>
+
+        <p style={{ fontSize: 13, color: WA.textMuted, marginBottom: 16, textAlign: 'center' }}>
+          WhatsApp 手机端 → ⋮ → 已关联的设备 → 关联新设备 → 扫码
+        </p>
+
+        {status === 'ready' && (
+          <div style={{ textAlign: 'center', padding: 40, color: WA.teal, fontSize: 16, fontWeight: 600 }}>
+            ✓ 扫码成功,该 session 已就绪
+          </div>
+        )}
+
+        {status === 'has_qr' && qrDataUrl && (
+          <div style={{ textAlign: 'center' }}>
+            <img src={qrDataUrl} alt="QR" style={{ width: 280, height: 280, border: `1px solid ${WA.border}`, borderRadius: 8 }} />
+            <p style={{ fontSize: 11, color: WA.textMuted, marginTop: 8 }}>
+              QR 刷新 #{refreshCount}{lastQrAt ? ` · ${new Date(lastQrAt).toLocaleTimeString()}` : ''}
+            </p>
+          </div>
+        )}
+
+        {status === 'loading' && (
+          <div style={{
+            width: 280, height: 280, margin: '0 auto',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: WA.bg, borderRadius: 8, color: WA.textMuted,
+          }}>加载二维码...</div>
+        )}
+
+        {status === 'waiting' && (
+          <div style={{
+            width: 280, height: 280, margin: '0 auto',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: WA.bg, borderRadius: 8, color: WA.textMuted, textAlign: 'center', padding: 20,
+          }}>
+            等待 agent 生成二维码...<br/>
+            <span style={{ fontSize: 11 }}>(Chrome 启动需 10-20s)</span>
+          </div>
+        )}
+
+        {status === 'error' && (
+          <div style={{ padding: 16, color: WA.danger, fontSize: 13, textAlign: 'center' }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ marginTop: 16, textAlign: 'center' }}>
+          <button
+            onClick={onClose}
+            style={{ padding: '8px 16px', border: `1px solid ${WA.border}`, background: 'white', borderRadius: 6, cursor: 'pointer' }}
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function AccountsPanel() {
   const [sessions, setSessions] = useState([])
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [scanSessionId, setScanSessionId] = useState(null)
   const [actionPending, setActionPending] = useState({})
 
   const loadSessions = useCallback(async () => {
@@ -427,6 +543,20 @@ export function AccountsPanel() {
                       )}
                     </td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                      {s.agent?.has_qr || (s.agent && !s.agent.ready && s.desired_state === 'running') ? (
+                        <button
+                          onClick={() => setScanSessionId(s.session_id)}
+                          style={{
+                            ...actionBtnStyle,
+                            background: WA.teal,
+                            color: 'white',
+                            border: 'none',
+                            fontWeight: 600,
+                          }}
+                        >
+                          扫码登录
+                        </button>
+                      ) : null}
                       <button
                         onClick={() => handleRestart(s.session_id)}
                         disabled={pending('restart')}
@@ -478,6 +608,13 @@ export function AccountsPanel() {
         <AddAccountModal
           onClose={() => { setShowAddModal(false); loadSessions() }}
           onCreated={() => loadSessions()}
+        />
+      )}
+
+      {scanSessionId && (
+        <QrModal
+          sessionId={scanSessionId}
+          onClose={() => { setScanSessionId(null); loadSessions() }}
         />
       )}
     </div>
