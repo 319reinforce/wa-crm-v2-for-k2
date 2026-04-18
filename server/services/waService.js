@@ -536,6 +536,10 @@ function createServices() {
 }
 
 function startAllServices() {
+    if (services.size === 0) {
+        // 首次调用:从环境变量解析 session 配置并注册 service 实例
+        createServices();
+    }
     for (const service of services.values()) {
         service.start();
     }
