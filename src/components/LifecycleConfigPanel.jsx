@@ -155,21 +155,21 @@ export function LifecycleConfigPanel({ embedded = false }) {
 
   return (
     <div className={embedded ? 'space-y-4' : 'h-full overflow-y-auto p-4 space-y-4'} style={embedded ? undefined : { background: WA.lightBg }}>
-      <div className="rounded-[24px] p-5 space-y-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="text-[20px] font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>生命周期驾驶舱</div>
-          <div className="text-[13px] mt-1" style={{ color: WA.textMuted }}>
-            主阶段只认 lifecycle.stage_key；下方人数按累计漏斗展示，Referral 作为平行徽章展示
-          </div>
+      <div className="rounded-[20px] md:rounded-[24px] p-4 md:p-5 space-y-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[18px] md:text-[20px] font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>生命周期驾驶舱</div>
+            <div className="text-[12px] md:text-[13px] mt-1" style={{ color: WA.textMuted }}>
+              主阶段只认 lifecycle.stage_key；下方人数按累计漏斗展示，Referral 作为平行徽章展示
+            </div>
           </div>
           <button
             onClick={loadDashboard}
             disabled={dashboardLoading}
-            className="px-3 py-1.5 rounded-full text-[12px]"
-            style={{ border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
+            className="rounded-full text-[12px] font-semibold whitespace-nowrap shrink-0"
+            style={{ minHeight: 40, padding: '0 14px', border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
           >
-            {dashboardLoading ? '刷新中...' : '刷新驾驶舱'}
+            {dashboardLoading ? '刷新中…' : '刷新驾驶舱'}
           </button>
         </div>
 
@@ -232,37 +232,37 @@ export function LifecycleConfigPanel({ embedded = false }) {
       </div>
 
       <div className="rounded-[24px] p-5 space-y-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="text-[20px] font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>生命周期规则配置</div>
-            <div className="text-[13px] mt-1" style={{ color: WA.textMuted }}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[18px] md:text-[20px] font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>生命周期规则配置</div>
+            <div className="text-[12px] md:text-[13px] mt-1 truncate" style={{ color: WA.textMuted }}>
               key: {draft.policy_key} | source: {draft.source || 'default'}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 shrink-0">
             <button
               onClick={loadAll}
               disabled={loading}
-              className="px-3 py-1.5 rounded-full text-[12px]"
-              style={{ border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
+              className="rounded-full text-[12px] font-semibold whitespace-nowrap"
+              style={{ minHeight: 40, padding: '0 14px', border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
             >
-              {loading ? '加载中...' : '加载'}
+              {loading ? '加载中…' : '加载'}
             </button>
             <button
               onClick={resetDraft}
               disabled={!loaded || saving}
-              className="px-3 py-1.5 rounded-full text-[12px]"
-              style={{ border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
+              className="rounded-full text-[12px] font-semibold whitespace-nowrap"
+              style={{ minHeight: 40, padding: '0 14px', border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
             >
               重置
             </button>
             <button
               onClick={saveConfig}
               disabled={saving}
-              className="px-3 py-1.5 rounded-full text-[12px] text-white"
-              style={{ background: saving ? '#9ca3af' : WA.teal }}
+              className="rounded-full text-[12px] font-semibold text-white whitespace-nowrap"
+              style={{ minHeight: 40, padding: '0 16px', background: saving ? '#9ca3af' : WA.teal }}
             >
-              {saving ? '保存中...' : '保存'}
+              {saving ? '保存中…' : '保存'}
             </button>
           </div>
         </div>

@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import useIsMobile from './hooks/useIsMobile'
+import MobileShell from './components/mobile/MobileShell'
+import MobileChatListRow from './components/mobile/MobileChatListRow'
 import { WAMessageComposer } from './components/WAMessageComposer'
 import { SFTDashboard } from './components/SFTDashboard'
 import { EventPanel } from './components/EventPanel'
@@ -690,6 +693,97 @@ function App() {
   const waStatusLabel = waQrData ? '需要扫码' : '已连接'
   const waStatusTone = waQrData ? '#b45309' : WA.teal
   const selectedOwnerLabel = selectedCreator?.wa_owner || selectedGroupChat?.operator || (filterOwner || 'All')
+
+  const isMobile = useIsMobile()
+
+  if (isMobile) {
+    return (
+      <>
+        <MobileShell
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          ownerLocked={ownerLocked}
+          creators={creators}
+          filteredCreators={filteredCreators}
+          loading={loading}
+          unreadCounts={unreadCounts}
+          search={search}
+          setSearch={setSearch}
+          filterOwner={filterOwner}
+          setFilterOwner={setFilterOwner}
+          ownerOptions={ownerOptions}
+          filterLifecycle={filterLifecycle}
+          setFilterLifecycle={setFilterLifecycle}
+          filterBeta={filterBeta}
+          setFilterBeta={setFilterBeta}
+          filterPriority={filterPriority}
+          setFilterPriority={setFilterPriority}
+          filterAgency={filterAgency}
+          setFilterAgency={setFilterAgency}
+          filterEvent={filterEvent}
+          setFilterEvent={setFilterEvent}
+          activeFilterCount={activeFilterCount}
+          openManualModal={openManualModal}
+          loadData={loadData}
+          selectedCreator={selectedCreator}
+          handleSelectCreator={handleSelectCreator}
+          handleCloseConversation={handleCloseConversation}
+          handleOpenCreatorChatFromEvent={handleOpenCreatorChatFromEvent}
+          selectedEventId={selectedEventId}
+          setSelectedEventId={setSelectedEventId}
+          eventPanelRestoreState={eventPanelRestoreState}
+          LIFECYCLE_FILTER_OPTIONS={LIFECYCLE_FILTER_OPTIONS}
+          renderCreatorListItem={(c, { unread, onClick }) => (
+            <MobileChatListRow key={c.id} creator={c} unread={unread} onClick={onClick} />
+          )}
+          renderChatContent={(creator) => (
+            <WAMessageComposer
+              key={creator.id}
+              client={{
+                id: creator.id,
+                phone: creator.wa_phone,
+                name: creator.primary_name,
+                wa_owner: creator.wa_owner,
+                conversion_stage: creator.lifecycle?.stage_key || creator.beta_status || 'unknown',
+                lifecycle_stage: creator.lifecycle?.stage_key || 'unknown',
+                lifecycle_label: creator.lifecycle?.stage_label || null,
+              }}
+              creator={creator}
+              jumpTarget={creator?.id === chatJumpTarget?.creatorId ? chatJumpTarget : null}
+              onClose={handleCloseConversation}
+              onMessageSent={handleCreatorMessageSent}
+              onCreatorUpdated={handleCreatorUpdated}
+              asPanel
+            />
+          )}
+          renderCreatorDetail={(creator, onCloseDetail) => (
+            <CreatorDetail
+              key={creator.id}
+              creatorId={creator.id}
+              creatorName={creator.primary_name}
+              onClose={onCloseDetail}
+              onMessageSent={handleCreatorMessageSent}
+              onCreatorUpdated={handleCreatorUpdated}
+              asPanel
+            />
+          )}
+        />
+        <ManualCreatorModal
+          open={manualOpen}
+          form={manualForm}
+          ownerLocked={ownerLocked}
+          lockedOwner={lockedOwner}
+          onFormChange={setManualForm}
+          onClose={closeManualModal}
+          onSave={saveManualCreator}
+          saving={manualSaving}
+          checkLoading={manualCheckLoading}
+          checkResult={manualCheck}
+          error={manualError}
+        />
+      </>
+    )
+  }
 
   return (
     <div className="h-full flex flex-col overflow-hidden">

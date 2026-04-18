@@ -8,30 +8,26 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchJsonOrThrow } from '../utils/api'
+import WA from '../utils/waTheme'
 
 const API_BASE = '/api'
 const REFRESH_INTERVAL_MS = 5000
 const QR_POLL_INTERVAL_MS = 2000
 
-const WA = {
-  teal: '#00a884',
-  tealDark: '#008069',
-  danger: '#ef4444',
-  warning: '#f59e0b',
-  info: '#3b82f6',
-  muted: '#94a3b8',
-  border: '#e9edef',
-  bg: '#f6f7f8',
-  text: '#111b21',
-  textMuted: '#667781',
+// 本地状态色（danger/warning/info/muted 在项目 waTheme 无对应，保留为状态色）
+const ACCENT = {
+  danger: '#c65f49',
+  warning: '#b45309',
+  info: '#2563eb',
+  muted: '#9a9288',
 }
 
 function formatHeartbeat(ms) {
   if (ms == null) return '-'
   if (ms < 1000) return '<1s'
-  if (ms < 60000) return `${Math.round(ms / 1000)}s ago`
-  if (ms < 3600000) return `${Math.round(ms / 60000)}m ago`
-  return `${Math.round(ms / 3600000)}h ago`
+  if (ms < 60000) return `${Math.round(ms / 1000)}s 前`
+  if (ms < 3600000) return `${Math.round(ms / 60000)}m 前`
+  return `${Math.round(ms / 3600000)}h 前`
 }
 
 function StateBadge({ desiredState, runtimeState, agent }) {
@@ -40,28 +36,150 @@ function StateBadge({ desiredState, runtimeState, agent }) {
     : runtimeState || 'unknown'
 
   const config = {
-    ready: { color: WA.teal, label: '运行中', dot: '●' },
-    starting: { color: WA.warning, label: '启动中', dot: '○' },
-    pending: { color: WA.muted, label: '待启动', dot: '○' },
-    stale: { color: WA.warning, label: '心跳超时', dot: '●' },
-    crashed: { color: WA.danger, label: '已崩溃', dot: '●' },
-    stopped: { color: WA.muted, label: '已停止', dot: '○' },
-    unknown: { color: WA.muted, label: '未知', dot: '?' },
-  }[effective] || { color: WA.muted, label: effective, dot: '?' }
+    ready: { color: WA.teal, label: '运行中' },
+    starting: { color: ACCENT.warning, label: '启动中' },
+    pending: { color: ACCENT.muted, label: '待启动' },
+    stale: { color: ACCENT.warning, label: '心跳超时' },
+    crashed: { color: ACCENT.danger, label: '已崩溃' },
+    stopped: { color: ACCENT.muted, label: '已停止' },
+    unknown: { color: ACCENT.muted, label: '未知' },
+  }[effective] || { color: ACCENT.muted, label: effective }
 
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 8px', borderRadius: 12, fontSize: 12,
-      background: `${config.color}22`, color: config.color,
-    }}>
-      <span>{config.dot}</span>
-      <span>{config.label}</span>
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full"
+      style={{
+        padding: '3px 10px',
+        fontSize: 11,
+        fontWeight: 600,
+        background: `${config.color}18`,
+        color: config.color,
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: config.color }} />
+      {config.label}
       {desiredState === 'stopped' && effective === 'ready' && (
-        <span style={{ fontSize: 10, opacity: 0.6 }}>(关停中)</span>
+        <span style={{ fontSize: 10, opacity: 0.65 }}>(关停中)</span>
       )}
     </span>
   )
+}
+
+function IntentBadge({ desiredState }) {
+  const active = desiredState === 'running'
+  return (
+    <span
+      className="inline-flex items-center rounded-full"
+      style={{
+        padding: '3px 10px',
+        fontSize: 11,
+        fontWeight: 600,
+        background: active ? WA.shellAccentSoft : WA.shellPanelMuted,
+        color: active ? WA.teal : WA.textMuted,
+      }}
+    >
+      {active ? '运行' : '停止'}
+    </span>
+  )
+}
+
+function ModalShell({ title, onClose, children, maxWidth = 460 }) {
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center"
+      style={{ background: 'rgba(31,29,26,0.45)', padding: 16 }}
+    >
+      <div
+        className="w-full rounded-[24px] overflow-hidden flex flex-col"
+        style={{
+          maxWidth,
+          maxHeight: '90dvh',
+          background: WA.white,
+          border: `1px solid ${WA.borderLight}`,
+          boxShadow: WA.shellShadow,
+        }}
+      >
+        <div
+          className="shrink-0 flex items-center justify-between px-5 py-4"
+          style={{ borderBottom: `1px solid ${WA.borderLight}`, background: WA.shellPanelStrong }}
+        >
+          <div className="docs-title truncate" style={{ fontSize: 16 }}>{title}</div>
+          <button
+            onClick={onClose}
+            className="inline-flex items-center justify-center rounded-full shrink-0"
+            style={{
+              width: 36,
+              height: 36,
+              background: WA.white,
+              color: WA.textMuted,
+              border: `1px solid ${WA.borderLight}`,
+              fontSize: 16,
+            }}
+            aria-label="关闭"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto docs-scrollbar p-5">
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FormField({ label, hint, children }) {
+  return (
+    <label className="block space-y-1.5 mb-4">
+      <span className="docs-kicker block">{label}</span>
+      {children}
+      {hint && <span className="text-[11px] block" style={{ color: WA.textMuted }}>{hint}</span>}
+    </label>
+  )
+}
+
+const inputStyle = {
+  width: '100%',
+  minHeight: 44,
+  padding: '0 14px',
+  borderRadius: 14,
+  border: `1px solid ${WA.borderLight}`,
+  background: WA.white,
+  color: WA.textDark,
+  fontSize: 14,
+  outline: 'none',
+}
+
+const primaryBtnStyle = (disabled = false) => ({
+  minHeight: 44,
+  padding: '0 18px',
+  borderRadius: 999,
+  border: 'none',
+  background: disabled ? '#9a9288' : WA.teal,
+  color: '#fff',
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: disabled ? 'wait' : 'pointer',
+  opacity: disabled ? 0.7 : 1,
+})
+
+const secondaryBtnStyle = {
+  minHeight: 44,
+  padding: '0 16px',
+  borderRadius: 999,
+  border: `1px solid ${WA.borderLight}`,
+  background: WA.white,
+  color: WA.textMuted,
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: 'pointer',
+}
+
+const dangerLinkBtnStyle = {
+  ...secondaryBtnStyle,
+  color: ACCENT.danger,
+  borderColor: `${ACCENT.danger}33`,
+  background: `${ACCENT.danger}10`,
 }
 
 function AddAccountModal({ onClose, onCreated }) {
@@ -99,7 +217,6 @@ function AddAccountModal({ onClose, onCreated }) {
         }
       } catch (err) {
         if (/ready/i.test(err.message)) {
-          // 扫码成功
           stopPolling()
           onCreated?.({ session_id: sid })
           onClose?.()
@@ -135,128 +252,66 @@ function AddAccountModal({ onClose, onCreated }) {
   }
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
-    }}>
-      <div style={{
-        background: 'white', borderRadius: 12, padding: 24, width: 480,
-        maxHeight: '90vh', overflow: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>
-            {createdSessionId ? `扫码登录 ${createdSessionId}` : '添加 WhatsApp 账号'}
-          </h3>
-          <button onClick={onClose} style={{
-            background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: WA.textMuted,
-          }}>×</button>
-        </div>
+    <ModalShell
+      title={createdSessionId ? `扫码登录 ${createdSessionId}` : '添加 WhatsApp 账号'}
+      onClose={onClose}
+    >
+      {!createdSessionId && (
+        <form onSubmit={handleSubmit}>
+          <FormField label="Session ID" hint="小写字母数字，如 beau / yiyun">
+            <input
+              type="text"
+              value={sessionId}
+              onChange={(e) => setSessionId(e.target.value)}
+              placeholder="beau"
+              required
+              style={inputStyle}
+            />
+          </FormField>
+          <FormField label="Owner" hint="运营姓名，首字母大写">
+            <input
+              type="text"
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+              placeholder="Beau"
+              required
+              style={inputStyle}
+            />
+          </FormField>
+          <FormField label="别名" hint="逗号分隔，可选">
+            <input
+              type="text"
+              value={aliases}
+              onChange={(e) => setAliases(e.target.value)}
+              placeholder="sybil, jw"
+              style={inputStyle}
+            />
+          </FormField>
 
-        {!createdSessionId && (
-          <form onSubmit={handleSubmit}>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 13, color: WA.textMuted, marginBottom: 4 }}>
-                Session ID (小写字母数字,如 beau)
-              </label>
-              <input
-                type="text"
-                value={sessionId}
-                onChange={(e) => setSessionId(e.target.value)}
-                placeholder="例如 beau / yiyun"
-                required
-                style={{ width: '100%', padding: '8px 12px', border: `1px solid ${WA.border}`, borderRadius: 6, fontSize: 14 }}
-              />
+          {error && (
+            <div
+              className="rounded-[14px] px-3 py-2.5 mb-3 text-[13px]"
+              style={{ background: `${ACCENT.danger}14`, color: ACCENT.danger, border: `1px solid ${ACCENT.danger}33` }}
+            >
+              {error}
             </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 13, color: WA.textMuted, marginBottom: 4 }}>
-                Owner(运营姓名,首字母大写)
-              </label>
-              <input
-                type="text"
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                placeholder="例如 Beau / Yiyun"
-                required
-                style={{ width: '100%', padding: '8px 12px', border: `1px solid ${WA.border}`, borderRadius: 6, fontSize: 14 }}
-              />
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, color: WA.textMuted, marginBottom: 4 }}>
-                别名(逗号分隔,可选)
-              </label>
-              <input
-                type="text"
-                value={aliases}
-                onChange={(e) => setAliases(e.target.value)}
-                placeholder="例如 sybil,jw"
-                style={{ width: '100%', padding: '8px 12px', border: `1px solid ${WA.border}`, borderRadius: 6, fontSize: 14 }}
-              />
-            </div>
-            {error && (
-              <div style={{ marginBottom: 12, padding: 8, background: `${WA.danger}22`, color: WA.danger, borderRadius: 6, fontSize: 13 }}>
-                {error}
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button
-                type="button"
-                onClick={onClose}
-                style={{ padding: '8px 16px', border: `1px solid ${WA.border}`, background: 'white', borderRadius: 6, cursor: 'pointer' }}
-              >
-                取消
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                style={{
-                  padding: '8px 16px', border: 'none', background: WA.teal, color: 'white',
-                  borderRadius: 6, cursor: submitting ? 'wait' : 'pointer', opacity: submitting ? 0.6 : 1,
-                }}
-              >
-                {submitting ? '创建中...' : '创建并扫码'}
-              </button>
-            </div>
-          </form>
-        )}
+          )}
 
-        {createdSessionId && (
-          <div style={{ textAlign: 'center' }}>
-            <p style={{ fontSize: 13, color: WA.textMuted, marginBottom: 16 }}>
-              WhatsApp 手机端 → ⋮ → 已关联的设备 → 关联新设备 → 扫码
-            </p>
-            {qrDataUrl ? (
-              <div>
-                <img src={qrDataUrl} alt="QR" style={{ width: 280, height: 280, border: `1px solid ${WA.border}`, borderRadius: 8 }} />
-                <p style={{ fontSize: 12, color: WA.textMuted, marginTop: 8 }}>
-                  {qrPolling ? '等待扫码...' : '请刷新'}
-                </p>
-                {lastQrAt && (
-                  <p style={{ fontSize: 11, color: WA.textMuted }}>
-                    刷新于 {new Date(lastQrAt).toLocaleTimeString()}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div style={{
-                width: 280, height: 280, margin: '0 auto',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: WA.bg, borderRadius: 8, color: WA.textMuted,
-              }}>
-                {qrPolling ? '生成二维码中...' : '等待 agent 启动...'}
-              </div>
-            )}
-            <div style={{ marginTop: 16 }}>
-              <button
-                onClick={onClose}
-                style={{ padding: '8px 16px', border: `1px solid ${WA.border}`, background: 'white', borderRadius: 6, cursor: 'pointer' }}
-              >
-                关闭(后台继续扫码)
-              </button>
-            </div>
+          <div className="flex flex-wrap gap-2 pt-2">
+            <button type="button" onClick={onClose} style={{ ...secondaryBtnStyle, flex: 1, minWidth: 100 }}>
+              取消
+            </button>
+            <button type="submit" disabled={submitting} style={{ ...primaryBtnStyle(submitting), flex: 1, minWidth: 120 }}>
+              {submitting ? '创建中…' : '创建并扫码'}
+            </button>
           </div>
-        )}
-      </div>
-    </div>
+        </form>
+      )}
+
+      {createdSessionId && (
+        <QrBody qrDataUrl={qrDataUrl} lastQrAt={lastQrAt} status={qrPolling ? 'polling' : 'waiting'} onClose={onClose} />
+      )}
+    </ModalShell>
   )
 }
 
@@ -303,74 +358,241 @@ function QrModal({ sessionId, onClose }) {
   }, [sessionId, onClose])
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
-    }}>
-      <div style={{
-        background: 'white', borderRadius: 12, padding: 24, width: 420,
-        boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>扫码登录 {sessionId}</h3>
-          <button onClick={onClose} style={{
-            background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: WA.textMuted,
-          }}>×</button>
+    <ModalShell title={`扫码登录 ${sessionId}`} onClose={onClose}>
+      <QrBody
+        qrDataUrl={qrDataUrl}
+        lastQrAt={lastQrAt}
+        status={status}
+        refreshCount={refreshCount}
+        error={error}
+        onClose={onClose}
+      />
+    </ModalShell>
+  )
+}
+
+function QrBody({ qrDataUrl, lastQrAt, status, refreshCount, error, onClose }) {
+  return (
+    <div className="text-center space-y-3">
+      <p className="text-[13px] leading-relaxed" style={{ color: WA.textMuted }}>
+        WhatsApp 手机端 → ⋮ → <b>已关联的设备</b> → <b>关联新设备</b> → 扫码
+      </p>
+
+      {status === 'ready' && (
+        <div
+          className="rounded-[18px] py-8 font-semibold"
+          style={{ background: WA.shellAccentSoft, color: WA.teal, fontSize: 15 }}
+        >
+          ✓ 扫码成功，session 已就绪
         </div>
+      )}
 
-        <p style={{ fontSize: 13, color: WA.textMuted, marginBottom: 16, textAlign: 'center' }}>
-          WhatsApp 手机端 → ⋮ → 已关联的设备 → 关联新设备 → 扫码
-        </p>
-
-        {status === 'ready' && (
-          <div style={{ textAlign: 'center', padding: 40, color: WA.teal, fontSize: 16, fontWeight: 600 }}>
-            ✓ 扫码成功,该 session 已就绪
-          </div>
-        )}
-
-        {status === 'has_qr' && qrDataUrl && (
-          <div style={{ textAlign: 'center' }}>
-            <img src={qrDataUrl} alt="QR" style={{ width: 280, height: 280, border: `1px solid ${WA.border}`, borderRadius: 8 }} />
-            <p style={{ fontSize: 11, color: WA.textMuted, marginTop: 8 }}>
-              QR 刷新 #{refreshCount}{lastQrAt ? ` · ${new Date(lastQrAt).toLocaleTimeString()}` : ''}
-            </p>
-          </div>
-        )}
-
-        {status === 'loading' && (
-          <div style={{
-            width: 280, height: 280, margin: '0 auto',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: WA.bg, borderRadius: 8, color: WA.textMuted,
-          }}>加载二维码...</div>
-        )}
-
-        {status === 'waiting' && (
-          <div style={{
-            width: 280, height: 280, margin: '0 auto',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: WA.bg, borderRadius: 8, color: WA.textMuted, textAlign: 'center', padding: 20,
-          }}>
-            等待 agent 生成二维码...<br/>
-            <span style={{ fontSize: 11 }}>(Chrome 启动需 10-20s)</span>
-          </div>
-        )}
-
-        {status === 'error' && (
-          <div style={{ padding: 16, color: WA.danger, fontSize: 13, textAlign: 'center' }}>
-            {error}
-          </div>
-        )}
-
-        <div style={{ marginTop: 16, textAlign: 'center' }}>
-          <button
-            onClick={onClose}
-            style={{ padding: '8px 16px', border: `1px solid ${WA.border}`, background: 'white', borderRadius: 6, cursor: 'pointer' }}
+      {status === 'has_qr' && qrDataUrl && (
+        <>
+          <div
+            className="mx-auto rounded-[18px]"
+            style={{
+              width: 260,
+              height: 260,
+              background: WA.white,
+              border: `1px solid ${WA.borderLight}`,
+              padding: 12,
+            }}
           >
-            关闭
-          </button>
+            <img src={qrDataUrl} alt="QR" style={{ width: '100%', height: '100%', display: 'block' }} />
+          </div>
+          <p style={{ fontSize: 11, color: WA.textMuted }}>
+            QR 刷新 #{refreshCount || 0}
+            {lastQrAt ? ` · ${new Date(lastQrAt).toLocaleTimeString()}` : ''}
+          </p>
+        </>
+      )}
+
+      {(status === 'loading' || status === 'waiting' || status === 'polling') && (
+        <div
+          className="mx-auto rounded-[18px] flex flex-col items-center justify-center gap-2"
+          style={{
+            width: 260,
+            height: 260,
+            background: WA.shellPanelMuted,
+            color: WA.textMuted,
+            fontSize: 13,
+            padding: 16,
+          }}
+        >
+          <span>{status === 'loading' ? '加载二维码…' : '等待 agent 生成二维码…'}</span>
+          {status === 'waiting' && <span style={{ fontSize: 11, opacity: 0.8 }}>Chrome 启动需 10–20s</span>}
+        </div>
+      )}
+
+      {status === 'error' && (
+        <div
+          className="rounded-[14px] px-3 py-2.5 text-[13px]"
+          style={{ background: `${ACCENT.danger}14`, color: ACCENT.danger, border: `1px solid ${ACCENT.danger}33` }}
+        >
+          {error}
+        </div>
+      )}
+
+      <div className="pt-1">
+        <button onClick={onClose} style={{ ...secondaryBtnStyle, width: '100%' }}>
+          {status === 'has_qr' ? '关闭（后台继续扫码）' : '关闭'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SummaryBar({ summary }) {
+  if (!summary) return null
+  return (
+    <div
+      className="docs-panel flex flex-wrap items-center gap-2 px-4 py-3"
+      style={{ background: WA.white }}
+    >
+      <SummaryPill label="总计" value={summary.total} color={WA.textDark} />
+      <SummaryPill label="就绪" value={summary.ready} color={WA.teal} dotted />
+      <SummaryPill label="崩溃" value={summary.crashed} color={ACCENT.danger} dotted />
+      <SummaryPill label="停止" value={summary.stopped} color={ACCENT.muted} dotted />
+      {!summary.registry_enabled && (
+        <span
+          className="ml-auto text-[11px] font-semibold rounded-full"
+          style={{
+            padding: '3px 10px',
+            background: `${ACCENT.warning}18`,
+            color: ACCENT.warning,
+          }}
+          title="WA_AGENTS_ENABLED=false"
+        >
+          ⚠ SessionRegistry 未启用
+        </span>
+      )}
+    </div>
+  )
+}
+
+function SummaryPill({ label, value, color, dotted }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full"
+      style={{
+        padding: '4px 12px',
+        background: WA.shellPanelMuted,
+        color: WA.textMuted,
+        fontSize: 12,
+        fontWeight: 500,
+      }}
+    >
+      {dotted && (
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />
+      )}
+      {label}
+      <b style={{ color, marginLeft: 2 }}>{value ?? 0}</b>
+    </span>
+  )
+}
+
+function SessionActions({ session, pending, onRestart, onToggle, onDelete, onScan }) {
+  const showScan = session.agent?.has_qr || (session.agent && !session.agent.ready && session.desired_state === 'running')
+  const isRunning = session.desired_state === 'running'
+  const isActionPending = (key) => !!pending[`${session.session_id}:${key}`]
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {showScan && (
+        <button onClick={() => onScan(session.session_id)} style={{ ...primaryBtnStyle(), minHeight: 36, padding: '0 14px', fontSize: 12 }}>
+          扫码登录
+        </button>
+      )}
+      <button
+        onClick={() => onRestart(session.session_id)}
+        disabled={isActionPending('restart')}
+        style={{ ...secondaryBtnStyle, minHeight: 36, padding: '0 14px', fontSize: 12 }}
+      >
+        {isActionPending('restart') ? '重启中…' : '重启'}
+      </button>
+      <button
+        onClick={() => onToggle(session.session_id, isRunning ? 'stopped' : 'running')}
+        disabled={isActionPending('toggle')}
+        style={{ ...secondaryBtnStyle, minHeight: 36, padding: '0 14px', fontSize: 12 }}
+      >
+        {isRunning ? '停用' : '启用'}
+      </button>
+      <button
+        onClick={() => onDelete(session.session_id)}
+        disabled={isActionPending('delete')}
+        style={{ ...dangerLinkBtnStyle, minHeight: 36, padding: '0 14px', fontSize: 12 }}
+      >
+        删除
+      </button>
+    </div>
+  )
+}
+
+function SessionCard({ session, pending, onRestart, onToggle, onDelete, onScan }) {
+  return (
+    <article
+      className="rounded-[20px] p-4 space-y-3"
+      style={{ background: WA.white, border: `1px solid ${WA.borderLight}`, boxShadow: '0 1px 2px rgba(15,23,42,0.04)' }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="docs-kicker">Session</div>
+          <div className="docs-title mt-0.5" style={{ fontSize: 16 }}>{session.session_id}</div>
+          {session.aliases?.length > 0 && (
+            <div className="text-[11px] mt-1" style={{ color: WA.textMuted }}>
+              别名：{session.aliases.join('、')}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <StateBadge
+            desiredState={session.desired_state}
+            runtimeState={session.runtime_state}
+            agent={session.agent}
+          />
+          <IntentBadge desiredState={session.desired_state} />
         </div>
       </div>
+
+      <div className="grid grid-cols-2 gap-2 text-[12px]">
+        <MetaRow label="Owner" value={session.owner || '-'} />
+        <MetaRow label="手机号" value={session.account_phone || '-'} />
+        <MetaRow label="心跳" value={formatHeartbeat(session.agent?.last_heartbeat_ms_ago)} />
+        <MetaRow label="重启次数" value={String(session.restart_count || 0)} />
+        {session.runtime_phase && <MetaRow label="Phase" value={session.runtime_phase} />}
+      </div>
+
+      {session.last_error && (
+        <div
+          className="rounded-[12px] px-3 py-2 text-[12px]"
+          style={{ background: `${ACCENT.danger}10`, color: ACCENT.danger, border: `1px solid ${ACCENT.danger}26` }}
+          title={session.last_error}
+        >
+          <span className="docs-kicker mr-1" style={{ color: ACCENT.danger }}>错误</span>
+          <span className="break-words">{session.last_error}</span>
+        </div>
+      )}
+
+      <div style={{ borderTop: `1px solid ${WA.borderLight}`, paddingTop: 12 }}>
+        <SessionActions
+          session={session}
+          pending={pending}
+          onRestart={onRestart}
+          onToggle={onToggle}
+          onDelete={onDelete}
+          onScan={onScan}
+        />
+      </div>
+    </article>
+  )
+}
+
+function MetaRow({ label, value }) {
+  return (
+    <div>
+      <div className="docs-kicker" style={{ fontSize: 10 }}>{label}</div>
+      <div className="mt-0.5 font-semibold break-all" style={{ color: WA.textDark, fontSize: 13 }}>{value}</div>
     </div>
   )
 }
@@ -391,7 +613,6 @@ export function AccountsPanel() {
         setSessions(data.sessions || [])
         setSummary(data.summary || null)
         setError(null)
-        // 通知 App.jsx 等其它组件刷新 owner 选项
         try {
           window.dispatchEvent(new CustomEvent('wa-session-status-changed', {
             detail: { owners: (data.sessions || []).map(s => s.owner).filter(Boolean) }
@@ -446,167 +667,57 @@ export function AccountsPanel() {
     )
   }
 
+  const handleScan = (sid) => setScanSessionId(sid)
+
   return (
-    <div style={{ padding: 24, height: '100%', overflow: 'auto', background: WA.bg }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>WhatsApp 账号管理</h2>
+    <div className="h-full overflow-y-auto docs-scrollbar px-3 py-3 md:px-6 md:py-6 space-y-4" style={{ background: WA.shellBg }}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="docs-kicker">WhatsApp</div>
+          <div className="text-[18px] md:text-[20px] font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>
+            账号管理
+          </div>
+        </div>
         <button
           onClick={() => setShowAddModal(true)}
-          style={{
-            padding: '8px 16px', border: 'none', background: WA.teal, color: 'white',
-            borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 500,
-          }}
+          style={{ ...primaryBtnStyle(), minHeight: 40, padding: '0 16px', fontSize: 13 }}
         >
-          + 添加账号
+          ＋ 添加账号
         </button>
       </div>
 
-      {summary && (
-        <div style={{ display: 'flex', gap: 12, marginBottom: 16, fontSize: 13 }}>
-          <span>总计 <b>{summary.total}</b></span>
-          <span style={{ color: WA.teal }}>● 就绪 {summary.ready}</span>
-          <span style={{ color: WA.danger }}>● 崩溃 {summary.crashed}</span>
-          <span style={{ color: WA.muted }}>● 停止 {summary.stopped}</span>
-          {!summary.registry_enabled && (
-            <span style={{ marginLeft: 'auto', color: WA.warning, fontSize: 12 }}>
-              ⚠ SessionRegistry 未启用(WA_AGENTS_ENABLED=false)
-            </span>
-          )}
-        </div>
-      )}
+      <SummaryBar summary={summary} />
 
       {error && (
-        <div style={{ marginBottom: 12, padding: 12, background: `${WA.danger}22`, color: WA.danger, borderRadius: 6 }}>
+        <div
+          className="rounded-[16px] px-4 py-3 text-[13px]"
+          style={{ background: `${ACCENT.danger}14`, color: ACCENT.danger, border: `1px solid ${ACCENT.danger}33` }}
+        >
           {error}
         </div>
       )}
 
       {loading && !sessions.length ? (
-        <div style={{ padding: 48, textAlign: 'center', color: WA.textMuted }}>加载中...</div>
+        <div className="docs-panel py-12 text-center text-sm" style={{ color: WA.textMuted, background: WA.white }}>
+          加载中…
+        </div>
+      ) : sessions.length === 0 ? (
+        <div className="docs-panel py-12 text-center text-sm" style={{ color: WA.textMuted, background: WA.white }}>
+          暂无账号，点击右上"＋ 添加账号"开始
+        </div>
       ) : (
-        <div style={{ background: 'white', borderRadius: 8, border: `1px solid ${WA.border}`, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: WA.bg, borderBottom: `1px solid ${WA.border}` }}>
-                <th style={thStyle}>Session ID</th>
-                <th style={thStyle}>Owner</th>
-                <th style={thStyle}>意图</th>
-                <th style={thStyle}>运行状态</th>
-                <th style={thStyle}>手机号</th>
-                <th style={thStyle}>心跳</th>
-                <th style={thStyle}>重启次数</th>
-                <th style={thStyle}>错误</th>
-                <th style={thStyle}>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((s) => {
-                const pending = (key) => !!actionPending[`${s.session_id}:${key}`]
-                return (
-                  <tr key={s.session_id} style={{ borderBottom: `1px solid ${WA.border}` }}>
-                    <td style={tdStyle}>
-                      <div style={{ fontWeight: 600 }}>{s.session_id}</div>
-                      {s.aliases?.length > 0 && (
-                        <div style={{ fontSize: 11, color: WA.textMuted }}>
-                          别名: {s.aliases.join(', ')}
-                        </div>
-                      )}
-                    </td>
-                    <td style={tdStyle}>{s.owner}</td>
-                    <td style={tdStyle}>
-                      <span style={{
-                        padding: '2px 8px', borderRadius: 4, fontSize: 11,
-                        background: s.desired_state === 'running' ? `${WA.teal}22` : `${WA.muted}22`,
-                        color: s.desired_state === 'running' ? WA.teal : WA.muted,
-                      }}>
-                        {s.desired_state === 'running' ? '运行' : '停止'}
-                      </span>
-                    </td>
-                    <td style={tdStyle}>
-                      <StateBadge
-                        desiredState={s.desired_state}
-                        runtimeState={s.runtime_state}
-                        agent={s.agent}
-                      />
-                      {s.runtime_phase && (
-                        <div style={{ fontSize: 10, color: WA.textMuted, marginTop: 2 }}>
-                          phase: {s.runtime_phase}
-                        </div>
-                      )}
-                    </td>
-                    <td style={tdStyle}>
-                      {s.account_phone || <span style={{ color: WA.textMuted }}>-</span>}
-                    </td>
-                    <td style={tdStyle}>
-                      {formatHeartbeat(s.agent?.last_heartbeat_ms_ago)}
-                    </td>
-                    <td style={tdStyle}>{s.restart_count || 0}</td>
-                    <td style={{ ...tdStyle, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.last_error || ''}>
-                      {s.last_error ? (
-                        <span style={{ color: WA.danger }}>{s.last_error}</span>
-                      ) : (
-                        <span style={{ color: WA.textMuted }}>-</span>
-                      )}
-                    </td>
-                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
-                      {s.agent?.has_qr || (s.agent && !s.agent.ready && s.desired_state === 'running') ? (
-                        <button
-                          onClick={() => setScanSessionId(s.session_id)}
-                          style={{
-                            ...actionBtnStyle,
-                            background: WA.teal,
-                            color: 'white',
-                            border: 'none',
-                            fontWeight: 600,
-                          }}
-                        >
-                          扫码登录
-                        </button>
-                      ) : null}
-                      <button
-                        onClick={() => handleRestart(s.session_id)}
-                        disabled={pending('restart')}
-                        style={actionBtnStyle}
-                      >
-                        {pending('restart') ? '...' : '重启'}
-                      </button>
-                      {s.desired_state === 'running' ? (
-                        <button
-                          onClick={() => handleToggleDesired(s.session_id, 'stopped')}
-                          disabled={pending('toggle')}
-                          style={actionBtnStyle}
-                        >
-                          停用
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleToggleDesired(s.session_id, 'running')}
-                          disabled={pending('toggle')}
-                          style={actionBtnStyle}
-                        >
-                          启用
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleDelete(s.session_id)}
-                        disabled={pending('delete')}
-                        style={{ ...actionBtnStyle, color: WA.danger }}
-                      >
-                        删除
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-              {sessions.length === 0 && (
-                <tr>
-                  <td colSpan={9} style={{ padding: 48, textAlign: 'center', color: WA.textMuted }}>
-                    暂无账号,点击右上"添加账号"开始
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {sessions.map((s) => (
+            <SessionCard
+              key={s.session_id}
+              session={s}
+              pending={actionPending}
+              onRestart={handleRestart}
+              onToggle={handleToggleDesired}
+              onDelete={handleDelete}
+              onScan={handleScan}
+            />
+          ))}
         </div>
       )}
 
@@ -625,13 +736,6 @@ export function AccountsPanel() {
       )}
     </div>
   )
-}
-
-const thStyle = { padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: WA.textMuted, fontSize: 12 }
-const tdStyle = { padding: '10px 12px', verticalAlign: 'top' }
-const actionBtnStyle = {
-  padding: '4px 10px', marginRight: 6, fontSize: 12,
-  border: `1px solid ${WA.border}`, background: 'white', borderRadius: 4, cursor: 'pointer',
 }
 
 export default AccountsPanel

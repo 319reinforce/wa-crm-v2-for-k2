@@ -3,6 +3,7 @@ import JudgeQuickForm from './JudgeQuickForm'
 import { OWNER_ORDER, getOwnerColor } from '../utils/operators'
 import { getAppAuthScopeOwner, isAppAuthOwnerLocked } from '../utils/appAuth'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
+import sharedWA from '../utils/waTheme'
 
 const API_BASE = '/api';
 const DISPLAY_TIME_ZONE = 'Asia/Shanghai';
@@ -47,18 +48,19 @@ function toLocalDateTimeInputValue(date = new Date()) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+// 统一到项目 waTheme，不再维护本地 palette（历史遗留的 WhatsApp 官方色和项目暖米色冲突）
 const WA = {
-  darkHeader: '#111b21',
-  teal: '#00a884',
-  tealDark: '#008069',
-  lightBg: '#f0f2f5',
-  chatBg: '#efeae2',
-  shellPanelMuted: '#f6f2ea',
-  white: '#ffffff',
-  borderLight: '#e9edef',
-  textDark: '#111b21',
-  textMuted: '#667781',
-  hover: '#f5f6f6',
+  darkHeader: sharedWA.darkHeader,
+  teal: sharedWA.teal,
+  tealDark: sharedWA.tealDark,
+  lightBg: sharedWA.lightBg,
+  chatBg: sharedWA.chatBg,
+  shellPanelMuted: sharedWA.shellPanelMuted,
+  white: sharedWA.white,
+  borderLight: sharedWA.borderLight,
+  textDark: sharedWA.textDark,
+  textMuted: sharedWA.textMuted,
+  hover: sharedWA.hover,
 }
 
 const EVENT_TYPE_LABELS = {
@@ -382,31 +384,31 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
   return (
     <div className="flex flex-col h-full" style={{ background: WA.lightBg }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-5 border-b" style={{ background: WA.white, borderColor: WA.borderLight }}>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: WA.teal }}>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 md:px-6 py-4 md:py-5 border-b" style={{ background: WA.white, borderColor: WA.borderLight }}>
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: WA.teal }}>
             E
           </div>
-          <div>
-            <div className="text-[20px] font-semibold leading-none" style={{ color: WA.textDark }}>事件管理</div>
-            <div className="text-[13px] mt-1" style={{ color: WA.textMuted }}>
+          <div className="min-w-0">
+            <div className="text-[18px] md:text-[20px] font-semibold leading-none truncate" style={{ color: WA.textDark }}>事件管理</div>
+            <div className="text-[12px] md:text-[13px] mt-1" style={{ color: WA.textMuted }}>
               {total} 个事件
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <button
             onClick={() => fetchEvents()}
             disabled={loading}
-            className="px-3 py-1.5 rounded-full text-[12px] font-medium"
-            style={{ background: WA.white, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
+            className="rounded-full text-[12px] font-semibold whitespace-nowrap"
+            style={{ minHeight: 40, padding: '0 14px', background: WA.white, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
           >
-            {loading ? '刷新中...' : '刷新'}
+            {loading ? '刷新中…' : '刷新'}
           </button>
           <button
             onClick={() => setShowCreate(true)}
-            className="px-4 py-1.5 rounded-full text-[12px] font-semibold text-white"
-            style={{ background: WA.teal }}
+            className="rounded-full text-[12px] font-semibold text-white whitespace-nowrap"
+            style={{ minHeight: 40, padding: '0 16px', background: WA.teal }}
           >
             + 新建事件
           </button>
@@ -467,7 +469,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
             🗑 清除
           </button>
         )}
-        <div className="ml-auto text-[12px] font-medium px-3 py-2 rounded-full" style={{ background: WA.shellPanelMuted, color: WA.textMuted }}>
+        <div className="ml-auto hidden md:block text-[12px] font-medium px-3 py-2 rounded-full" style={{ background: WA.shellPanelMuted, color: WA.textMuted }}>
           看板模式 · 两列事件卡
         </div>
       </div>
@@ -534,37 +536,43 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
                   onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = WA.white }}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[12px] px-3 py-1 rounded-full font-semibold" style={{ background: typeInfo.bg, color: typeInfo.color }}>
+                    <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1">
+                      <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold whitespace-nowrap" style={{ background: typeInfo.bg, color: typeInfo.color }}>
                         {typeInfo.label}
                       </span>
-                      <span className="text-[12px] px-3 py-1 rounded-full font-semibold" style={{ background: statusInfo.bg, color: statusInfo.color }}>
+                      <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold whitespace-nowrap" style={{ background: statusInfo.bg, color: statusInfo.color }}>
                         {statusInfo.label}
                       </span>
-                      <span className="text-[12px] px-3 py-1 rounded-full font-semibold" style={{ background: ownerColor + '16', color: ownerColor }}>
+                      <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold whitespace-nowrap" style={{ background: ownerColor + '16', color: ownerColor }}>
                         {displayEvent.owner}
                       </span>
-                      <span className="text-[12px] px-3 py-1 rounded-full font-semibold" style={{ background: verificationInfo.bg, color: verificationInfo.color }}>
+                      <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold whitespace-nowrap" style={{ background: verificationInfo.bg, color: verificationInfo.color }}>
                         {verificationInfo.label}
                       </span>
                     </div>
-                    <span className="text-[12px] shrink-0" style={{ color: WA.textMuted }}>
+                    <span className="text-[11px] shrink-0 whitespace-nowrap" style={{ color: WA.textMuted }}>
                       {displayStartAt ? formatDateCN(displayStartAt) : '-'}
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <div className="text-[22px] font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div
+                        className="text-[18px] md:text-[22px] font-semibold tracking-[-0.03em] break-words"
+                        style={{ color: WA.textDark, wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+                        title={displayEvent.creator_name || `达人 #${displayEvent.creator_id}`}
+                      >
                         {displayEvent.creator_name || `达人 #${displayEvent.creator_id}`}
                       </div>
-                      <div className="text-[13px] mt-1" style={{ color: WA.textMuted }}>
+                      <div className="text-[12px] md:text-[13px] mt-1 truncate" style={{ color: WA.textMuted }}>
                         {formatTriggerSource(displayEvent.trigger_source)} · {displayEvent.creator_phone || '-'}
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      {meta.bonus_per_video ? <span className="text-[12px] font-semibold" style={{ color: '#10b981' }}>${meta.bonus_per_video}/条</span> : null}
-                    </div>
+                    {meta.bonus_per_video ? (
+                      <div className="shrink-0 rounded-full px-2.5 py-1 font-semibold" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981', fontSize: 11, whiteSpace: 'nowrap' }}>
+                        ${meta.bonus_per_video}/条
+                      </div>
+                    ) : null}
                   </div>
                   <button
                     type="button"
