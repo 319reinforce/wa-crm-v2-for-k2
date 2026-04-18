@@ -218,11 +218,9 @@ app.use('/api/events', requireAppAuth, eventsRouter);
 app.use('/api/experience', requireAppAuth, experienceRouter);
 app.use('/api', requireAppAuth, strategyRouter);
 app.use('/api', requireAppAuth, lifecycleRouter);
-app.use('/api/wa/sessions', requireAppAuth, waSessionsRouter);
-app.use('/api/wa', requireAppAuth, waRouter);
-app.use('/api/training', requireAppAuth, trainingRouter);
 
 // WA Agents 健康检查(CI/CD Docker healthcheck 使用,公开端点)
+// 必须在 /api/wa requireAppAuth 挂载之前,否则会被拦截返回 401
 // 200 = DB 连通 + Registry 启用时所有 desired=running 的 agent 至少有一个 ready
 // 503 = 关键条件不满足;Registry 未启用时只要 DB 连通就返回 200
 app.get('/api/wa/agents/health', async (req, res) => {
@@ -239,7 +237,6 @@ app.get('/api/wa/agents/health', async (req, res) => {
     }
 
     const agents = registry.listAgents();
-    const now = Date.now();
     const withAge = agents.map((a) => ({
         session_id: a.session_id,
         owner: a.owner,
@@ -264,6 +261,10 @@ app.get('/api/wa/agents/health', async (req, res) => {
         summary,
     });
 });
+
+app.use('/api/wa/sessions', requireAppAuth, waSessionsRouter);
+app.use('/api/wa', requireAppAuth, waRouter);
+app.use('/api/training', requireAppAuth, trainingRouter);
 
 // WA Worker 路由
 // 聚合所有 agent 进程的 worker 状态,Registry 启用时优先读内存态,
