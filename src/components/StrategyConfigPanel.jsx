@@ -195,26 +195,26 @@ export function StrategyConfigPanel({ embedded = false }) {
               <button
                 onClick={loadConfig}
                 disabled={loading}
-                className="px-3 py-1.5 rounded-full text-[12px] font-medium"
-                style={{ border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
+                className="rounded-full text-[12px] font-semibold whitespace-nowrap"
+                style={{ minHeight: 40, padding: '0 14px', border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
               >
-                {loading ? '加载中...' : '加载'}
+                {loading ? '加载中…' : '加载'}
               </button>
               <button
                 onClick={resetDraft}
                 disabled={!loaded || saving}
-                className="px-3 py-1.5 rounded-full text-[12px] font-medium"
-                style={{ border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
+                className="rounded-full text-[12px] font-semibold whitespace-nowrap"
+                style={{ minHeight: 40, padding: '0 14px', border: `1px solid ${WA.borderLight}`, color: WA.textDark, background: WA.white }}
               >
                 重置
               </button>
               <button
                 onClick={saveConfig}
                 disabled={saving || !!validate}
-                className="px-3 py-1.5 rounded-full text-[12px] font-medium text-white"
-                style={{ background: saving ? '#9ca3af' : WA.teal }}
+                className="rounded-full text-[12px] font-semibold text-white whitespace-nowrap"
+                style={{ minHeight: 40, padding: '0 16px', background: saving ? '#9ca3af' : WA.teal }}
               >
-                {saving ? '保存中...' : '保存'}
+                {saving ? '保存中…' : '保存'}
               </button>
             </div>
           )}
@@ -306,13 +306,13 @@ export function StrategyConfigPanel({ embedded = false }) {
 
 function BoardSection({ title, subtitle, action, children }) {
   return (
-    <section className="rounded-[24px] p-5 space-y-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="text-[20px] font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>{title}</div>
-          {subtitle ? <div className="text-[13px] mt-1" style={{ color: WA.textMuted }}>{subtitle}</div> : null}
+    <section className="rounded-[20px] md:rounded-[24px] p-4 md:p-5 space-y-4" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[18px] md:text-[20px] font-semibold tracking-[-0.03em]" style={{ color: WA.textDark }}>{title}</div>
+          {subtitle ? <div className="text-[12px] md:text-[13px] mt-1 break-words" style={{ color: WA.textMuted }}>{subtitle}</div> : null}
         </div>
-        {action}
+        {action && <div className="shrink-0">{action}</div>}
       </div>
       {children}
     </section>

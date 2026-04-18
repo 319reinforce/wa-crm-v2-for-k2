@@ -382,31 +382,31 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
   return (
     <div className="flex flex-col h-full" style={{ background: WA.lightBg }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-5 border-b" style={{ background: WA.white, borderColor: WA.borderLight }}>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: WA.teal }}>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 md:px-6 py-4 md:py-5 border-b" style={{ background: WA.white, borderColor: WA.borderLight }}>
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0" style={{ background: WA.teal }}>
             E
           </div>
-          <div>
-            <div className="text-[20px] font-semibold leading-none" style={{ color: WA.textDark }}>事件管理</div>
-            <div className="text-[13px] mt-1" style={{ color: WA.textMuted }}>
+          <div className="min-w-0">
+            <div className="text-[18px] md:text-[20px] font-semibold leading-none truncate" style={{ color: WA.textDark }}>事件管理</div>
+            <div className="text-[12px] md:text-[13px] mt-1" style={{ color: WA.textMuted }}>
               {total} 个事件
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <button
             onClick={() => fetchEvents()}
             disabled={loading}
-            className="px-3 py-1.5 rounded-full text-[12px] font-medium"
-            style={{ background: WA.white, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
+            className="rounded-full text-[12px] font-semibold whitespace-nowrap"
+            style={{ minHeight: 40, padding: '0 14px', background: WA.white, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
           >
-            {loading ? '刷新中...' : '刷新'}
+            {loading ? '刷新中…' : '刷新'}
           </button>
           <button
             onClick={() => setShowCreate(true)}
-            className="px-4 py-1.5 rounded-full text-[12px] font-semibold text-white"
-            style={{ background: WA.teal }}
+            className="rounded-full text-[12px] font-semibold text-white whitespace-nowrap"
+            style={{ minHeight: 40, padding: '0 16px', background: WA.teal }}
           >
             + 新建事件
           </button>
@@ -467,7 +467,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
             🗑 清除
           </button>
         )}
-        <div className="ml-auto text-[12px] font-medium px-3 py-2 rounded-full" style={{ background: WA.shellPanelMuted, color: WA.textMuted }}>
+        <div className="ml-auto hidden md:block text-[12px] font-medium px-3 py-2 rounded-full" style={{ background: WA.shellPanelMuted, color: WA.textMuted }}>
           看板模式 · 两列事件卡
         </div>
       </div>

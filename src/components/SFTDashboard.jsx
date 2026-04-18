@@ -105,15 +105,18 @@ export function SFTDashboard() {
   ]
 
   return (
-    <div className="space-y-8 px-6 py-6">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex flex-wrap gap-2">
+    <div className="space-y-6 md:space-y-8 px-4 py-4 md:px-6 md:py-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2 min-w-0">
           {TABS.map(([key, label]) => (
             <button
               key={key}
               onClick={() => setActiveTab(key)}
-              className="px-4 py-2 rounded-full text-sm font-medium transition-all relative"
+              className="rounded-full font-medium transition-all relative whitespace-nowrap"
               style={{
+                minHeight: 40,
+                padding: '0 14px',
+                fontSize: 13,
                 background: activeTab === key ? WA.white : WA.shellPanelMuted,
                 color: activeTab === key ? WA.textDark : WA.textMuted,
                 border: `1px solid ${WA.borderLight}`,
@@ -126,8 +129,15 @@ export function SFTDashboard() {
         {(activeTab === 'records' || activeTab === 'review') && (
           <button
             onClick={handleRefresh}
-            className="px-4 py-2 rounded-full text-sm font-semibold"
-            style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
+            className="rounded-full font-semibold whitespace-nowrap shrink-0"
+            style={{
+              minHeight: 40,
+              padding: '0 16px',
+              fontSize: 13,
+              background: WA.white,
+              color: WA.textMuted,
+              border: `1px solid ${WA.borderLight}`,
+            }}
           >
             刷新
           </button>

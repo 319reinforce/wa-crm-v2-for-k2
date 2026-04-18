@@ -2,25 +2,29 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import AppAuthGate from './components/AppAuthGate'
-import MobileShell from './mobile/MobileShell'
 import './index.css'
 
-const params = new URLSearchParams(window.location.search)
-const uiQuery = params.get('ui')
-const stored = localStorage.getItem('uiVersion')
+try {
+  if (localStorage.getItem('uiVersion')) {
+    localStorage.removeItem('uiVersion')
+  }
+} catch (_) {}
 
-if (uiQuery === 'v2') localStorage.setItem('uiVersion', 'v2')
-if (uiQuery === 'legacy') localStorage.setItem('uiVersion', 'legacy')
-
-const preferMobile = uiQuery === 'v2' || stored === 'v2'
-const forceLegacy = uiQuery === 'legacy' || stored === 'legacy'
-
-const RootApp = (!forceLegacy && preferMobile) ? MobileShell : App
+const { pathname, search, hash } = window.location
+if (pathname.startsWith('/m')) {
+  const legacyHashMatch = pathname.match(/^\/m\/chat\/([^/]+)/)
+  const selected = legacyHashMatch ? legacyHashMatch[1] : ''
+  const params = new URLSearchParams(search)
+  if (selected) params.set('creator', selected)
+  const nextSearch = params.toString()
+  const nextUrl = `/${nextSearch ? `?${nextSearch}` : ''}${hash || ''}`
+  window.history.replaceState(null, '', nextUrl)
+}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <AppAuthGate>
-      <RootApp />
+      <App />
     </AppAuthGate>
   </React.StrictMode>
 )
