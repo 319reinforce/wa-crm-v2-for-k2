@@ -18,6 +18,8 @@
  */
 require('dotenv').config();
 
+const fs = require('fs');
+const path = require('path');
 const db = require('../../db');
 const {
     start: startWaService,
@@ -373,11 +375,40 @@ async function gracefulShutdown(signal) {
     setTimeout(() => process.exit(0), 100);
 }
 
+// 清理 Chromium 残留锁文件(容器异常退出后 SingletonLock/Cookie/Socket 残留)
+function cleanStaleChromiumLocks() {
+    const authRoot = process.env.WA_AUTH_ROOT
+        || process.env.WWEBJS_AUTH_ROOT
+        || path.join(__dirname, '../../.wwebjs_auth');
+    const sessionDir = path.join(authRoot, `session-${WA_SESSION_ID}`);
+    if (!fs.existsSync(sessionDir)) return;
+    const lockNames = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+    let removed = 0;
+    const walk = (dir) => {
+        try {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                const full = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    walk(full);
+                } else if (lockNames.includes(entry.name) || entry.isSymbolicLink()) {
+                    try { fs.unlinkSync(full); removed += 1; } catch (_) {}
+                }
+            }
+        } catch (_) {}
+    };
+    walk(sessionDir);
+    if (removed > 0) {
+        console.log(`[waAgent:${AGENT_TAG}] cleaned ${removed} stale Chromium lock file(s)`);
+    }
+}
+
 async function main() {
     console.log('═'.repeat(60));
     console.log(`  WA Agent 启动中... (${AGENT_TAG})`);
     console.log(`  pid=${process.pid}  api_base=${WA_API_BASE}`);
     console.log('═'.repeat(60));
+
+    cleanStaleChromiumLocks();
 
     // IPC 命令监听
     process.on('message', (msg) => {
