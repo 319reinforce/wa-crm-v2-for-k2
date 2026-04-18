@@ -58,19 +58,23 @@ function buildMessageHash(role, text, timestampMs) {
         .digest('hex');
 }
 
+// 使用 query() 而非 execute()：execute 走服务端 prepared statement 二进制协议，
+// MySQL < 8.0.22 不接受 LIMIT/OFFSET 位置的参数绑定，会报
+// "Incorrect arguments to mysqld_stmt_execute"。query() 走文本协议客户端转义，
+// 对 ? 占位符同样安全，且兼容所有 MySQL/MariaDB 版本。
 const db = {
     prepare(sql) {
         return {
             get: async (...params) => {
-                const [rows] = await getPool().execute(sql, params);
+                const [rows] = await getPool().query(sql, params);
                 return rows[0] || null;
             },
             all: async (...params) => {
-                const [rows] = await getPool().execute(sql, params);
+                const [rows] = await getPool().query(sql, params);
                 return rows;
             },
             run: async (...params) => {
-                const [result] = await getPool().execute(sql, params);
+                const [result] = await getPool().query(sql, params);
                 return toSqliteFormat(result);
             },
         };
@@ -84,15 +88,15 @@ const db = {
                 prepare(sql) {
                     return {
                         get: async (...params) => {
-                            const [rows] = await conn.execute(sql, params);
+                            const [rows] = await conn.query(sql, params);
                             return rows[0] || null;
                         },
                         all: async (...params) => {
-                            const [rows] = await conn.execute(sql, params);
+                            const [rows] = await conn.query(sql, params);
                             return rows;
                         },
                         run: async (...params) => {
-                            const [result] = await conn.execute(sql, params);
+                            const [result] = await conn.query(sql, params);
                             return toSqliteFormat(result);
                         },
                     };
