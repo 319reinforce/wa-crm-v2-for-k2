@@ -89,31 +89,24 @@ async function fetchCreatorMessageFactsMap(dbConn, creators = []) {
     const [firstRawRows, firstNonBlankRows] = await Promise.all([
         dbConn.prepare(`
             SELECT creator_id, role, text, timestamp, id
-            FROM wa_messages wm
-            WHERE wm.creator_id IN (${placeholders})
-              AND wm.id = (
-                SELECT m2.id
-                FROM wa_messages m2
-                WHERE m2.creator_id = wm.creator_id
-                ORDER BY m2.timestamp, m2.id
-                LIMIT 1
-              )
+            FROM (
+                SELECT creator_id, role, text, timestamp, id,
+                    ROW_NUMBER() OVER (PARTITION BY creator_id ORDER BY timestamp, id) AS rn
+                FROM wa_messages
+                WHERE creator_id IN (${placeholders})
+            ) ranked
+            WHERE rn = 1
         `).all(...creatorIds),
         dbConn.prepare(`
             SELECT creator_id, role, text, timestamp, id
-            FROM wa_messages wm
-            WHERE wm.creator_id IN (${placeholders})
-              AND wm.text IS NOT NULL
-              AND TRIM(wm.text) <> ''
-              AND wm.id = (
-                SELECT m2.id
-                FROM wa_messages m2
-                WHERE m2.creator_id = wm.creator_id
-                  AND m2.text IS NOT NULL
-                  AND TRIM(m2.text) <> ''
-                ORDER BY m2.timestamp, m2.id
-                LIMIT 1
-              )
+            FROM (
+                SELECT creator_id, role, text, timestamp, id,
+                    ROW_NUMBER() OVER (PARTITION BY creator_id ORDER BY timestamp, id) AS rn
+                FROM wa_messages
+                WHERE creator_id IN (${placeholders})
+                  AND text IS NOT NULL AND text <> ''
+            ) ranked
+            WHERE rn = 1
         `).all(...creatorIds),
     ]);
 
