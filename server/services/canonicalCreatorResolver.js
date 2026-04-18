@@ -4,6 +4,7 @@ const { mergeDuplicateCreatorIntoCanonical } = require('./creatorMergeService');
 
 const CACHE_TTL_MS = 30 * 1000;
 const cacheByOperator = new Map();
+const inflightByOperator = new Map();
 
 function normalizeText(value) {
     return String(value || '')
@@ -163,7 +164,11 @@ async function loadRosterCandidates(operator) {
         return cached.rows;
     }
 
-    const rows = await db.getDb().prepare(`
+    if (inflightByOperator.has(normalizedOperator)) {
+        return inflightByOperator.get(normalizedOperator);
+    }
+
+    const promise = db.getDb().prepare(`
         SELECT
             c.id,
             c.primary_name,
@@ -192,10 +197,17 @@ async function loadRosterCandidates(operator) {
             c.id, c.primary_name, c.wa_phone, c.keeper_username, c.wa_owner, c.source, c.created_at,
             r.operator, r.session_id, r.raw_name, r.raw_handle, r.raw_keeper_name,
             k.keeper_username, j.creator_name_jb
-    `).all(normalizedOperator);
+    `).all(normalizedOperator).then((rows) => {
+        cacheByOperator.set(normalizedOperator, { loadedAt: Date.now(), rows });
+        inflightByOperator.delete(normalizedOperator);
+        return rows;
+    }).catch((err) => {
+        inflightByOperator.delete(normalizedOperator);
+        throw err;
+    });
 
-    cacheByOperator.set(normalizedOperator, { loadedAt: Date.now(), rows });
-    return rows;
+    inflightByOperator.set(normalizedOperator, promise);
+    return promise;
 }
 
 async function getCreatorById(id) {
@@ -347,7 +359,10 @@ async function resolveCanonicalCreator({ phone, name, operator }) {
 
 function invalidateOperatorCache(operator) {
     const normalizedOperator = normalizeOperatorName(operator, operator || null);
-    if (normalizedOperator) cacheByOperator.delete(normalizedOperator);
+    if (normalizedOperator) {
+        cacheByOperator.delete(normalizedOperator);
+        inflightByOperator.delete(normalizedOperator);
+    }
 }
 
 module.exports = {

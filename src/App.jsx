@@ -344,10 +344,15 @@ function App() {
   // SSE 实时订阅（populate_db.cjs 写完 MySQL 后会收到广播）
   useEffect(() => {
     let es
+    let debounceTimer = null
+    const debouncedLoadData = () => {
+      clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => { loadDataRef.current?.() }, 1500)
+    }
     try {
       es = new EventSource('/api/events/subscribe')
       es.addEventListener('creators-updated', () => {
-        loadDataRef.current?.()
+        debouncedLoadData()
       })
       // Step 7: 新消息到达时立即刷新列表(替代 5s 轮询 + populate broadcast)
       es.addEventListener('wa-message', (event) => {
@@ -356,7 +361,7 @@ function App() {
           // 派发 window 事件,让 useMessagePolling / CreatorDetail 等子组件也能收到
           window.dispatchEvent(new CustomEvent('wa-message-received', { detail: data }))
         } catch (_) {}
-        loadDataRef.current?.()
+        debouncedLoadData()
       })
       // session 状态变化(ready/qr/disconnected/error)
       es.addEventListener('wa-session-status', (event) => {
@@ -371,7 +376,10 @@ function App() {
     } catch (e) {
       console.warn('[SSE] 连接失败，使用轮询兜底:', e.message)
     }
-    return () => { if (es) es.close() }
+    return () => {
+      clearTimeout(debounceTimer)
+      if (es) es.close()
+    }
   }, [])
 
   const handleSelectCreator = (creator) => {
