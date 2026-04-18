@@ -161,6 +161,43 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// WA Agents 健康检查(Docker healthcheck + CI/CD 监控用,公开端点)
+// 必须在所有 app.use('/api', requireAppAuth, ...) 挂载之前注册,
+// 否则会被 /api 的 requireAppAuth 前缀中间件拦截返回 401
+app.get('/api/wa/agents/health', async (req, res) => {
+    try {
+        await require('./services/sessionRepository').listSessions(); // DB probe
+    } catch (err) {
+        return res.status(503).json({ ok: false, error: 'db unreachable', detail: err.message });
+    }
+
+    const { getRegistry } = require('./services/sessionRegistry');
+    const registry = getRegistry();
+    if (!registry || !registry.isEnabled()) {
+        return res.json({ ok: true, registry_enabled: false, agents: [], summary: { total: 0, ready: 0, stale: 0 } });
+    }
+
+    const agents = registry.listAgents();
+    const withAge = agents.map((a) => ({
+        session_id: a.session_id,
+        owner: a.owner,
+        pid: a.pid,
+        state: a.state,
+        ready: a.ready,
+        last_heartbeat_ms_ago: a.last_heartbeat_ms_ago,
+    }));
+    const stale = withAge.filter((a) => a.last_heartbeat_ms_ago != null && a.last_heartbeat_ms_ago > 30000);
+    const ready = withAge.filter((a) => a.ready && a.state === 'ready');
+    const summary = { total: withAge.length, ready: ready.length, stale: stale.length };
+    const healthy = ready.length > 0 || withAge.length === 0;
+    res.status(healthy ? 200 : 503).json({
+        ok: healthy,
+        registry_enabled: true,
+        agents: withAge,
+        summary,
+    });
+});
+
 app.post('/api/auth/login', (req, res) => {
     const { username: expectedUsername, password: expectedPassword } = getConfiguredLogin();
     const loginTokenEntry = getPrimaryLoginTokenEntry();
@@ -218,50 +255,6 @@ app.use('/api/events', requireAppAuth, eventsRouter);
 app.use('/api/experience', requireAppAuth, experienceRouter);
 app.use('/api', requireAppAuth, strategyRouter);
 app.use('/api', requireAppAuth, lifecycleRouter);
-
-// WA Agents 健康检查(CI/CD Docker healthcheck 使用,公开端点)
-// 必须在 /api/wa requireAppAuth 挂载之前,否则会被拦截返回 401
-// 200 = DB 连通 + Registry 启用时所有 desired=running 的 agent 至少有一个 ready
-// 503 = 关键条件不满足;Registry 未启用时只要 DB 连通就返回 200
-app.get('/api/wa/agents/health', async (req, res) => {
-    try {
-        await require('./services/sessionRepository').listSessions(); // DB probe
-    } catch (err) {
-        return res.status(503).json({ ok: false, error: 'db unreachable', detail: err.message });
-    }
-
-    const { getRegistry } = require('./services/sessionRegistry');
-    const registry = getRegistry();
-    if (!registry || !registry.isEnabled()) {
-        return res.json({ ok: true, registry_enabled: false, agents: [], summary: { total: 0, ready: 0, stale: 0 } });
-    }
-
-    const agents = registry.listAgents();
-    const withAge = agents.map((a) => ({
-        session_id: a.session_id,
-        owner: a.owner,
-        pid: a.pid,
-        state: a.state,
-        ready: a.ready,
-        last_heartbeat_ms_ago: a.last_heartbeat_ms_ago,
-    }));
-    const stale = withAge.filter((a) => a.last_heartbeat_ms_ago != null && a.last_heartbeat_ms_ago > 30000);
-    const ready = withAge.filter((a) => a.ready && a.state === 'ready');
-
-    const summary = {
-        total: withAge.length,
-        ready: ready.length,
-        stale: stale.length,
-    };
-    const healthy = ready.length > 0 || withAge.length === 0;
-    res.status(healthy ? 200 : 503).json({
-        ok: healthy,
-        registry_enabled: true,
-        agents: withAge,
-        summary,
-    });
-});
-
 app.use('/api/wa/sessions', requireAppAuth, waSessionsRouter);
 app.use('/api/wa', requireAppAuth, waRouter);
 app.use('/api/training', requireAppAuth, trainingRouter);
