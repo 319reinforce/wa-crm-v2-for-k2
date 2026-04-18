@@ -230,12 +230,79 @@ app.use('/api', requireAppAuth, lifecycleRouter);
 app.use('/api/wa', requireAppAuth, waRouter);
 app.use('/api/training', requireAppAuth, trainingRouter);
 
+// WA Agents 健康检查(CI/CD Docker healthcheck 使用,公开端点)
+// 200 = DB 连通 + Registry 启用时所有 desired=running 的 agent 至少有一个 ready
+// 503 = 关键条件不满足;Registry 未启用时只要 DB 连通就返回 200
+app.get('/api/wa/agents/health', async (req, res) => {
+    try {
+        await require('./services/sessionRepository').listSessions(); // DB probe
+    } catch (err) {
+        return res.status(503).json({ ok: false, error: 'db unreachable', detail: err.message });
+    }
+
+    const { getRegistry } = require('./services/sessionRegistry');
+    const registry = getRegistry();
+    if (!registry || !registry.isEnabled()) {
+        return res.json({ ok: true, registry_enabled: false, agents: [], summary: { total: 0, ready: 0, stale: 0 } });
+    }
+
+    const agents = registry.listAgents();
+    const now = Date.now();
+    const withAge = agents.map((a) => ({
+        session_id: a.session_id,
+        owner: a.owner,
+        pid: a.pid,
+        state: a.state,
+        ready: a.ready,
+        last_heartbeat_ms_ago: a.last_heartbeat_ms_ago,
+    }));
+    const stale = withAge.filter((a) => a.last_heartbeat_ms_ago != null && a.last_heartbeat_ms_ago > 30000);
+    const ready = withAge.filter((a) => a.ready && a.state === 'ready');
+
+    const summary = {
+        total: withAge.length,
+        ready: ready.length,
+        stale: stale.length,
+    };
+    const healthy = ready.length > 0 || withAge.length === 0;
+    res.status(healthy ? 200 : 503).json({
+        ok: healthy,
+        registry_enabled: true,
+        agents: withAge,
+        summary,
+    });
+});
+
 // WA Worker 路由
-// 聚合所有 agent 进程的 worker 状态,从 .wa_ipc/status/*.json 读
+// 聚合所有 agent 进程的 worker 状态,Registry 启用时优先读内存态,
+// 否则回退到 .wa_ipc/status/*.json
 // 为兼容 WorkerStatusBar 保留单 session 形状:owner-scoped token 只返回自己的,
 // admin token 返回第一个 ready 的 session(或第一个 session)
 app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
     const lockedOwner = req.auth?.owner || null;
+
+    // 优先从 Registry 读(Node IPC 路径)
+    const { getRegistry } = require('./services/sessionRegistry');
+    const registry = getRegistry();
+    if (registry?.isEnabled()) {
+        const agents = registry.listAgents();
+        const matchOwner = lockedOwner
+            ? agents.find((a) => a.owner === lockedOwner)
+            : null;
+        const primary = matchOwner || agents.find((a) => a.ready) || agents[0] || null;
+        if (primary) {
+            return res.json({
+                ...(primary.worker || {}),
+                session_id: primary.session_id,
+                owner: primary.owner || null,
+                clientReady: !!primary.ready,
+                clientError: primary.last_error || null,
+                last_heartbeat_at: primary.last_heartbeat_at || null,
+            });
+        }
+    }
+
+    // Fallback:文件 IPC status(PM2 crawler 路径)
     const sessions = listStatusSessions()
         .map((sessionId) => readSessionStatus(sessionId))
         .filter(Boolean);

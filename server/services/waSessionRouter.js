@@ -21,6 +21,7 @@ const {
 } = require('./waIpc');
 const { assertNoGroupSend } = require('./groupSendGuard');
 const sessionRepository = require('./sessionRepository');
+const { getRegistry } = require('./sessionRegistry');
 
 const REPAIR_QUEUE_DIR = path.join(__dirname, '../../.wa_ipc/repair-queue');
 const REPAIR_QUEUE_POLL_MS = 15000;
@@ -287,6 +288,32 @@ async function resolveSessionTarget({ sessionId, operator, creatorId, phone, all
 }
 
 function buildSessionStatus(session) {
+    // 优先用 Registry 内存态(Node IPC 路径)
+    const registry = getRegistry();
+    const agentState = registry?.getAgentState(session.session_id);
+    if (agentState) {
+        return {
+            session_id: session.session_id,
+            owner: agentState.owner || session.owner,
+            configured_owner: session.owner,
+            ready: !!agentState.ready,
+            hasQr: !!agentState.qr_value,
+            qr_value: agentState.qr_value || null,
+            qr_refresh_count: agentState.qr_refresh_count || 0,
+            last_qr_at: agentState.last_qr_at || null,
+            account_phone: agentState.account_phone || null,
+            account_pushname: agentState.account_pushname || null,
+            worker: agentState.worker || null,
+            pid: agentState.pid || null,
+            running: !!agentState.pid,
+            error: agentState.last_error || null,
+            updated_at: agentState.last_heartbeat_at,
+            is_local: false,
+            source: 'registry',
+        };
+    }
+
+    // Fallback:文件 IPC status(PM2 crawler 路径)
     const status = readSessionStatus(session.session_id);
     if (!status) {
         return {
@@ -298,6 +325,7 @@ function buildSessionStatus(session) {
             error: 'No session heartbeat',
             running: false,
             is_local: false,
+            source: 'none',
         };
     }
     const running = isPidAlive(status.pid) && isFreshStatus(status.updated_at);
@@ -314,21 +342,41 @@ function buildSessionStatus(session) {
         running,
         error: derivedError,
         is_local: false,
+        source: 'file-ipc',
     };
 }
 
+// 优先走 SessionRegistry(Node IPC,延迟 <10ms);如果 Registry 没启用或对应 agent
+// 不在 Map 里,回退到文件 IPC(老 PM2 crawler 路径)。
 async function sendViaSessionCommand(sessionId, type, payload) {
-    const status = readSessionStatus(sessionId);
-    if (type === 'audit_recent_messages' && status?.worker?.phase === 'sync') {
+    const registry = getRegistry();
+    const agentState = registry?.getAgentState(sessionId);
+
+    // sync 阶段拒绝 audit(和老路径行为保持一致)
+    const workerPhase = agentState?.worker?.phase || readSessionStatus(sessionId)?.worker?.phase;
+    if (type === 'audit_recent_messages' && workerPhase === 'sync') {
         return {
             ok: false,
             error: 'session syncing',
-            status_phase: status.worker.phase,
+            status_phase: workerPhase,
             retry_after_ms: 60000,
             routed_session_id: sessionId,
-            routed_operator: payload?.operator || status?.owner || null,
+            routed_operator: payload?.operator || agentState?.owner || null,
         };
     }
+
+    // Registry 路径:agent ready 时直接走 Node IPC
+    if (registry?.isEnabled() && agentState?.ready) {
+        const timeoutMs = type === 'audit_recent_messages' ? 60000 : 30000;
+        const result = await registry.sendCommand(sessionId, type, payload, timeoutMs);
+        return {
+            ...result,
+            routed_session_id: result?.routed_session_id || sessionId,
+            routed_operator: result?.routed_operator || payload?.operator || agentState?.owner || null,
+        };
+    }
+
+    // Fallback:文件 IPC(PM2 crawler 路径)
     const commandId = createSessionCommand(sessionId, {
         type,
         payload,
