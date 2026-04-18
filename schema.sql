@@ -657,3 +657,47 @@ CREATE TABLE IF NOT EXISTS operator_directory_members (
     CONSTRAINT fk_operator_directory_members_operator
         FOREIGN KEY (operator_id) REFERENCES operator_directory(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- WA Sessions — SessionRegistry 的 desired/runtime 状态持久化
+-- k8s controller 风格:desired_state = 用户意图,runtime_state = Registry 观察值
+-- ============================================================
+CREATE TABLE IF NOT EXISTS wa_sessions (
+    id                         BIGINT PRIMARY KEY AUTO_INCREMENT,
+    session_id                 VARCHAR(64)  NOT NULL,
+    owner                      VARCHAR(64)  NOT NULL,
+    aliases                    JSON         DEFAULT NULL,
+
+    desired_state              ENUM('running','stopped') NOT NULL DEFAULT 'running',
+    desired_state_changed_at   DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    desired_state_changed_by   VARCHAR(64)  DEFAULT NULL,
+
+    runtime_state              ENUM('pending','starting','ready','stale','crashed','stopped') NOT NULL DEFAULT 'pending',
+    runtime_phase              VARCHAR(32)  DEFAULT NULL,
+    runtime_pid                INT          DEFAULT NULL,
+    last_heartbeat_at          DATETIME     DEFAULT NULL,
+    last_ready_at              DATETIME     DEFAULT NULL,
+    last_exit_code             INT          DEFAULT NULL,
+    last_exit_signal           VARCHAR(16)  DEFAULT NULL,
+    restart_count              INT          NOT NULL DEFAULT 0,
+    last_restart_at            DATETIME     DEFAULT NULL,
+    last_error                 TEXT         DEFAULT NULL,
+
+    account_phone              VARCHAR(32)  DEFAULT NULL,
+    account_pushname           VARCHAR(128) DEFAULT NULL,
+    account_bound_at           DATETIME     DEFAULT NULL,
+
+    created_at                 DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    created_by                 VARCHAR(64)  DEFAULT NULL,
+    updated_at                 DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    owner_if_running           VARCHAR(64) AS (
+        CASE WHEN desired_state = 'running' THEN owner ELSE NULL END
+    ) STORED,
+
+    UNIQUE KEY uniq_session_id     (session_id),
+    UNIQUE KEY uniq_owner_running  (owner_if_running),
+    KEY        idx_desired         (desired_state),
+    KEY        idx_runtime         (runtime_state),
+    KEY        idx_owner           (owner)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

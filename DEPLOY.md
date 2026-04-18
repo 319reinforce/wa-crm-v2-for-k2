@@ -170,8 +170,11 @@ curl http://localhost:3000/api/health
 ### 1) 启动主服务（只负责 API/UI）
 
 ```bash
-DISABLE_WA_SERVICE=true DISABLE_WA_WORKER=true PORT=3000 npm start
+PORT=3000 npm start
 ```
+
+说明：API 进程不再托管 WhatsApp Client 或 Worker，所有 WA session 由
+独立 crawler/agent 进程运行（见下一节）。
 
 ### 2) 启动多个独立 crawler（每个会话一个进程）
 

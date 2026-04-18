@@ -15,7 +15,6 @@ const {
     resolveScopedOwner,
     sendOwnerScopeForbidden,
 } = require('../middleware/appAuth');
-const { getQrValue } = require('../services/waService');
 const { normalizeOperatorName, normalizeDigits } = require('../utils/operator');
 const {
     MEDIA_UPLOAD_MAX_BYTES,
@@ -196,20 +195,16 @@ router.post('/send', async (req, res) => {
             return res.status(resolvedCreator.status).json({ ok: false, error: resolvedCreator.error });
         }
 
-        const bypass = req.get('X-WA-Proxy-Bypass') === '1';
         const effectiveOperator = getEffectiveOperator(req, operator, resolvedCreator.creator.wa_owner || null);
         const effectiveSessionId = getEffectiveSessionId(req, session_id);
         const persistToCrm = toBooleanFlag(persist_to_crm, true);
-        const result = await sendRoutedMessage(
-            {
-                phone: resolvedCreator.phone,
-                text,
-                session_id: effectiveSessionId,
-                operator: effectiveOperator,
-                creator_id: resolvedCreator.creator.id,
-            },
-            { bypass }
-        );
+        const result = await sendRoutedMessage({
+            phone: resolvedCreator.phone,
+            text,
+            session_id: effectiveSessionId,
+            operator: effectiveOperator,
+            creator_id: resolvedCreator.creator.id,
+        });
         if (result.ok) {
             const crmMessage = persistToCrm
                 ? await persistOutboundCrmMessage({
@@ -526,7 +521,6 @@ router.post('/send-media', async (req, res) => {
             sentBy: getRequestActor(req, sent_by),
         });
 
-        const bypass = req.get('X-WA-Proxy-Bypass') === '1';
         const persistToCrm = toBooleanFlag(persist_to_crm, true);
         const result = await sendRoutedMedia({
             phone: resolvedCreator.phone,
@@ -539,7 +533,7 @@ router.post('/send-media', async (req, res) => {
             session_id: effectiveSessionId,
             operator: effectiveOperator,
             creator_id: resolvedCreatorId,
-        }, { bypass });
+        });
 
         if (result.ok) {
             await finalizeMediaSendLogSuccess(sendLogId, {
@@ -595,8 +589,7 @@ router.post('/send-media', async (req, res) => {
 
 // GET /api/wa/status
 router.get('/status', async (req, res) => {
-    const localOnly = req.query.local_only === '1' || req.get('X-WA-Proxy-Bypass') === '1';
-    const all = req.query.all === '1' && !localOnly && !getLockedOwner(req);
+    const all = req.query.all === '1' && !getLockedOwner(req);
     res.json(await getRoutedStatus({
         all,
         session_id: getEffectiveSessionId(req, req.query.session_id),
@@ -605,26 +598,13 @@ router.get('/status', async (req, res) => {
     }));
 });
 
-// GET /api/wa/sessions — 聚合状态接口
-router.get('/sessions', async (req, res) => {
-    const lockedOwner = getLockedOwner(req);
-    res.json(await getRoutedStatus({
-        all: !lockedOwner,
-        session_id: getEffectiveSessionId(req, null),
-        operator: getEffectiveOperator(req, null, null),
-    }));
-});
-
 // GET /api/wa/qr — 返回二维码图片（网页端扫码用）
 router.get('/qr', async (req, res) => {
-    const localOnly = req.query.local_only === '1' || req.get('X-WA-Proxy-Bypass') === '1';
-    const rawQr = localOnly
-        ? getQrValue()
-        : await getRoutedQr({
-            session_id: getEffectiveSessionId(req, req.query.session_id),
-            operator: getEffectiveOperator(req, req.query.operator, null),
-            creator_id: req.query.creator_id ? parseInt(req.query.creator_id, 10) : null,
-        });
+    const rawQr = await getRoutedQr({
+        session_id: getEffectiveSessionId(req, req.query.session_id),
+        operator: getEffectiveOperator(req, req.query.operator, null),
+        creator_id: req.query.creator_id ? parseInt(req.query.creator_id, 10) : null,
+    });
     if (!rawQr) {
         return res.status(404).json({ ok: false, message: '无可用二维码' });
     }

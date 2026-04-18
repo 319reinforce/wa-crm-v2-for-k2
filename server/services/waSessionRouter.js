@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../../db');
 const { normalizeOperatorName } = require('../utils/operator');
-const { getStatus, getQrValue, sendMessage, sendMedia } = require('./waService');
 const {
     reconcileCreatorMessagesFromRaw,
     syncCreatorMessagesFromRaw,
@@ -20,6 +19,8 @@ const {
     waitForSessionCommandResult,
 } = require('./waIpc');
 const { assertNoGroupSend } = require('./groupSendGuard');
+const sessionRepository = require('./sessionRepository');
+const { getRegistry } = require('./sessionRegistry');
 
 const REPAIR_QUEUE_DIR = path.join(__dirname, '../../.wa_ipc/repair-queue');
 const REPAIR_QUEUE_POLL_MS = 15000;
@@ -113,7 +114,7 @@ async function processRepairQueue() {
                     fetch_limit: item.fetch_limit || 500,
                     full_dedup: !!item.full_dedup,
                 };
-                const result = await reconcileRoutedContact(payload, { bypass: false });
+                const result = await reconcileRoutedContact(payload);
                 if (!result?.ok) {
                     remaining.push({
                         ...item,
@@ -138,16 +139,10 @@ async function processRepairQueue() {
     }
 }
 
-const SESSION_ALIASES = {
-    beau: 'beau',
-    yiyun: 'yiyun',
-    jiawen: 'jiawen',
-    sybil: 'jiawen',
-    youke: 'youke',
-    wangyouke: 'youke',
-};
 const STATUS_STALE_MS = 15000;
 
+// alias 从 wa_sessions 表(in-memory 缓存)的 aliases JSON 字段读
+// 例如 wa_sessions.aliases = ["sybil","wangyouke"] 会把这些别名映射到对应 session_id
 function normalizeSessionId(value) {
     if (value === null || value === undefined) return null;
     const raw = String(value).trim();
@@ -155,7 +150,8 @@ function normalizeSessionId(value) {
     const safe = sanitizeSessionId(raw, '');
     const normalized = String(safe || '').trim().toLowerCase();
     if (!normalized) return null;
-    return SESSION_ALIASES[normalized] || normalized;
+    const resolved = sessionRepository.resolveSessionIdByAliasCached(normalized);
+    return resolved || normalized;
 }
 
 function getDefaultTargets() {
@@ -190,16 +186,30 @@ function parseRemoteTargets() {
 
 function getSessionRegistry() {
     const map = new Map();
-    for (const item of [...getDefaultTargets(), ...parseRemoteTargets()]) {
-        if (!item?.session_id) continue;
-        if (!map.has(item.session_id)) {
-            map.set(item.session_id, {
-                session_id: item.session_id,
-                owner: item.owner || null,
-            });
+
+    // 优先 wa_sessions 表(in-memory 缓存)
+    for (const session of sessionRepository.listSessionsCached()) {
+        if (!session?.session_id) continue;
+        map.set(session.session_id, {
+            session_id: session.session_id,
+            owner: normalizeOperatorName(session.owner, session.owner || null),
+        });
+    }
+
+    // 缓存未 warm 或 DB 未迁移时回退到旧配置源
+    if (map.size === 0) {
+        for (const item of [...getDefaultTargets(), ...parseRemoteTargets()]) {
+            if (!item?.session_id) continue;
+            if (!map.has(item.session_id)) {
+                map.set(item.session_id, {
+                    session_id: item.session_id,
+                    owner: item.owner || null,
+                });
+            }
         }
     }
 
+    // 还要覆盖 IPC 已有 status 但 DB 未记录的 session(异常情况兜底)
     for (const sessionId of listStatusSessions()) {
         if (!map.has(sessionId)) {
             const status = readSessionStatus(sessionId);
@@ -277,6 +287,32 @@ async function resolveSessionTarget({ sessionId, operator, creatorId, phone, all
 }
 
 function buildSessionStatus(session) {
+    // 优先用 Registry 内存态(Node IPC 路径)
+    const registry = getRegistry();
+    const agentState = registry?.getAgentState(session.session_id);
+    if (agentState) {
+        return {
+            session_id: session.session_id,
+            owner: agentState.owner || session.owner,
+            configured_owner: session.owner,
+            ready: !!agentState.ready,
+            hasQr: !!agentState.qr_value,
+            qr_value: agentState.qr_value || null,
+            qr_refresh_count: agentState.qr_refresh_count || 0,
+            last_qr_at: agentState.last_qr_at || null,
+            account_phone: agentState.account_phone || null,
+            account_pushname: agentState.account_pushname || null,
+            worker: agentState.worker || null,
+            pid: agentState.pid || null,
+            running: !!agentState.pid,
+            error: agentState.last_error || null,
+            updated_at: agentState.last_heartbeat_at,
+            is_local: false,
+            source: 'registry',
+        };
+    }
+
+    // Fallback:文件 IPC status(PM2 crawler 路径)
     const status = readSessionStatus(session.session_id);
     if (!status) {
         return {
@@ -288,6 +324,7 @@ function buildSessionStatus(session) {
             error: 'No session heartbeat',
             running: false,
             is_local: false,
+            source: 'none',
         };
     }
     const running = isPidAlive(status.pid) && isFreshStatus(status.updated_at);
@@ -304,21 +341,41 @@ function buildSessionStatus(session) {
         running,
         error: derivedError,
         is_local: false,
+        source: 'file-ipc',
     };
 }
 
+// 优先走 SessionRegistry(Node IPC,延迟 <10ms);如果 Registry 没启用或对应 agent
+// 不在 Map 里,回退到文件 IPC(老 PM2 crawler 路径)。
 async function sendViaSessionCommand(sessionId, type, payload) {
-    const status = readSessionStatus(sessionId);
-    if (type === 'audit_recent_messages' && status?.worker?.phase === 'sync') {
+    const registry = getRegistry();
+    const agentState = registry?.getAgentState(sessionId);
+
+    // sync 阶段拒绝 audit(和老路径行为保持一致)
+    const workerPhase = agentState?.worker?.phase || readSessionStatus(sessionId)?.worker?.phase;
+    if (type === 'audit_recent_messages' && workerPhase === 'sync') {
         return {
             ok: false,
             error: 'session syncing',
-            status_phase: status.worker.phase,
+            status_phase: workerPhase,
             retry_after_ms: 60000,
             routed_session_id: sessionId,
-            routed_operator: payload?.operator || status?.owner || null,
+            routed_operator: payload?.operator || agentState?.owner || null,
         };
     }
+
+    // Registry 路径:agent ready 时直接走 Node IPC
+    if (registry?.isEnabled() && agentState?.ready) {
+        const timeoutMs = type === 'audit_recent_messages' ? 60000 : 30000;
+        const result = await registry.sendCommand(sessionId, type, payload, timeoutMs);
+        return {
+            ...result,
+            routed_session_id: result?.routed_session_id || sessionId,
+            routed_operator: result?.routed_operator || payload?.operator || agentState?.owner || null,
+        };
+    }
+
+    // Fallback:文件 IPC(PM2 crawler 路径)
     const commandId = createSessionCommand(sessionId, {
         type,
         payload,
@@ -333,13 +390,9 @@ async function sendViaSessionCommand(sessionId, type, payload) {
     return await waitForSessionCommandResult(sessionId, commandId, timeoutMs);
 }
 
-async function sendRoutedMessage({ phone, text, session_id, operator, creator_id }, { bypass = false } = {}) {
+async function sendRoutedMessage({ phone, text, session_id, operator, creator_id }) {
     const targetGuard = assertNoGroupSend(phone, { source: 'session_router.send_message' });
     if (!targetGuard.ok) return { ok: false, error: targetGuard.error };
-
-    if (bypass) {
-        return sendMessage(phone, text);
-    }
 
     const resolved = await resolveSessionTarget({
         sessionId: session_id,
@@ -376,19 +429,9 @@ async function sendRoutedMedia({
     session_id,
     operator,
     creator_id,
-}, { bypass = false } = {}) {
+}) {
     const targetGuard = assertNoGroupSend(phone, { source: 'session_router.send_media' });
     if (!targetGuard.ok) return { ok: false, error: targetGuard.error };
-
-    if (bypass) {
-        return sendMedia(phone, {
-            caption,
-            media_path,
-            media_url,
-            mime_type,
-            file_name,
-        });
-    }
 
     const resolved = await resolveSessionTarget({
         sessionId: session_id,
@@ -420,13 +463,6 @@ async function sendRoutedMedia({
 }
 
 async function getRoutedStatus({ all = false, session_id = null, operator = null, creator_id = null } = {}) {
-    if (!all && !session_id && !operator && !creator_id) {
-        return {
-            ...getStatus(),
-            is_local: true,
-        };
-    }
-
     if (all) {
         const sessions = getSessionRegistry().map(buildSessionStatus);
         return {
@@ -452,9 +488,7 @@ async function getRoutedStatus({ all = false, session_id = null, operator = null
     return buildSessionStatus(resolved.target);
 }
 
-async function getRoutedQr({ session_id, operator, creator_id }, { bypass = false } = {}) {
-    if (bypass) return getQrValue();
-
+async function getRoutedQr({ session_id, operator, creator_id }) {
     const resolved = await resolveSessionTarget({
         sessionId: session_id,
         operator,
@@ -473,7 +507,7 @@ async function reconcileRoutedContact({
     operator,
     fetch_limit = 500,
     full_dedup = true,
-}, { bypass = false } = {}) {
+}) {
     const creatorId = Number(creator_id) || 0;
     const creatorRow = creatorId
         ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1').get(creatorId)
@@ -552,7 +586,6 @@ async function reconcileRoutedContact({
         reconciliation: summary,
         routed_session_id: resolved.session_id,
         routed_operator: resolved.operator,
-        bypass: !!bypass,
     };
 }
 
@@ -563,7 +596,7 @@ async function syncRoutedContact({
     operator,
     fetch_limit = 200,
     full_dedup = false,
-}, { bypass = false } = {}) {
+}) {
     const creatorId = Number(creator_id) || 0;
     const creatorRow = creatorId
         ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1').get(creatorId)
@@ -623,7 +656,6 @@ async function syncRoutedContact({
         synchronization: summary,
         routed_session_id: resolved.session_id,
         routed_operator: resolved.operator,
-        bypass: !!bypass,
     };
 }
 
@@ -636,7 +668,7 @@ async function replaceRoutedContact({
     force = false,
     delete_all = false,
     full_dedup = true,
-}, { bypass = false } = {}) {
+}) {
     const creatorId = Number(creator_id) || 0;
     const creatorRow = creatorId
         ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1').get(creatorId)
@@ -767,7 +799,6 @@ async function replaceRoutedContact({
         delete_all: !!delete_all,
         routed_session_id: resolved.session_id,
         routed_operator: resolved.operator,
-        bypass: !!bypass,
     };
 }
 

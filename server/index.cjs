@@ -31,17 +31,18 @@ const experienceRouter = require('./routes/experience');
 const strategyRouter = require('./routes/strategy');
 const lifecycleRouter = require('./routes/lifecycle');
 const waRouter = require('./routes/wa');
+const waSessionsRouter = require('./routes/waSessions');
 const trainingRouter = require('./routes/training');
-const { start: startWaWorker, stop: stopWaWorker, getProgress: getWaWorkerProgress } = require('./waWorker');
-const { start: startWaService } = require('./services/waService');
+const { listStatusSessions, readSessionStatus } = require('./services/waIpc');
+const waSessionsMigration = require('../migrate-wa-sessions');
+const legacySessionsBootstrap = require('./bootstrap/migrateLegacySessions');
+const sessionRepository = require('./services/sessionRepository');
+const { initRegistry } = require('./services/sessionRegistry');
+const sseBus = require('./events/sseBus');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const DISABLE_WA_SERVICE = process.env.DISABLE_WA_SERVICE === 'true';
-const DISABLE_WA_WORKER = process.env.DISABLE_WA_WORKER === 'true';
 const EVENT_BROADCAST_TOKEN = process.env.EVENT_BROADCAST_TOKEN;
-const WA_SESSION_ID = String(process.env.WA_SESSION_ID || PORT).trim();
-const WA_OWNER = process.env.WA_OWNER || 'Beau';
 
 function getConfiguredLogin() {
     return {
@@ -51,7 +52,7 @@ function getConfiguredLogin() {
 }
 
 // ================== SSE 实时广播 ==================
-const sseClients = new Set();
+// 底层 bus 从 sseBus 模块拿,这里只负责 HTTP 侧订阅和 broadcast 接口
 
 // GET /api/events/subscribe — 前端 SSE 订阅
 // EventSource 通过同源 httpOnly cookie 复用认证态
@@ -62,17 +63,15 @@ app.get('/api/events/subscribe', requireAppAuth, (req, res) => {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
-    sseClients.add(res);
-    console.log(`[SSE] Client connected (total: ${sseClients.size})`);
+    sseBus.addClient(res);
+    console.log(`[SSE] Client connected (total: ${sseBus.count()})`);
 
     req.on('close', () => {
-        sseClients.delete(res);
-        console.log(`[SSE] Client disconnected (total: ${sseClients.size})`);
+        console.log(`[SSE] Client disconnected (total: ${sseBus.count()})`);
     });
 });
 
 // POST /api/events/broadcast — populate_db.cjs 调用，广播刷新事件
-// 该路由注册在全局 jsonBody 之前，因此显式挂载一次解析中间件
 app.post('/api/events/broadcast', jsonBody, (req, res) => {
     if (!EVENT_BROADCAST_TOKEN) {
         return res.status(503).json({ ok: false, error: 'EVENT_BROADCAST_TOKEN not configured' });
@@ -84,22 +83,13 @@ app.post('/api/events/broadcast', jsonBody, (req, res) => {
     const ALLOWED_EVENTS = ['creators-updated', 'refresh', 'sft-updated', 'events-updated'];
     const rawEvent = (req.body || {}).event;
     const event = ALLOWED_EVENTS.includes(rawEvent) ? rawEvent : 'creators-updated';
-    const message = `event: ${event}\ndata: ${JSON.stringify({ refreshed: true })}\n\n`;
-    sseClients.forEach(client => {
-        try { client.write(message); } catch (e) { sseClients.delete(client); }
-    });
-    console.log(`[SSE] Broadcast "${event}" to ${sseClients.size} clients`);
-    res.json({ ok: true, clients: sseClients.size });
+    const remaining = sseBus.broadcast(event, { refreshed: true });
+    console.log(`[SSE] Broadcast "${event}" to ${remaining} clients`);
+    res.json({ ok: true, clients: remaining });
 });
 
-// SSE 心跳：每 25 秒向所有客户端发送一次 ping，防止连接被中间件关闭
-setInterval(() => {
-    if (sseClients.size === 0) return;
-    const ping = `: ping ${Date.now()}\n\n`;
-    sseClients.forEach(client => {
-        try { client.write(ping); } catch (e) { sseClients.delete(client); }
-    });
-}, 25000);
+// SSE 心跳:每 25s 防中间件关闭
+setInterval(() => sseBus.ping(), 25000);
 
 // ================== 端口检测 ==================
 
@@ -123,17 +113,6 @@ function isPortAvailable(port) {
         });
         server.listen(port, '0.0.0.0');
     });
-}
-
-function isWaRuntimeError(error) {
-    const text = `${error?.stack || ''}\n${error?.message || error || ''}`;
-    return (
-        text.includes('whatsapp-web.js') ||
-        text.includes('puppeteer-core') ||
-        text.includes('Execution context was destroyed') ||
-        text.includes('Could not load response body for this request') ||
-        text.includes('Protocol error (Runtime.callFunctionOn)')
-    );
 }
 
 function getLanUrls(port) {
@@ -180,6 +159,43 @@ app.use(express.static(path.join(__dirname, '../public')));
 // 基础健康检查保持公开，供进程探活和本地冒烟使用
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// WA Agents 健康检查(Docker healthcheck + CI/CD 监控用,公开端点)
+// 必须在所有 app.use('/api', requireAppAuth, ...) 挂载之前注册,
+// 否则会被 /api 的 requireAppAuth 前缀中间件拦截返回 401
+app.get('/api/wa/agents/health', async (req, res) => {
+    try {
+        await require('./services/sessionRepository').listSessions(); // DB probe
+    } catch (err) {
+        return res.status(503).json({ ok: false, error: 'db unreachable', detail: err.message });
+    }
+
+    const { getRegistry } = require('./services/sessionRegistry');
+    const registry = getRegistry();
+    if (!registry || !registry.isEnabled()) {
+        return res.json({ ok: true, registry_enabled: false, agents: [], summary: { total: 0, ready: 0, stale: 0 } });
+    }
+
+    const agents = registry.listAgents();
+    const withAge = agents.map((a) => ({
+        session_id: a.session_id,
+        owner: a.owner,
+        pid: a.pid,
+        state: a.state,
+        ready: a.ready,
+        last_heartbeat_ms_ago: a.last_heartbeat_ms_ago,
+    }));
+    const stale = withAge.filter((a) => a.last_heartbeat_ms_ago != null && a.last_heartbeat_ms_ago > 30000);
+    const ready = withAge.filter((a) => a.ready && a.state === 'ready');
+    const summary = { total: withAge.length, ready: ready.length, stale: stale.length };
+    const healthy = ready.length > 0 || withAge.length === 0;
+    res.status(healthy ? 200 : 503).json({
+        ok: healthy,
+        registry_enabled: true,
+        agents: withAge,
+        summary,
+    });
 });
 
 app.post('/api/auth/login', (req, res) => {
@@ -239,18 +255,111 @@ app.use('/api/events', requireAppAuth, eventsRouter);
 app.use('/api/experience', requireAppAuth, experienceRouter);
 app.use('/api', requireAppAuth, strategyRouter);
 app.use('/api', requireAppAuth, lifecycleRouter);
+app.use('/api/wa/sessions', requireAppAuth, waSessionsRouter);
 app.use('/api/wa', requireAppAuth, waRouter);
 app.use('/api/training', requireAppAuth, trainingRouter);
 
 // WA Worker 路由
+// 聚合所有 agent 进程的 worker 状态,Registry 启用时优先读内存态,
+// 否则回退到 .wa_ipc/status/*.json
+// 为兼容 WorkerStatusBar 保留单 session 形状:owner-scoped token 只返回自己的,
+// admin token 返回第一个 ready 的 session(或第一个 session)
 app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
-    res.json(getWaWorkerProgress());
+    const lockedOwner = req.auth?.owner || null;
+
+    // 优先从 Registry 读(Node IPC 路径)
+    const { getRegistry } = require('./services/sessionRegistry');
+    const registry = getRegistry();
+    if (registry?.isEnabled()) {
+        const agents = registry.listAgents();
+        const matchOwner = lockedOwner
+            ? agents.find((a) => a.owner === lockedOwner)
+            : null;
+        const primary = matchOwner || agents.find((a) => a.ready) || agents[0] || null;
+        if (primary) {
+            return res.json({
+                ...(primary.worker || {}),
+                session_id: primary.session_id,
+                owner: primary.owner || null,
+                clientReady: !!primary.ready,
+                clientError: primary.last_error || null,
+                last_heartbeat_at: primary.last_heartbeat_at || null,
+            });
+        }
+    }
+
+    // Fallback:文件 IPC status(PM2 crawler 路径)
+    const sessions = listStatusSessions()
+        .map((sessionId) => readSessionStatus(sessionId))
+        .filter(Boolean);
+
+    const matchOwner = lockedOwner
+        ? sessions.find((s) => (s.owner || s.configured_owner) === lockedOwner)
+        : null;
+    const primary = matchOwner
+        || sessions.find((s) => s.ready)
+        || sessions[0]
+        || null;
+
+    if (!primary) {
+        res.json({ phase: 'idle', clientReady: false, clientError: null });
+        return;
+    }
+    res.json({
+        ...(primary.worker || {}),
+        session_id: primary.session_id,
+        owner: primary.owner || primary.configured_owner || null,
+        clientReady: !!primary.ready,
+        clientError: primary.error || null,
+        last_heartbeat_at: primary.updated_at || null,
+    });
 });
 
 // ================== 启动服务器 ==================
 
 (async () => {
     try {
+        // 1) 运行 wa_sessions schema 迁移(幂等)
+        try {
+            await waSessionsMigration.run({ silent: true });
+            console.log('[Startup] wa_sessions schema migration done');
+        } catch (err) {
+            console.error('[Startup] wa_sessions schema migration failed:', err.message);
+            throw err;
+        }
+
+        // 2) 一次性迁移旧 session 配置(ecosystem / env / auth dirs)
+        try {
+            await legacySessionsBootstrap.run();
+        } catch (err) {
+            console.warn('[Startup] legacy sessions bootstrap error:', err.message);
+        }
+
+        // 3) 预热 sessionRepository 缓存,启动后台刷新循环
+        try {
+            await sessionRepository.warmCache();
+            sessionRepository.startCacheRefreshLoop();
+            console.log(`[Startup] sessionRepository cache warmed (${sessionRepository.listSessionsCached().length} sessions)`);
+        } catch (err) {
+            console.error('[Startup] sessionRepository warm cache failed:', err.message);
+            throw err;
+        }
+
+        // 4) 初始化 SessionRegistry(feature-flag 默认关)
+        //    WA_AGENTS_ENABLED=true 时才会 fork agent 子进程,避免和 PM2 crawler 双活
+        const registry = initRegistry();
+        if (registry.isEnabled()) {
+            try {
+                await registry.bootstrap();
+                console.log('[Startup] SessionRegistry bootstrapped');
+            } catch (err) {
+                console.error('[Startup] SessionRegistry bootstrap failed:', err.message);
+                // 不 throw:registry 失败不应阻挡 API 起来
+            }
+        } else {
+            console.log('[Startup] SessionRegistry disabled (set WA_AGENTS_ENABLED=true to enable)');
+        }
+
         const server = await tryListenWithRetry(app, PORT, 3);
         const lanUrls = getLanUrls(PORT);
         console.log(`\n✅ WA CRM v2 Server (modular)`);
@@ -266,13 +375,17 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
         // graceful shutdown
         const shutdown = async (signal) => {
             console.log(`${signal} received, shutting down gracefully...`);
-            stopWaWorker();
+            sessionRepository.stopCacheRefreshLoop();
+            try {
+                await registry.shutdown();
+            } catch (err) {
+                console.error('[Shutdown] registry.shutdown error:', err.message);
+            }
             server.close(async () => {
                 await db.closeDb();
                 console.log('Server closed.');
                 process.exit(0);
             });
-            // 强制退出，防止 WA Worker 卡住
             setTimeout(() => {
                 console.log('Forcing exit after timeout.');
                 process.exit(1);
@@ -282,39 +395,12 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
         process.on('SIGTERM', () => shutdown('SIGTERM'));
         process.on('SIGINT', () => shutdown('SIGINT'));
         process.on('unhandledRejection', (reason) => {
-            if (isWaRuntimeError(reason)) {
-                console.error('[WA Service] 捕获到非致命 unhandledRejection，已隔离 WA 模块:', reason?.message || reason);
-                stopWaWorker();
-                return;
-            }
             console.error('[Process] Unhandled rejection:', reason);
         });
         process.on('uncaughtException', (error) => {
-            if (isWaRuntimeError(error)) {
-                console.error('[WA Service] 捕获到非致命 uncaughtException，已隔离 WA 模块:', error?.message || error);
-                stopWaWorker();
-                return;
-            }
             console.error('[Process] Uncaught exception:', error);
             process.exit(1);
         });
-
-        // 先启动 WhatsApp Service（端口确认可用后才初始化）
-        if (!DISABLE_WA_SERVICE) {
-            console.log(`[WA Service] 启动 WhatsApp Client (PORT=${PORT}, session=${WA_SESSION_ID}, owner=${WA_OWNER})...`);
-            startWaService();
-        } else {
-            console.log('[WA Service] 已禁用（DISABLE_WA_SERVICE=true）');
-        }
-
-        // 再启动 WA Worker（后台运行，不阻塞 HTTP）
-        if (!DISABLE_WA_WORKER) {
-            startWaWorker({ syncHistory: true }).catch(err => {
-                console.error('[WA Worker] 启动失败:', err.message);
-            });
-        } else {
-            console.log('[WA Worker] 已禁用（DISABLE_WA_WORKER=true）');
-        }
     } catch (err) {
         console.error(`\n❌ 服务器启动失败: ${err.message}`);
         process.exit(1);

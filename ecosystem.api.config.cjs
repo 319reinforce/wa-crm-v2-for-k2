@@ -20,8 +20,6 @@ module.exports = {
       env: {
         PORT: '3000',
         LOCAL_API_AUTH_BYPASS: 'false',
-        DISABLE_WA_SERVICE: 'true',
-        DISABLE_WA_WORKER: 'true',
       },
     },
   ],

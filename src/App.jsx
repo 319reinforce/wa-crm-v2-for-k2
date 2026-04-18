@@ -9,6 +9,7 @@ import { CreatorDetail } from './components/CreatorDetail'
 import { WAGroupChatViewer } from './components/WAGroupChatViewer'
 import { MobileEventTagsBar } from './components/MobileEventTagsBar'
 import AuthSessionControls from './components/AuthSessionControls'
+import { AccountsPanel } from './components/AccountsPanel'
 import { getAppAuthScopeOwner, isAppAuthOwnerLocked } from './utils/appAuth'
 import { fetchJsonOrThrow } from './utils/api'
 import { getCreatorMessages, getCreatorStatusMeta } from './utils/creatorMeta'
@@ -73,6 +74,7 @@ const DESKTOP_PRIMARY_TABS = [
   { key: 'events', label: '事件', subtitle: '事件判断与回顾' },
   { key: 'strategy', label: '策略', subtitle: '生命周期与策略配置' },
   { key: 'sft', label: 'SFT', subtitle: '训练与审核看板' },
+  { key: 'accounts', label: '账号', subtitle: 'WhatsApp 账号管理', adminOnly: true },
 ]
 const WORKSPACE_META = {
   creators: { title: '消息工作台', subtitle: '以聊天为中心推进达人转化、跟进与维护。' },
@@ -105,6 +107,7 @@ function App() {
   const [creators, setCreators] = useState([])
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState(null)
+  const [sessionOwners, setSessionOwners] = useState([])
   const [activeTab, setActiveTab] = useState('creators')
   const [viewMode, setViewMode] = useState('list')
   const [filterOwner, setFilterOwner] = useState(lockedOwner || '')
@@ -226,6 +229,7 @@ function App() {
   }, [dragging])
 
   // 计算未读：基于 ev_replied 字段（0=未回复显示红点，1=已回复消除红点）
+  // 切换 owner 只重拉 creators,stats 和 owner 无关,走独立 useEffect 拉
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
@@ -233,31 +237,40 @@ function App() {
       if (filterOwner) params.set('owner', filterOwner)
       params.set('fields', 'wa_phone')
 
-      const [creatorsData, statsData] = await Promise.all([
-        fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`),
-        fetchJsonOrThrow(`${API_BASE}/stats`),
-      ])
-
+      const creatorsData = await fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`)
       const enriched = creatorsData.map(c => buildCreatorViewModel(buildCreatorListFull(c), c))
 
-      // 计算未读：基于消息方向 + 48h 话题过期规则
+      // 计算未读
       const newUnread = {}
       for (const c of enriched) {
         newUnread[c.id] = shouldShowUnread(c) ? 1 : 0
       }
       setUnreadCounts(newUnread)
 
-      // 按最后一次对话结束时间倒序
       enriched.sort((a, b) => getCreatorLastConversationTs(b) - getCreatorLastConversationTs(a))
-
       setCreators(enriched)
-      setStats(statsData)
     } catch (e) {
       console.error('[WACRM] 加载失败:', e)
     } finally {
       setLoading(false)
     }
   }, [filterOwner])
+
+  // stats 独立拉:和 owner filter 解耦,切 owner 时不重新请求
+  const loadStats = useCallback(async () => {
+    try {
+      const statsData = await fetchJsonOrThrow(`${API_BASE}/stats`)
+      setStats(statsData)
+    } catch (e) {
+      console.error('[WACRM] stats 加载失败:', e)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadStats()
+    const id = setInterval(loadStats, 30000)
+    return () => clearInterval(id)
+  }, [loadStats])
 
   const loadGroupChats = useCallback(async () => {
     setGroupsLoading(true)
@@ -300,6 +313,32 @@ function App() {
     }
   }, [filterOwner, lockedOwner, ownerLocked])
 
+  // 拉 wa_sessions 的 owners 合并到 filter(admin token 才有权限,
+  // owner-locked token 直接跳过)
+  useEffect(() => {
+    if (ownerLocked) return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const data = await fetchJsonOrThrow(`${API_BASE}/wa/sessions`)
+        if (cancelled) return
+        if (data?.ok && Array.isArray(data.sessions)) {
+          const owners = data.sessions.map(s => s.owner).filter(Boolean)
+          setSessionOwners(owners)
+        }
+      } catch (_) { /* 非 admin / 后端未启用,静默跳过 */ }
+    }
+    load()
+    const handler = () => load()
+    window.addEventListener('wa-session-status-changed', handler)
+    const id = setInterval(load, 30000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      window.removeEventListener('wa-session-status-changed', handler)
+    }
+  }, [ownerLocked])
+
   // SSE 实时订阅（populate_db.cjs 写完 MySQL 后会收到广播）
   useEffect(() => {
     let es
@@ -307,6 +346,22 @@ function App() {
       es = new EventSource('/api/events/subscribe')
       es.addEventListener('creators-updated', () => {
         loadDataRef.current?.()
+      })
+      // Step 7: 新消息到达时立即刷新列表(替代 5s 轮询 + populate broadcast)
+      es.addEventListener('wa-message', (event) => {
+        try {
+          const data = event.data ? JSON.parse(event.data) : null
+          // 派发 window 事件,让 useMessagePolling / CreatorDetail 等子组件也能收到
+          window.dispatchEvent(new CustomEvent('wa-message-received', { detail: data }))
+        } catch (_) {}
+        loadDataRef.current?.()
+      })
+      // session 状态变化(ready/qr/disconnected/error)
+      es.addEventListener('wa-session-status', (event) => {
+        try {
+          const data = event.data ? JSON.parse(event.data) : null
+          window.dispatchEvent(new CustomEvent('wa-session-status-changed', { detail: data }))
+        } catch (_) {}
       })
       es.onerror = () => {
         console.warn('[SSE] 连接断开，5秒后自动重连')
@@ -557,10 +612,11 @@ function App() {
     return buildOwnerOptions([
       ...Object.keys(stats?.by_owner || {}),
       ...creators.map(c => c.wa_owner),
+      ...sessionOwners,
       selectedCreator?.wa_owner,
       filterOwner,
     ], { includeAll: true })
-  }, [creators, filterOwner, lockedOwner, ownerLocked, selectedCreator?.wa_owner, stats])
+  }, [creators, filterOwner, lockedOwner, ownerLocked, selectedCreator?.wa_owner, sessionOwners, stats])
 
   const visibleCreatorIds = useMemo(() => filteredCreators.map(c => c.id), [filteredCreators])
   const selectedVisibleCreatorIds = useMemo(
@@ -727,7 +783,7 @@ function App() {
                 </div>
               </div>
               <div className="flex items-center gap-2 overflow-x-auto docs-scrollbar">
-                {DESKTOP_PRIMARY_TABS.map(tab => (
+                {DESKTOP_PRIMARY_TABS.filter(tab => !tab.adminOnly || !ownerLocked).map(tab => (
                   <button
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key)}
@@ -764,10 +820,11 @@ function App() {
               <button
                 onClick={() => loadData()}
                 disabled={loading}
-                className="px-3.5 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-50"
-                style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
+                className="px-3.5 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-50 inline-flex items-center justify-center"
+                style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}`, minWidth: 72 }}
               >
-                {loading ? '同步中' : '刷新'}
+                <span style={{ display: 'inline-block', width: 14, textAlign: 'center' }}>{loading ? '⋯' : '↻'}</span>
+                <span style={{ marginLeft: 4 }}>刷新</span>
               </button>
               <button
                 onClick={openManualModal}
@@ -1162,6 +1219,8 @@ function App() {
                           <StrategyConfigPanel embedded />
                         </div>
                       </div>
+                    ) : activeTab === 'accounts' ? (
+                      <AccountsPanel />
                     ) : (
                       <SFTDashboard compact />
                     )}

@@ -87,15 +87,34 @@ export function useMessagePolling({
         }
     }, [client?.id, setMessages, generateForIncoming, pushPicker, lastActivityRef, pendingCandidatesRef, activePickerRef]);
 
-    // 5秒轮询
+    // 5秒轮询 + Step 7 SSE 推送即时触发
     useEffect(() => {
         if (!client?.id) return;
         pollingRef.current = setInterval(checkNewMessages, 5000);
+
+        // 监听 App.jsx 分发的 wa-message 事件(Registry → SSE → window)
+        // 如果消息涉及当前打开的 client(phone 匹配),立即 checkNewMessages
+        const handleWaMessage = (event) => {
+            try {
+                const data = event?.detail;
+                if (!data) return;
+                const clientPhone = String(client?.wa_phone || '').replace(/\D/g, '');
+                if (!clientPhone) return;
+                const fromDigits = String(data.from_phone || '').replace(/\D/g, '');
+                const toDigits = String(data.to_phone || '').replace(/\D/g, '');
+                if (fromDigits === clientPhone || toDigits === clientPhone) {
+                    checkNewMessages();
+                }
+            } catch (_) {}
+        };
+        window.addEventListener('wa-message-received', handleWaMessage);
+
         return () => {
             requestVersionRef.current += 1;
             if (pollingRef.current) clearInterval(pollingRef.current);
+            window.removeEventListener('wa-message-received', handleWaMessage);
         };
-    }, [client?.id, checkNewMessages]);
+    }, [client?.id, client?.wa_phone, checkNewMessages]);
 
     // 48小时无互动检测
     const check48h = useCallback(() => {
