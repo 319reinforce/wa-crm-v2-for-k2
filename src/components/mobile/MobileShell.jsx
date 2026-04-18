@@ -52,6 +52,7 @@ export default function MobileShell({
   handleCloseConversation,
   // children slots
   renderChatContent,
+  renderCreatorDetail,
   renderCreatorListItem,
   renderEmptyState,
   // events panel props
@@ -103,6 +104,7 @@ export default function MobileShell({
             creator={selectedCreator}
             onBack={handleCloseConversation}
             renderChatContent={renderChatContent}
+            renderCreatorDetail={renderCreatorDetail}
           />
         )}
 
@@ -311,7 +313,8 @@ function MobileCreatorListScreen({
   )
 }
 
-function MobileChatScreen({ creator, onBack, renderChatContent }) {
+function MobileChatScreen({ creator, onBack, renderChatContent, renderCreatorDetail }) {
+  const [detailOpen, setDetailOpen] = useState(false)
   return (
     <>
       <MobileScreenHeader
@@ -319,11 +322,57 @@ function MobileChatScreen({ creator, onBack, renderChatContent }) {
         compact
         title={creator.primary_name || creator.wa_phone || 'Unknown'}
         subtitle={creator.wa_phone ? `${creator.wa_phone}${creator.wa_owner ? ` · ${creator.wa_owner}` : ''}` : (creator.wa_owner || '')}
+        right={renderCreatorDetail ? (
+          <button
+            onClick={() => setDetailOpen(true)}
+            className="inline-flex items-center justify-center shrink-0 rounded-full"
+            style={{
+              width: 44,
+              height: 44,
+              background: WA.white,
+              color: WA.textMuted,
+              border: `1px solid ${WA.borderLight}`,
+            }}
+            aria-label="达人详情"
+            title="达人详情"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8h.01M11 12h1v4h1" />
+            </svg>
+          </button>
+        ) : null}
       />
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden" style={{ background: WA.chatBg }}>
         {renderChatContent?.(creator)}
       </div>
+      {detailOpen && renderCreatorDetail && (
+        <MobileDetailSheet creator={creator} onClose={() => setDetailOpen(false)}>
+          {renderCreatorDetail(creator, () => setDetailOpen(false))}
+        </MobileDetailSheet>
+      )}
     </>
+  )
+}
+
+function MobileDetailSheet({ creator, onClose, children }) {
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex flex-col"
+      style={{ background: WA.shellBg }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <MobileScreenHeader
+        onBack={onClose}
+        compact
+        title="达人详情"
+        subtitle={creator.primary_name || creator.wa_phone || ''}
+      />
+      <div className="flex-1 min-h-0 overflow-y-auto docs-scrollbar">
+        {children}
+      </div>
+    </div>
   )
 }
 

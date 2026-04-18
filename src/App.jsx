@@ -756,6 +756,17 @@ function App() {
               asPanel
             />
           )}
+          renderCreatorDetail={(creator, onCloseDetail) => (
+            <CreatorDetail
+              key={creator.id}
+              creatorId={creator.id}
+              creatorName={creator.primary_name}
+              onClose={onCloseDetail}
+              onMessageSent={handleCreatorMessageSent}
+              onCreatorUpdated={handleCreatorUpdated}
+              asPanel
+            />
+          )}
         />
         <ManualCreatorModal
           open={manualOpen}
