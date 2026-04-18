@@ -382,10 +382,11 @@ router.get('/', async (req, res) => {
                WHERE 1=1`;
     const params = [];
 
-    if (status) { sql += ` AND e.status = ?`; params.push(status); }
-    if (effectiveOwner) { sql += ` AND e.owner = ?`; params.push(effectiveOwner); }
-    if (creator_id) { sql += ` AND e.creator_id = ?`; params.push(creator_id); }
-    if (event_key) { sql += ` AND e.event_key = ?`; params.push(event_key); }
+    const countParams = [];
+    if (status) { sql += ` AND e.status = ?`; params.push(status); countParams.push(status); }
+    if (effectiveOwner) { sql += ` AND e.owner = ?`; params.push(effectiveOwner); countParams.push(effectiveOwner); }
+    if (creator_id) { sql += ` AND e.creator_id = ?`; params.push(creator_id); countParams.push(creator_id); }
+    if (event_key) { sql += ` AND e.event_key = ?`; params.push(event_key); countParams.push(event_key); }
 
     sql += ` ORDER BY e.created_at DESC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
@@ -394,7 +395,7 @@ router.get('/', async (req, res) => {
 
     const [events, total] = await Promise.all([
       db2.prepare(sql).all(...params),
-      db2.prepare(countSql).get(...params),
+      db2.prepare(countSql).get(...countParams),
     ]);
 
     const messageCache = new Map();
