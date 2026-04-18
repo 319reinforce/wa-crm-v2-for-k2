@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../../db');
 const { normalizeOperatorName } = require('../utils/operator');
-const { getStatus, getQrValue, sendMessage, sendMedia } = require('./waService');
 const {
     reconcileCreatorMessagesFromRaw,
     syncCreatorMessagesFromRaw,
@@ -115,7 +114,7 @@ async function processRepairQueue() {
                     fetch_limit: item.fetch_limit || 500,
                     full_dedup: !!item.full_dedup,
                 };
-                const result = await reconcileRoutedContact(payload, { bypass: false });
+                const result = await reconcileRoutedContact(payload);
                 if (!result?.ok) {
                     remaining.push({
                         ...item,
@@ -391,13 +390,9 @@ async function sendViaSessionCommand(sessionId, type, payload) {
     return await waitForSessionCommandResult(sessionId, commandId, timeoutMs);
 }
 
-async function sendRoutedMessage({ phone, text, session_id, operator, creator_id }, { bypass = false } = {}) {
+async function sendRoutedMessage({ phone, text, session_id, operator, creator_id }) {
     const targetGuard = assertNoGroupSend(phone, { source: 'session_router.send_message' });
     if (!targetGuard.ok) return { ok: false, error: targetGuard.error };
-
-    if (bypass) {
-        return sendMessage(phone, text);
-    }
 
     const resolved = await resolveSessionTarget({
         sessionId: session_id,
@@ -434,19 +429,9 @@ async function sendRoutedMedia({
     session_id,
     operator,
     creator_id,
-}, { bypass = false } = {}) {
+}) {
     const targetGuard = assertNoGroupSend(phone, { source: 'session_router.send_media' });
     if (!targetGuard.ok) return { ok: false, error: targetGuard.error };
-
-    if (bypass) {
-        return sendMedia(phone, {
-            caption,
-            media_path,
-            media_url,
-            mime_type,
-            file_name,
-        });
-    }
 
     const resolved = await resolveSessionTarget({
         sessionId: session_id,
@@ -478,13 +463,6 @@ async function sendRoutedMedia({
 }
 
 async function getRoutedStatus({ all = false, session_id = null, operator = null, creator_id = null } = {}) {
-    if (!all && !session_id && !operator && !creator_id) {
-        return {
-            ...getStatus(),
-            is_local: true,
-        };
-    }
-
     if (all) {
         const sessions = getSessionRegistry().map(buildSessionStatus);
         return {
@@ -510,9 +488,7 @@ async function getRoutedStatus({ all = false, session_id = null, operator = null
     return buildSessionStatus(resolved.target);
 }
 
-async function getRoutedQr({ session_id, operator, creator_id }, { bypass = false } = {}) {
-    if (bypass) return getQrValue();
-
+async function getRoutedQr({ session_id, operator, creator_id }) {
     const resolved = await resolveSessionTarget({
         sessionId: session_id,
         operator,
@@ -531,7 +507,7 @@ async function reconcileRoutedContact({
     operator,
     fetch_limit = 500,
     full_dedup = true,
-}, { bypass = false } = {}) {
+}) {
     const creatorId = Number(creator_id) || 0;
     const creatorRow = creatorId
         ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1').get(creatorId)
@@ -610,7 +586,6 @@ async function reconcileRoutedContact({
         reconciliation: summary,
         routed_session_id: resolved.session_id,
         routed_operator: resolved.operator,
-        bypass: !!bypass,
     };
 }
 
@@ -621,7 +596,7 @@ async function syncRoutedContact({
     operator,
     fetch_limit = 200,
     full_dedup = false,
-}, { bypass = false } = {}) {
+}) {
     const creatorId = Number(creator_id) || 0;
     const creatorRow = creatorId
         ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1').get(creatorId)
@@ -681,7 +656,6 @@ async function syncRoutedContact({
         synchronization: summary,
         routed_session_id: resolved.session_id,
         routed_operator: resolved.operator,
-        bypass: !!bypass,
     };
 }
 
@@ -694,7 +668,7 @@ async function replaceRoutedContact({
     force = false,
     delete_all = false,
     full_dedup = true,
-}, { bypass = false } = {}) {
+}) {
     const creatorId = Number(creator_id) || 0;
     const creatorRow = creatorId
         ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1').get(creatorId)
@@ -825,7 +799,6 @@ async function replaceRoutedContact({
         delete_all: !!delete_all,
         routed_session_id: resolved.session_id,
         routed_operator: resolved.operator,
-        bypass: !!bypass,
     };
 }
 

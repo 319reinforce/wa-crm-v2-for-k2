@@ -581,13 +581,24 @@ function createWorkerPoller(service) {
     return { startPolling, stopPolling };
 }
 
-// ================== Legacy API (单 session 兼容) ==================
+// ================== Single-session process 访问器 ==================
+//
+// 在 agent/crawler 这类"本进程只负责一个 session"的场景下,模块级 API
+// 等价于操作该 session 的 service 实例。API 进程不创建任何 service,
+// 因此这里的函数在 API 进程会抛错(预期行为,防止串号静默失败)。
+//
+// 注意:不再提供"悄悄落到第一个 service"的兜底,避免 codex 指出的隐性串号。
 
-// 为了向后兼容，提供默认 service 的快捷方法
-function getDefaultService() {
-    const configs = parseSessionConfig();
-    if (configs.length === 0) return null;
-    return services.get(configs[0].sessionId) || null;
+function requireSingleService() {
+    if (services.size === 0) {
+        throw new Error('[WA Service] no service registered in this process (did you forget startAllServices()?)');
+    }
+    if (services.size > 1) {
+        throw new Error(`[WA Service] ${services.size} services registered; legacy single-service API is forbidden in multi-session context`);
+    }
+    // services.size === 1
+    for (const svc of services.values()) return svc;
+    return null;
 }
 
 module.exports = {
@@ -601,19 +612,21 @@ module.exports = {
     // 控制
     startAllServices,
     stopAllServices,
+    requireSingleService,
 
-    // 轮询
+    // 轮询(worker 侧使用)
     createWorkerPoller,
 
-    // Legacy API (向后兼容)
-    sendMessage: (...args) => getDefaultService()?.sendMessage(...args),
-    sendMedia: (...args) => getDefaultService()?.sendMedia(...args),
-    getStatus: (...args) => getDefaultService()?.getStatus(...args),
-    getQrValue: (...args) => getDefaultService()?.getQrValue(...args),
-    getResolvedOwner: (...args) => getDefaultService()?.getResolvedOwner(...args),
-    getClient: (...args) => getDefaultService()?.getClient(...args),
-    getReady: (...args) => getDefaultService()?.getReady(...args),
-    waitForReady: (...args) => getDefaultService()?.waitForReady(...args),
+    // Single-session 进程访问器(agent/crawler 场景)
+    // 注意:在 API 进程调用会抛错
+    sendMessage: (...args) => requireSingleService().sendMessage(...args),
+    sendMedia: (...args) => requireSingleService().sendMedia(...args),
+    getStatus: () => requireSingleService().getStatus(),
+    getQrValue: () => requireSingleService().getQrValue(),
+    getResolvedOwner: () => requireSingleService().getResolvedOwner(),
+    getClient: () => requireSingleService().getClient(),
+    getReady: () => requireSingleService().getReady(),
+    waitForReady: (...args) => requireSingleService().waitForReady(...args),
     stop: stopAllServices,
     start: startAllServices,
 };
