@@ -31,6 +31,7 @@ const experienceRouter = require('./routes/experience');
 const strategyRouter = require('./routes/strategy');
 const lifecycleRouter = require('./routes/lifecycle');
 const waRouter = require('./routes/wa');
+const waSessionsRouter = require('./routes/waSessions');
 const trainingRouter = require('./routes/training');
 const { listStatusSessions, readSessionStatus } = require('./services/waIpc');
 const waSessionsMigration = require('../migrate-wa-sessions');
@@ -227,6 +228,7 @@ app.use('/api/events', requireAppAuth, eventsRouter);
 app.use('/api/experience', requireAppAuth, experienceRouter);
 app.use('/api', requireAppAuth, strategyRouter);
 app.use('/api', requireAppAuth, lifecycleRouter);
+app.use('/api/wa/sessions', requireAppAuth, waSessionsRouter);
 app.use('/api/wa', requireAppAuth, waRouter);
 app.use('/api/training', requireAppAuth, trainingRouter);
 

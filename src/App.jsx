@@ -9,6 +9,7 @@ import { CreatorDetail } from './components/CreatorDetail'
 import { WAGroupChatViewer } from './components/WAGroupChatViewer'
 import { MobileEventTagsBar } from './components/MobileEventTagsBar'
 import AuthSessionControls from './components/AuthSessionControls'
+import { AccountsPanel } from './components/AccountsPanel'
 import { getAppAuthScopeOwner, isAppAuthOwnerLocked } from './utils/appAuth'
 import { fetchJsonOrThrow } from './utils/api'
 import { getCreatorMessages, getCreatorStatusMeta } from './utils/creatorMeta'
@@ -73,6 +74,7 @@ const DESKTOP_PRIMARY_TABS = [
   { key: 'events', label: '事件', subtitle: '事件判断与回顾' },
   { key: 'strategy', label: '策略', subtitle: '生命周期与策略配置' },
   { key: 'sft', label: 'SFT', subtitle: '训练与审核看板' },
+  { key: 'accounts', label: '账号', subtitle: 'WhatsApp 账号管理', adminOnly: true },
 ]
 const WORKSPACE_META = {
   creators: { title: '消息工作台', subtitle: '以聊天为中心推进达人转化、跟进与维护。' },
@@ -727,7 +729,7 @@ function App() {
                 </div>
               </div>
               <div className="flex items-center gap-2 overflow-x-auto docs-scrollbar">
-                {DESKTOP_PRIMARY_TABS.map(tab => (
+                {DESKTOP_PRIMARY_TABS.filter(tab => !tab.adminOnly || !ownerLocked).map(tab => (
                   <button
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key)}
@@ -1162,6 +1164,8 @@ function App() {
                           <StrategyConfigPanel embedded />
                         </div>
                       </div>
+                    ) : activeTab === 'accounts' ? (
+                      <AccountsPanel />
                     ) : (
                       <SFTDashboard compact />
                     )}

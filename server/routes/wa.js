@@ -598,16 +598,6 @@ router.get('/status', async (req, res) => {
     }));
 });
 
-// GET /api/wa/sessions — 聚合状态接口
-router.get('/sessions', async (req, res) => {
-    const lockedOwner = getLockedOwner(req);
-    res.json(await getRoutedStatus({
-        all: !lockedOwner,
-        session_id: getEffectiveSessionId(req, null),
-        operator: getEffectiveOperator(req, null, null),
-    }));
-});
-
 // GET /api/wa/qr — 返回二维码图片（网页端扫码用）
 router.get('/qr', async (req, res) => {
     const rawQr = await getRoutedQr({
