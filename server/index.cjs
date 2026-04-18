@@ -36,6 +36,7 @@ const { listStatusSessions, readSessionStatus } = require('./services/waIpc');
 const waSessionsMigration = require('../migrate-wa-sessions');
 const legacySessionsBootstrap = require('./bootstrap/migrateLegacySessions');
 const sessionRepository = require('./services/sessionRepository');
+const { initRegistry } = require('./services/sessionRegistry');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -291,6 +292,21 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
             throw err;
         }
 
+        // 4) 初始化 SessionRegistry(feature-flag 默认关)
+        //    WA_AGENTS_ENABLED=true 时才会 fork agent 子进程,避免和 PM2 crawler 双活
+        const registry = initRegistry();
+        if (registry.isEnabled()) {
+            try {
+                await registry.bootstrap();
+                console.log('[Startup] SessionRegistry bootstrapped');
+            } catch (err) {
+                console.error('[Startup] SessionRegistry bootstrap failed:', err.message);
+                // 不 throw:registry 失败不应阻挡 API 起来
+            }
+        } else {
+            console.log('[Startup] SessionRegistry disabled (set WA_AGENTS_ENABLED=true to enable)');
+        }
+
         const server = await tryListenWithRetry(app, PORT, 3);
         const lanUrls = getLanUrls(PORT);
         console.log(`\n✅ WA CRM v2 Server (modular)`);
@@ -307,6 +323,11 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
         const shutdown = async (signal) => {
             console.log(`${signal} received, shutting down gracefully...`);
             sessionRepository.stopCacheRefreshLoop();
+            try {
+                await registry.shutdown();
+            } catch (err) {
+                console.error('[Shutdown] registry.shutdown error:', err.message);
+            }
             server.close(async () => {
                 await db.closeDb();
                 console.log('Server closed.');
