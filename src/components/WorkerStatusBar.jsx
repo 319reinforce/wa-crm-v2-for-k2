@@ -76,7 +76,7 @@ export function WorkerStatusBar() {
             } catch (_) {}
         }
         fetchStatus()
-        const id = setInterval(fetchStatus, 5000)
+        const id = setInterval(fetchStatus, 30000)
         return () => clearInterval(id)
     }, [])
 
@@ -116,8 +116,13 @@ export function WorkerStatusBar() {
             }
         }
         fetchWaStatus()
-        const id = setInterval(fetchWaStatus, 5000)
-        return () => clearInterval(id)
+        const id = setInterval(fetchWaStatus, 30000)
+        const handler = () => fetchWaStatus()
+        window.addEventListener('wa-session-status-changed', handler)
+        return () => {
+            clearInterval(id)
+            window.removeEventListener('wa-session-status-changed', handler)
+        }
     }, [])
 
     // 每秒递增 tick（用于倒计时）

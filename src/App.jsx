@@ -171,7 +171,7 @@ function App() {
       }
     }
     fetchWaStatus()
-    const id = setInterval(fetchWaStatus, 5000)
+    const id = setInterval(fetchWaStatus, 30000)
     return () => clearInterval(id)
   }, [])
 
@@ -297,11 +297,7 @@ function App() {
   useEffect(() => {
     const ctrl = new AbortController()
     loadData(ctrl.signal)
-    const interval = setInterval(() => loadData(ctrl.signal), 15000)
-    return () => {
-      clearInterval(interval)
-      ctrl.abort()
-    }
+    return () => { ctrl.abort() }
   }, [loadData])
 
   useEffect(() => {
@@ -339,10 +335,8 @@ function App() {
     load()
     const handler = () => load()
     window.addEventListener('wa-session-status-changed', handler)
-    const id = setInterval(load, 30000)
     return () => {
       cancelled = true
-      clearInterval(id)
       window.removeEventListener('wa-session-status-changed', handler)
     }
   }, [ownerLocked])
