@@ -265,6 +265,9 @@ class WhatsAppService {
         const puppeteerConfig = {
             headless: process.env.WA_HEADLESS !== 'false',
             args: [...new Set(puppeteerArgs)],
+            // 并发多个 agent 时 Chromium 冷启动可能 >30s,给更宽容余量
+            // 允许 env 覆盖,默认 90s
+            timeout: parseInt(process.env.WA_PUPPETEER_LAUNCH_TIMEOUT_MS || '90000', 10),
         };
         if (chromePath) {
             puppeteerConfig.executablePath = chromePath;

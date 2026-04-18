@@ -229,6 +229,7 @@ function App() {
   }, [dragging])
 
   // 计算未读：基于 ev_replied 字段（0=未回复显示红点，1=已回复消除红点）
+  // 切换 owner 只重拉 creators,stats 和 owner 无关,走独立 useEffect 拉
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
@@ -236,31 +237,40 @@ function App() {
       if (filterOwner) params.set('owner', filterOwner)
       params.set('fields', 'wa_phone')
 
-      const [creatorsData, statsData] = await Promise.all([
-        fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`),
-        fetchJsonOrThrow(`${API_BASE}/stats`),
-      ])
-
+      const creatorsData = await fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`)
       const enriched = creatorsData.map(c => buildCreatorViewModel(buildCreatorListFull(c), c))
 
-      // 计算未读：基于消息方向 + 48h 话题过期规则
+      // 计算未读
       const newUnread = {}
       for (const c of enriched) {
         newUnread[c.id] = shouldShowUnread(c) ? 1 : 0
       }
       setUnreadCounts(newUnread)
 
-      // 按最后一次对话结束时间倒序
       enriched.sort((a, b) => getCreatorLastConversationTs(b) - getCreatorLastConversationTs(a))
-
       setCreators(enriched)
-      setStats(statsData)
     } catch (e) {
       console.error('[WACRM] 加载失败:', e)
     } finally {
       setLoading(false)
     }
   }, [filterOwner])
+
+  // stats 独立拉:和 owner filter 解耦,切 owner 时不重新请求
+  const loadStats = useCallback(async () => {
+    try {
+      const statsData = await fetchJsonOrThrow(`${API_BASE}/stats`)
+      setStats(statsData)
+    } catch (e) {
+      console.error('[WACRM] stats 加载失败:', e)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadStats()
+    const id = setInterval(loadStats, 30000)
+    return () => clearInterval(id)
+  }, [loadStats])
 
   const loadGroupChats = useCallback(async () => {
     setGroupsLoading(true)
