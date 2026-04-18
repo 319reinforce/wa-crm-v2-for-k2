@@ -8,6 +8,7 @@ import {
   setAppAuthScope,
   setAppAuthToken,
   setAppAuthUsername,
+  setAppAuthRole,
   stripLegacyTokenFromUrl,
 } from '../utils/appAuth'
 
@@ -67,10 +68,8 @@ function FieldShell({ children }) {
 
 export function AppAuthGate({ children }) {
   const [status, setStatus] = useState('checking')
-  const [mode, setMode] = useState('password')
-  const [username, setUsername] = useState(getAppAuthUsername() || 'k2')
+  const [username, setUsername] = useState(getAppAuthUsername() || '')
   const [password, setPassword] = useState('')
-  const [tokenInput, setTokenInput] = useState('')
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -85,6 +84,7 @@ export function AppAuthGate({ children }) {
         if (result.ok) {
           if (result.session?.username) setAppAuthUsername(result.session.username)
           setAppAuthScope(result.session || {})
+          setAppAuthRole(result.session?.role, result.session?.user_id)
           setStatus('ready')
           setError('')
           return
@@ -93,13 +93,13 @@ export function AppAuthGate({ children }) {
         if (result.unauthorized && strippedLegacyToken) {
           await logoutAppAuth()
           if (cancelled) return
-          setError('已移除 URL 里的旧 token，请在登录页重新认证。')
+          setError('已移除 URL 里的旧 token,请重新登录。')
         } else if (result.unauthorized && !getAppAuthToken()) {
           setError('')
         } else if (result.unauthorized) {
           await logoutAppAuth()
           if (cancelled) return
-          setError('当前登录已失效，请重新登录。')
+          setError('会话已失效或被管理员注销,请重新登录。')
         }
       } catch (err) {
         if (cancelled) return
@@ -126,10 +126,12 @@ export function AppAuthGate({ children }) {
       const result = await loginWithPassword({ username: normalizedUsername, password })
       setAppAuthToken(result.token || '')
       setAppAuthUsername(result.username || normalizedUsername)
+      setAppAuthRole(result.role, result.user_id)
+      setAppAuthScope({
+        owner: result.owner,
+        owner_locked: !!result.owner_locked,
+      })
       setPassword('')
-      const session = await checkSession()
-      if (!session.ok) throw new Error('登录成功但会话校验失败')
-      setAppAuthScope(session.session || {})
       setStatus('ready')
     } catch (err) {
       await logoutAppAuth()
@@ -138,38 +140,7 @@ export function AppAuthGate({ children }) {
     }
   }
 
-  async function handleTokenSubmit(event) {
-    event.preventDefault()
-    const normalized = String(tokenInput || '').trim()
-    if (!normalized) {
-      setError('请输入访问 token')
-      return
-    }
-
-    setAppAuthToken(normalized)
-    setStatus('checking')
-    setError('')
-    try {
-      const result = await checkSession()
-      if (!result.ok) {
-        await logoutAppAuth()
-        setStatus('needs-auth')
-        setError('token 无效，请检查后重试。')
-        return
-      }
-      if (result.session?.username) setAppAuthUsername(result.session.username)
-      setAppAuthScope(result.session || {})
-      setStatus('ready')
-    } catch (err) {
-      await logoutAppAuth()
-      setStatus('needs-auth')
-      setError(err.message || '认证失败')
-    }
-  }
-
   if (status === 'ready') return children
-
-  const passwordMode = mode === 'password'
 
   return (
     <div
@@ -242,43 +213,11 @@ export function AppAuthGate({ children }) {
               Login
             </h1>
 
-            <div
-              className="mt-14 w-full rounded-full p-1.5"
-              style={{ background: '#ece6db' }}
-            >
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setMode('password')}
-                  className="rounded-full px-4 py-3 text-[15px] font-medium transition-all"
-                  style={{
-                    background: passwordMode ? '#ffffff' : 'transparent',
-                    color: passwordMode ? '#111827' : 'rgba(17,24,39,0.72)',
-                    boxShadow: passwordMode ? '0 8px 18px rgba(17,24,39,0.08)' : 'none',
-                  }}
-                >
-                  账号登录
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode('token')}
-                  className="rounded-full px-4 py-3 text-[15px] font-medium transition-all"
-                  style={{
-                    background: passwordMode ? 'transparent' : '#ffffff',
-                    color: passwordMode ? 'rgba(17,24,39,0.72)' : '#111827',
-                    boxShadow: passwordMode ? 'none' : '0 8px 18px rgba(17,24,39,0.08)',
-                  }}
-                >
-                  Token 登录
-                </button>
-              </div>
-            </div>
-
             {status === 'checking' ? (
               <div className="mt-12 text-[15px]" style={{ color: 'rgba(29, 41, 57, 0.64)' }}>
                 正在验证访问权限...
               </div>
-            ) : passwordMode ? (
+            ) : (
               <form className="mt-14 flex w-full flex-col items-center gap-7" onSubmit={handlePasswordSubmit}>
                 <FieldShell>
                   <input
@@ -288,6 +227,7 @@ export function AppAuthGate({ children }) {
                     placeholder="输入用户名"
                     className="w-full bg-transparent text-left text-[17px] leading-8 outline-none"
                     style={{ color: '#1f2937' }}
+                    autoComplete="username"
                   />
                 </FieldShell>
 
@@ -299,6 +239,7 @@ export function AppAuthGate({ children }) {
                     placeholder="输入密码"
                     className="w-full bg-transparent text-left text-[17px] leading-8 outline-none"
                     style={{ color: '#1f2937' }}
+                    autoComplete="current-password"
                   />
                 </FieldShell>
 
@@ -320,39 +261,6 @@ export function AppAuthGate({ children }) {
                   }}
                 >
                   登录进入系统
-                </button>
-              </form>
-            ) : (
-              <form className="mt-14 flex w-full flex-col items-center gap-7" onSubmit={handleTokenSubmit}>
-                <FieldShell>
-                  <input
-                    type="password"
-                    value={tokenInput}
-                    onChange={(e) => setTokenInput(e.target.value)}
-                    placeholder="输入访问 token"
-                    className="w-full bg-transparent text-left text-[17px] leading-8 outline-none"
-                    style={{ color: '#1f2937' }}
-                  />
-                </FieldShell>
-
-                {error ? (
-                  <div
-                    className="rounded-[20px] px-4 py-3 text-sm"
-                    style={{ background: 'rgba(127, 29, 29, 0.08)', color: '#b91c1c' }}
-                  >
-                    {error}
-                  </div>
-                ) : null}
-
-                <button
-                  type="submit"
-                  className="mt-4 w-[82%] min-w-[220px] rounded-[18px] px-4 py-4 text-[18px] font-medium text-white transition-transform active:scale-[0.99]"
-                  style={{
-                    background: 'linear-gradient(135deg, #10214f 0%, #1f3a8a 100%)',
-                    boxShadow: '0 20px 34px rgba(16,33,79,0.14)',
-                  }}
-                >
-                  使用 Token 进入
                 </button>
               </form>
             )}

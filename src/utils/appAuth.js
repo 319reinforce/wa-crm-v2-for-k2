@@ -4,6 +4,8 @@ const USERNAME_KEY = 'app_auth_username'
 const SCOPE_OWNER_KEY = 'app_auth_scope_owner'
 const SCOPE_SESSION_ID_KEY = 'app_auth_scope_session_id'
 const SCOPE_LOCKED_KEY = 'app_auth_scope_locked'
+const ROLE_KEY = 'app_auth_role'
+const USER_ID_KEY = 'app_auth_user_id'
 
 export function getAppAuthToken() {
   try {
@@ -57,10 +59,48 @@ export function setAppAuthUsername(username) {
   }
 }
 
+export function getAppAuthRole() {
+  try {
+    return localStorage.getItem(ROLE_KEY) || ''
+  } catch (_) {
+    return ''
+  }
+}
+
+export function getAppAuthUserId() {
+  try {
+    const raw = localStorage.getItem(USER_ID_KEY)
+    return raw ? Number(raw) : null
+  } catch (_) {
+    return null
+  }
+}
+
+export function setAppAuthRole(role, userId) {
+  try {
+    if (role) localStorage.setItem(ROLE_KEY, String(role))
+    else localStorage.removeItem(ROLE_KEY)
+    if (userId) localStorage.setItem(USER_ID_KEY, String(userId))
+    else localStorage.removeItem(USER_ID_KEY)
+  } catch (_) {}
+}
+
+export function clearAppAuthRole() {
+  try {
+    localStorage.removeItem(ROLE_KEY)
+    localStorage.removeItem(USER_ID_KEY)
+  } catch (_) {}
+}
+
+export function isAppAuthAdmin() {
+  return getAppAuthRole() === 'admin'
+}
+
 export function clearAppAuthSession() {
   clearAppAuthToken()
   setAppAuthUsername('')
   clearAppAuthScope()
+  clearAppAuthRole()
 }
 
 export function getAppAuthScopeOwner() {
@@ -114,14 +154,11 @@ export function clearAppAuthScope() {
 
 export async function logoutAppAuth() {
   try {
-    await fetch('/api/auth/logout', {
+    await fetchAppAuth('/api/auth/logout', {
       method: 'POST',
-      credentials: 'same-origin',
     })
   } catch (_) {}
-  clearAppAuthToken()
-  setAppAuthUsername('')
-  clearAppAuthScope()
+  clearAppAuthSession()
 }
 
 export function getAppAuthHeaders(extraHeaders = {}) {

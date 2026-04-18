@@ -20,6 +20,14 @@ const {
     rebuildMissingReplyStrategies,
     inspectReplyStrategyForCreator,
 } = require('../services/replyStrategyService');
+const { requireHumanAdmin } = require('../middleware/appAuth');
+const { ensureClientScope } = require('../utils/ownerScope');
+
+async function findCreatorOwner(dbConn, creatorId) {
+    if (!creatorId) return null;
+    const row = await dbConn.prepare('SELECT wa_owner, wa_phone FROM creators WHERE id = ? LIMIT 1').get(creatorId);
+    return row || null;
+}
 
 // GET /api/strategy-config/unbound-agency
 router.get('/strategy-config/unbound-agency', async (req, res) => {
@@ -35,8 +43,8 @@ router.get('/strategy-config/unbound-agency', async (req, res) => {
     }
 });
 
-// PUT /api/strategy-config/unbound-agency
-router.put('/strategy-config/unbound-agency', async (req, res) => {
+// PUT /api/strategy-config/unbound-agency — 全局策略配置,仅 admin 可改
+router.put('/strategy-config/unbound-agency', requireHumanAdmin, async (req, res) => {
     try {
         const db2 = db.getDb();
         const fallback = buildDefaultPayload();
@@ -99,10 +107,14 @@ router.put('/strategy-config/unbound-agency', async (req, res) => {
     }
 });
 
-// POST /api/reply-strategy/rebuild/:creatorId
+// POST /api/reply-strategy/rebuild/:creatorId — operator 只能重建自己 owner 下 creator
 router.post('/reply-strategy/rebuild/:creatorId', async (req, res) => {
     try {
         const creatorId = Number(req.params.creatorId);
+        const creatorRow = await findCreatorOwner(db.getDb(), creatorId);
+        if (!creatorRow) return res.status(404).json({ error: 'creator not found' });
+        const scoped = await ensureClientScope(req, res, db.getDb(), creatorRow.wa_phone);
+        if (!scoped.ok) return;
         const trigger = String(req.body?.trigger || 'manual_rebuild').trim() || 'manual_rebuild';
         const force = req.body?.force === true;
         const allowSoftAdjust = req.body?.allow_soft_adjust === true;
@@ -153,8 +165,8 @@ router.get('/reply-strategy/insight/:creatorId', async (req, res) => {
     }
 });
 
-// POST /api/reply-strategy/rebuild-all
-router.post('/reply-strategy/rebuild-all', async (req, res) => {
+// POST /api/reply-strategy/rebuild-all — 全量重建,admin-only
+router.post('/reply-strategy/rebuild-all', requireHumanAdmin, async (req, res) => {
     try {
         const owner = String(req.body?.owner || '').trim();
         const trigger = String(req.body?.trigger || 'manual_rebuild_all').trim() || 'manual_rebuild_all';
@@ -189,8 +201,8 @@ router.post('/reply-strategy/rebuild-all', async (req, res) => {
     }
 });
 
-// POST /api/reply-strategy/rebuild-missing
-router.post('/reply-strategy/rebuild-missing', async (req, res) => {
+// POST /api/reply-strategy/rebuild-missing — 批量补建,admin-only
+router.post('/reply-strategy/rebuild-missing', requireHumanAdmin, async (req, res) => {
     try {
         const owner = String(req.body?.owner || '').trim();
         const stage = String(req.body?.stage || '').trim().toLowerCase();

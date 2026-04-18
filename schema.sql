@@ -407,6 +407,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
     table_name      VARCHAR(64),
     record_id       VARCHAR(64),
     operator        VARCHAR(64) DEFAULT 'system',
+    user_id         INT NULL,
+    user_role       VARCHAR(16) NULL,
+    auth_source     VARCHAR(8) NULL,
+    token_principal VARCHAR(64) NULL,
     before_value    JSON,
     after_value     JSON,
     ip_address      VARCHAR(45),
@@ -417,6 +421,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX idx_audit_action ON audit_log(action);
 CREATE INDEX idx_audit_created ON audit_log(created_at);
 CREATE INDEX idx_audit_table_record ON audit_log(table_name, record_id);
+CREATE INDEX idx_audit_user ON audit_log(user_id);
 
 -- ============================================================
 -- Client Profiles — 客户独立画像
@@ -701,4 +706,41 @@ CREATE TABLE IF NOT EXISTS wa_sessions (
     KEY        idx_desired         (desired_state),
     KEY        idx_runtime         (runtime_state),
     KEY        idx_owner           (owner)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ==========================================
+-- Users + Sessions (admin/operator 双角色)
+-- ==========================================
+-- admin 看全部 owner,operator 只看自己绑定的 operator_name(复用 operatorRoster canonical 名)
+-- operator_name 枚举校验放在应用层(参考 server/config/operatorRoster.js),不依赖 MySQL CHECK 约束
+
+CREATE TABLE IF NOT EXISTS users (
+    id                  INT AUTO_INCREMENT PRIMARY KEY,
+    username            VARCHAR(64) NOT NULL,
+    password_hash       VARCHAR(255) NOT NULL,
+    role                ENUM('admin','operator') NOT NULL,
+    operator_name       VARCHAR(32) NULL,
+    disabled            TINYINT(1) NOT NULL DEFAULT 0,
+    failed_login_count  INT NOT NULL DEFAULT 0,
+    locked_until        DATETIME NULL,
+    password_changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login_at       DATETIME NULL,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_users_username (username),
+    KEY        idx_users_role_operator (role, operator_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS user_sessions (
+    token         CHAR(64) NOT NULL PRIMARY KEY,
+    user_id       INT NOT NULL,
+    issued_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at    DATETIME NOT NULL,
+    last_seen_at  DATETIME NULL,
+    revoked_at    DATETIME NULL,
+    ip_address    VARCHAR(45) NULL,
+    user_agent    VARCHAR(512) NULL,
+    KEY idx_user_sessions_user    (user_id, revoked_at),
+    KEY idx_user_sessions_expires (expires_at),
+    CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

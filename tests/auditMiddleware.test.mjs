@@ -95,12 +95,16 @@ test('writeAudit redacts phone-like record_id and nested client ids before inser
     )
   })
 
+  // INSERT 参数顺序:
+  // 0 action, 1 table_name, 2 record_id,
+  // 3 operator, 4 user_id, 5 user_role, 6 auth_source, 7 token_principal,
+  // 8 before_value, 9 after_value, 10 ip_address, 11 user_agent
   assert.equal(capturedInsertArgs[2], '[REDACTED]')
-  assert.deepEqual(JSON.parse(capturedInsertArgs[3]), {
+  assert.deepEqual(JSON.parse(capturedInsertArgs[8]), {
     client_id: '[REDACTED]',
     nested: [{ wa_phone: '[REDACTED]' }],
   })
-  assert.deepEqual(JSON.parse(capturedInsertArgs[4]), {
+  assert.deepEqual(JSON.parse(capturedInsertArgs[9]), {
     details: {
       client_id: '[REDACTED]',
       record_id: '[REDACTED]',

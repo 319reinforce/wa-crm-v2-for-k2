@@ -6,14 +6,14 @@ const express = require('express');
 const router = express.Router();
 const { runTraining, ensureTrainingLogTable } = require('../workers/trainingWorker');
 const db = require('../../db');
-const { hasPrivilegedRole } = require('../utils/ownerScope');
-
+// 放行 DB admin 或 env service token(如 INTERNAL_SERVICE_TOKEN / TRAINING_TRIGGER_TOKEN)
+// env admin 不再放行 —— 管理员请用人类账号操作
 function ensureTrainingTriggerAccess(req, res) {
-    if (!hasPrivilegedRole(req)) {
-        res.status(403).json({ ok: false, error: 'Forbidden' });
-        return false;
-    }
-    return true;
+    const a = req?.auth;
+    if (a?.source === 'db' && a?.role === 'admin') return true;
+    if (a?.source === 'env' && a?.role === 'service') return true;
+    res.status(403).json({ ok: false, error: 'Forbidden: admin or service role required' });
+    return false;
 }
 
 // POST /api/training/trigger — 触发训练（外部 cron 或 MetaBot Scheduler 调用）
