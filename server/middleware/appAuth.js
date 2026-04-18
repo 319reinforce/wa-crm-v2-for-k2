@@ -7,6 +7,7 @@
 const { normalizeOperatorName } = require('../utils/operator');
 const { getInternalServiceTokenEntry } = require('../utils/internalAuth');
 const sessionRepository = require('../services/sessionRepository');
+const userSessionRepo = require('../services/userSessionRepo');
 
 const ADMIN_TOKEN_ENV_KEYS = [
     'API_AUTH_TOKEN',
@@ -121,14 +122,38 @@ function getPrimaryLoginTokenEntry() {
 function buildAuthContext(entry = {}) {
     const owner = normalizeOperatorName(entry.owner, null);
     const sessionId = String(entry.session_id || getSessionIdForOwner(owner) || '').trim() || null;
+    const role = entry.role || (owner ? 'owner' : 'admin');
+    const source = entry.source || 'env';
     return {
         token: entry.token || '',
         token_key: entry.key || '',
         username: String(entry.username || owner || 'authorized').trim() || 'authorized',
         owner,
         session_id: sessionId,
-        owner_locked: !!owner,
-        role: entry.role || (owner ? 'owner' : 'admin'),
+        owner_locked: !!owner || role === 'operator',
+        role,
+        source,                            // 'db' (DB session) | 'env' (env token)
+        token_principal: entry.token_principal || entry.username || entry.key || null,
+        user_id: entry.user_id || null,    // DB session 时有,env token 时 null
+    };
+}
+
+// 从 DB session 构造 req.auth 所需 entry
+function entryFromDbSession({ sessionRow, token }) {
+    const role = sessionRow.user.role;
+    const operatorName = role === 'operator'
+        ? normalizeOperatorName(sessionRow.user.operator_name, null)
+        : null;
+    return {
+        key: 'DB_SESSION',
+        token,
+        username: sessionRow.user.username,
+        owner: operatorName,
+        session_id: null,
+        role,
+        source: 'db',
+        token_principal: sessionRow.user.username,
+        user_id: sessionRow.user.id,
     };
 }
 
@@ -219,38 +244,7 @@ function sendOwnerScopeForbidden(res, lockedOwner) {
     });
 }
 
-function requireAppAuth(req, res, next) {
-    const allowLocalBypass = process.env.LOCAL_API_AUTH_BYPASS === 'true';
-
-    if (process.env.NODE_ENV !== 'production' && allowLocalBypass && isLocalRequest(req)) {
-        if (!warnedForBypass) {
-            warnedForBypass = true;
-            console.warn('[appAuth] localhost bypass enabled outside production');
-        }
-        req.auth = buildAuthContext({
-            key: 'LOCAL_BYPASS',
-            token: '',
-            username: 'local-bypass',
-            role: 'admin',
-        });
-        req.user = {
-            name: req.auth.username,
-            owner: req.auth.owner,
-            owner_locked: req.auth.owner_locked,
-            session_id: req.auth.session_id,
-        };
-        return next();
-    }
-
-    const allowed = getAllowedTokens();
-    if (allowed.length === 0) {
-        return res.status(503).json({ error: 'API auth not configured' });
-    }
-    const token = extractToken(req);
-    const entry = getTokenEntryByToken(token);
-    if (!entry) {
-        return res.status(401).json({ error: 'Unauthorized' });
-    }
+function attachAuth(req, entry) {
     req.auth = buildAuthContext(entry);
     req.user = {
         name: req.auth.username,
@@ -258,13 +252,83 @@ function requireAppAuth(req, res, next) {
         owner_locked: req.auth.owner_locked,
         session_id: req.auth.session_id,
     };
-    next();
+}
+
+async function requireAppAuth(req, res, next) {
+    const allowLocalBypass = process.env.LOCAL_API_AUTH_BYPASS === 'true';
+
+    if (process.env.NODE_ENV !== 'production' && allowLocalBypass && isLocalRequest(req)) {
+        if (!warnedForBypass) {
+            warnedForBypass = true;
+            console.warn('[appAuth] localhost bypass enabled outside production');
+        }
+        attachAuth(req, {
+            key: 'LOCAL_BYPASS',
+            token: '',
+            username: 'local-bypass',
+            role: 'admin',
+            source: 'env',
+            token_principal: 'LOCAL_BYPASS',
+        });
+        return next();
+    }
+
+    const token = extractToken(req);
+    if (!token) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // 先查 DB session(人类用户,per-user token)
+    try {
+        const sessionRow = await userSessionRepo.findActiveSessionByToken(token);
+        if (sessionRow) {
+            attachAuth(req, entryFromDbSession({ sessionRow, token }));
+            return next();
+        }
+    } catch (err) {
+        console.error('[appAuth] DB session lookup failed:', err?.message || err);
+        // fall through to env token 匹配,不让 DB 故障把 service 也挡住
+    }
+
+    // 回退到 env token(service/admin env/owner-locked env)
+    const envEntry = getTokenEntryByToken(token);
+    if (envEntry) {
+        attachAuth(req, { ...envEntry, source: 'env', token_principal: envEntry.key });
+        return next();
+    }
+
+    return res.status(401).json({ error: 'Unauthorized' });
+}
+
+// 人类管理员专属(users CRUD / policy 写 / audit 管理视图)
+function requireHumanAdmin(req, res, next) {
+    if (req?.auth?.source === 'db' && req?.auth?.role === 'admin') {
+        return next();
+    }
+    return res.status(403).json({
+        ok: false,
+        error: 'Forbidden: human admin required (DB-backed session)',
+    });
+}
+
+// 管理员 or 内部服务(waSessions 跨 owner 动作 / training 触发)
+function requireAdminOrService(req, res, next) {
+    const a = req?.auth;
+    if (!a) return res.status(401).json({ error: 'Unauthorized' });
+    if (a.source === 'db' && a.role === 'admin') return next();
+    if (a.source === 'env' && a.role === 'service') return next();
+    return res.status(403).json({
+        ok: false,
+        error: 'Forbidden: admin or service role required',
+    });
 }
 
 module.exports = {
     APP_AUTH_COOKIE_NAME,
     APP_AUTH_COOKIE_MAX_AGE_SECONDS,
     requireAppAuth,
+    requireHumanAdmin,
+    requireAdminOrService,
     getAllowedTokens,
     getPrimaryLoginTokenEntry,
     getLockedOwner,

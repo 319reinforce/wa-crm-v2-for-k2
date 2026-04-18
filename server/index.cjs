@@ -17,6 +17,8 @@ const {
     setAppAuthCookie,
     clearAppAuthCookie,
 } = require('./middleware/appAuth');
+const bcrypt = require('bcryptjs');
+const userSessionRepo = require('./services/userSessionRepo');
 const messagesRouter = require('./routes/messages');
 const creatorsRouter = require('./routes/creators');
 const statsRouter = require('./routes/stats');
@@ -33,8 +35,13 @@ const lifecycleRouter = require('./routes/lifecycle');
 const waRouter = require('./routes/wa');
 const waSessionsRouter = require('./routes/waSessions');
 const trainingRouter = require('./routes/training');
+const usersRouter = require('./routes/users');
+const operatorRosterRouter = require('./routes/operatorRoster');
 const { listStatusSessions, readSessionStatus } = require('./services/waIpc');
 const waSessionsMigration = require('../migrate-wa-sessions');
+const usersAuthMigration = require('../migrate-users-auth');
+const auditLogUserFieldsMigration = require('../migrate-audit-log-user-fields');
+const sessionCleaner = require('./services/sessionCleaner');
 const legacySessionsBootstrap = require('./bootstrap/migrateLegacySessions');
 const sessionRepository = require('./services/sessionRepository');
 const { initRegistry } = require('./services/sessionRegistry');
@@ -202,27 +209,51 @@ app.get('/api/wa/agents/health', async (req, res) => {
     });
 });
 
-app.post('/api/auth/login', (req, res) => {
-    const { username: expectedUsername, password: expectedPassword } = getConfiguredLogin();
-    const loginTokenEntry = getPrimaryLoginTokenEntry();
-    const issuedToken = loginTokenEntry?.token || '';
-    if (!expectedUsername || !expectedPassword || !issuedToken) {
-        return res.status(503).json({ error: 'Login auth not configured' });
-    }
-
+// POST /api/auth/login — 纯 DB 鉴权(已移除 env 密码 fallback)
+// 成功签发 per-user session token(64 hex 字符),写入 user_sessions 表并 set cookie
+app.post('/api/auth/login', async (req, res) => {
     const username = String(req.body?.username || '').trim();
     const password = String(req.body?.password || '');
-    if (username !== expectedUsername || password !== expectedPassword) {
-        return res.status(401).json({ error: 'Invalid username or password' });
+    if (!username || !password) {
+        return res.status(400).json({ error: 'username and password are required' });
     }
 
-    setAppAuthCookie(res, issuedToken);
-    res.json({
-        ok: true,
-        authenticated: true,
-        username: expectedUsername,
-        token: issuedToken,
-    });
+    try {
+        const user = await userSessionRepo.findActiveUserByUsername(username);
+        if (!user || user.disabled) {
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+        if (userSessionRepo.isUserLocked(user)) {
+            return res.status(423).json({ error: 'Account locked, try again later' });
+        }
+
+        const passwordOk = await bcrypt.compare(password, user.password_hash);
+        if (!passwordOk) {
+            await userSessionRepo.recordLoginFailure(user.id);
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+
+        await userSessionRepo.resetLoginFailures(user.id);
+        const { token } = await userSessionRepo.createSession({
+            userId: user.id,
+            ipAddress: req.ip || req.connection?.remoteAddress || null,
+            userAgent: String(req.get('User-Agent') || '').slice(0, 512),
+        });
+        setAppAuthCookie(res, token);
+        return res.json({
+            ok: true,
+            authenticated: true,
+            username: user.username,
+            role: user.role,
+            owner: user.role === 'operator' ? user.operator_name : null,
+            owner_locked: user.role === 'operator',
+            user_id: user.id,
+            token,
+        });
+    } catch (err) {
+        console.error('[auth/login] error:', err);
+        return res.status(500).json({ error: 'Login failed' });
+    }
 });
 
 // 轻量认证探针：前端用它判断当前 token 是否有效
@@ -236,10 +267,19 @@ app.get('/api/auth/session', requireAppAuth, (req, res) => {
         owner: req.auth?.owner || null,
         owner_locked: !!req.auth?.owner_locked,
         session_id: req.auth?.session_id || null,
+        user_id: req.auth?.user_id || null,
+        source: req.auth?.source || null,
     });
 });
 
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', async (req, res) => {
+    const token = req.auth?.token
+        || (String(req.headers.authorization || '').startsWith('Bearer ')
+            ? String(req.headers.authorization).slice(7).trim()
+            : null);
+    if (token) {
+        try { await userSessionRepo.revokeSession(token); } catch (_) { /* best-effort */ }
+    }
     clearAppAuthCookie(res);
     res.json({ ok: true, authenticated: false });
 });
@@ -262,6 +302,8 @@ app.use('/api', requireAppAuth, lifecycleRouter);
 app.use('/api/wa/sessions', requireAppAuth, waSessionsRouter);
 app.use('/api/wa', requireAppAuth, waRouter);
 app.use('/api/training', requireAppAuth, trainingRouter);
+app.use('/api/users', requireAppAuth, usersRouter);
+app.use('/api/operator-roster', requireAppAuth, operatorRosterRouter);
 
 // WA Worker 路由
 // 聚合所有 agent 进程的 worker 状态,Registry 启用时优先读内存态,
@@ -331,6 +373,19 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
             console.error('[Startup] wa_sessions schema migration failed:', err.message);
             throw err;
         }
+
+        // 1.1) users + user_sessions 迁移 + audit_log 扩列(幂等)
+        try {
+            await usersAuthMigration.run({ silent: true });
+            await auditLogUserFieldsMigration.run({ silent: true });
+            console.log('[Startup] users/auth migration done');
+        } catch (err) {
+            console.error('[Startup] users/auth migration failed:', err.message);
+            throw err;
+        }
+
+        // 1.2) 启动 session 清理器
+        sessionCleaner.start();
 
         // 2) 一次性迁移旧 session 配置(ecosystem / env / auth dirs)
         try {

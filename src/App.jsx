@@ -13,7 +13,8 @@ import { WAGroupChatViewer } from './components/WAGroupChatViewer'
 import { MobileEventTagsBar } from './components/MobileEventTagsBar'
 import AuthSessionControls from './components/AuthSessionControls'
 import { AccountsPanel } from './components/AccountsPanel'
-import { getAppAuthScopeOwner, isAppAuthOwnerLocked } from './utils/appAuth'
+import { UsersPanel } from './components/UsersPanel'
+import { getAppAuthScopeOwner, isAppAuthOwnerLocked, isAppAuthAdmin } from './utils/appAuth'
 import { fetchJsonOrThrow } from './utils/api'
 import { getCreatorMessages, getCreatorStatusMeta } from './utils/creatorMeta'
 import { buildOwnerOptions, getOwnerColor } from './utils/operators'
@@ -77,7 +78,8 @@ const DESKTOP_PRIMARY_TABS = [
   { key: 'events', label: '事件', subtitle: '事件判断与回顾' },
   { key: 'strategy', label: '策略', subtitle: '生命周期与策略配置' },
   { key: 'sft', label: 'SFT', subtitle: '训练与审核看板' },
-  { key: 'accounts', label: '账号', subtitle: 'WhatsApp 账号管理', adminOnly: true },
+  { key: 'accounts', label: '账号', subtitle: 'WhatsApp 账号管理' },
+  { key: 'users', label: '用户', subtitle: '管理员账号与权限', adminOnly: true },
 ]
 const WORKSPACE_META = {
   creators: { title: '消息工作台', subtitle: '以聊天为中心推进达人转化、跟进与维护。' },
@@ -107,6 +109,7 @@ function isMorasCoreGroup(groupName) {
 function App() {
   const lockedOwner = getAppAuthScopeOwner()
   const ownerLocked = isAppAuthOwnerLocked() && !!lockedOwner
+  const isAdmin = isAppAuthAdmin()
   const [creators, setCreators] = useState([])
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState(null)
@@ -887,7 +890,7 @@ function App() {
                 </div>
               </div>
               <div className="flex items-center gap-2 overflow-x-auto docs-scrollbar">
-                {DESKTOP_PRIMARY_TABS.filter(tab => !tab.adminOnly || !ownerLocked).map(tab => (
+                {DESKTOP_PRIMARY_TABS.filter(tab => !tab.adminOnly || isAdmin).map(tab => (
                   <button
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key)}
@@ -1328,6 +1331,8 @@ function App() {
                       </div>
                     ) : activeTab === 'accounts' ? (
                       <AccountsPanel />
+                    ) : activeTab === 'users' ? (
+                      <UsersPanel />
                     ) : (
                       <SFTDashboard compact />
                     )}

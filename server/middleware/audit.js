@@ -100,13 +100,24 @@ async function writeAudit(action, tableName, recordId, beforeValue, afterValue, 
         const normalizedRecordId = supportsStrings
             ? (sanitizedRecordId === null || sanitizedRecordId === undefined ? null : String(sanitizedRecordId))
             : normalizeNumericRecordId(sanitizedRecordId);
+        const auth = req?.auth || {};
+        const operatorDisplay = auth.owner || auth.username || 'system';
         await db2.prepare(`
-            INSERT INTO audit_log (action, table_name, record_id, before_value, after_value, ip_address, user_agent)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO audit_log (
+                action, table_name, record_id,
+                operator, user_id, user_role, auth_source, token_principal,
+                before_value, after_value, ip_address, user_agent
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             action,
             tableName,
             normalizedRecordId,
+            operatorDisplay,
+            auth.user_id || null,
+            auth.role || null,
+            auth.source || null,
+            auth.token_principal || null,
             beforeValue ? JSON.stringify(sanitizeAuditValue(beforeValue)) : null,
             afterValue ? JSON.stringify(sanitizeAuditValue(afterValue)) : null,
             req.ip || req.connection?.remoteAddress || null,

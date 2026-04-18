@@ -129,7 +129,8 @@ test('audit-log response redacts record_id and nested sensitive payload fields',
   }
 
   await withDbStub(stubDb, async () => {
-    await getAuditLog({ query: {}, auth: { role: 'admin' } }, res)
+    // DB-backed admin 才能查管理全量视图
+    await getAuditLog({ query: {}, auth: { role: 'admin', source: 'db', user_id: 1 } }, res)
   })
 
   assert.equal(res.statusCode, 200)

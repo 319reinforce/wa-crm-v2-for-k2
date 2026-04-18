@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const { writeAudit } = require('../middleware/audit');
+const { requireHumanAdmin } = require('../middleware/appAuth');
 
 // GET /api/policy-documents
 router.get('/policy-documents', async (req, res) => {
@@ -33,8 +34,8 @@ router.get('/policy-documents', async (req, res) => {
     }
 });
 
-// POST /api/policy-documents
-router.post('/policy-documents', async (req, res) => {
+// POST /api/policy-documents — 仅 DB-backed admin 可写
+router.post('/policy-documents', requireHumanAdmin, async (req, res) => {
     try {
         const { policy_key, policy_version, policy_content, applicable_scenarios, is_active = 1 } = req.body;
         if (!policy_key || !policy_version || !policy_content) {

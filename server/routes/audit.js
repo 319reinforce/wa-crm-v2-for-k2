@@ -379,12 +379,17 @@ async function fetchRetrievalSnapshotDetail(id) {
 }
 
 // GET /api/audit-log
+// admin(source=db) 看全部;operator 只看自己 user_id 的记录(同 owner 多 operator 不互串)
+// env admin token 视为管理视图但禁止跨用户追溯:403(避免运维 token 被滥用)
 router.get('/audit-log', async (req, res) => {
     try {
-        const lockedOwner = getLockedOwner(req);
-        if (lockedOwner) {
-            return sendOwnerScopeForbidden(res, lockedOwner);
+        const auth = req.auth || {};
+        const isDbAdmin = auth.source === 'db' && auth.role === 'admin';
+        const isDbOperator = auth.source === 'db' && auth.role === 'operator';
+        if (!isDbAdmin && !isDbOperator) {
+            return res.status(403).json({ ok: false, error: 'Forbidden: DB-backed user required' });
         }
+
         const db2 = db.getDb();
         const { action } = req.query;
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 1000);
@@ -394,6 +399,10 @@ router.get('/audit-log', async (req, res) => {
         if (action) {
             sql += ' AND action = ?';
             params.push(action);
+        }
+        if (isDbOperator) {
+            sql += ' AND user_id = ?';
+            params.push(auth.user_id);
         }
         sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
         params.push(limit, offset);

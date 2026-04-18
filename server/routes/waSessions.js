@@ -19,16 +19,37 @@ const router = express.Router();
 const sessionRepository = require('../services/sessionRepository');
 const { getRegistry } = require('../services/sessionRegistry');
 const { getLockedOwner } = require('../middleware/appAuth');
+const { normalizeOperatorName } = require('../utils/operator');
 
-function requireAdmin(req, res, next) {
-    // owner-scoped token 不能管理账号
-    if (getLockedOwner(req)) {
-        return res.status(403).json({
-            ok: false,
-            error: 'Account management requires admin token (not owner-scoped)',
-        });
+// 返回"当前用户能看到的 owner 范围":
+//   - admin / service → null (代表不限)
+//   - operator(DB) or env owner-scoped → 锁定的 owner 名
+function getEffectiveOwnerScope(req) {
+    const a = req?.auth;
+    if (!a) return 'UNAUTHORIZED';
+    if (a.source === 'db' && a.role === 'admin') return null;
+    if (a.source === 'env' && a.role === 'service') return null;
+    if (a.source === 'env' && a.role === 'admin') return null;
+    const locked = normalizeOperatorName(a.owner, null) || getLockedOwner(req);
+    if (locked) return locked;
+    return 'UNAUTHORIZED';
+}
+
+// 对写操作校验 session 归属(target owner 必须在 scope 内);scope=null 即 admin 通行
+function ensureSessionInScope(req, res, sessionRow) {
+    const scope = getEffectiveOwnerScope(req);
+    if (scope === 'UNAUTHORIZED') {
+        res.status(403).json({ ok: false, error: 'Forbidden' });
+        return false;
     }
-    return next();
+    if (scope === null) return true;
+    const sessionOwner = normalizeOperatorName(sessionRow?.owner, null);
+    if (sessionOwner && sessionOwner === scope) return true;
+    res.status(403).json({
+        ok: false,
+        error: `Forbidden: session owner ${sessionRow?.owner || '?'} not in your scope (${scope})`,
+    });
+    return false;
 }
 
 function sanitizeSessionId(raw) {
@@ -72,11 +93,17 @@ function formatSession(row, agentState = null) {
 }
 
 // GET /api/wa/sessions
-router.get('/', requireAdmin, async (req, res) => {
+router.get('/', async (req, res) => {
     try {
+        const scope = getEffectiveOwnerScope(req);
+        if (scope === 'UNAUTHORIZED') return res.status(403).json({ ok: false, error: 'Forbidden' });
+
         const sessions = await sessionRepository.listSessions();
+        const visible = scope === null
+            ? sessions
+            : sessions.filter((row) => normalizeOperatorName(row.owner, null) === scope);
         const registry = getRegistry();
-        const payload = sessions.map((row) => {
+        const payload = visible.map((row) => {
             const agentState = registry?.getAgentState(row.session_id) || null;
             return formatSession(row, agentState);
         });
@@ -96,13 +123,27 @@ router.get('/', requireAdmin, async (req, res) => {
 });
 
 // POST /api/wa/sessions
-router.post('/', requireAdmin, async (req, res) => {
+router.post('/', async (req, res) => {
     try {
+        const scope = getEffectiveOwnerScope(req);
+        if (scope === 'UNAUTHORIZED') return res.status(403).json({ ok: false, error: 'Forbidden' });
+
         const { session_id, owner, aliases = [] } = req.body || {};
         const cleanId = sanitizeSessionId(session_id);
         const cleanOwner = String(owner || '').trim();
         if (!cleanId) return res.status(400).json({ ok: false, error: 'session_id required' });
         if (!cleanOwner) return res.status(400).json({ ok: false, error: 'owner required' });
+
+        // operator 只能建自己 owner 的 session
+        if (scope !== null) {
+            const normalizedCleanOwner = normalizeOperatorName(cleanOwner, null);
+            if (normalizedCleanOwner !== scope) {
+                return res.status(403).json({
+                    ok: false,
+                    error: `Forbidden: cannot create session for owner ${cleanOwner} (your scope: ${scope})`,
+                });
+            }
+        }
         const cleanAliases = Array.isArray(aliases)
             ? aliases.map((a) => String(a).trim().toLowerCase()).filter(Boolean)
             : [];
@@ -145,13 +186,14 @@ router.post('/', requireAdmin, async (req, res) => {
 });
 
 // DELETE /api/wa/sessions/:id
-router.delete('/:id', requireAdmin, async (req, res) => {
+router.delete('/:id', async (req, res) => {
     try {
         const sessionId = sanitizeSessionId(req.params.id);
         if (!sessionId) return res.status(400).json({ ok: false, error: 'invalid session id' });
 
         const existing = await sessionRepository.getSessionBySessionId(sessionId);
         if (!existing) return res.status(404).json({ ok: false, error: 'session not found' });
+        if (!ensureSessionInScope(req, res, existing)) return;
 
         const registry = getRegistry();
         if (registry?.isEnabled()) {
@@ -187,13 +229,14 @@ router.delete('/:id', requireAdmin, async (req, res) => {
 });
 
 // POST /api/wa/sessions/:id/restart
-router.post('/:id/restart', requireAdmin, async (req, res) => {
+router.post('/:id/restart', async (req, res) => {
     try {
         const sessionId = sanitizeSessionId(req.params.id);
         if (!sessionId) return res.status(400).json({ ok: false, error: 'invalid session id' });
 
         const existing = await sessionRepository.getSessionBySessionId(sessionId);
         if (!existing) return res.status(404).json({ ok: false, error: 'session not found' });
+        if (!ensureSessionInScope(req, res, existing)) return;
 
         const registry = getRegistry();
         if (!registry?.isEnabled()) {
@@ -211,7 +254,7 @@ router.post('/:id/restart', requireAdmin, async (req, res) => {
 });
 
 // POST /api/wa/sessions/:id/desired-state
-router.post('/:id/desired-state', requireAdmin, async (req, res) => {
+router.post('/:id/desired-state', async (req, res) => {
     try {
         const sessionId = sanitizeSessionId(req.params.id);
         const { state } = req.body || {};
@@ -222,6 +265,7 @@ router.post('/:id/desired-state', requireAdmin, async (req, res) => {
 
         const existing = await sessionRepository.getSessionBySessionId(sessionId);
         if (!existing) return res.status(404).json({ ok: false, error: 'session not found' });
+        if (!ensureSessionInScope(req, res, existing)) return;
 
         await sessionRepository.setDesiredState(sessionId, state, req.auth?.username || 'admin');
         // reconciler 会在下一次 tick 自动对齐,但也可以主动触发 stop/spawn 加快响应
@@ -242,13 +286,14 @@ router.post('/:id/desired-state', requireAdmin, async (req, res) => {
 });
 
 // GET /api/wa/sessions/:id/qr
-router.get('/:id/qr', requireAdmin, async (req, res) => {
+router.get('/:id/qr', async (req, res) => {
     try {
         const sessionId = sanitizeSessionId(req.params.id);
         if (!sessionId) return res.status(400).json({ ok: false, error: 'invalid session id' });
 
         const existing = await sessionRepository.getSessionBySessionId(sessionId);
         if (!existing) return res.status(404).json({ ok: false, error: 'session not found' });
+        if (!ensureSessionInScope(req, res, existing)) return;
 
         const registry = getRegistry();
         const agentState = registry?.getAgentState(sessionId);

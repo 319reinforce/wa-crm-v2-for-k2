@@ -161,10 +161,23 @@ test('training trigger helper rejects owner-scoped tokens', () => {
   assert.equal(res.statusCode, 403)
 })
 
-test('training trigger helper allows service/admin tokens', () => {
-  const serviceReq = { auth: { role: 'service' } }
-  const adminReq = { auth: { role: 'admin' } }
+test('training trigger helper allows env service and DB admin tokens', () => {
+  // env service token(如 INTERNAL_SERVICE_TOKEN / TRAINING_TRIGGER_TOKEN)走自动化
+  const serviceReq = { auth: { role: 'service', source: 'env' } }
+  // DB admin 人类账号
+  const dbAdminReq = { auth: { role: 'admin', source: 'db' } }
 
   assert.equal(trainingRouter._private.ensureTrainingTriggerAccess(serviceReq, createRes()), true)
-  assert.equal(trainingRouter._private.ensureTrainingTriggerAccess(adminReq, createRes()), true)
+  assert.equal(trainingRouter._private.ensureTrainingTriggerAccess(dbAdminReq, createRes()), true)
+})
+
+test('training trigger helper rejects env admin tokens (force human admin)', () => {
+  // env admin token(API_AUTH_TOKEN 等)不能再触发训练,避免运维 token 被滥用
+  const envAdminReq = { auth: { role: 'admin', source: 'env' } }
+  const res = createRes()
+
+  const allowed = trainingRouter._private.ensureTrainingTriggerAccess(envAdminReq, res)
+
+  assert.equal(allowed, false)
+  assert.equal(res.statusCode, 403)
 })

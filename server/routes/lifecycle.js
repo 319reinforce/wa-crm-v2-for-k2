@@ -15,6 +15,7 @@ const {
 const {
     getLifecycleDashboard,
 } = require('../services/lifecycleDashboardService');
+const { requireHumanAdmin } = require('../middleware/appAuth');
 
 router.get('/lifecycle-config', async (req, res) => {
     try {
@@ -29,7 +30,7 @@ router.get('/lifecycle-config', async (req, res) => {
     }
 });
 
-router.put('/lifecycle-config', async (req, res) => {
+router.put('/lifecycle-config', requireHumanAdmin, async (req, res) => {
     try {
         const db2 = db.getDb();
         const fallback = buildDefaultPayload();
@@ -90,7 +91,7 @@ router.put('/lifecycle-config', async (req, res) => {
     }
 });
 
-router.post('/lifecycle/rebuild', async (req, res) => {
+router.post('/lifecycle/rebuild', requireHumanAdmin, async (req, res) => {
     try {
         const db2 = db.getDb();
         const creatorIds = Array.isArray(req.body?.creator_ids) ? req.body.creator_ids : [];
