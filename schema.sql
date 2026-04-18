@@ -62,6 +62,7 @@ CREATE INDEX idx_messages_creator ON wa_messages(creator_id);
 CREATE INDEX idx_messages_timestamp ON wa_messages(timestamp);
 CREATE UNIQUE INDEX idx_messages_dedup_hash ON wa_messages(creator_id, message_hash);
 CREATE INDEX idx_messages_creator_timestamp ON wa_messages(creator_id, timestamp DESC);
+CREATE INDEX idx_messages_creator_role_ts ON wa_messages(creator_id, role, timestamp);
 
 -- ============================================================
 -- WA CRM 扩展数据

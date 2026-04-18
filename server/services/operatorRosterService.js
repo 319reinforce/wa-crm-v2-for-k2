@@ -3,6 +3,14 @@ const { normalizeOperatorName } = require('../utils/operator');
 const sessionRepository = require('./sessionRepository');
 
 const TABLE = 'operator_creator_roster';
+const ROSTER_FLAG_TTL_MS = 5000;
+const SESSION_BY_OPERATOR = {
+    Beau: 'beau',
+    Yiyun: 'yiyun',
+    Jiawen: 'jiawen',
+    WangYouKe: 'youke',
+};
+let _rosterFlagCache = { v: null, ts: 0 };
 
 // 从 wa_sessions 表(in-memory 缓存)查 operator → session_id;
 // 缓存未 warm 时回退到小写 operator
@@ -24,8 +32,17 @@ async function safeGet(sql, ...params) {
 }
 
 async function hasRosterAssignments() {
+    const now = Date.now();
+    if (_rosterFlagCache.v !== null && now - _rosterFlagCache.ts < ROSTER_FLAG_TTL_MS) {
+        return _rosterFlagCache.v;
+    }
     const row = await safeGet(`SELECT COUNT(*) AS c FROM ${TABLE} WHERE is_primary = 1`);
-    return Number(row?.c || 0) > 0;
+    _rosterFlagCache = { v: Number(row?.c || 0) > 0, ts: now };
+    return _rosterFlagCache.v;
+}
+
+function _invalidateRosterFlagCache() {
+    _rosterFlagCache = { v: null, ts: 0 };
 }
 
 async function getAssignmentByCreatorId(creatorId) {
@@ -90,6 +107,7 @@ module.exports = {
     TABLE,
     getSessionIdForOperator,
     hasRosterAssignments,
+    _invalidateRosterFlagCache,
     getAssignmentByCreatorId,
     getPrimaryAssignmentsByOperator,
     applyAssignmentToCreator,

@@ -280,6 +280,11 @@ async function fetchCreatorsForBatchNextAction(dbConn, creatorIds) {
             c.is_active,
             c.created_at,
             c.updated_at,
+            COUNT(wm.id) AS msg_count,
+            MAX(CASE WHEN wm.role = 'user' THEN wm.timestamp END) AS last_user_ts,
+            MIN(CASE WHEN wm.role = 'user' THEN wm.timestamp END) AS first_user_ts,
+            SUM(CASE WHEN wm.role = 'user' THEN 1 ELSE 0 END) AS user_message_count,
+            SUM(CASE WHEN wm.role = 'user' AND wm.text IS NOT NULL AND TRIM(wm.text) <> '' THEN 1 ELSE 0 END) AS nonblank_user_message_count,
             k.keeper_gmv,
             k.keeper_gmv30,
             k.keeper_orders,
@@ -307,11 +312,26 @@ async function fetchCreatorsForBatchNextAction(dbConn, creatorIds) {
             j.ev_agency_bound,
             j.ev_churned
         FROM creators c
+        LEFT JOIN wa_messages wm ON wm.creator_id = c.id
         LEFT JOIN keeper_link k ON k.creator_id = c.id
         LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
         LEFT JOIN joinbrands_link j ON j.creator_id = c.id
         WHERE c.id IN (${placeholders})
+        GROUP BY c.id
     `).all(...normalizedIds);
+}
+
+async function fetchCreatorMessageAggregate(dbConn, creatorId) {
+    return await dbConn.prepare(`
+        SELECT
+            COUNT(id) AS msg_count,
+            MAX(CASE WHEN role = 'user' THEN timestamp END) AS last_user_ts,
+            MIN(CASE WHEN role = 'user' THEN timestamp END) AS first_user_ts,
+            SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) AS user_message_count,
+            SUM(CASE WHEN role = 'user' AND text IS NOT NULL AND TRIM(text) <> '' THEN 1 ELSE 0 END) AS nonblank_user_message_count
+        FROM wa_messages
+        WHERE creator_id = ?
+    `).get(creatorId);
 }
 
 async function buildCurrentLifecycleForCreator(dbConn, creatorId) {
@@ -427,6 +447,18 @@ async function listLifecycleHistoryForCreator(dbConn, creatorId, limit = 30) {
 
 // GET /api/creators — 获取所有达人
 router.get('/', async (req, res) => {
+    const __perfEnabled = process.env.CREATORS_PERF_LOG === '1';
+    const __perfMark = (label) => {
+        if (!__perfEnabled) return null;
+        return { label, start: process.hrtime.bigint() };
+    };
+    const __perfEnd = (mark) => {
+        if (!mark) return;
+        const elapsedMs = Number(process.hrtime.bigint() - mark.start) / 1e6;
+        console.log(`[creators:perf] ${mark.label}=${elapsedMs.toFixed(1)}ms`);
+    };
+    const __perfTotal = __perfMark('total');
+    const useNewSql = process.env.CREATORS_QUERY_V2 !== '0';
     try {
         const { owner, search, is_active, include_inactive, beta_status, priority, agency, event, lifecycle_stage, referral_active, has_conflict, monthly_fee_status } = req.query;
         const lockedOwner = getLockedOwner(req);
@@ -439,6 +471,7 @@ router.get('/', async (req, res) => {
         const effectiveOwner = resolveScopedOwner(req, requestedOwner, null);
         const rosterOnly = req.query.roster === 'all' ? false : await hasRosterAssignments();
         const dbConn = db.getDb();
+        const runtimeOptionsPromise = getLifecycleRuntimeOptions(dbConn);
 
         let sql = `
             SELECT
@@ -455,6 +488,11 @@ router.get('/', async (req, res) => {
                 c.updated_at,
                 COUNT(wm.id) as msg_count,
                 MAX(wm.timestamp) as last_active,
+                MAX(CASE WHEN wm.role = 'user' THEN wm.timestamp END) AS last_user_ts,
+                MAX(CASE WHEN wm.role = 'me' THEN wm.timestamp END) AS last_me_ts,
+                MIN(CASE WHEN wm.role = 'user' THEN wm.timestamp END) AS first_user_ts,
+                SUM(CASE WHEN wm.role = 'user' THEN 1 ELSE 0 END) AS user_message_count,
+                SUM(CASE WHEN wm.role = 'user' AND wm.text IS NOT NULL AND TRIM(wm.text) <> '' THEN 1 ELSE 0 END) AS nonblank_user_message_count,
                 k.keeper_gmv,
                 k.keeper_gmv30,
                 k.keeper_orders,
@@ -481,14 +519,22 @@ router.get('/', async (req, res) => {
                 j.ev_gmv_10k,
                 j.ev_agency_bound,
                 j.ev_churned,
-                (
-                    SELECT CASE
-                        WHEN MAX(CASE WHEN role='user' THEN timestamp END) IS NULL THEN 1
-                        WHEN MAX(CASE WHEN role='me' THEN timestamp END) >= MAX(CASE WHEN role='user' THEN timestamp END) THEN 1
-                        ELSE 0
-                    END
-                    FROM wa_messages WHERE creator_id = c.id
-                ) AS ev_replied,
+                ${useNewSql
+        ? `CASE
+                    WHEN MAX(CASE WHEN wm.role = 'user' THEN wm.timestamp END) IS NULL THEN 1
+                    WHEN MAX(CASE WHEN wm.role = 'me' THEN wm.timestamp END) >= MAX(CASE WHEN wm.role = 'user' THEN wm.timestamp END) THEN 1
+                    ELSE 0
+                END`
+        : `(
+                    SELECT
+                        CASE
+                            WHEN MAX(CASE WHEN role = 'user' THEN timestamp END) IS NULL THEN 1
+                            WHEN MAX(CASE WHEN role = 'me' THEN timestamp END) >= MAX(CASE WHEN role = 'user' THEN timestamp END) THEN 1
+                            ELSE 0
+                        END
+                    FROM wa_messages
+                    WHERE creator_id = c.id
+                )`} AS ev_replied,
                 j.days_since_msg
             FROM creators c
             ${rosterOnly ? `INNER JOIN ${ROSTER_TABLE} ocr ON ocr.creator_id = c.id AND ocr.is_primary = 1` : ''}
@@ -502,9 +548,9 @@ router.get('/', async (req, res) => {
 
         if (effectiveOwner) {
             if (rosterOnly) {
-                sql += ' AND LOWER(ocr.operator) = LOWER(?)';
+                sql += ' AND ocr.operator = ?';
             } else {
-                sql += ' AND LOWER(c.wa_owner) = LOWER(?)';
+                sql += ' AND c.wa_owner = ?';
             }
             params.push(effectiveOwner);
         }
@@ -521,6 +567,10 @@ router.get('/', async (req, res) => {
             sql += ' AND wc.priority = ?';
             params.push(priority);
         }
+        if (monthly_fee_status) {
+            sql += ' AND wc.monthly_fee_status = ?';
+            params.push(monthly_fee_status);
+        }
         if (agency === 'yes') {
             sql += ' AND wc.agency_bound = 1';
         } else if (agency === 'no') {
@@ -535,25 +585,57 @@ router.get('/', async (req, res) => {
         if (event) {
             const VALID_EVENTS = ['joined','ready_sent','trial_7day','monthly_invited','monthly_joined','whatsapp_shared','gmv_1k','gmv_2k','gmv_5k','gmv_10k','agency_bound','churned'];
             if (event === 'replied') {
-                sql += ` AND EXISTS (SELECT 1 FROM wa_messages WHERE creator_id = c.id AND role = 'me' AND timestamp >= (SELECT MAX(timestamp) FROM wa_messages WHERE creator_id = c.id AND role = 'user'))`;
+                if (!useNewSql) {
+                    sql += `
+                        AND EXISTS (
+                            SELECT 1
+                            FROM wa_messages wm_reply
+                            WHERE wm_reply.creator_id = c.id
+                              AND wm_reply.role = 'me'
+                              AND wm_reply.timestamp >= (
+                                SELECT MAX(wm_user.timestamp)
+                                FROM wa_messages wm_user
+                                WHERE wm_user.creator_id = c.id
+                                  AND wm_user.role = 'user'
+                              )
+                        )
+                    `;
+                }
             } else if (VALID_EVENTS.includes(event)) {
                 sql += ` AND j.ev_${event} = 1`;
             }
         }
 
         sql += rosterOnly
-            ? ' GROUP BY c.id, ocr.operator, ocr.session_id ORDER BY last_active DESC, msg_count DESC, c.id DESC'
-            : ' GROUP BY c.id ORDER BY last_active DESC, msg_count DESC, c.id DESC';
+            ? ' GROUP BY c.id, ocr.operator, ocr.session_id'
+            : ' GROUP BY c.id';
+        if (useNewSql && event === 'replied') {
+            sql += ' HAVING last_user_ts IS NOT NULL AND last_me_ts IS NOT NULL AND last_me_ts >= last_user_ts';
+        }
+        sql += ' ORDER BY last_active DESC, msg_count DESC, c.id DESC';
 
+        const __perfSql = __perfMark('sql');
         const creators = await dbConn.prepare(sql).all(...params);
+        __perfEnd(__perfSql);
         const creatorIds = creators.map((item) => item.id);
+        const __perfFacts = __perfMark('messageFacts');
         const [eventsMap, lifecycleOptions, messageFactsMap] = await Promise.all([
             getLifecycleEventsMap(dbConn, creatorIds, { includeMeta: false }),
-            getLifecycleRuntimeOptions(dbConn),
+            runtimeOptionsPromise,
             fetchCreatorMessageFactsMap(dbConn, creators),
         ]);
+        __perfEnd(__perfFacts);
 
-        const mapped = creators.map((item) => {
+        const __perfPost = __perfMark('postprocess');
+        const mapped = creators.map((rawItem) => {
+            const {
+                last_user_ts,
+                last_me_ts,
+                first_user_ts,
+                user_message_count,
+                nonblank_user_message_count,
+                ...item
+            } = rawItem;
             const normalized = {
                 ...item,
                 wa_phone: includeWaPhone ? item.wa_phone : undefined,
@@ -570,11 +652,12 @@ router.get('/', async (req, res) => {
             if (referral_active === '0' && item.lifecycle?.flags?.referral_active) return false;
             if (has_conflict === '1' && !(item.lifecycle?.has_conflicts)) return false;
             if (has_conflict === '0' && item.lifecycle?.has_conflicts) return false;
-            if (monthly_fee_status && item.monthly_fee_status !== monthly_fee_status) return false;
             return true;
         });
+        __perfEnd(__perfPost);
 
         res.json(mapped);
+        __perfEnd(__perfTotal);
     } catch (err) {
         console.error('Error fetching creators:', err);
         res.status(500).json({ error: err.message });
@@ -835,12 +918,16 @@ router.get('/:id', async (req, res) => {
         if (lockedOwner && !matchesOwnerScope(req, creator.wa_owner)) {
             return sendOwnerScopeForbidden(res, lockedOwner);
         }
-        const [assignment, eventsMap, lifecycleOptions, messageFactsMap] = await Promise.all([
+        const [assignment, eventsMap, lifecycleOptions, messageAggregate] = await Promise.all([
             getAssignmentByCreatorId(creator.id),
             getLifecycleEventsMap(dbConn, [creator.id]),
             getLifecycleRuntimeOptions(dbConn),
-            fetchCreatorMessageFactsMap(dbConn, [creator]),
+            fetchCreatorMessageAggregate(dbConn, creator.id),
         ]);
+        const messageFactsMap = await fetchCreatorMessageFactsMap(dbConn, [{
+            ...creator,
+            ...messageAggregate,
+        }]);
         const withAssignment = applyAssignmentToCreator(creator, assignment);
         const detail = attachLifecycle({
             ...withAssignment,

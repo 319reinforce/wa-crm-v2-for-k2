@@ -141,6 +141,7 @@ function App() {
   const [manualForm, setManualForm] = useState({ name: '', phone: '', owner: lockedOwner || 'Yiyun' })
   const [manualCheckLoading, setManualCheckLoading] = useState(false)
   const [manualCheck, setManualCheck] = useState(null)
+  const creatorsCacheRef = useRef(new Map())
 
   // 轮询 WhatsApp 状态和二维码
   useEffect(() => {
@@ -228,16 +229,26 @@ function App() {
     }
   }, [dragging])
 
-  // 计算未读：基于 ev_replied 字段（0=未回复显示红点，1=已回复消除红点）
-  // 切换 owner 只重拉 creators,stats 和 owner 无关,走独立 useEffect 拉
-  const loadData = useCallback(async () => {
-    setLoading(true)
+  const loadData = useCallback(async (signal) => {
+    const cached = creatorsCacheRef.current.get(filterOwner)
+    const isFresh = cached && (Date.now() - cached.ts < 15000)
+
+    if (isFresh) {
+      setCreators(cached.data)
+      setUnreadCounts(cached.unread)
+    } else {
+      setLoading(true)
+    }
+
     try {
       const params = new URLSearchParams()
       if (filterOwner) params.set('owner', filterOwner)
       params.set('fields', 'wa_phone')
 
-      const creatorsData = await fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`)
+      const [creatorsData, statsData] = await Promise.all([
+        fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`, { signal }),
+        fetchJsonOrThrow(`${API_BASE}/stats`, { signal }),
+      ])
       const enriched = creatorsData.map(c => buildCreatorViewModel(buildCreatorListFull(c), c))
 
       // 计算未读
@@ -245,39 +256,26 @@ function App() {
       for (const c of enriched) {
         newUnread[c.id] = shouldShowUnread(c) ? 1 : 0
       }
-      setUnreadCounts(newUnread)
 
       enriched.sort((a, b) => getCreatorLastConversationTs(b) - getCreatorLastConversationTs(a))
+      creatorsCacheRef.current.set(filterOwner, { data: enriched, unread: newUnread, ts: Date.now() })
       setCreators(enriched)
+      setUnreadCounts(newUnread)
+      setStats(statsData)
     } catch (e) {
+      if (e.name === 'AbortError') return
       console.error('[WACRM] 加载失败:', e)
     } finally {
-      setLoading(false)
+      if (!signal?.aborted) setLoading(false)
     }
   }, [filterOwner])
 
-  // stats 独立拉:和 owner filter 解耦,切 owner 时不重新请求
-  const loadStats = useCallback(async () => {
-    try {
-      const statsData = await fetchJsonOrThrow(`${API_BASE}/stats`)
-      setStats(statsData)
-    } catch (e) {
-      console.error('[WACRM] stats 加载失败:', e)
-    }
-  }, [])
-
-  useEffect(() => {
-    loadStats()
-    const id = setInterval(loadStats, 30000)
-    return () => clearInterval(id)
-  }, [loadStats])
-
-  const loadGroupChats = useCallback(async () => {
+  const loadGroupChats = useCallback(async (signal) => {
     setGroupsLoading(true)
     try {
       const params = new URLSearchParams()
       if (filterOwner) params.set('operator', filterOwner)
-      const data = await fetchJsonOrThrow(`${API_BASE}/wa/groups?${params.toString()}`)
+      const data = await fetchJsonOrThrow(`${API_BASE}/wa/groups?${params.toString()}`, { signal })
       const groups = Array.isArray(data?.groups) ? data.groups : []
       setGroupChats(groups)
       setSelectedGroupChat(prev => {
@@ -285,9 +283,10 @@ function App() {
         return groups.find(group => group.id === prev.id) || null
       })
     } catch (e) {
+      if (e.name === 'AbortError') return
       console.error('[WA Groups] 加载失败:', e)
     } finally {
-      setGroupsLoading(false)
+      if (!signal?.aborted) setGroupsLoading(false)
     }
   }, [filterOwner])
 
@@ -296,16 +295,25 @@ function App() {
   useEffect(() => { loadDataRef.current = loadData }, [loadData])
 
   useEffect(() => {
-    loadData()
-    const interval = setInterval(loadData, 15000)
-    return () => clearInterval(interval)
+    const ctrl = new AbortController()
+    loadData(ctrl.signal)
+    const interval = setInterval(() => loadData(ctrl.signal), 15000)
+    return () => {
+      clearInterval(interval)
+      ctrl.abort()
+    }
   }, [loadData])
 
   useEffect(() => {
-    loadGroupChats()
-    const interval = setInterval(loadGroupChats, 20000)
-    return () => clearInterval(interval)
-  }, [loadGroupChats])
+    if (conversationScope !== 'groups') return
+    const ctrl = new AbortController()
+    loadGroupChats(ctrl.signal)
+    const interval = setInterval(() => loadGroupChats(ctrl.signal), 20000)
+    return () => {
+      clearInterval(interval)
+      ctrl.abort()
+    }
+  }, [loadGroupChats, conversationScope])
 
   useEffect(() => {
     if (ownerLocked && filterOwner !== lockedOwner) {
@@ -1061,6 +1069,9 @@ function App() {
               )}
 
               <div className="flex-1 overflow-y-auto docs-scrollbar" style={{ background: WA.shellPanel }}>
+                {loading && creators.length > 0 ? (
+                  <div style={{ position: 'sticky', top: 0, height: 2, background: WA.teal, opacity: 0.6, zIndex: 10 }} />
+                ) : null}
                 {loading && creators.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
                     <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: WA.teal, borderTopColor: 'transparent' }} />
