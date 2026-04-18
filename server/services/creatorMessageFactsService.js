@@ -26,6 +26,29 @@ function isOperatorSelfRecord(source = {}) {
     return !!(primaryName && owner && primaryName === owner && INTERNAL_OPERATOR_NAMES.has(owner));
 }
 
+function pickMessageAggregate(source = {}) {
+    return {
+        msg_count: source.msg_count,
+        user_message_count: source.user_message_count,
+        nonblank_user_message_count: source.nonblank_user_message_count,
+        first_user_message_at: source.first_user_message_at ?? source.first_user_ts ?? null,
+        last_user_message_at: source.last_user_message_at ?? source.last_user_ts ?? null,
+    };
+}
+
+function hasMessageAggregate(source = {}) {
+    return (
+        source
+        && typeof source === 'object'
+        && Object.prototype.hasOwnProperty.call(source, 'msg_count')
+        && (
+            Object.prototype.hasOwnProperty.call(source, 'user_message_count')
+            || Object.prototype.hasOwnProperty.call(source, 'last_user_ts')
+            || Object.prototype.hasOwnProperty.call(source, 'last_user_message_at')
+        )
+    );
+}
+
 function buildMessageFacts(source = {}, aggregate = {}, firstRaw = null, firstNonBlank = null) {
     const msgCount = Number(aggregate.msg_count || 0);
     const userMessageCount = Number(aggregate.user_message_count || 0);
@@ -63,56 +86,34 @@ async function fetchCreatorMessageFactsMap(dbConn, creators = []) {
     if (creatorIds.length === 0) return new Map();
 
     const placeholders = creatorIds.map(() => '?').join(', ');
-    const [aggregates, firstRawRows, firstNonBlankRows] = await Promise.all([
+    const [firstRawRows, firstNonBlankRows] = await Promise.all([
         dbConn.prepare(`
-            SELECT
-                creator_id,
-                COUNT(*) AS msg_count,
-                SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) AS user_message_count,
-                SUM(CASE WHEN role = 'user' AND text IS NOT NULL AND TRIM(text) <> '' THEN 1 ELSE 0 END) AS nonblank_user_message_count,
-                MIN(CASE WHEN role = 'user' THEN timestamp END) AS first_user_message_at,
-                MAX(CASE WHEN role = 'user' THEN timestamp END) AS last_user_message_at
-            FROM wa_messages
-            WHERE creator_id IN (${placeholders})
-            GROUP BY creator_id
-        `).all(...creatorIds),
-        dbConn.prepare(`
-            WITH ranked_raw AS (
-                SELECT
-                    creator_id,
-                    role,
-                    text,
-                    timestamp,
-                    id,
-                    ROW_NUMBER() OVER (PARTITION BY creator_id ORDER BY COALESCE(timestamp, 0), id) AS rn
+            SELECT creator_id, role, text, timestamp, id
+            FROM (
+                SELECT creator_id, role, text, timestamp, id,
+                    ROW_NUMBER() OVER (PARTITION BY creator_id ORDER BY timestamp, id) AS rn
                 FROM wa_messages
                 WHERE creator_id IN (${placeholders})
-            )
-            SELECT creator_id, role, text, timestamp, id
-            FROM ranked_raw
+            ) ranked
             WHERE rn = 1
         `).all(...creatorIds),
         dbConn.prepare(`
-            WITH ranked_nonblank AS (
-                SELECT
-                    creator_id,
-                    role,
-                    text,
-                    timestamp,
-                    id,
-                    ROW_NUMBER() OVER (PARTITION BY creator_id ORDER BY COALESCE(timestamp, 0), id) AS rn
+            SELECT creator_id, role, text, timestamp, id
+            FROM (
+                SELECT creator_id, role, text, timestamp, id,
+                    ROW_NUMBER() OVER (PARTITION BY creator_id ORDER BY timestamp, id) AS rn
                 FROM wa_messages
                 WHERE creator_id IN (${placeholders})
-                  AND text IS NOT NULL
-                  AND TRIM(text) <> ''
-            )
-            SELECT creator_id, role, text, timestamp, id
-            FROM ranked_nonblank
+                  AND text IS NOT NULL AND text <> ''
+            ) ranked
             WHERE rn = 1
         `).all(...creatorIds),
     ]);
 
-    const aggregateById = new Map(aggregates.map((item) => [Number(item.creator_id), item]));
+    const aggregateById = new Map(creatorList.map((item) => {
+        const creatorId = Number(item?.id || item);
+        return [creatorId, pickMessageAggregate(item)];
+    }));
     const firstRawById = new Map(firstRawRows.map((item) => [Number(item.creator_id), item]));
     const firstNonBlankById = new Map(firstNonBlankRows.map((item) => [Number(item.creator_id), item]));
     const creatorById = new Map(creatorList.map((item) => [Number(item?.id || item), item]));
@@ -132,7 +133,25 @@ async function fetchCreatorMessageFactsMap(dbConn, creators = []) {
 }
 
 async function fetchCreatorMessageFacts(dbConn, creator) {
-    const map = await fetchCreatorMessageFactsMap(dbConn, [creator]);
+    const creatorId = Number(creator?.id || creator);
+    let enrichedCreator = creator;
+    if (creatorId > 0 && !hasMessageAggregate(creator)) {
+        const aggregate = await dbConn.prepare(`
+            SELECT
+                COUNT(id) AS msg_count,
+                SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) AS user_message_count,
+                SUM(CASE WHEN role = 'user' AND text IS NOT NULL AND TRIM(text) <> '' THEN 1 ELSE 0 END) AS nonblank_user_message_count,
+                MIN(CASE WHEN role = 'user' THEN timestamp END) AS first_user_ts,
+                MAX(CASE WHEN role = 'user' THEN timestamp END) AS last_user_ts
+            FROM wa_messages
+            WHERE creator_id = ?
+        `).get(creatorId);
+        enrichedCreator = {
+            ...(typeof creator === 'object' && creator ? creator : { id: creatorId }),
+            ...aggregate,
+        };
+    }
+    const map = await fetchCreatorMessageFactsMap(dbConn, [enrichedCreator]);
     return map.get(Number(creator?.id || creator)) || buildMessageFacts(creator || {}, {}, null, null);
 }
 
