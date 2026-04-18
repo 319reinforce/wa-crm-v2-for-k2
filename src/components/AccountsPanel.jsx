@@ -391,6 +391,12 @@ export function AccountsPanel() {
         setSessions(data.sessions || [])
         setSummary(data.summary || null)
         setError(null)
+        // 通知 App.jsx 等其它组件刷新 owner 选项
+        try {
+          window.dispatchEvent(new CustomEvent('wa-session-status-changed', {
+            detail: { owners: (data.sessions || []).map(s => s.owner).filter(Boolean) }
+          }))
+        } catch (_) {}
       }
     } catch (err) {
       setError(err.message || String(err))

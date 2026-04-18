@@ -107,6 +107,7 @@ function App() {
   const [creators, setCreators] = useState([])
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState(null)
+  const [sessionOwners, setSessionOwners] = useState([])
   const [activeTab, setActiveTab] = useState('creators')
   const [viewMode, setViewMode] = useState('list')
   const [filterOwner, setFilterOwner] = useState(lockedOwner || '')
@@ -301,6 +302,32 @@ function App() {
       setFilterOwner(lockedOwner)
     }
   }, [filterOwner, lockedOwner, ownerLocked])
+
+  // 拉 wa_sessions 的 owners 合并到 filter(admin token 才有权限,
+  // owner-locked token 直接跳过)
+  useEffect(() => {
+    if (ownerLocked) return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const data = await fetchJsonOrThrow(`${API_BASE}/wa/sessions`)
+        if (cancelled) return
+        if (data?.ok && Array.isArray(data.sessions)) {
+          const owners = data.sessions.map(s => s.owner).filter(Boolean)
+          setSessionOwners(owners)
+        }
+      } catch (_) { /* 非 admin / 后端未启用,静默跳过 */ }
+    }
+    load()
+    const handler = () => load()
+    window.addEventListener('wa-session-status-changed', handler)
+    const id = setInterval(load, 30000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      window.removeEventListener('wa-session-status-changed', handler)
+    }
+  }, [ownerLocked])
 
   // SSE 实时订阅（populate_db.cjs 写完 MySQL 后会收到广播）
   useEffect(() => {
@@ -575,10 +602,11 @@ function App() {
     return buildOwnerOptions([
       ...Object.keys(stats?.by_owner || {}),
       ...creators.map(c => c.wa_owner),
+      ...sessionOwners,
       selectedCreator?.wa_owner,
       filterOwner,
     ], { includeAll: true })
-  }, [creators, filterOwner, lockedOwner, ownerLocked, selectedCreator?.wa_owner, stats])
+  }, [creators, filterOwner, lockedOwner, ownerLocked, selectedCreator?.wa_owner, sessionOwners, stats])
 
   const visibleCreatorIds = useMemo(() => filteredCreators.map(c => c.id), [filteredCreators])
   const selectedVisibleCreatorIds = useMemo(
@@ -782,10 +810,11 @@ function App() {
               <button
                 onClick={() => loadData()}
                 disabled={loading}
-                className="px-3.5 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-50"
-                style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
+                className="px-3.5 py-2 rounded-full text-sm font-medium transition-all disabled:opacity-50 inline-flex items-center justify-center"
+                style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}`, minWidth: 72 }}
               >
-                {loading ? '同步中' : '刷新'}
+                <span style={{ display: 'inline-block', width: 14, textAlign: 'center' }}>{loading ? '⋯' : '↻'}</span>
+                <span style={{ marginLeft: 4 }}>刷新</span>
               </button>
               <button
                 onClick={openManualModal}

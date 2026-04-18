@@ -200,10 +200,13 @@ class SessionRegistry {
             console.error(`[SessionRegistry:${sessionId}] child error:`, err.message);
         });
 
+        // 清空上一轮崩溃残留的 error/exit_* 字段,避免 UI 一直显示旧错误
         await this.repo.setRuntimeState(sessionId, {
             state: 'starting',
             pid: child.pid,
             error: null,
+            exit_code: null,
+            exit_signal: null,
         });
         console.log(`[SessionRegistry] spawned ${sessionId} (pid=${child.pid})`);
         this.emitter.emit('agent-spawned', { sessionId, pid: child.pid });

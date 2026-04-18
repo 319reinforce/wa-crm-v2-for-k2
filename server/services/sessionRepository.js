@@ -161,36 +161,35 @@ async function setDesiredState(sessionId, state, changedBy = null) {
     emitter.emit('desired-state-changed', { session_id: sessionId, state });
 }
 
-async function setRuntimeState(sessionId, {
-    state = null,
-    phase = null,
-    pid = null,
-    heartbeat_at = null,
-    ready_at = null,
-    exit_code = null,
-    exit_signal = null,
-    error = null,
-    account_phone = null,
-    account_pushname = null,
-} = {}) {
+async function setRuntimeState(sessionId, patch = {}) {
     const fields = [];
     const values = [];
-    const setIf = (col, val, transform = (v) => v) => {
-        if (val === null || val === undefined) return;
-        fields.push(`${col} = ?`);
-        values.push(transform(val));
+
+    // 区分 undefined(不提供,跳过)和 null(明确清空)
+    // setIf 仅在字段真正传入(含 null)时参与 UPDATE,否则跳过不改
+    const setIf = (col, key, transform = (v) => v) => {
+        if (!(key in patch)) return;
+        const val = patch[key];
+        if (val === null) {
+            fields.push(`${col} = NULL`);
+        } else {
+            fields.push(`${col} = ?`);
+            values.push(transform(val));
+        }
     };
 
-    setIf('runtime_state', state);
-    setIf('runtime_phase', phase);
-    setIf('runtime_pid', pid);
-    setIf('last_heartbeat_at', heartbeat_at, (v) => v instanceof Date ? v : new Date(v));
-    setIf('last_ready_at', ready_at, (v) => v instanceof Date ? v : new Date(v));
-    setIf('last_exit_code', exit_code);
-    setIf('last_exit_signal', exit_signal);
-    setIf('last_error', error);
-    setIf('account_phone', account_phone);
-    setIf('account_pushname', account_pushname);
+    setIf('runtime_state', 'state');
+    setIf('runtime_phase', 'phase');
+    setIf('runtime_pid', 'pid');
+    setIf('last_heartbeat_at', 'heartbeat_at', (v) => v instanceof Date ? v : new Date(v));
+    setIf('last_ready_at', 'ready_at', (v) => v instanceof Date ? v : new Date(v));
+    setIf('last_exit_code', 'exit_code');
+    setIf('last_exit_signal', 'exit_signal');
+    setIf('last_error', 'error');
+    setIf('account_phone', 'account_phone');
+    setIf('account_pushname', 'account_pushname');
+
+    const { account_phone, account_pushname } = patch;
 
     if (account_phone || account_pushname) {
         fields.push('account_bound_at = COALESCE(account_bound_at, CURRENT_TIMESTAMP)');
