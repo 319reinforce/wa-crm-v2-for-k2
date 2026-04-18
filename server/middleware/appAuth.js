@@ -6,6 +6,7 @@
  */
 const { normalizeOperatorName } = require('../utils/operator');
 const { getInternalServiceTokenEntry } = require('../utils/internalAuth');
+const sessionRepository = require('../services/sessionRepository');
 
 const ADMIN_TOKEN_ENV_KEYS = [
     'API_AUTH_TOKEN',
@@ -19,12 +20,6 @@ const OWNER_SCOPED_TOKEN_CONFIGS = [
     { key: 'JIAWEN_ACCESS_TOKEN', owner: 'Jiawen' },
 ];
 
-const SESSION_BY_OPERATOR = {
-    Beau: 'beau',
-    Yiyun: 'yiyun',
-    Jiawen: 'jiawen',
-    WangYouKe: 'youke',
-};
 const APP_AUTH_COOKIE_NAME = 'wa_crm_app_auth';
 const APP_AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 12;
 
@@ -46,10 +41,14 @@ function isLocalRequest(req) {
     ));
 }
 
+// 运行时从 wa_sessions 表(in-memory 缓存)查 owner → session_id;
+// 缓存未 warm 时回退到 owner 小写作为兜底(通常只在 startup 前几百毫秒发生)
 function getSessionIdForOwner(owner) {
     const normalizedOwner = normalizeOperatorName(owner, null);
     if (!normalizedOwner) return null;
-    return SESSION_BY_OPERATOR[normalizedOwner] || String(normalizedOwner).trim().toLowerCase();
+    const cached = sessionRepository.getActiveSessionIdByOwnerCached(normalizedOwner);
+    if (cached) return cached;
+    return String(normalizedOwner).trim().toLowerCase() || null;
 }
 
 let _tokenEntriesCache = null;

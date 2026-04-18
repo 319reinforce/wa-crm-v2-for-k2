@@ -20,6 +20,7 @@ const {
     waitForSessionCommandResult,
 } = require('./waIpc');
 const { assertNoGroupSend } = require('./groupSendGuard');
+const sessionRepository = require('./sessionRepository');
 
 const REPAIR_QUEUE_DIR = path.join(__dirname, '../../.wa_ipc/repair-queue');
 const REPAIR_QUEUE_POLL_MS = 15000;
@@ -138,16 +139,10 @@ async function processRepairQueue() {
     }
 }
 
-const SESSION_ALIASES = {
-    beau: 'beau',
-    yiyun: 'yiyun',
-    jiawen: 'jiawen',
-    sybil: 'jiawen',
-    youke: 'youke',
-    wangyouke: 'youke',
-};
 const STATUS_STALE_MS = 15000;
 
+// alias 从 wa_sessions 表(in-memory 缓存)的 aliases JSON 字段读
+// 例如 wa_sessions.aliases = ["sybil","wangyouke"] 会把这些别名映射到对应 session_id
 function normalizeSessionId(value) {
     if (value === null || value === undefined) return null;
     const raw = String(value).trim();
@@ -155,7 +150,8 @@ function normalizeSessionId(value) {
     const safe = sanitizeSessionId(raw, '');
     const normalized = String(safe || '').trim().toLowerCase();
     if (!normalized) return null;
-    return SESSION_ALIASES[normalized] || normalized;
+    const resolved = sessionRepository.resolveSessionIdByAliasCached(normalized);
+    return resolved || normalized;
 }
 
 function getDefaultTargets() {
@@ -190,16 +186,30 @@ function parseRemoteTargets() {
 
 function getSessionRegistry() {
     const map = new Map();
-    for (const item of [...getDefaultTargets(), ...parseRemoteTargets()]) {
-        if (!item?.session_id) continue;
-        if (!map.has(item.session_id)) {
-            map.set(item.session_id, {
-                session_id: item.session_id,
-                owner: item.owner || null,
-            });
+
+    // 优先 wa_sessions 表(in-memory 缓存)
+    for (const session of sessionRepository.listSessionsCached()) {
+        if (!session?.session_id) continue;
+        map.set(session.session_id, {
+            session_id: session.session_id,
+            owner: normalizeOperatorName(session.owner, session.owner || null),
+        });
+    }
+
+    // 缓存未 warm 或 DB 未迁移时回退到旧配置源
+    if (map.size === 0) {
+        for (const item of [...getDefaultTargets(), ...parseRemoteTargets()]) {
+            if (!item?.session_id) continue;
+            if (!map.has(item.session_id)) {
+                map.set(item.session_id, {
+                    session_id: item.session_id,
+                    owner: item.owner || null,
+                });
+            }
         }
     }
 
+    // 还要覆盖 IPC 已有 status 但 DB 未记录的 session(异常情况兜底)
     for (const sessionId of listStatusSessions()) {
         if (!map.has(sessionId)) {
             const status = readSessionStatus(sessionId);

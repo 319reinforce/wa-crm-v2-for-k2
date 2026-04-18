@@ -1,18 +1,17 @@
 const db = require('../../db');
 const { normalizeOperatorName } = require('../utils/operator');
+const sessionRepository = require('./sessionRepository');
 
 const TABLE = 'operator_creator_roster';
-const SESSION_BY_OPERATOR = {
-    Beau: 'beau',
-    Yiyun: 'yiyun',
-    Jiawen: 'jiawen',
-    WangYouKe: 'youke',
-};
 
+// 从 wa_sessions 表(in-memory 缓存)查 operator → session_id;
+// 缓存未 warm 时回退到小写 operator
 function getSessionIdForOperator(operator) {
     const normalized = normalizeOperatorName(operator, operator);
     if (!normalized) return null;
-    return SESSION_BY_OPERATOR[normalized] || String(normalized).trim().toLowerCase();
+    const cached = sessionRepository.getActiveSessionIdByOwnerCached(normalized);
+    if (cached) return cached;
+    return String(normalized).trim().toLowerCase() || null;
 }
 
 async function safeGet(sql, ...params) {

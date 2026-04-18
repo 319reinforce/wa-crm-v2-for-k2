@@ -33,6 +33,9 @@ const lifecycleRouter = require('./routes/lifecycle');
 const waRouter = require('./routes/wa');
 const trainingRouter = require('./routes/training');
 const { listStatusSessions, readSessionStatus } = require('./services/waIpc');
+const waSessionsMigration = require('../migrate-wa-sessions');
+const legacySessionsBootstrap = require('./bootstrap/migrateLegacySessions');
+const sessionRepository = require('./services/sessionRepository');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -262,6 +265,32 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
 
 (async () => {
     try {
+        // 1) 运行 wa_sessions schema 迁移(幂等)
+        try {
+            await waSessionsMigration.run({ silent: true });
+            console.log('[Startup] wa_sessions schema migration done');
+        } catch (err) {
+            console.error('[Startup] wa_sessions schema migration failed:', err.message);
+            throw err;
+        }
+
+        // 2) 一次性迁移旧 session 配置(ecosystem / env / auth dirs)
+        try {
+            await legacySessionsBootstrap.run();
+        } catch (err) {
+            console.warn('[Startup] legacy sessions bootstrap error:', err.message);
+        }
+
+        // 3) 预热 sessionRepository 缓存,启动后台刷新循环
+        try {
+            await sessionRepository.warmCache();
+            sessionRepository.startCacheRefreshLoop();
+            console.log(`[Startup] sessionRepository cache warmed (${sessionRepository.listSessionsCached().length} sessions)`);
+        } catch (err) {
+            console.error('[Startup] sessionRepository warm cache failed:', err.message);
+            throw err;
+        }
+
         const server = await tryListenWithRetry(app, PORT, 3);
         const lanUrls = getLanUrls(PORT);
         console.log(`\n✅ WA CRM v2 Server (modular)`);
@@ -277,6 +306,7 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
         // graceful shutdown
         const shutdown = async (signal) => {
             console.log(`${signal} received, shutting down gracefully...`);
+            sessionRepository.stopCacheRefreshLoop();
             server.close(async () => {
                 await db.closeDb();
                 console.log('Server closed.');
