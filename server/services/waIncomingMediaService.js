@@ -9,7 +9,7 @@
  *   - 存储到 media_assets 表（SHA256 内容去重）
  *   - 返回 { mediaAssetId, mediaType, mime, size, width, height, caption, thumbnail }
  *
- * MVP 范围：仅图片（jpeg/png/webp/gif）
+ * 支持类型：图片（jpeg/png/webp/gif）+ 视频（mp4/mov/webm/3gp）+ 音频（ogg/mp3/wav/opus）+ PDF
  */
 const fs = require('fs');
 const path = require('path');
@@ -19,7 +19,7 @@ const {
     ensureMediaSchema,
     normalizeMimeType,
     ALLOWED_IMAGE_MIME,
-    MEDIA_UPLOAD_MAX_BYTES,
+    VIDEO_AUDIO_MIME,
 } = require('./mediaAssetService');
 
 const LOG_PREFIX = '[IncomingMedia]';
@@ -29,7 +29,23 @@ const MIME_EXT = {
     'image/png': 'png',
     'image/webp': 'webp',
     'image/gif': 'gif',
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/webm': 'webm',
+    'video/3gpp': '3gp',
+    'audio/ogg': 'ogg',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/opus': 'opus',
+    'application/pdf': 'pdf',
 };
+
+// incoming media 文件大小限制（默认 50MB，WhatsApp 视频最大约 16MB）
+const WA_INCOMING_MEDIA_MAX_BYTES = Math.max(
+    parseInt(process.env.WA_INCOMING_MEDIA_MAX_BYTES || `${50 * 1024 * 1024}`, 10)
+    || (50 * 1024 * 1024),
+    256 * 1024
+);
 
 function extFromMime(mimeType) {
     return MIME_EXT[mimeType] || 'bin';
@@ -61,11 +77,24 @@ function ensureParentDir(filePath) {
 }
 
 /**
+ * 根据 MIME type 返回 media_type 分类。
+ */
+function mediaTypeFromMime(mimeType) {
+    const type = String(mimeType || '').split('/')[0];
+    if (type === 'image') return 'image';
+    if (type === 'video') return 'video';
+    if (type === 'audio') return 'audio';
+    if (type === 'application') return 'document';
+    return type || 'unknown';
+}
+
+/**
  * 检查是否支持该 MIME 类型。
- * MVP 仅支持图片。
+ * 支持：图片 + 视频 + 音频 + PDF
  */
 function isAllowedMimeType(mimeType) {
-    return ALLOWED_IMAGE_MIME.has(String(mimeType || '').toLowerCase().trim());
+    const normalized = String(mimeType || '').toLowerCase().trim();
+    return ALLOWED_IMAGE_MIME.has(normalized) || VIDEO_AUDIO_MIME.has(normalized);
 }
 
 /**
@@ -119,8 +148,8 @@ async function createIncomingMediaAsset({
         throw new Error(`unsupported mime_type: ${normalizedMime}`);
     }
 
-    if (buffer.length > MEDIA_UPLOAD_MAX_BYTES) {
-        throw new Error(`file too large: ${buffer.length} bytes > ${MEDIA_UPLOAD_MAX_BYTES}`);
+    if (buffer.length > WA_INCOMING_MEDIA_MAX_BYTES) {
+        throw new Error(`incoming media too large: ${buffer.length} bytes > ${WA_INCOMING_MEDIA_MAX_BYTES}`);
     }
 
     const hash = sha256Buffer(buffer);
@@ -264,7 +293,7 @@ async function downloadAndStoreIncomingMedia(msg, { creatorId, operator }) {
 
     return {
         mediaAssetId: asset.id,
-        mediaType: mimeType.split('/')[0] || 'image',
+        mediaType: mediaTypeFromMime(mimeType),
         mime: mimeType,
         size: buffer.length,
         width: msg.width || null,
@@ -278,5 +307,7 @@ module.exports = {
     downloadAndStoreIncomingMedia,
     createIncomingMediaAsset,
     isAllowedMimeType,
+    mediaTypeFromMime,
     ALLOWED_IMAGE_MIME,
+    VIDEO_AUDIO_MIME,
 };

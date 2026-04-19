@@ -9,11 +9,31 @@ const ALLOWED_IMAGE_MIME = new Set([
     'image/webp',
     'image/gif',
 ]);
+const VIDEO_AUDIO_MIME = new Set([
+    'video/mp4',
+    'video/quicktime',
+    'video/webm',
+    'video/3gpp',
+    'audio/ogg',
+    'audio/mpeg',
+    'audio/wav',
+    'audio/opus',
+    'application/pdf',
+]);
 const MIME_EXT = {
     'image/jpeg': 'jpg',
     'image/png': 'png',
     'image/webp': 'webp',
     'image/gif': 'gif',
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/webm': 'webm',
+    'video/3gpp': '3gp',
+    'audio/ogg': 'ogg',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/opus': 'opus',
+    'application/pdf': 'pdf',
 };
 const MEDIA_UPLOAD_MAX_BYTES = Math.max(parseInt(process.env.MEDIA_UPLOAD_MAX_BYTES || `${8 * 1024 * 1024}`, 10) || (8 * 1024 * 1024), 256 * 1024);
 const MEDIA_LOCAL_DIR = path.resolve(process.env.MEDIA_LOCAL_DIR || path.join(process.cwd(), 'data', 'media-assets'));
@@ -306,6 +326,7 @@ async function finalizeMediaSendLogFailed(logId, errorMessage) {
 
 module.exports = {
     ALLOWED_IMAGE_MIME,
+    VIDEO_AUDIO_MIME,
     MEDIA_UPLOAD_MAX_BYTES,
     ensureMediaSchema,
     createMediaAsset,

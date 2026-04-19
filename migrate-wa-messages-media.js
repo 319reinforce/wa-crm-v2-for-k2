@@ -1,6 +1,9 @@
 /**
  * migrate-wa-messages-media.js
- * 为 wa_messages 添加媒体相关字段，支持存储 incoming 图片消息
+ * 为 wa_messages 添加媒体相关字段，支持存储 incoming 媒体消息
+ *
+ * 支持类型：图片（jpeg/png/webp/gif）+ 视频（mp4/mov/webm/3gp）
+ *          + 音频（ogg/mp3/wav/opus）+ PDF
  *
  * 新增字段：
  *   media_asset_id, media_type, media_mime, media_size,
