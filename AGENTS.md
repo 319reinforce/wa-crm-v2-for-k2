@@ -139,6 +139,37 @@ npm start             # 启动服务（实际入口: server/index.cjs，端口 3
 
 ---
 
+## 文档同步规则
+
+后续凡是以下类型的文档，只要在仓库内新增或更新，就**必须**同步一份摘要到 MetaBot / MetaMemory：
+
+- 规范类（spec / standard / checklist）
+- 设计类（design / architecture / technical plan）
+- Runbook / 操作手册
+- 配置决策 / 路由决策 / 灰度决策
+
+执行要求：
+
+1. 先完成仓库内 Markdown 文档
+2. 再同步 MetaMemory 摘要，至少包含：
+   - 标题
+   - 日期标签
+   - 仓库文件路径
+   - 关键决策
+   - 验证结果 / rollout 备注
+3. 如果文档定义了新的 agent 级工作规则，还要额外同步一份到共享规则目录
+4. Session 收尾时要明确说明“仓库文档已同步 / 未同步 MetaMemory”
+
+MetaMemory 写入失败时，排查顺序必须是：
+
+1. 先确认当前 agent 执行环境是否能连到 `localhost:8100`
+2. 再确认 `mm` CLI 读取到的 `.env` 与正在运行的 memory server 是否是同一份配置
+3. 最后才检查 token / 权限问题
+
+禁止默认把 MetaMemory 写入失败直接归因为“缺少可写 token”。
+
+---
+
 ## Session 收尾规则
 
 每次 session 结束前（无论是否完成），必须：
