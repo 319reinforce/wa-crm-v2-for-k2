@@ -52,6 +52,26 @@
       "expected_sources": ["sop-violation-appeal-and-risk-control-v1"],
       "expected_terms": ["no one can guarantee a zero-risk experience", "reduce risk with pre-check logic", "Safety first, then scale"],
       "must_not_terms": ["100% safe", "guaranteed safe"]
+    },
+    {
+      "id": "yiyun-monthly-upfront-question",
+      "scene": "monthly_inquiry",
+      "operator": "Yiyun",
+      "latest_user_message": "Do I need to pay the $20 monthly fee upfront every month?",
+      "expected_top_source": "playbook-yiyun-onboarding-and-payment-apr-2026-v1",
+      "expected_sources": ["playbook-yiyun-onboarding-and-payment-apr-2026-v1"],
+      "expected_terms": ["$20/month", "deducted from subsidy or eligible earnings when available", "Do not imply forced upfront payment"],
+      "must_not_terms": ["guaranteed payout date", "must prepay no matter what"]
+    },
+    {
+      "id": "product-recommendation-logic",
+      "scene": "content_request",
+      "operator": "Beau",
+      "latest_user_message": "How does Moras decide which products to recommend for my account?",
+      "expected_top_source": "faq-moras-product-mechanics-and-support-apr-2026-v1",
+      "expected_sources": ["faq-moras-product-mechanics-and-support-apr-2026-v1"],
+      "expected_terms": ["TikTok real-time sales and trend data", "creator profile", "not forced to promote a specific category"],
+      "must_not_terms": ["posts automatically without your review", "zero risk"]
     }
   ]
 }
