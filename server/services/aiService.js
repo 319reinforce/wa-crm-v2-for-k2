@@ -79,36 +79,107 @@ async function generateWithDualTemperature(messages, model, maxTokens, temperatu
 }
 
 const TRANSLATION_SYSTEM_PROMPT = '你是中文翻译助手，专注把收到的文本翻译成中文。不要解释其他内容，直接输出纯中文翻译。';
+const EN_TRANSLATION_SYSTEM_PROMPT = [
+    'You are an English translation assistant for WhatsApp customer support.',
+    'Translate the input into natural, concise English.',
+    'Preserve the original meaning and polite tone.',
+    'Do not add any promises, pricing, deadlines, or explanations.',
+    'Output the translation only.',
+].join('\n');
 
-/**
- * 单条翻译
- */
-async function translateText(text, role = 'user', timestamp = null) {
+function resolveTranslationMode(mode) {
+    const normalized = String(mode || '').trim().toLowerCase();
+    return normalized === 'auto' ? 'auto' : 'to_zh';
+}
+
+function detectTranslationDirection(text) {
+    const input = String(text || '');
+    const hanCount = (input.match(/[\u3400-\u9fff]/g) || []).length;
+    const latinCount = (input.match(/[A-Za-z]/g) || []).length;
+    return hanCount > latinCount ? 'to_en' : 'to_zh';
+}
+
+function getSingleTranslationPrompt(mode, text) {
+    const resolvedMode = resolveTranslationMode(mode);
+    if (resolvedMode === 'auto') {
+        return detectTranslationDirection(text) === 'to_en'
+            ? EN_TRANSLATION_SYSTEM_PROMPT
+            : TRANSLATION_SYSTEM_PROMPT;
+    }
+    return resolvedMode === 'to_en' ? EN_TRANSLATION_SYSTEM_PROMPT : TRANSLATION_SYSTEM_PROMPT;
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function requestMiniMaxText(messages, {
+    model = 'mini-max-typing',
+    maxTokens = 1000,
+    temperature = 0.3,
+    timeoutMs = 30000,
+    retries = 4,
+} = {}) {
     if (!API_KEY) {
         throw new Error('MINIMAX_API_KEY environment variable not set');
     }
 
-    const response = await fetch(`${API_BASE}/v1/messages`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${API_KEY}`,
-            'x-api-key': API_KEY,
-            'anthropic-version': '2023-06-01',
-        },
-            body: JSON.stringify({
-                model: 'mini-max-typing',
-                max_tokens: 1000,
-                temperature: 0.3,
-                messages: [
-                    { role: 'system', content: TRANSLATION_SYSTEM_PROMPT },
-                    { role: 'user', content: text },
-                ],
-            }),
-            signal: AbortSignal.timeout(30000),
-        });
+    let lastError = null;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+            const response = await fetch(`${API_BASE}/v1/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${API_KEY}`,
+                    'x-api-key': API_KEY,
+                    'anthropic-version': '2023-06-01',
+                },
+                body: JSON.stringify({
+                    model,
+                    max_tokens: maxTokens,
+                    temperature,
+                    messages,
+                }),
+                signal: AbortSignal.timeout(timeoutMs),
+            });
 
-    const data = await response.json();
+            const data = await response.json();
+            if (!response.ok || data?.error) {
+                const detail = data?.error?.message || data?.error || `HTTP ${response.status}`;
+                const isRetryable = response.status === 529 || /overloaded_error|rate limit|timeout/i.test(String(detail));
+                if (isRetryable && attempt < retries) {
+                    await sleep(1000 * Math.pow(2, attempt));
+                    continue;
+                }
+                throw new Error(`MiniMax translation error: ${detail}`);
+            }
+
+            return data;
+        } catch (error) {
+            const isRetryable = /fetch failed|timeout|overloaded_error|rate limit/i.test(String(error?.message || ''));
+            lastError = error;
+            if (isRetryable && attempt < retries) {
+                await sleep(1000 * Math.pow(2, attempt));
+                continue;
+            }
+            throw error;
+        }
+    }
+    throw lastError || new Error('MiniMax translation error: unknown failure');
+}
+
+/**
+ * 单条翻译
+ */
+async function translateText(text, role = 'user', timestamp = null, mode = 'to_zh') {
+    const data = await requestMiniMaxText([
+        { role: 'system', content: getSingleTranslationPrompt(mode, text) },
+        { role: 'user', content: text },
+    ], {
+        maxTokens: 220,
+        temperature: 0,
+    });
     let raw = '';
     if (data.content && Array.isArray(data.content)) {
         const textItem = data.content.find(item => item.type === 'text');
@@ -125,9 +196,6 @@ async function translateText(text, role = 'user', timestamp = null) {
  * 批量翻译
  */
 async function translateBatch(texts) {
-    if (!API_KEY) {
-        throw new Error('MINIMAX_API_KEY environment variable not set');
-    }
     if (!Array.isArray(texts) || texts.length === 0) {
         return { translations: [] };
     }
@@ -136,30 +204,16 @@ async function translateBatch(texts) {
         .map((t, i) => `[${i + 1}] ${t.role === 'me' ? '我' : '达人'}: ${t.text}`)
         .join('\n');
 
-    const response = await fetch(`${API_BASE}/v1/messages`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${API_KEY}`,
-            'x-api-key': API_KEY,
-            'anthropic-version': '2023-06-01',
+    const data = await requestMiniMaxText([
+        { role: 'system', content: TRANSLATION_SYSTEM_PROMPT },
+        {
+            role: 'user',
+            content: `请将以下每条消息翻译为中文（不区分发送者，全部译为中文）。请严格按以下JSON数组格式返回，不要输出任何其他内容：\n[{"idx":1,"translation":"中文翻译"},{"idx":2,"translation":"中文翻译"}]\n\n消息列表：\n${combined}`,
         },
-            body: JSON.stringify({
-                model: 'mini-max-typing',
-                max_tokens: 1000,
-                temperature: 0.3,
-                messages: [
-                    { role: 'system', content: TRANSLATION_SYSTEM_PROMPT },
-                    {
-                        role: 'user',
-                        content: `请将以下每条消息翻译为中文（不区分发送者，全部译为中文）。请严格按以下JSON数组格式返回，不要输出任何其他内容：\n[{"idx":1,"translation":"中文翻译"},{"idx":2,"translation":"中文翻译"}]\n\n消息列表：\n${combined}`,
-                    },
-                ],
-            }),
-        signal: AbortSignal.timeout(30000),
+    ], {
+        maxTokens: 1200,
+        temperature: 0.1,
     });
-
-    const data = await response.json();
     let raw = '';
     if (data.content && Array.isArray(data.content)) {
         const textItem = data.content.find(item => item.type === 'text');

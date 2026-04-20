@@ -888,17 +888,27 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         setPickerError(null);
         setCustomToolLoading(prev => ({ ...prev, [toolKey]: true }));
         try {
-            const systemPrompt = mode === 'translate'
-                ? [
-                    '你是 WhatsApp 客服翻译助手。',
-                    '任务：翻译输入文本，保持原意和礼貌语气。',
-                    '规则：',
-                    '1) 如果输入主要是中文，翻译成自然、简洁的英文。',
-                    '2) 如果输入主要是英文，翻译成自然、简洁的中文。',
-                    '3) 不新增承诺、价格、时限等业务事实。',
-                    '4) 只输出翻译结果，不要解释。',
-                ].join('\n')
-                : [
+            if (mode === 'translate') {
+                const response = await fetchAppAuth(`${API_BASE}/translate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: sourceText,
+                        mode: 'auto',
+                    }),
+                    signal: AbortSignal.timeout(30000),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data?.error || `HTTP ${response.status}`);
+                }
+
+                const transformed = String(data?.translation || '').trim();
+                setPickerCustom(transformed || sourceText);
+                return;
+            }
+
+            const systemPrompt = [
                     '你是 WhatsApp 客服文案润色助手。',
                     '任务：在不改变原意的前提下，为文本添加自然 emoji 风格。',
                     '规则：',
