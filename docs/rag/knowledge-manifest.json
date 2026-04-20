@@ -1,5 +1,5 @@
 {
-  "version": "2026-04-11",
+  "version": "2026-04-20",
   "owner": "wa-crm-ops",
   "sources": [
     {
@@ -15,7 +15,7 @@
       "priority": 1,
       "sensitivity": "internal",
       "status": "approved",
-      "updated_at": "2026-04-11",
+      "updated_at": "2026-04-20",
       "effective_from": "2026-04-15",
       "rule_version": "2026-04-15"
     },

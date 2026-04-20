@@ -1,0 +1,57 @@
+{
+  "version": "2026-04-20",
+  "mode": "shadow",
+  "description": "Local rule retrieval grounding cases before prompt injection.",
+  "cases": [
+    {
+      "id": "trial-finished-is-completed",
+      "scene": "trial_followup",
+      "operator": "Yiyun",
+      "latest_user_message": "I finished the 7-day trial. What happens next?",
+      "expected_top_source": "policy-trial-pack-v1",
+      "expected_sources": ["policy-trial-pack-v1"],
+      "expected_terms": ["trial is completed", "must not be described as still active", "$20 monthly subscription"],
+      "must_not_terms": ["trial is still active", "restart the 7-day trial"]
+    },
+    {
+      "id": "trial-intro-usage-limit",
+      "scene": "trial_intro",
+      "operator": "Yiyun",
+      "latest_user_message": "How does the free trial work and how many AI videos can I make?",
+      "expected_top_source": "policy-trial-pack-v1",
+      "expected_sources": ["policy-trial-pack-v1", "sop-creator-outreach-mar-2026-v1"],
+      "expected_terms": ["7-day trial", "20 AI generations per day", "low-friction way to test Moras"],
+      "must_not_terms": ["guaranteed earnings", "guaranteed GMV"]
+    },
+    {
+      "id": "monthly-fee-deducted-from-subsidy",
+      "scene": "payment_intro",
+      "operator": "Yiyun",
+      "latest_user_message": "Do I need to pay the $20 monthly fee upfront after the trial?",
+      "expected_top_source": "sop-creator-outreach-mar-2026-v1",
+      "expected_sources": ["sop-creator-outreach-mar-2026-v1"],
+      "expected_terms": ["$20/month platform fee", "$20 platform fee can be deducted from earnings"],
+      "must_not_terms": ["must pay upfront", "guarantee"]
+    },
+    {
+      "id": "posting-cadence-risk-control",
+      "scene": "follow_up",
+      "operator": "Beau",
+      "latest_user_message": "Can I post more than five AI videos per day or will that look spammy?",
+      "expected_top_source": "sop-product-selection-and-posting-safety-v1",
+      "expected_sources": ["sop-product-selection-and-posting-safety-v1"],
+      "expected_terms": ["do not exceed 5/day", "Spread posts across time slots", "spam-like behavior"],
+      "must_not_terms": ["post unlimited videos", "zero risk"]
+    },
+    {
+      "id": "violation-zero-risk-question",
+      "scene": "payment_issue",
+      "operator": "Beau",
+      "latest_user_message": "Will my account be 100% safe if I post these AI videos?",
+      "expected_top_source": "sop-violation-appeal-and-risk-control-v1",
+      "expected_sources": ["sop-violation-appeal-and-risk-control-v1"],
+      "expected_terms": ["no one can guarantee a zero-risk experience", "reduce risk with pre-check logic", "Safety first, then scale"],
+      "must_not_terms": ["100% safe", "guaranteed safe"]
+    }
+  ]
+}

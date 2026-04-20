@@ -1,0 +1,28 @@
+# Local Rule Shadow Cases
+
+Date label: `2026-04-20`
+
+These fixtures define the first validation set for local rule retrieval.
+
+The goal is not to test model quality. The goal is to ensure that deterministic local retrieval can find the right authoritative source before any local rule cards are injected into the reply prompt.
+
+## Files
+
+- `local-rule-shadow-cases.json`: source-grounding cases for trial, payment, posting safety, and violation-risk flows.
+- `../../LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`: technical design and PR description draft.
+
+## Validation
+
+Run:
+
+```bash
+npm run test:unit
+```
+
+The unit tests verify that:
+
+- Approved manifest sources exist on disk.
+- Shadow cases reference approved sources.
+- Referenced sources cover the case scene.
+- Evidence terms exist in the expected source documents.
+- A simple lexical scorer ranks the expected source first for each case.
