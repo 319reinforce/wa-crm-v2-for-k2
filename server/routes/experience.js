@@ -14,6 +14,7 @@ const {
     resolveRequestedOwnerScope,
     resolveClientAndOwnerScope,
 } = require('../utils/ownerScope');
+const { retrieveAndBuildLocalRules } = require('../services/localRuleRetrievalService');
 
 // ========== Helper Functions ==========
 
@@ -39,7 +40,7 @@ async function getAllOperatorExperiences() {
     ).all();
 }
 
-async function compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs) {
+async function compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs, userMessage = '') {
     const exp = await getOperatorExperience(operator);
     if (!exp) {
         throw new Error(`Operator ${operator} not found or inactive`);
@@ -67,6 +68,23 @@ async function compileSystemPrompt(operator, scene, clientInfo, clientMemory, po
     if (clientMemory && clientMemory.length > 0) {
         const memoryText = formatClientMemory(clientMemory);
         prompt += '\n\n【客户历史偏好】以下信息仅供个性化参考：\n' + memoryText;
+    }
+
+    // 注入 Local Rules（新增）
+    try {
+        const localRulesResult = retrieveAndBuildLocalRules({
+            scene,
+            operator,
+            userMessage,
+            maxSources: 3
+        });
+
+        if (localRulesResult.text) {
+            prompt += localRulesResult.text;
+        }
+    } catch (err) {
+        console.error('[compileSystemPrompt] Local rules retrieval failed:', err.message);
+        // 不阻断流程，继续使用旧的 policy_documents
     }
 
     const scenePolicies = filterPoliciesByScene(policyDocs, scene);
@@ -307,6 +325,60 @@ router.get('/:operator/system-prompt', async (req, res) => {
         res.json({ success: true, operator: normalizedOperator, scene, client_id: scopedClientId, system_prompt: systemPrompt, version });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// 新增：检索标准话术端点
+router.post('/retrieve-template', async (req, res) => {
+    try {
+        const { client_id, operator, scene, user_message } = req.body;
+
+        // 调用 localRuleRetrievalService 检索相关知识源
+        const { retrieveLocalRules, loadSourceContent, extractTemplateFromSource } = require('../services/localRuleRetrievalService');
+
+        const sources = retrieveLocalRules({
+            scene,
+            operator,
+            userMessage: user_message || '',
+            maxSources: 1 // 只取最匹配的一个
+        });
+
+        if (!sources || sources.length === 0) {
+            return res.json({ template: null });
+        }
+
+        // 加载知识源内容
+        const topSource = sources[0];
+        const content = loadSourceContent(topSource);
+
+        if (!content) {
+            return res.json({ template: null });
+        }
+
+        // 提取纯话术文本
+        const templateText = extractTemplateFromSource(content, topSource.id);
+
+        if (!templateText) {
+            return res.json({ template: null });
+        }
+
+        // 返回格式化的 template 对象
+        res.json({
+            template: {
+                text: templateText,
+                source: topSource.id,
+                matchScore: topSource.score || 0
+            }
+        });
+
+    } catch (err) {
+        console.error('[retrieve-template] Error:', err);
+        res.status(500).json({
+            error: {
+                code: 'RETRIEVAL_ERROR',
+                message: '检索服务暂时不可用'
+            }
+        });
     }
 });
 

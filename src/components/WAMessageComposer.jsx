@@ -374,6 +374,7 @@ function formatLifecycleStripTime(value) {
 }
 
 function LifecycleJourneyStrip({ creator }) {
+    const [expanded, setExpanded] = useState(false);
     const model = buildLifecycleJourneyModel(creator);
     if (!model) return null;
 
@@ -386,107 +387,137 @@ function LifecycleJourneyStrip({ creator }) {
             style={{ background: WA.shellPanelStrong, borderBottom: `1px solid ${WA.borderLight}` }}
         >
             <div
-                className="rounded-[22px] px-4 py-3 md:px-5 md:py-4"
+                className="rounded-[22px] overflow-hidden"
                 style={{
                     background: 'linear-gradient(180deg, rgba(255,253,250,0.98) 0%, rgba(247,242,233,0.98) 100%)',
                     border: `1px solid ${WA.borderLight}`,
                     boxShadow: '0 12px 28px rgba(32,26,21,0.05)',
                 }}
             >
-                <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="min-w-0">
-                        <div
-                            className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                            style={{ color: WA.textMuted }}
-                        >
-                            Lifecycle Journey
+                {/* Header - Always Visible, Clickable */}
+                <div
+                    className="px-4 py-3 md:px-5 md:py-3.5 cursor-pointer select-none hover:bg-black/[0.02] active:bg-black/[0.04] transition-colors"
+                    onClick={() => setExpanded(!expanded)}
+                >
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                                <div
+                                    className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+                                    style={{ color: WA.textMuted }}
+                                >
+                                    Lifecycle Journey
+                                </div>
+                                <svg
+                                    className="transition-transform duration-200"
+                                    style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 12 12"
+                                    fill="none"
+                                >
+                                    <path
+                                        d="M3 4.5L6 7.5L9 4.5"
+                                        stroke={WA.textMuted}
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    />
+                                </svg>
+                            </div>
+                            <div className="mt-0.5 text-sm md:text-[15px] font-semibold" style={{ color: WA.textDark }}>
+                                生命周期轨迹
+                            </div>
                         </div>
-                        <div className="mt-1 text-sm md:text-[15px] font-semibold" style={{ color: WA.textDark }}>
-                            生命周期轨迹
+                        <div className="flex flex-wrap justify-end gap-2 shrink-0">
+                            <span
+                                className="text-[11px] px-2.5 py-1 rounded-full font-semibold"
+                                style={{ background: 'rgba(45,138,160,0.12)', color: '#2d8aa0' }}
+                            >
+                                {model.stageLabel}
+                            </span>
+                            <span
+                                className="text-[11px] px-2.5 py-1 rounded-full font-semibold"
+                                style={{ background: 'rgba(185,133,63,0.12)', color: '#9a6f2f' }}
+                            >
+                                命中 {model.reachedCount}/5
+                            </span>
                         </div>
+                    </div>
+                </div>
+
+                {/* Expandable Content */}
+                {expanded && (
+                    <div className="px-4 pb-3 md:px-5 md:pb-4 pt-0">
                         {evaluatedLabel && (
-                            <div className="mt-1 text-[11px]" style={{ color: WA.textMuted }}>
+                            <div className="mb-3 text-[11px]" style={{ color: WA.textMuted }}>
                                 最近评估 {evaluatedLabel}
                             </div>
                         )}
-                    </div>
-                    <div className="flex flex-wrap justify-end gap-2 shrink-0">
-                        <span
-                            className="text-[11px] px-2.5 py-1 rounded-full font-semibold"
-                            style={{ background: 'rgba(45,138,160,0.12)', color: '#2d8aa0' }}
-                        >
-                            {model.stageLabel}
-                        </span>
-                        <span
-                            className="text-[11px] px-2.5 py-1 rounded-full font-semibold"
-                            style={{ background: 'rgba(185,133,63,0.12)', color: '#9a6f2f' }}
-                        >
-                            命中 {model.reachedCount}/5
-                        </span>
-                    </div>
-                </div>
 
-                <svg viewBox={`0 0 ${model.width} 88`} className="block w-full h-[88px] md:h-[96px]" preserveAspectRatio="none">
-                    <line
-                        x1={model.left}
-                        y1={model.bottom}
-                        x2={model.width - model.right}
-                        y2={model.bottom}
-                        stroke="rgba(153,133,107,0.20)"
-                        strokeWidth="1"
-                    />
-                    {model.xs.map((x) => (
-                        <line
-                            key={`guide_${x}`}
-                            x1={x}
-                            y1={model.top + 2}
-                            x2={x}
-                            y2={model.bottom + 4}
-                            stroke="rgba(153,133,107,0.12)"
-                            strokeWidth="1"
-                        />
-                    ))}
-                    <polyline
-                        fill="none"
-                        stroke="#9f8e7a"
-                        strokeWidth="2"
-                        points={model.points}
-                    />
-                    {LIFECYCLE_AARRR_META.map((stage, idx) => {
-                        const reached = stage.key === 'referral' ? model.hasReferral : idx <= model.progressIndex;
-                        return (
-                            <circle
-                                key={stage.key}
-                                cx={model.xs[idx]}
-                                cy={model.ys[idx]}
-                                r={reached ? 4 : 3}
-                                fill={reached ? stage.color : '#d1c4b3'}
-                                stroke="#fffdfa"
-                                strokeWidth="1.5"
+                        <svg viewBox={`0 0 ${model.width} 88`} className="block w-full h-[88px] md:h-[96px]" preserveAspectRatio="none">
+                            <line
+                                x1={model.left}
+                                y1={model.bottom}
+                                x2={model.width - model.right}
+                                y2={model.bottom}
+                                stroke="rgba(153,133,107,0.20)"
+                                strokeWidth="1"
                             />
-                        );
-                    })}
-                </svg>
+                            {model.xs.map((x) => (
+                                <line
+                                    key={`guide_${x}`}
+                                    x1={x}
+                                    y1={model.top + 2}
+                                    x2={x}
+                                    y2={model.bottom + 4}
+                                    stroke="rgba(153,133,107,0.12)"
+                                    strokeWidth="1"
+                                />
+                            ))}
+                            <polyline
+                                fill="none"
+                                stroke="#9f8e7a"
+                                strokeWidth="2"
+                                points={model.points}
+                            />
+                            {LIFECYCLE_AARRR_META.map((stage, idx) => {
+                                const reached = stage.key === 'referral' ? model.hasReferral : idx <= model.progressIndex;
+                                return (
+                                    <circle
+                                        key={stage.key}
+                                        cx={model.xs[idx]}
+                                        cy={model.ys[idx]}
+                                        r={reached ? 4 : 3}
+                                        fill={reached ? stage.color : '#d1c4b3'}
+                                        stroke="#fffdfa"
+                                        strokeWidth="1.5"
+                                    />
+                                );
+                            })}
+                        </svg>
 
-                <div className="grid grid-cols-5 gap-1.5 mt-2.5">
-                    {LIFECYCLE_AARRR_META.map((stage, idx) => {
-                        const reached = stage.key === 'referral' ? model.hasReferral : idx <= model.progressIndex;
-                        const active = stage.key === model.stageKey;
-                        return (
-                            <div key={stage.key} className="min-w-0 text-center">
-                                <div
-                                    className="text-[11px] font-semibold"
-                                    style={{ color: active ? stage.color : (reached ? WA.textDark : WA.textMuted) }}
-                                >
-                                    {stage.label}
-                                </div>
-                                <div className="mt-1 text-[10px]" style={{ color: reached ? '#8b7761' : '#b6a28b' }}>
-                                    {reached ? '已达成' : '待推进'}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                        <div className="grid grid-cols-5 gap-1.5 mt-2.5">
+                            {LIFECYCLE_AARRR_META.map((stage, idx) => {
+                                const reached = stage.key === 'referral' ? model.hasReferral : idx <= model.progressIndex;
+                                const active = stage.key === model.stageKey;
+                                return (
+                                    <div key={stage.key} className="min-w-0 text-center">
+                                        <div
+                                            className="text-[11px] font-semibold"
+                                            style={{ color: active ? stage.color : (reached ? WA.textDark : WA.textMuted) }}
+                                        >
+                                            {stage.label}
+                                        </div>
+                                        <div className="mt-1 text-[10px]" style={{ color: reached ? '#8b7761' : '#b6a28b' }}>
+                                            {reached ? '已达成' : '待推进'}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -2277,6 +2308,14 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         compactMobile={isMobileViewport}
                         collapsed={isMobileViewport ? pickerCollapsed : false}
                         onToggleCollapse={() => setPickerCollapsed(v => !v)}
+                        // 标准话术相关 props
+                        onSelectStandard={(text) => {
+                            setPickerCustom(text);
+                            handleSelectCandidate('custom');
+                        }}
+                        scene={activePicker.scene}
+                        operator={activePicker.operator}
+                        clientId={client?.phone}
                     />
                 )}
 
