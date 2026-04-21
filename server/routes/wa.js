@@ -42,6 +42,7 @@ const { persistDirectMessageRecord } = require('../services/directMessagePersist
 const {
     assertNoGroupSend,
 } = require('../services/groupSendGuard');
+const creatorCache = require('../services/creatorCache');
 
 function parsePositiveInt(value, fallback = null) {
     const n = parseInt(value, 10);
@@ -107,7 +108,6 @@ async function resolveSendCreator({ creator_id, phone }) {
     }
     const normalizedPhone = normalizeDigits(rawPhone);
     const dbConn = db.getDb();
-    const creatorCache = require('../services/creatorCache');
 
     if (!creatorId && !normalizedPhone && !rawPhone) {
         return { ok: false, status: 400, error: 'creator_id or phone required' };
