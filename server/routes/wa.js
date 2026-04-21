@@ -14,6 +14,7 @@ const {
     matchesOwnerScope,
     resolveScopedOwner,
     sendOwnerScopeForbidden,
+    requireAdminOnly,
 } = require('../middleware/appAuth');
 const { normalizeOperatorName, normalizeDigits } = require('../utils/operator');
 const {
@@ -634,7 +635,8 @@ router.get('/status', async (req, res) => {
 });
 
 // POST /api/wa/sessions/:sessionId/driver — 切换 WA driver (wwebjs ↔ baileys)
-router.post('/sessions/:sessionId/driver', async (req, res) => {
+// admin-only：WhatsApp driver 切换会强制重扫 QR，破坏性强，service/owner token 一律拒
+router.post('/sessions/:sessionId/driver', requireAdminOnly, async (req, res) => {
     const { sessionId } = req.params;
     const { driver, force_disconnect } = req.body || {};
 
@@ -644,7 +646,6 @@ router.post('/sessions/:sessionId/driver', async (req, res) => {
 
     const dbConn = require('../../db').getDb();
     const { writeAudit } = require('../middleware/audit');
-    const { matchesOwnerScope } = require('../middleware/appAuth');
 
     // Read session row
     let rows;
@@ -658,11 +659,6 @@ router.post('/sessions/:sessionId/driver', async (req, res) => {
         return res.status(404).json({ ok: false, error: `session not found: ${sessionId}` });
     }
     const session = rows[0];
-
-    // Auth: must be admin or owner
-    if (!getLockedOwner(req) && !matchesOwnerScope(req, session.owner)) {
-        return res.status(403).json({ ok: false, error: 'forbidden' });
-    }
 
     const fromDriver = session.driver || 'wwebjs';
     if (fromDriver === driver) {
