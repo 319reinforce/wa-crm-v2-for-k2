@@ -8,6 +8,7 @@ async function fetchJsonOrThrow(url, options = {}) {
     try {
       const data = await res.json()
       if (typeof data?.error === 'string' && data.error.trim()) message = data.error.trim()
+      else if (typeof data?.message === 'string' && data.message.trim()) message = data.message.trim()
     } catch (_) {}
     throw new Error(message)
   }

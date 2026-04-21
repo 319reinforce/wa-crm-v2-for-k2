@@ -14,6 +14,8 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV WA_HEADLESS=true
 ENV WA_AUTH_ROOT=/app/.wwebjs_auth
+ENV WA_BAILEYS_AUTH_ROOT=/app/.baileys_auth
+ENV WA_DEFAULT_DRIVER=wwebjs
 
 WORKDIR /app
 
@@ -42,7 +44,8 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 
 # 准备运行时持久化目录
-RUN mkdir -p /app/.wwebjs_auth /app/.wwebjs_cache /app/data/media-assets
+RUN mkdir -p /app/.wwebjs_auth /app/.baileys_auth /app/.wwebjs_cache /app/data/media-assets \
+    && chown -R node:node /app/.baileys_auth /app/.wwebjs_auth /app/.wwebjs_cache /app/data/media-assets
 
 # 构建前端（Vite 输出到 public/）
 RUN pnpm run build

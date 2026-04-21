@@ -633,6 +633,101 @@ router.get('/status', async (req, res) => {
     }));
 });
 
+// POST /api/wa/sessions/:sessionId/driver — 切换 WA driver (wwebjs ↔ baileys)
+router.post('/sessions/:sessionId/driver', async (req, res) => {
+    const { sessionId } = req.params;
+    const { driver, force_disconnect } = req.body || {};
+
+    if (!driver || !['wwebjs', 'baileys'].includes(driver)) {
+        return res.status(400).json({ ok: false, error: 'driver must be "wwebjs" or "baileys"' });
+    }
+
+    const dbConn = require('../../db').getDb();
+    const { writeAudit } = require('../middleware/audit');
+    const { matchesOwnerScope } = require('../middleware/appAuth');
+
+    // Read session row
+    let rows;
+    try {
+        [rows] = await dbConn.query('SELECT * FROM wa_sessions WHERE session_id = ?', [sessionId]);
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
+    }
+
+    if (!rows || rows.length === 0) {
+        return res.status(404).json({ ok: false, error: `session not found: ${sessionId}` });
+    }
+    const session = rows[0];
+
+    // Auth: must be admin or owner
+    if (!getLockedOwner(req) && !matchesOwnerScope(req, session.owner)) {
+        return res.status(403).json({ ok: false, error: 'forbidden' });
+    }
+
+    const fromDriver = session.driver || 'wwebjs';
+    if (fromDriver === driver) {
+        return res.json({ ok: true, driver, hint: `already using ${driver}`, already_set: true });
+    }
+
+    const force = force_disconnect === true || force_disconnect === 'true' || force_disconnect === 1;
+    const currentState = session.runtime_state;
+
+    if (currentState === 'ready' || currentState === 'starting') {
+        if (!force) {
+            return res.status(400).json({
+                ok: false, error: `session is ${currentState}; pass force_disconnect:true to force switch`
+            });
+        }
+    }
+
+    const driverMeta = JSON.stringify({
+        switched_at: new Date().toISOString(),
+        switched_by: getEffectiveOperator(req, null, 'api'),
+        previous_driver: fromDriver,
+    });
+
+    try {
+        // 1. Update DB: set new driver + stop
+        await dbConn.query(
+            'UPDATE wa_sessions SET driver=?, driver_meta=? WHERE session_id=?',
+            [driver, driverMeta, sessionId]
+        );
+        await dbConn.query(
+            "UPDATE wa_sessions SET desired_state='stopped', desired_state_changed_at=NOW(), desired_state_changed_by=? WHERE session_id=?",
+            [getEffectiveOperator(req, null, 'api'), sessionId]
+        );
+
+        await writeAudit(req, 'wa_session_driver_changed', {
+            session_id: sessionId, from: fromDriver, to: driver,
+            forced: force, previous_state: currentState,
+        });
+
+        // 2. Poll for runtime_state='stopped' (up to 30s)
+        for (let i = 0; i < 30; i++) {
+            await new Promise(r => setTimeout(r, 1000));
+            const [s] = await dbConn.query('SELECT runtime_state FROM wa_sessions WHERE session_id=?', [sessionId]);
+            if (s[0]?.runtime_state === 'stopped') break;
+        }
+
+        // 3. Trigger restart with new driver
+        await dbConn.query(
+            "UPDATE wa_sessions SET desired_state='running', desired_state_changed_at=NOW(), desired_state_changed_by=? WHERE session_id=?",
+            [getEffectiveOperator(req, null, 'api'), sessionId]
+        );
+
+        res.json({
+            ok: true,
+            driver,
+            hint: driver === 'baileys'
+                ? '账号将使用 Baileys 重新连接，请在 /api/wa/qr 扫码'
+                : '账号将使用 whatsapp-web.js 重新连接，请在 /api/wa/qr 扫码',
+        });
+    } catch (err) {
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+
 // GET /api/wa/qr — 返回二维码图片（网页端扫码用）
 router.get('/qr', async (req, res) => {
     const rawQr = await getRoutedQr({

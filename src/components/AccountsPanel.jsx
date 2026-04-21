@@ -189,6 +189,7 @@ function AddAccountModal({ onClose, onCreated }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [qrDataUrl, setQrDataUrl] = useState(null)
+  const [qrStatus, setQrStatus] = useState('waiting')
   const [qrPolling, setQrPolling] = useState(false)
   const [createdSessionId, setCreatedSessionId] = useState(null)
   const [lastQrAt, setLastQrAt] = useState(null)
@@ -208,18 +209,26 @@ function AddAccountModal({ onClose, onCreated }) {
 
   const startQrPolling = useCallback((sid) => {
     setQrPolling(true)
+    setQrStatus('loading')
     const poll = async () => {
       try {
         const data = await fetchJsonOrThrow(`${API_BASE}/wa/sessions/${sid}/qr`)
         if (data?.qr) {
           setQrDataUrl(data.qr)
+          setQrStatus('has_qr')
           setLastQrAt(data.last_qr_at || new Date().toISOString())
         }
       } catch (err) {
-        if (/ready/i.test(err.message)) {
+        const msg = err.message || ''
+        if (/ready|authenticated/i.test(msg)) {
+          setQrStatus('ready')
           stopPolling()
           onCreated?.({ session_id: sid })
           onClose?.()
+        } else if (/no QR available/i.test(msg)) {
+          setQrStatus('waiting')
+        } else if (/http \d+/i.test(msg)) {
+          setQrStatus('error')
         }
       }
     }
@@ -309,7 +318,7 @@ function AddAccountModal({ onClose, onCreated }) {
       )}
 
       {createdSessionId && (
-        <QrBody qrDataUrl={qrDataUrl} lastQrAt={lastQrAt} status={qrPolling ? 'polling' : 'waiting'} onClose={onClose} />
+        <QrBody qrDataUrl={qrDataUrl} lastQrAt={lastQrAt} status={qrStatus} onClose={onClose} />
       )}
     </ModalShell>
   )

@@ -152,6 +152,7 @@ class SessionRegistry {
                 ...process.env,
                 WA_SESSION_ID: sessionRow.session_id,
                 WA_OWNER: sessionRow.owner,
+                WA_DRIVER: sessionRow.driver || process.env.WA_DEFAULT_DRIVER || 'wwebjs',
             },
             stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
         });

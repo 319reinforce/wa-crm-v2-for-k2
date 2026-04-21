@@ -124,6 +124,26 @@ function main() {
     process.stdout.write('\n[SMOKE] skip wa send smoke (set SMOKE_INCLUDE_WA_SEND=1 to enable)\n');
   }
 
+  const includeBaileys = process.env.SMOKE_INCLUDE_BAILEYS === '1';
+  if (includeBaileys) {
+    // Unit-level driver load checks (no real WA account needed)
+    const bailLoadOk = runStep('node --test tests/unit/baileysDriver.unit.test.mjs', process.execPath, ['--test', 'tests/unit/baileysDriver.unit.test.mjs']);
+    if (!bailLoadOk) failed = true;
+    const switchLoadOk = runStep('node --test tests/integration/driverSwitch.test.mjs', process.execPath, ['--test', 'tests/integration/driverSwitch.test.mjs']);
+    if (!switchLoadOk) failed = true;
+    // Full integration requires WA_INTEGRATION=1
+    if (process.env.WA_INTEGRATION === '1') {
+      const bailSendOk = runStep('node --test tests/integration/baileysSendMessage.test.mjs', process.execPath, ['--test', 'tests/integration/baileysSendMessage.test.mjs']);
+      if (!bailSendOk) failed = true;
+      const bailRecvOk = runStep('node --test tests/integration/baileysReceiveMessage.test.mjs', process.execPath, ['--test', 'tests/integration/baileysReceiveMessage.test.mjs']);
+      if (!bailRecvOk) failed = true;
+    } else {
+      process.stdout.write('\n[SMOKE] skip baileys integration (set WA_INTEGRATION=1 to enable)\n');
+    }
+  } else {
+    process.stdout.write('\n[SMOKE] skip baileys smoke (set SMOKE_INCLUDE_BAILEYS=1 to enable)\n');
+  }
+
   if (failed) {
     console.error('\n[SMOKE] FAILED');
     process.exit(1);
