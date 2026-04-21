@@ -56,6 +56,17 @@ CREATE TABLE IF NOT EXISTS wa_messages (
     message_hash  VARCHAR(64) COMMENT 'SHA256(role|text|timestamp_ms) - legacy 兜底键',
     wa_message_id VARCHAR(128) DEFAULT NULL COMMENT 'WhatsApp 原生 message id (Message.id._serialized)',
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    -- 媒体字段（incoming media via downloadMedia）
+    media_asset_id         BIGINT NULL COMMENT 'FK to media_assets.id',
+    media_type             VARCHAR(32) NULL COMMENT 'image|video|audio|document',
+    media_mime             VARCHAR(64) NULL COMMENT 'e.g. image/jpeg',
+    media_size             BIGINT NULL COMMENT 'file size in bytes',
+    media_width            INT NULL COMMENT 'image width in px',
+    media_height           INT NULL COMMENT 'image height in px',
+    media_caption          TEXT NULL COMMENT 'caption text (for media with caption)',
+    media_thumbnail        TEXT NULL COMMENT 'base64 thumbnail for quick preview',
+    media_download_status  VARCHAR(16) NULL COMMENT 'pending|success|failed',
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -65,6 +76,10 @@ CREATE UNIQUE INDEX idx_messages_dedup_hash ON wa_messages(creator_id, message_h
 CREATE UNIQUE INDEX uk_wa_message_id ON wa_messages(wa_message_id);
 CREATE INDEX idx_messages_creator_timestamp ON wa_messages(creator_id, timestamp DESC);
 CREATE INDEX idx_messages_creator_role_ts ON wa_messages(creator_id, role, timestamp);
+-- 媒体索引
+CREATE INDEX idx_messages_media_asset  ON wa_messages(media_asset_id);
+CREATE INDEX idx_messages_media_status ON wa_messages(media_download_status);
+CREATE INDEX idx_messages_media_type   ON wa_messages(media_type);
 
 -- ============================================================
 -- WA CRM 扩展数据
@@ -280,6 +295,11 @@ CREATE TABLE IF NOT EXISTS media_assets (
     file_size           BIGINT NOT NULL,
     sha256_hash         VARCHAR(64) NOT NULL,
     status              VARCHAR(16) NOT NULL DEFAULT 'active' COMMENT 'active|deleted|blocked',
+    storage_tier        VARCHAR(16) NOT NULL DEFAULT 'hot' COMMENT 'hot|warm|cold|deleted',
+    original_size       BIGINT NULL COMMENT '压缩前原始大小',
+    compressed_at       DATETIME NULL COMMENT '压缩完成时间',
+    deleted_at          DATETIME NULL COMMENT '软删除时间',
+    cleanup_job_id      BIGINT NULL COMMENT 'FK to cleanup_jobs.id',
     meta_json           JSON NULL,
     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -289,6 +309,50 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE INDEX idx_media_assets_creator ON media_assets(creator_id);
 CREATE INDEX idx_media_assets_status ON media_assets(status);
 CREATE INDEX idx_media_assets_hash ON media_assets(sha256_hash);
+CREATE INDEX idx_media_assets_storage_tier ON media_assets(storage_tier);
+CREATE INDEX idx_media_assets_deleted_at ON media_assets(deleted_at);
+CREATE INDEX idx_media_assets_cleanup_job ON media_assets(cleanup_job_id);
+CREATE INDEX idx_media_assets_created_at ON media_assets(created_at);
+
+-- ============================================================
+-- Cleanup Jobs — 媒体清理任务
+-- ============================================================
+CREATE TABLE IF NOT EXISTS cleanup_jobs (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    job_type            VARCHAR(32) NOT NULL COMMENT "'retention'|'manual'|'purge'",
+    retention_days      INT NULL COMMENT '保留天数（retention 类型）',
+    status              VARCHAR(16) NOT NULL DEFAULT 'running' COMMENT 'running|completed|failed',
+    total_candidates    INT NOT NULL DEFAULT 0,
+    candidates_checked  INT NOT NULL DEFAULT 0,
+    candidates_deleted INT NOT NULL DEFAULT 0,
+    candidates_skipped INT NOT NULL DEFAULT 0,
+    started_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at       DATETIME NULL,
+    triggered_by       VARCHAR(64) NOT NULL DEFAULT 'system' COMMENT "'system'|'cron'|'manual'|'script'",
+    triggered_by_user  VARCHAR(64) NULL,
+    note               TEXT NULL,
+    error_message       TEXT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_cleanup_jobs_status ON cleanup_jobs(status);
+CREATE INDEX idx_cleanup_jobs_started ON cleanup_jobs(started_at DESC);
+
+-- ============================================================
+-- Cleanup Exemptions — 清理豁免记录（永久保留）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS cleanup_exemptions (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    media_asset_id      BIGINT NOT NULL,
+    exempted_by         VARCHAR(64) NOT NULL,
+    exemption_reason    VARCHAR(255) NOT NULL,
+    exempted_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at          DATETIME NULL COMMENT 'NULL = 永久豁免',
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (media_asset_id) REFERENCES media_assets(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE UNIQUE INDEX idx_exemptions_asset ON cleanup_exemptions(media_asset_id);
+CREATE INDEX idx_exemptions_expiry ON cleanup_exemptions(expires_at);
 
 -- ============================================================
 -- Media Send Log — 图片发送日志

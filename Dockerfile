@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 pnpm（固定主版本 9，抗 tarball integrity 污染）

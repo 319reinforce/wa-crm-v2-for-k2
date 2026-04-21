@@ -3,17 +3,42 @@ const path = require('path');
 const crypto = require('crypto');
 const db = require('../../db');
 
+let mediaCompressionService = null;
+try {
+    mediaCompressionService = require('./mediaCompressionService');
+} catch (_) {}
+
 const ALLOWED_IMAGE_MIME = new Set([
     'image/jpeg',
     'image/png',
     'image/webp',
     'image/gif',
 ]);
+const VIDEO_AUDIO_MIME = new Set([
+    'video/mp4',
+    'video/quicktime',
+    'video/webm',
+    'video/3gpp',
+    'audio/ogg',
+    'audio/mpeg',
+    'audio/wav',
+    'audio/opus',
+    'application/pdf',
+]);
 const MIME_EXT = {
     'image/jpeg': 'jpg',
     'image/png': 'png',
     'image/webp': 'webp',
     'image/gif': 'gif',
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/webm': 'webm',
+    'video/3gpp': '3gp',
+    'audio/ogg': 'ogg',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/opus': 'opus',
+    'application/pdf': 'pdf',
 };
 const MEDIA_UPLOAD_MAX_BYTES = Math.max(parseInt(process.env.MEDIA_UPLOAD_MAX_BYTES || `${8 * 1024 * 1024}`, 10) || (8 * 1024 * 1024), 256 * 1024);
 const MEDIA_LOCAL_DIR = path.resolve(process.env.MEDIA_LOCAL_DIR || path.join(process.cwd(), 'data', 'media-assets'));
@@ -167,6 +192,8 @@ async function createMediaAsset({
     let hash = '';
     let storageKey = '';
     let storageProvider = MEDIA_STORAGE_PROVIDER || 'local';
+    let processedMime = normalizedMime;
+    let metaOut = { ...meta };
     if (sourceUrl) {
         let parsed = null;
         try {
@@ -193,17 +220,44 @@ async function createMediaAsset({
             throw new Error(`file too large: ${buffer.length} bytes > ${MEDIA_UPLOAD_MAX_BYTES}`);
         }
 
-        const ext = extForMime(normalizedMime);
+        // 压缩图片
+        let processedBuffer = buffer;
+        let compressedMime = normalizedMime;
+        let originalSize = buffer.length;
+        if (mediaCompressionService) {
+            const { shouldCompress, compressBuffer } = mediaCompressionService;
+            if (shouldCompress && shouldCompress(buffer.length, normalizedMime)) {
+                try {
+                    const compressed = await compressBuffer(buffer, normalizedMime, fileName || `upload_${Date.now()}.${extForMime(normalizedMime)}`);
+                    if (!compressed.skipped && compressed.buffer.length < buffer.length) {
+                        processedBuffer = compressed.buffer;
+                        compressedMime = compressed.mimeType;
+                        console.log(`[mediaAssetService] compressed: ${buffer.length} → ${compressed.buffer.length} (${compressed.ratio.toFixed(2)}x) mime: ${normalizedMime} → ${compressed.mimeType}`);
+                    }
+                } catch (err) {
+                    console.warn(`[mediaAssetService] compression failed, storing original: ${err.message}`);
+                }
+            }
+        }
+        processedMime = compressedMime;
+
+        const ext = extForMime(processedMime);
         const generatedKey = buildStorageKey(ext);
         const generatedPath = path.join(MEDIA_LOCAL_DIR, generatedKey);
         ensureParentDir(generatedPath);
-        fs.writeFileSync(generatedPath, buffer);
+        fs.writeFileSync(generatedPath, processedBuffer);
 
         storageKey = generatedKey;
         filePath = generatedPath;
         fileUrl = toPublicUrl(generatedKey);
-        fileSize = buffer.length;
-        hash = sha256Buffer(buffer);
+        fileSize = processedBuffer.length;
+        hash = sha256Buffer(processedBuffer);
+        metaOut = {
+            ...meta,
+            original_size: processedBuffer.length < buffer.length ? buffer.length : undefined,
+            compressed: processedBuffer.length < buffer.length,
+            mime_before_compress: processedBuffer.length < buffer.length ? normalizedMime : undefined,
+        };
     }
     const ext = extForMime(normalizedMime);
     const safeFileName = sanitizeFileName(fileName, ext);
@@ -222,10 +276,10 @@ async function createMediaAsset({
         filePath,
         fileUrl,
         safeFileName,
-        normalizedMime,
+        processedMime,
         fileSize,
         hash,
-        JSON.stringify(meta || {})
+        JSON.stringify(metaOut || {})
     );
     const insertedId = result.lastInsertRowid;
     const row = await db2.prepare('SELECT * FROM media_assets WHERE id = ?').get(insertedId);
@@ -306,8 +360,10 @@ async function finalizeMediaSendLogFailed(logId, errorMessage) {
 
 module.exports = {
     ALLOWED_IMAGE_MIME,
+    VIDEO_AUDIO_MIME,
     MEDIA_UPLOAD_MAX_BYTES,
     ensureMediaSchema,
+    normalizeMimeType,
     createMediaAsset,
     getActiveMediaAssetById,
     createMediaSendLog,

@@ -42,6 +42,42 @@ const {
 } = require('./services/groupMessageService');
 const { getInternalServiceHeaders } = require('./utils/internalAuth');
 const { perfLog } = require('./services/perfLog');
+const { downloadAndStoreIncomingMedia, createIncomingMediaAsset } = require('./services/waIncomingMediaService');
+
+// 从已序列化的消息对象中提取 _mediaData 并存储为 media asset
+// _mediaData 是 WWebJS 的 MediaData 对象（含 data/base64 和 mimetype）
+async function processMediaDataFromMessage(msg) {
+    const mediaData = msg._mediaData;
+    if (!mediaData?.data || !mediaData?.mimetype) return null;
+    try {
+        const { asset: mediaAsset, compressed } = await createIncomingMediaAsset({
+            mimeType: mediaData.mimetype,
+            dataBase64: mediaData.data,
+            meta: {
+                source: 'poll',
+                wa_msg_id: msg.id?._serialized || msg.id,
+                from_me: msg.fromMe || false,
+            },
+        });
+        return {
+            mediaAssetId: mediaAsset.id,
+            mediaType: mediaData.mimetype.startsWith('image/') ? 'image'
+                : mediaData.mimetype.startsWith('video/') ? 'video'
+                : mediaData.mimetype.startsWith('audio/') ? 'audio'
+                : 'document',
+            mime: mediaData.mimetype,
+            size: mediaData.data.length,
+            width: msg.width || null,
+            height: msg.height || null,
+            caption: (msg.body || msg.caption || '').trim() || null,
+            thumbnail: mediaData.thumbnailhash ? 'available' : null,
+            downloadStatus: 'success',
+        };
+    } catch (err) {
+        console.warn(`${LOG_PREFIX}[Media] processMediaData failed: ${err.message}`);
+        return null;
+    }
+}
 
 // ================== 配置 ==================
 
@@ -461,6 +497,16 @@ async function insertMessages(creatorId, messages) {
             text,
             timestamp: timestampMs,
             wa_message_id: waMessageId || null,
+            // 媒体字段（来自 downloadAndStoreIncomingMedia 结果）
+            media_asset_id:         m.mediaInfo?.mediaAssetId || null,
+            media_type:             m.mediaInfo?.mediaType || null,
+            media_mime:             m.mediaInfo?.mime || null,
+            media_size:             m.mediaInfo?.size || null,
+            media_width:            m.mediaInfo?.width || null,
+            media_height:           m.mediaInfo?.height || null,
+            media_caption:          m.mediaInfo?.caption || null,
+            media_thumbnail:        m.mediaInfo?.thumbnail || null,
+            media_download_status:  m.mediaInfo?.mediaAssetId ? 'success' : (m.mediaInfo?.media_download_status || null),
         };
     });
 
@@ -491,14 +537,26 @@ async function insertMessages(creatorId, messages) {
 
     const ops = groupFiltered.kept.map((m) => {
         const messageHash = buildMessageHash(m.role, m.text, m.timestamp);
-        return [creatorId, m.role, m.operator, m.text, m.timestamp, messageHash, m.wa_message_id || null];
-    }).filter(([, , , text, timestampMs]) => text && timestampMs > 0);
-    const placeholders = ops.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+        return [
+            creatorId, m.role, m.operator, m.text, m.timestamp, messageHash,
+            m.wa_message_id || null,
+            m.media_asset_id, m.media_type, m.media_mime, m.media_size,
+            m.media_width, m.media_height, m.media_caption, m.media_thumbnail,
+            m.media_download_status,
+        ];
+    }).filter(([, , , text, timestampMs, , , mediaAssetId]) =>
+        (text && timestampMs > 0) || mediaAssetId
+    );
     if (ops.length === 0) return 0;
     try {
         const result = await db2.prepare(
-            `INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash, wa_message_id)
-             VALUES ${placeholders}`
+            `INSERT IGNORE INTO wa_messages
+             (creator_id, role, operator, text, timestamp, message_hash,
+              wa_message_id,
+              media_asset_id, media_type, media_mime, media_size,
+              media_width, media_height, media_caption, media_thumbnail,
+              media_download_status)
+             VALUES ${ops.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}`
         ).run(...ops.flat());
         const changes = Number(result?.changes || 0);
         if (changes > 0) {
@@ -547,6 +605,7 @@ async function fetchMessagesViaStore(chat, limit = HISTORY_MSG_LIMIT) {
 
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
+    // 在浏览器上下文中：获取原始 Message 对象，下载媒体，然后序列化
     return await c.pupPage.evaluate(async (targetChatId, targetLimit) => {
         const chatWid = window.Store.WidFactory.createWid(targetChatId);
         const model = window.Store.Chat.get(chatWid) ?? await window.Store.Chat.find(chatWid);
@@ -558,7 +617,39 @@ async function fetchMessagesViaStore(chat, limit = HISTORY_MSG_LIMIT) {
         const sliced = Number.isFinite(targetLimit) && targetLimit > 0
             ? msgs.slice(-targetLimit)
             : msgs;
-        return sliced.map((m) => window.WWebJS.getMessageModel(m));
+
+        // 批量下载媒体（最多并发 3 个）
+        const results = [];
+        for (let i = 0; i < sliced.length; i += 3) {
+            const batch = sliced.slice(i, i + 3);
+            const batchResults = await Promise.all(
+                batch.map(async (msgObj) => {
+                    try {
+                        if (msgObj.hasMedia) {
+                            // 有媒体：在原始 Message 对象上调用 downloadMedia()
+                            const mediaData = await Promise.race([
+                                msgObj.downloadMedia(),
+                                new Promise((_, reject) =>
+                                    setTimeout(() => reject(new Error('download_timeout')), 15000)
+                                ),
+                            ]);
+                            const serialized = window.WWebJS.getMessageModel(msgObj);
+                            if (mediaData?.data) {
+                                serialized._mediaData = mediaData; // 附加到序列化对象
+                            }
+                            return serialized;
+                        }
+                    } catch (_) {}
+                    return window.WWebJS.getMessageModel(msgObj);
+                })
+            );
+            results.push(...batchResults);
+            // 批次间延迟，防止限流
+            if (i + 3 < sliced.length) {
+                await new Promise(r => setTimeout(r, 500));
+            }
+        }
+        return results;
     }, chatId, limit);
 }
 
@@ -799,12 +890,28 @@ async function syncHistory(client) {
                 await getOrCreateCreator(phone, name);
             }
 
-            const msgsForDb = wamessages.map(m => ({
-                role: getWaMessageRole(m),
-                text: getWaMessageText(m),
-                timestamp: getWaMessageTimestampMs(m),
-                wa_message_id: extractWaMessageId(m),
-            }));
+            // 处理消息中的媒体（来自 fetchMessagesViaStore 的 _mediaData）
+            const withMedia = wamessages.filter(m => m._mediaData?.data);
+            const mediaResults = {};
+            if (withMedia.length > 0) {
+                const results = await Promise.all(
+                    withMedia.map(m => processMediaDataFromMessage(m).catch(() => null))
+                );
+                results.forEach((info, i) => {
+                    if (info) mediaResults[withMedia[i].id?._serialized || withMedia[i].id] = info;
+                });
+            }
+
+            const msgsForDb = wamessages.map(m => {
+                const mediaInfo = mediaResults[m.id?._serialized || m.id] || null;
+                return {
+                    role: getWaMessageRole(m),
+                    text: getWaMessageText(m),
+                    timestamp: getWaMessageTimestampMs(m),
+                    wa_message_id: extractWaMessageId(m),
+                    mediaInfo,
+                };
+            });
 
             const inserted = await insertMessages(creatorId, msgsForDb);
             progress.newMessages += inserted;
@@ -980,16 +1087,40 @@ async function handleIncomingMessage(msg) {
         }
 
         const creatorId = existingCreator.id;
+
+        // 下载并存储媒体（图片）
+        let mediaInfo = null;
+        if (msg.hasMedia) {
+            try {
+                mediaInfo = await Promise.race([
+                    downloadAndStoreIncomingMedia(msg, {
+                        creatorId,
+                        operator: resolveCurrentOwner(),
+                    }),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('media_download_timeout')), 30000)
+                    ),
+                ]);
+            } catch (err) {
+                console.warn(`${LOG_PREFIX}[media] download failed: ${err.message}`);
+                mediaInfo = { media_download_status: 'failed' };
+            }
+        }
+
         const inserted = await insertMessages(creatorId, [{
             role: getWaMessageRole(msg),
             text: getWaMessageText(msg),
             timestamp: getWaMessageTimestampMs(msg),
             wa_message_id: extractWaMessageId(msg),
+            mediaInfo,
         }]);
 
         if (inserted > 0) {
             await touchCreator(creatorId);  // 更新达人活跃时间
-            console.log(`${LOG_PREFIX} 📩 ${name}: ${getWaMessageText(msg).slice(0, 50)}`);
+            const preview = msg.hasMedia
+                ? `[Media: ${msg.mimetype || 'image'}] ${getWaMessageText(msg).slice(0, 40)}`
+                : getWaMessageText(msg).slice(0, 50);
+            console.log(`${LOG_PREFIX} 📩 ${name}: ${preview}`);
             messageHandlers.forEach(fn => {
                 try { fn({ phone, name, text: getWaMessageText(msg), creatorId }); } catch (_) {}
             });
@@ -1092,12 +1223,27 @@ async function pollOnce(client) {
             });
 
             if (newer.length > 0) {
-                const inserted = await insertMessages(creatorId, newer.map(m => ({
-                    role: getWaMessageRole(m),
-                    text: getWaMessageText(m),
-                    timestamp: getWaMessageTimestampMs(m),
-                    wa_message_id: extractWaMessageId(m),
-                })));
+                // 处理消息中的媒体（来自 fetchMessagesViaStore 的 _mediaData）
+                const withMedia = newer.filter(m => m._mediaData?.data);
+                const mediaResults = {};
+                if (withMedia.length > 0) {
+                    const results = await Promise.all(
+                        withMedia.map(m => processMediaDataFromMessage(m).catch(() => null))
+                    );
+                    results.forEach((info, i) => {
+                        if (info) mediaResults[withMedia[i].id?._serialized || withMedia[i].id] = info;
+                    });
+                }
+                const inserted = await insertMessages(creatorId, newer.map(m => {
+                    const mediaInfo = mediaResults[m.id?._serialized || m.id] || null;
+                    return {
+                        role: getWaMessageRole(m),
+                        text: getWaMessageText(m),
+                        timestamp: getWaMessageTimestampMs(m),
+                        wa_message_id: extractWaMessageId(m),
+                        mediaInfo,
+                    };
+                }));
                 newTotal += inserted;
                 if (inserted > 0) {
                     await touchCreator(creatorId);
@@ -1161,12 +1307,28 @@ async function pollOnce(client) {
 
             if (newer.length === 0) continue;
 
-            const inserted = await insertMessages(assignment.creator_id, newer.map((m) => ({
-                role: getWaMessageRole(m),
-                text: getWaMessageText(m),
-                timestamp: getWaMessageTimestampMs(m),
-                wa_message_id: extractWaMessageId(m),
-            })));
+            // 处理消息中的媒体（来自 fetchMessagesViaStore 的 _mediaData）
+            const withMedia = newer.filter(m => m._mediaData?.data);
+            const mediaResults = {};
+            if (withMedia.length > 0) {
+                const results = await Promise.all(
+                    withMedia.map(m => processMediaDataFromMessage(m).catch(() => null))
+                );
+                results.forEach((info, i) => {
+                    if (info) mediaResults[withMedia[i].id?._serialized || withMedia[i].id] = info;
+                });
+            }
+
+            const inserted = await insertMessages(assignment.creator_id, newer.map((m) => {
+                const mediaInfo = mediaResults[m.id?._serialized || m.id] || null;
+                return {
+                    role: getWaMessageRole(m),
+                    text: getWaMessageText(m),
+                    timestamp: getWaMessageTimestampMs(m),
+                    wa_message_id: extractWaMessageId(m),
+                    mediaInfo,
+                };
+            }));
             newTotal += inserted;
             if (inserted > 0) {
                 await touchCreator(assignment.creator_id);
