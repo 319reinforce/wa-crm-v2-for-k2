@@ -7,7 +7,7 @@
 
 require('dotenv').config();
 const { getDb } = require('../db');
-const { getClient, waitForReady, stop: stopWaService, getResolvedOwner } = require('./services/waService');
+const { getClient, waitForReady, stop: stopWaService, getResolvedOwner, getDriverName, onDriverEvent } = require('./services/waService');
 const { sha256 } = require('./utils/crypto');
 const { normalizeOperatorName } = require('./utils/operator');
 const {
@@ -1435,8 +1435,11 @@ async function start(options = {}) {
         return;
     }
 
+    const driverName = (typeof getDriverName === 'function' ? getDriverName() : null) || 'wwebjs';
     const c = getClient();
-    if (!c) {
+
+    // wwebjs 模式：必须拿到底层 Client 才能挂监听和跑 Puppeteer-driven 同步
+    if (driverName === 'wwebjs' && !c) {
         console.error(`${LOG_PREFIX} WhatsApp Client 未初始化`);
         progress.clientError = 'Client 未初始化';
         return;
@@ -1445,23 +1448,62 @@ async function start(options = {}) {
     progress.clientReady = true;
     progress.clientError = null;
 
-    // 注册实时监听（'message' 不触发 fromMe，需额外挂 'message_create' 才能捕获操作员手机端发出的消息）
-    c.on('message', (msg) => handleIncomingMessage(msg));
-    c.on('message_create', (msg) => {
-        if (msg?.fromMe) handleIncomingMessage(msg);
-    });
+    if (driverName === 'wwebjs') {
+        // 注册实时监听（'message' 不触发 fromMe，需额外挂 'message_create' 才能捕获操作员手机端发出的消息）
+        c.on('message', (msg) => handleIncomingMessage(msg));
+        c.on('message_create', (msg) => {
+            if (msg?.fromMe) handleIncomingMessage(msg);
+        });
 
-    // 历史同步
-    if (options.syncHistory !== false) {
-        await syncHistory(c);
+        // 历史同步
+        if (options.syncHistory !== false) {
+            await syncHistory(c);
+        }
+
+        // 启动增量轮询
+        startPolling(c);
+
+        progress.phase = 'live';
+        console.log('═'.repeat(60));
+        console.log(`  WA Worker 已就绪 (wwebjs 实时监听 + 增量轮询) (${WORKER_TAG})`);
+        console.log('═'.repeat(60));
+        return;
     }
 
-    // 启动增量轮询
-    startPolling(c);
-
+    // Baileys 模式：driver 本身已经通过 WebSocket 收消息，没有 Puppeteer Chat，
+    // 跳过 syncHistory + Puppeteer 轮询。订阅 facade message 事件的持久化
+    // 管道由 C2.2 补齐；当前 session 先以"live 但未落库"状态待命避免崩溃。
+    console.warn(`${LOG_PREFIX} driver=${driverName}: 跳过 wwebjs worker 管线；消息持久化管道待 C2.2 实现`);
+    if (typeof onDriverEvent === 'function') {
+        onDriverEvent('message', (incoming) => {
+            perfLog('wa_event_received', {
+                source: 'worker',
+                sessionId: WA_SESSION_ID,
+                owner: WA_OWNER,
+                driver: driverName,
+                waMsgId: incoming?.id || null,
+                fromMe: !!incoming?.fromMe,
+                eventTimestamp: typeof incoming?.timestamp === 'number' ? incoming.timestamp : null,
+                persisted: false,
+                note: 'baileys_pipeline_pending_c22',
+            });
+        });
+        onDriverEvent('group_message', (incoming) => {
+            perfLog('wa_event_received', {
+                source: 'worker',
+                sessionId: WA_SESSION_ID,
+                owner: WA_OWNER,
+                driver: driverName,
+                waMsgId: incoming?.id || null,
+                isGroup: true,
+                persisted: false,
+                note: 'baileys_pipeline_pending_c22',
+            });
+        });
+    }
     progress.phase = 'live';
     console.log('═'.repeat(60));
-    console.log(`  WA Worker 已就绪 (实时监听 + 增量轮询) (${WORKER_TAG})`);
+    console.log(`  WA Worker 已就绪 (driver=${driverName}, 等待 C2.2 持久化管道) (${WORKER_TAG})`);
     console.log('═'.repeat(60));
 }
 

@@ -288,6 +288,13 @@ class WhatsAppService extends EventEmitter {
 
         this._driver.on('failed', (err) => this.handleClientFailure(err, 'driver failed'));
 
+        // Forward inbound message events so waWorker / subscribers can listen at
+        // the facade layer instead of reaching into the driver.
+        // Shape: baileys → IncomingMessage, wwebjs → raw wwebjs Message (until C2.2 unifies).
+        this._driver.on('message', (msg) => this.emit('message', msg));
+        this._driver.on('group_message', (msg) => this.emit('group_message', msg));
+        this._driver.on('disconnect', (info) => this.emit('disconnect', info));
+
         await this._driver.start();
 
         // Backward compat: waWorker / some routes still read getClient() to attach
@@ -477,6 +484,16 @@ module.exports = {
         return requireSingleService().getClient();
     },
     getReady: () => requireSingleService().getReady(),
+    getDriverName: (sessionId) => {
+        if (sessionId) {
+            const svc = services.get(String(sessionId));
+            if (!svc) throw new Error(`[WA Service] unknown session: ${sessionId}`);
+            return svc.driver;
+        }
+        return requireSingleService().driver;
+    },
+    onDriverEvent: (event, handler) => requireSingleService().on(event, handler),
+    offDriverEvent: (event, handler) => requireSingleService().off(event, handler),
     waitForReady: (timeoutMs, sessionId) => {
         if (sessionId) {
             const svc = services.get(String(sessionId));
