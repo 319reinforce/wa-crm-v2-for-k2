@@ -49,6 +49,16 @@ async function persistDirectMessageRecord({
     auditAction = 'message_create',
     shortWindowGuard = true,
     groupConflictGuard = true,
+    // 媒体字段（可选）：调用方在持久化媒体消息时传入，老 caller 不传等同 null。
+    mediaAssetId = null,
+    mediaType = null,
+    mediaMime = null,
+    mediaSize = null,
+    mediaWidth = null,
+    mediaHeight = null,
+    mediaCaption = null,
+    mediaThumbnail = null,
+    mediaDownloadStatus = null,
 }) {
     const normalizedText = normalizeMessageText(text);
     const normalizedOperator = normalizeOperatorName(operator, operator || null);
@@ -148,9 +158,30 @@ async function persistDirectMessageRecord({
     }
 
     const messageHash = buildMessageHash(safe.role, safe.text, safe.timestamp);
+    const normalizedMediaAssetId = Number.isFinite(Number(mediaAssetId)) && Number(mediaAssetId) > 0
+        ? Number(mediaAssetId)
+        : null;
+    const resolvedDownloadStatus = mediaDownloadStatus
+        || (normalizedMediaAssetId ? 'success' : null);
     const insertResult = await dbConn.prepare(
-        'INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash, wa_message_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(creatorId, safe.role, safe.operator, safe.text, safe.timestamp, messageHash, normalizedWaMessageId);
+        `INSERT IGNORE INTO wa_messages
+         (creator_id, role, operator, text, timestamp, message_hash, wa_message_id,
+          media_asset_id, media_type, media_mime, media_size,
+          media_width, media_height, media_caption, media_thumbnail,
+          media_download_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+        creatorId, safe.role, safe.operator, safe.text, safe.timestamp, messageHash, normalizedWaMessageId,
+        normalizedMediaAssetId,
+        mediaType || null,
+        mediaMime || null,
+        Number.isFinite(Number(mediaSize)) ? Number(mediaSize) : null,
+        Number.isFinite(Number(mediaWidth)) ? Number(mediaWidth) : null,
+        Number.isFinite(Number(mediaHeight)) ? Number(mediaHeight) : null,
+        mediaCaption || null,
+        mediaThumbnail || null,
+        resolvedDownloadStatus
+    );
     const persisted = Number(insertResult?.changes || 0) > 0;
 
     if (persisted) {

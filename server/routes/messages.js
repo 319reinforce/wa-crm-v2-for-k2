@@ -11,6 +11,24 @@ const { toTimestampMs } = require('../services/messageDedupService');
 const { persistDirectMessageRecord } = require('../services/directMessagePersistenceService');
 const creatorCache = require('../services/creatorCache');
 
+// SELECT 片段：wa_messages.* 之外，LEFT JOIN media_assets 把前端需要的字段拍平过来。
+// 前端（WAMessageComposer.jsx）读 message.media_url / message.mime_type / message.file_name
+// 来判定和渲染媒体；wa_messages 本身只有 media_asset_id / media_mime 等内部列。
+// 若 media_assets.file_url 为空（本地存储、未配 MEDIA_PUBLIC_BASE_URL），
+// 则回退到后端代理下载端点 /api/wa/media-assets/:id/download。
+const WA_MESSAGES_SELECT = `
+    wm.*,
+    COALESCE(
+      NULLIF(ma.file_url, ''),
+      CASE WHEN ma.id IS NOT NULL THEN CONCAT('/api/wa/media-assets/', ma.id, '/download') ELSE NULL END
+    ) AS media_url,
+    COALESCE(ma.mime_type, wm.media_mime) AS mime_type,
+    ma.file_name AS file_name,
+    ma.file_size AS media_file_size
+  FROM wa_messages wm
+  LEFT JOIN media_assets ma ON ma.id = wm.media_asset_id
+`;
+
 function isLegacySecondTimestamp(value) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 && n < 1e12;
@@ -107,19 +125,17 @@ router.get('/', async (req, res) => {
         if (aroundMessageId > 0 || aroundTimestamp > 0) {
             if (aroundMessageId > 0) {
                 anchorMessage = await dbConn.prepare(`
-                    SELECT *
-                    FROM wa_messages
-                    WHERE creator_id = ? AND id = ?
+                    SELECT ${WA_MESSAGES_SELECT}
+                    WHERE wm.creator_id = ? AND wm.id = ?
                     LIMIT 1
                 `).get(creatorId, aroundMessageId);
             }
 
             if (!anchorMessage && aroundTimestamp > 0) {
                 anchorMessage = await dbConn.prepare(`
-                    SELECT *
-                    FROM wa_messages
-                    WHERE creator_id = ?
-                    ORDER BY ABS(timestamp - ?), id DESC
+                    SELECT ${WA_MESSAGES_SELECT}
+                    WHERE wm.creator_id = ?
+                    ORDER BY ABS(wm.timestamp - ?), wm.id DESC
                     LIMIT 1
                 `).get(creatorId, aroundTimestamp);
             }
@@ -128,19 +144,17 @@ router.get('/', async (req, res) => {
                 const anchorTs = Number(anchorMessage.timestamp || 0);
                 const anchorId = Number(anchorMessage.id || 0);
                 const beforeRows = await dbConn.prepare(`
-                    SELECT *
-                    FROM wa_messages
-                    WHERE creator_id = ?
-                      AND (timestamp < ? OR (timestamp = ? AND id < ?))
-                    ORDER BY timestamp DESC, id DESC
+                    SELECT ${WA_MESSAGES_SELECT}
+                    WHERE wm.creator_id = ?
+                      AND (wm.timestamp < ? OR (wm.timestamp = ? AND wm.id < ?))
+                    ORDER BY wm.timestamp DESC, wm.id DESC
                     LIMIT ${windowBefore}
                 `).all(creatorId, anchorTs, anchorTs, anchorId);
                 const afterRows = await dbConn.prepare(`
-                    SELECT *
-                    FROM wa_messages
-                    WHERE creator_id = ?
-                      AND (timestamp > ? OR (timestamp = ? AND id > ?))
-                    ORDER BY timestamp ASC, id ASC
+                    SELECT ${WA_MESSAGES_SELECT}
+                    WHERE wm.creator_id = ?
+                      AND (wm.timestamp > ? OR (wm.timestamp = ? AND wm.id > ?))
+                    ORDER BY wm.timestamp ASC, wm.id ASC
                     LIMIT ${windowAfter}
                 `).all(creatorId, anchorTs, anchorTs, anchorId);
 
@@ -152,9 +166,9 @@ router.get('/', async (req, res) => {
         if (messages.length === 0) {
             messages = await dbConn.prepare(
                 `SELECT * FROM (
-                    SELECT * FROM wa_messages
-                    WHERE creator_id = ?
-                    ORDER BY timestamp DESC, id DESC
+                    SELECT ${WA_MESSAGES_SELECT}
+                    WHERE wm.creator_id = ?
+                    ORDER BY wm.timestamp DESC, wm.id DESC
                     LIMIT ${safeLimit} OFFSET ${safeOffset}
                 ) recent
                 ORDER BY timestamp ASC, id ASC`

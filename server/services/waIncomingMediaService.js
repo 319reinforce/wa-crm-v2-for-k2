@@ -284,9 +284,11 @@ async function downloadAndStoreIncomingMedia(msg, { creatorId, operator }) {
         return null;
     }
 
-    const mimeType = msg.mimetype || '';
-    if (!isAllowedMimeType(mimeType)) {
-        console.warn(`${LOG_PREFIX} unsupported mime: ${mimeType}, skipping`);
+    // 预检：msg.mimetype 在实时 'message' 事件中经常为空（wwebjs 需要先下载才能拿到）。
+    // 只有当 mimetype 明确声明且不在白名单时才提前退出；否则走"先下载，再用 MessageMedia.mimetype 判定"。
+    const declaredMime = normalizeMimeType(msg.mimetype || '');
+    if (declaredMime && !isAllowedMimeType(declaredMime)) {
+        console.warn(`${LOG_PREFIX} unsupported mime (declared): ${declaredMime}, skipping`);
         return null;
     }
 
@@ -317,6 +319,13 @@ async function downloadAndStoreIncomingMedia(msg, { creatorId, operator }) {
         return null;
     }
 
+    // 下载完成后，真实 mime 从 MessageMedia 取；回退到 declaredMime；都没有就拒绝。
+    const resolvedMime = normalizeMimeType(mediaData.mimetype || declaredMime || '');
+    if (!isAllowedMimeType(resolvedMime)) {
+        console.warn(`${LOG_PREFIX} unsupported mime (resolved): ${resolvedMime || '<empty>'}, skipping`);
+        return null;
+    }
+
     const buffer = decodeDataUrl(mediaData.data);
     if (!buffer || buffer.length === 0) {
         console.error(`${LOG_PREFIX} empty media data after decode`);
@@ -329,7 +338,7 @@ async function downloadAndStoreIncomingMedia(msg, { creatorId, operator }) {
 
     const { asset, processedMime, processedSize, originalSize } = await createIncomingMediaAsset({
         buffer,
-        mimeType,
+        mimeType: resolvedMime,
         creatorId,
         operator,
         waMessageId,
