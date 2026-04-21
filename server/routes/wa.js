@@ -107,13 +107,14 @@ async function resolveSendCreator({ creator_id, phone }) {
     }
     const normalizedPhone = normalizeDigits(rawPhone);
     const dbConn = db.getDb();
+    const creatorCache = require('../services/creatorCache');
 
     if (!creatorId && !normalizedPhone && !rawPhone) {
         return { ok: false, status: 400, error: 'creator_id or phone required' };
     }
 
     if (creatorId) {
-        const row = await dbConn.prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1').get(creatorId);
+        const row = await creatorCache.getCreator(dbConn, creatorId, 'id, primary_name, wa_phone, wa_owner');
         if (!row) {
             return { ok: false, status: 404, error: 'creator_id not found' };
         }
@@ -129,9 +130,10 @@ async function resolveSendCreator({ creator_id, phone }) {
         return { ok: true, creator: row, phone: normalizeDigits(row.wa_phone) || String(row.wa_phone).trim() };
     }
 
-    const row = await dbConn.prepare(
-        'SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE wa_phone = ? OR wa_phone = ? LIMIT 1'
-    ).get(rawPhone, normalizedPhone);
+    let row = await creatorCache.getCreatorByPhone(dbConn, rawPhone, 'id, primary_name, wa_phone, wa_owner');
+    if (!row && normalizedPhone !== rawPhone) {
+        row = await creatorCache.getCreatorByPhone(dbConn, normalizedPhone, 'id, primary_name, wa_phone, wa_owner');
+    }
     if (!row) {
         return { ok: false, status: 404, error: 'phone not found in creators' };
     }
@@ -425,7 +427,7 @@ router.post('/media-assets', async (req, res) => {
 
         let creatorRow = null;
         if (creatorId) {
-            creatorRow = await db.getDb().prepare('SELECT id, wa_owner FROM creators WHERE id = ?').get(creatorId);
+            creatorRow = await creatorCache.getCreator(db.getDb(), creatorId, 'id, wa_owner');
             if (!creatorRow) {
                 return res.status(404).json({ ok: false, error: 'creator_id not found' });
             }

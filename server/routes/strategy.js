@@ -14,19 +14,18 @@ const {
     buildDefaultPayload,
     extractPayloadFromRow,
 } = require('../services/strategyConfigService');
-const {
-    rebuildReplyStrategyForCreator,
+const { rebuildReplyStrategyForCreator,
     rebuildReplyStrategiesForAll,
     rebuildMissingReplyStrategies,
     inspectReplyStrategyForCreator,
 } = require('../services/replyStrategyService');
 const { requireHumanAdmin } = require('../middleware/appAuth');
 const { ensureClientScope } = require('../utils/ownerScope');
+const creatorCache = require('../services/creatorCache');
 
 async function findCreatorOwner(dbConn, creatorId) {
     if (!creatorId) return null;
-    const row = await dbConn.prepare('SELECT wa_owner, wa_phone FROM creators WHERE id = ? LIMIT 1').get(creatorId);
-    return row || null;
+    return await creatorCache.getCreator(dbConn, creatorId, 'wa_owner, wa_phone');
 }
 
 // GET /api/strategy-config/unbound-agency

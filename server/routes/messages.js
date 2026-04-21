@@ -9,6 +9,7 @@ const { getLockedOwner, matchesOwnerScope, sendOwnerScopeForbidden } = require('
 const { normalizeOperatorName } = require('../utils/operator');
 const { toTimestampMs } = require('../services/messageDedupService');
 const { persistDirectMessageRecord } = require('../services/directMessagePersistenceService');
+const creatorCache = require('../services/creatorCache');
 
 function isLegacySecondTimestamp(value) {
     const n = Number(value);
@@ -62,9 +63,7 @@ function normalizeMessagesForTimeline(messages = []) {
 }
 
 async function ensureCreatorAccess(req, res, creatorId) {
-    const row = await db.getDb().prepare(
-        'SELECT id, wa_owner FROM creators WHERE id = ? LIMIT 1'
-    ).get(creatorId);
+    const row = await creatorCache.getCreator(db.getDb(), creatorId, 'id, wa_owner');
     if (!row) {
         res.status(404).json({ ok: false, error: 'Creator not found' });
         return null;

@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const creatorCache = require('./creatorCache');
 const { writeAudit } = require('../middleware/audit');
 const {
     filterShortWindowDuplicates,
@@ -168,9 +169,7 @@ async function persistDirectMessageRecord({
             // 判断是否当前打开的会话）。这是一条短查询，不进事务。
             let waPhone = null;
             try {
-                const row = await dbConn.prepare(
-                    'SELECT wa_phone FROM creators WHERE id = ?'
-                ).get(creatorId);
+                const row = await creatorCache.getCreator(dbConn, creatorId, 'wa_phone');
                 waPhone = row && row.wa_phone ? String(row.wa_phone) : null;
             } catch (err) {
                 console.error('[persistDirectMessageRecord] wa_phone lookup failed:', err.message);

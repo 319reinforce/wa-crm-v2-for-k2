@@ -1,4 +1,5 @@
 const db = require('../../db');
+const creatorCache = require('./creatorCache');
 const { buildLifecycle } = require('./lifecycleService');
 const {
     DEFAULT_POLICY_KEY: LIFECYCLE_POLICY_KEY,
@@ -717,9 +718,7 @@ async function rebuildReplyStrategyForClient({
     const safeClientId = toText(clientId);
     if (!safeClientId) return { ok: false, reason: 'invalid_client_id' };
     const dbConn = db.getDb();
-    const creator = await dbConn.prepare(
-        'SELECT id FROM creators WHERE wa_phone = ? LIMIT 1'
-    ).get(safeClientId);
+    const creator = await creatorCache.getCreatorByPhone(dbConn, safeClientId, 'id');
     if (!creator) return { ok: false, reason: 'creator_not_found' };
 
     return await rebuildReplyStrategyForCreator({

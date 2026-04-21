@@ -5,13 +5,12 @@ const {
     sendOwnerScopeForbidden,
 } = require('../middleware/appAuth');
 const { normalizeOperatorName } = require('./operator');
+const creatorCache = require('../services/creatorCache');
 
 async function findCreatorByClientId(dbConn, clientId, fields = 'id, wa_owner') {
     const normalizedClientId = String(clientId || '').trim();
     if (!normalizedClientId) return null;
-    return await dbConn.prepare(
-        `SELECT ${fields} FROM creators WHERE wa_phone = ? LIMIT 1`
-    ).get(normalizedClientId);
+    return await creatorCache.getCreatorByPhone(dbConn, normalizedClientId, fields);
 }
 
 async function ensureClientScope(req, res, dbConn, clientId, options = {}) {

@@ -1,4 +1,5 @@
 const db = require('../../db');
+const creatorCache = require('./creatorCache');
 const { normalizeOperatorName } = require('../utils/operator');
 const { mergeDuplicateCreatorIntoCanonical } = require('./creatorMergeService');
 
@@ -212,12 +213,12 @@ async function loadRosterCandidates(operator) {
 
 async function getCreatorById(id) {
     if (!id) return null;
-    return await db.getDb().prepare('SELECT * FROM creators WHERE id = ? LIMIT 1').get(id);
+    return await creatorCache.getCreator(db.getDb(), id, '*');
 }
 
 async function getCreatorByPhone(phone) {
     if (!phone) return null;
-    return await db.getDb().prepare('SELECT * FROM creators WHERE wa_phone = ? LIMIT 1').get(phone);
+    return await creatorCache.getCreatorByPhone(db.getDb(), phone, '*');
 }
 
 async function attachPhoneToCreator({ creatorId, phone, name, operator }) {
