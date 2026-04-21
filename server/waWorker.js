@@ -41,6 +41,7 @@ const {
     purgeCreatorMessagesMatchingGroups,
 } = require('./services/groupMessageService');
 const { getInternalServiceHeaders } = require('./utils/internalAuth');
+const { perfLog } = require('./services/perfLog');
 
 // ================== 配置 ==================
 
@@ -930,10 +931,26 @@ async function notifyProfilePipelines({ creatorId, phone, text = '', role = 'use
 }
 
 async function handleIncomingMessage(msg) {
+    const handleStartedAt = Date.now();
+    const waMsgId = extractWaMessageId(msg);
+    perfLog('wa_event_received', {
+        source: 'worker',
+        sessionId: WA_SESSION_ID,
+        owner: WA_OWNER,
+        waMsgId,
+        fromMe: msg && msg.fromMe === true,
+        eventTimestamp: getWaMessageTimestampMs(msg),
+    });
     try {
         const msgChat = await msg.getChat().catch(() => msg.chat || null);
         if (isGroupChat(msgChat)) {
             await persistGroupChatMessages(msgChat, [msg]);
+            perfLog('wa_event_handled', {
+                source: 'worker',
+                waMsgId,
+                outcome: 'group',
+                durationMs: Date.now() - handleStartedAt,
+            });
             return;
         }
         if (!isDirectMessage(msg, msgChat)) return;
@@ -986,8 +1003,24 @@ async function handleIncomingMessage(msg) {
                 insertedCount: inserted,
             });
         }
+        perfLog('wa_event_handled', {
+            source: 'worker',
+            waMsgId,
+            creatorId: existingCreator && existingCreator.id,
+            role: getWaMessageRole(msg),
+            inserted,
+            outcome: inserted > 0 ? 'inserted' : 'skipped',
+            durationMs: Date.now() - handleStartedAt,
+        });
     } catch (e) {
         console.error(`${LOG_PREFIX} handleIncomingMessage error:`, e.message);
+        perfLog('wa_event_handled', {
+            source: 'worker',
+            waMsgId,
+            outcome: 'error',
+            errorMessage: e && e.message,
+            durationMs: Date.now() - handleStartedAt,
+        });
     }
 }
 

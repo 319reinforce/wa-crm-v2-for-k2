@@ -18,6 +18,7 @@ const { EventEmitter } = require('events');
 
 const sessionRepository = require('./sessionRepository');
 const sseBus = require('../events/sseBus');
+const { perfLog } = require('./perfLog');
 const {
     CMD_SHUTDOWN,
     TYPE_CMD_RESULT,
@@ -323,6 +324,12 @@ class SessionRegistry {
                     break;
                 case EVT_WA_MESSAGE:
                     // 不入 Registry state,只转发给 SSE(实际消息持久化在 agent 侧 worker 里)
+                    perfLog('agent_msg_ipc_recv', {
+                        sessionId,
+                        waMsgId: msg.message_id || null,
+                        role: msg.role || null,
+                        wahTimestamp: msg.timestamp || null,
+                    });
                     sseBus.broadcast('wa-message', {
                         session_id: sessionId,
                         owner: agent.owner,

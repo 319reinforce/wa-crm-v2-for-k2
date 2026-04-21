@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { perfLog } = require('./perfLog');
 
 const ROOT_DIR = path.join(__dirname, '../../.wa_ipc');
 const STATUS_DIR = path.join(ROOT_DIR, 'status');
@@ -88,6 +89,11 @@ function createSessionCommand(sessionId, payload) {
         created_at: new Date().toISOString(),
         ...payload,
     });
+    perfLog('cmd_sent', {
+        cmdId: commandId,
+        sessionId: safeSessionId,
+        cmd: payload && payload.cmd,
+    });
     return commandId;
 }
 
@@ -109,6 +115,12 @@ function claimNextSessionCommand(sessionId) {
                 fs.unlinkSync(target);
                 continue;
             }
+            perfLog('cmd_claimed', {
+                cmdId: command.id,
+                sessionId: safeSessionId,
+                cmd: command.cmd,
+                createdAt: command.created_at,
+            });
             return { command, filePath: target };
         } catch (_) {
             continue;
@@ -130,12 +142,23 @@ function completeClaimedCommand(claimed, result) {
     try {
         fs.unlinkSync(claimed.filePath);
     } catch (_) {}
+    perfLog('cmd_completed', {
+        cmdId: claimed.command.id,
+        sessionId,
+        cmd: claimed.command.cmd,
+        ok: result && result.ok !== false,
+    });
 }
 
 async function waitForSessionCommandResult(sessionId, commandId, timeoutMs = 20000) {
     const safeSessionId = ensureSessionDirs(sessionId);
     const filePath = resultFilePath(safeSessionId, commandId);
     const started = Date.now();
+    perfLog('cmd_wait_start', {
+        cmdId: commandId,
+        sessionId: safeSessionId,
+        timeoutMs,
+    });
 
     while (Date.now() - started < timeoutMs) {
         if (fs.existsSync(filePath)) {
@@ -143,10 +166,23 @@ async function waitForSessionCommandResult(sessionId, commandId, timeoutMs = 200
             try {
                 fs.unlinkSync(filePath);
             } catch (_) {}
+            perfLog('cmd_wait_end', {
+                cmdId: commandId,
+                sessionId: safeSessionId,
+                outcome: 'resolved',
+                waitedMs: Date.now() - started,
+                ok: payload && payload.ok !== false,
+            });
             return payload || { ok: false, error: 'invalid command result' };
         }
         await new Promise((resolve) => setTimeout(resolve, 250));
     }
+    perfLog('cmd_wait_end', {
+        cmdId: commandId,
+        sessionId: safeSessionId,
+        outcome: 'timeout',
+        waitedMs: Date.now() - started,
+    });
     throw new Error(`session command timeout: ${safeSessionId}/${commandId}`);
 }
 

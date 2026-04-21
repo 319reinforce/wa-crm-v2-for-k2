@@ -47,6 +47,7 @@ const legacySessionsBootstrap = require('./bootstrap/migrateLegacySessions');
 const sessionRepository = require('./services/sessionRepository');
 const { initRegistry } = require('./services/sessionRegistry');
 const sseBus = require('./events/sseBus');
+const { perfLog, perfLogEnabled } = require('./services/perfLog');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -164,6 +165,23 @@ async function tryListenWithRetry(app, port, retries = 3) {
 app.use(require('compression')({ threshold: 1024 }));
 app.use(jsonBody);
 app.use(timeout);
+
+// Phase 0 perf telemetry:只在 PERF_LOG_ENABLED=true 时挂载，生产默认零开销
+if (perfLogEnabled()) {
+    app.use((req, res, next) => {
+        if (!req.path || !req.path.startsWith('/api/')) return next();
+        const startedAt = Date.now();
+        res.on('finish', () => {
+            perfLog('rest_response', {
+                method: req.method,
+                path: req.path,
+                status: res.statusCode,
+                durationMs: Date.now() - startedAt,
+            });
+        });
+        next();
+    });
+}
 
 // 静态文件（前端构建产物）
 app.use(express.static(path.join(__dirname, '../public')));

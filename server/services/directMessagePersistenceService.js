@@ -10,6 +10,7 @@ const {
     filterDirectMessagesAgainstGroups,
 } = require('./groupMessageService');
 const { normalizeOperatorName } = require('../utils/operator');
+const { perfLog } = require('./perfLog');
 
 // Optional-require for message cache (perf-cache branch). No-op when not present.
 let invalidateMessageCache = () => {};
@@ -57,6 +58,16 @@ async function persistDirectMessageRecord({
         throw new Error('creatorId, role, and text are required');
     }
 
+    const persistStartedAt = Date.now();
+    perfLog('persist_start', {
+        creatorId,
+        waMsgId: normalizedWaMessageId,
+        role,
+        operator: normalizedOperator,
+        timestamp: timestampMs,
+        auditAction,
+    });
+
     let kept = [{
         creator_id: creatorId,
         role,
@@ -74,6 +85,14 @@ async function persistDirectMessageRecord({
         });
         kept = deduped.kept;
         if (kept.length === 0) {
+            perfLog('persist_end', {
+                creatorId,
+                waMsgId: normalizedWaMessageId,
+                persisted: false,
+                blocked: true,
+                reason: 'short_window_duplicate',
+                durationMs: Date.now() - persistStartedAt,
+            });
             return {
                 handled: true,
                 persisted: false,
@@ -97,6 +116,14 @@ async function persistDirectMessageRecord({
             messages: kept,
         });
         if (groupFiltered.kept.length === 0) {
+            perfLog('persist_end', {
+                creatorId,
+                waMsgId: normalizedWaMessageId,
+                persisted: false,
+                blocked: true,
+                reason: 'group_message_conflict',
+                durationMs: Date.now() - persistStartedAt,
+            });
             return {
                 handled: true,
                 persisted: false,
@@ -131,6 +158,15 @@ async function persistDirectMessageRecord({
             }, req);
         }
     }
+
+    perfLog('persist_end', {
+        creatorId,
+        waMsgId: normalizedWaMessageId,
+        persisted,
+        blocked: false,
+        reason: persisted ? null : 'duplicate',
+        durationMs: Date.now() - persistStartedAt,
+    });
 
     return {
         handled: true,

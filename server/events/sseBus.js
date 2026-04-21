@@ -5,6 +5,8 @@
  * 向所有客户端推事件。替代 index.cjs 里的 inline sseClients Set。
  */
 
+const { perfLog } = require('../services/perfLog');
+
 const clients = new Set();
 
 function addClient(res) {
@@ -14,6 +16,13 @@ function addClient(res) {
 }
 
 function broadcast(eventName, data) {
+    perfLog('sse_broadcast', {
+        event: eventName,
+        recipients: clients.size,
+        waMsgId: data && (data.message_id || data.wa_message_id),
+        sessionId: data && data.session_id,
+        role: data && data.role,
+    });
     if (clients.size === 0) return 0;
     const payload = data === undefined ? '' : JSON.stringify(data);
     const message = `event: ${eventName}\ndata: ${payload}\n\n`;
