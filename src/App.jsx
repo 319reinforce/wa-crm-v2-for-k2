@@ -433,7 +433,8 @@ function App() {
     }
   }, [])
 
-  const handleSelectCreator = (creator) => {
+  const handleSelectCreator = async (creator) => {
+    if (!creator?.id) return
     if (!shouldShowUnread(creator)) {
       setUnreadCounts(prev => ({ ...prev, [creator.id]: 0 }))
     }
@@ -443,7 +444,11 @@ function App() {
     setConversationScope('creators')
     setSelectedGroupChat(null)
     setDetailPanelExpanded(detailPanelPinned)
-    setSelectedCreator(creator)
+    setSelectedCreator(null)
+    await selectCreatorById(creator.id, {
+      activeTab: 'creators',
+      expandDetail: detailPanelPinned,
+    })
   }
 
   const handleSelectGroupChat = useCallback((groupChat) => {
@@ -490,11 +495,14 @@ function App() {
     })
   }, [])
 
-  const resolveCreatorIdFromQuery = useCallback(async ({ waPhone, jbName, keeperUsername }) => {
+  const resolveCreatorIdFromQuery = useCallback(async ({ waPhone, jbName, keeperUsername, creator }) => {
     const normalizedPhone = normalizePhoneKey(waPhone)
     const normalizedJbName = normalizeLookupText(jbName)
     const normalizedKeeperUsername = normalizeLookupText(keeperUsername)
-    const searchValue = waPhone || keeperUsername || jbName
+    const normalizedCreatorLookup = normalizeLookupText(creator)
+    const normalizedCreatorPhone = normalizePhoneKey(creator)
+    const fallbackCreatorId = parsePositiveInt(creator)
+    const searchValue = waPhone || keeperUsername || jbName || creator
     if (!searchValue) return null
 
     try {
@@ -508,11 +516,14 @@ function App() {
         list.find((item) => normalizedPhone && normalizePhoneKey(item?.wa_phone) === normalizedPhone)
         || list.find((item) => normalizedKeeperUsername && normalizeLookupText(item?.keeper_username) === normalizedKeeperUsername)
         || list.find((item) => normalizedJbName && normalizeLookupText(item?.primary_name) === normalizedJbName)
+        || list.find((item) => normalizedCreatorPhone && normalizePhoneKey(item?.wa_phone) === normalizedCreatorPhone)
+        || list.find((item) => normalizedCreatorLookup && normalizeLookupText(item?.keeper_username) === normalizedCreatorLookup)
+        || list.find((item) => normalizedCreatorLookup && normalizeLookupText(item?.primary_name) === normalizedCreatorLookup)
 
-      return Number(exact?.id || list[0]?.id || 0) || null
+      return Number(exact?.id || list[0]?.id || 0) || fallbackCreatorId || null
     } catch (e) {
       console.error('[workspaceBootstrap] resolveCreatorIdFromQuery error:', e)
-      return null
+      return fallbackCreatorId || null
     }
   }, [])
 
@@ -576,7 +587,7 @@ function App() {
     if (queryBootstrapDoneRef.current) return
 
     const params = new URLSearchParams(window.location.search)
-    const hasQuery = ['tab', 'creatorId', 'eventId', 'waPhone', 'jbName', 'keeperUsername'].some((key) => params.has(key))
+    const hasQuery = ['tab', 'creatorId', 'creator', 'eventId', 'waPhone', 'jbName', 'keeperUsername'].some((key) => params.has(key))
     if (!hasQuery) {
       queryBootstrapDoneRef.current = true
       return
@@ -586,6 +597,7 @@ function App() {
     const targetTab = normalizeWorkspaceTab(params.get('tab'))
     const eventId = parsePositiveInt(params.get('eventId'))
     const creatorId = parsePositiveInt(params.get('creatorId'))
+    const legacyCreator = String(params.get('creator') || '').trim()
     const waPhone = String(params.get('waPhone') || '').trim()
     const jbName = String(params.get('jbName') || '').trim()
     const keeperUsername = String(params.get('keeperUsername') || '').trim()
@@ -596,7 +608,7 @@ function App() {
 
       let resolvedCreatorId = creatorId
       if (!resolvedCreatorId) {
-        resolvedCreatorId = await resolveCreatorIdFromQuery({ waPhone, jbName, keeperUsername })
+        resolvedCreatorId = await resolveCreatorIdFromQuery({ waPhone, jbName, keeperUsername, creator: legacyCreator })
       }
       if (!resolvedCreatorId) return
 

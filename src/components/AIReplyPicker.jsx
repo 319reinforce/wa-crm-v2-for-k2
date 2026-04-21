@@ -20,6 +20,7 @@ export default function AIReplyPicker({
     onSelect,
     onSkip,
     onEditCandidate,
+    onSelectStandard,
     onRegenerate,
     loading,
     error,
