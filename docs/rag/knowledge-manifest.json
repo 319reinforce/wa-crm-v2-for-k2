@@ -1,36 +1,34 @@
 {
-  "version": "2026-04-20",
-  "owner": "wa-crm-ops",
   "sources": [
     {
-      "id": "policy-trial-pack-v1",
-      "title": "Trial Package Policy",
+      "id": "policy-tiktok-shop-compliance-mar-2026-v1",
+      "title": "TikTok Shop Compliance Policy Notes (March 2026)",
       "type": "policy",
       "format": "md",
-      "path": "docs/rag/sources/policy-trial-pack-v1.md",
+      "path": "docs/rag/sources/policy-tiktok-shop-compliance-mar-2026-v1.md",
       "scene": [
-        "trial_intro",
-        "trial_followup"
+        "general",
+        "payment_issue",
+        "gmv_inquiry"
       ],
       "priority": 1,
       "sensitivity": "internal",
       "status": "approved",
-      "updated_at": "2026-04-20",
+      "updated_at": "2026-04-11",
       "effective_from": "2026-04-15",
       "rule_version": "2026-04-15"
     },
     {
-      "id": "sop-creator-outreach-mar-2026-v1",
-      "title": "Creator Outreach SOP (March 2026)",
-      "type": "sop",
+      "id": "policy-moras-payment-and-trial-faq-mar-2026-v1",
+      "title": "Moras Payment / Trial FAQ Policy Notes (March 2026)",
+      "type": "policy",
       "format": "md",
-      "path": "docs/rag/sources/sop-creator-outreach-mar-2026-v1.md",
+      "path": "docs/rag/sources/policy-moras-payment-and-trial-faq-mar-2026-v1.md",
       "scene": [
         "trial_intro",
-        "follow_up",
-        "payment_intro",
+        "monthly_inquiry",
         "payment_issue",
-        "gmv_inquiry"
+        "mcn_binding"
       ],
       "priority": 1,
       "sensitivity": "internal",
@@ -50,6 +48,21 @@
         "follow_up",
         "gmv_inquiry"
       ],
+      "topic": [
+        "violation",
+        "risk_control",
+        "appeal"
+      ],
+      "event_stage": [
+        "violation",
+        "appeal"
+      ],
+      "keywords": [
+        "violation",
+        "risk",
+        "safe",
+        "appeal"
+      ],
       "priority": 1,
       "sensitivity": "internal",
       "status": "approved",
@@ -67,6 +80,22 @@
         "follow_up",
         "gmv_inquiry",
         "trial_intro"
+      ],
+      "topic": [
+        "product",
+        "posting",
+        "safety"
+      ],
+      "lifecycle_stage": [
+        "activation",
+        "growth"
+      ],
+      "keywords": [
+        "product",
+        "posting",
+        "cadence",
+        "spammy",
+        "safe"
       ],
       "priority": 1,
       "sensitivity": "internal",
@@ -88,6 +117,23 @@
         "video_not_loading",
         "payment_issue"
       ],
+      "topic": [
+        "onboarding",
+        "payment",
+        "mcn_binding",
+        "video_not_loading"
+      ],
+      "lifecycle_stage": [
+        "onboarding",
+        "activation"
+      ],
+      "keywords": [
+        "payment",
+        "monthly",
+        "username",
+        "paypal",
+        "mcn"
+      ],
       "priority": 2,
       "sensitivity": "internal",
       "status": "approved",
@@ -107,6 +153,22 @@
         "gmv_inquiry",
         "general",
         "video_not_loading"
+      ],
+      "topic": [
+        "product",
+        "creator_control",
+        "how_it_works"
+      ],
+      "lifecycle_stage": [
+        "onboarding",
+        "activation"
+      ],
+      "keywords": [
+        "product",
+        "recommend",
+        "control",
+        "works",
+        "publish"
       ],
       "priority": 2,
       "sensitivity": "internal",

@@ -2,7 +2,7 @@
  * StandardReplyCard — 标准话术卡片
  * 从规则文档检索标准话术，不经过 AI 生成
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import WA from '../utils/waTheme';
 import LoadingSkeleton from './LoadingSkeleton';
 import EmptyState from './EmptyState';
@@ -15,6 +15,12 @@ export default function StandardReplyCard({
     operator,
     userMessage,
     clientId,
+    messages = [],
+    currentTopic = null,
+    autoDetectedTopic = null,
+    activeEvents = [],
+    lifecycle = null,
+    refreshToken = null,
     onEdit,
     onSend,
     compactMobile = false,
@@ -23,14 +29,68 @@ export default function StandardReplyCard({
     const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'success' | 'empty' | 'error'
     const [template, setTemplate] = useState(null);
     const [error, setError] = useState(null);
+    const requestVersionRef = useRef(0);
+
+    const recentMessages = useMemo(() => {
+        return (Array.isArray(messages) ? messages : [])
+            .slice(-8)
+            .map((message) => ({
+                role: message?.role === 'me' ? 'assistant' : 'user',
+                text: String(message?.text || '').trim(),
+                timestamp: message?.timestamp || null,
+            }))
+            .filter((message) => message.text);
+    }, [messages]);
+
+    const activeEventSummary = useMemo(() => {
+        return (Array.isArray(activeEvents) ? activeEvents : [])
+            .filter((event) => event?.status === 'active')
+            .map((event) => ({
+                event_key: event?.event_key || null,
+                status: event?.status || null,
+                label: event?.label || event?.event_label || null,
+            }))
+            .filter((event) => event.event_key);
+    }, [activeEvents]);
+
+    const lifecycleSummary = useMemo(() => ({
+        stage_key: lifecycle?.stage_key || null,
+        stage_label: lifecycle?.stage_label || null,
+    }), [lifecycle]);
+
+    const requestSignature = useMemo(() => JSON.stringify({
+        scene,
+        operator,
+        userMessage,
+        refreshToken,
+        currentTopicKey: currentTopic?.topic_key || null,
+        autoTopicKey: autoDetectedTopic?.topic_key || null,
+        autoTopicConfidence: autoDetectedTopic?.confidence || null,
+        lifecycleStageKey: lifecycleSummary.stage_key,
+        recentMessages: recentMessages.map((message) => [message.role, message.text, message.timestamp]),
+        activeEvents: activeEventSummary.map((event) => [event.event_key, event.status]),
+    }), [
+        scene,
+        operator,
+        userMessage,
+        refreshToken,
+        currentTopic?.topic_key,
+        autoDetectedTopic?.topic_key,
+        autoDetectedTopic?.confidence,
+        lifecycleSummary.stage_key,
+        recentMessages,
+        activeEventSummary,
+    ]);
 
     useEffect(() => {
-        if (autoFetch && (scene || operator || userMessage)) {
+        const hasRetrievalContext = !!(scene && operator && (userMessage || recentMessages.length > 0));
+        if (autoFetch && hasRetrievalContext) {
             fetchTemplate();
         }
-    }, [scene, operator, userMessage, autoFetch]);
+    }, [requestSignature, autoFetch]);
 
     const fetchTemplate = async () => {
+        const requestVersion = ++requestVersionRef.current;
         setStatus('loading');
         setTemplate(null);
         setError(null);
@@ -43,10 +103,18 @@ export default function StandardReplyCard({
                     client_id: clientId,
                     operator,
                     scene,
-                    user_message: userMessage
+                    user_message: userMessage,
+                    recent_messages: recentMessages,
+                    current_topic: currentTopic,
+                    auto_detected_topic: autoDetectedTopic,
+                    active_events: activeEventSummary,
+                    lifecycle: lifecycleSummary,
+                    force_template_sources: true,
                 }),
                 signal: AbortSignal.timeout(5000)
             });
+
+            if (requestVersion !== requestVersionRef.current) return;
 
             if (data.template && data.template.text) {
                 setStatus('success');
@@ -55,7 +123,7 @@ export default function StandardReplyCard({
                 setStatus('empty');
             }
         } catch (err) {
-            console.error('[StandardReplyCard] Fetch failed:', err);
+            if (requestVersion !== requestVersionRef.current) return;
             setStatus('error');
             setError(err.message || '检索失败');
         }

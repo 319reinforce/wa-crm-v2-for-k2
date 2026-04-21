@@ -20,7 +20,6 @@ function loadManifest() {
             const content = fs.readFileSync(MANIFEST_PATH, 'utf8');
             manifest = JSON.parse(content);
         } catch (e) {
-            console.error('[localRuleRetrieval] Failed to load manifest:', e.message);
             manifest = { sources: [] };
         }
     }
@@ -41,93 +40,158 @@ function retrieveLocalRules(context) {
         scene = null,
         operator = null,
         userMessage = '',
+        recentMessages = [],
+        currentTopic = null,
+        autoDetectedTopic = null,
+        activeEvents = [],
+        lifecycle = null,
+        forceTemplateSources = false,
         maxSources = 3
     } = context;
 
     const manifest = loadManifest();
     const candidates = [];
+    const resolvedTopic = currentTopic?.topic_key || autoDetectedTopic?.topic_key || null;
+    const resolvedStage = lifecycle?.stage_key || null;
+    const recentText = (Array.isArray(recentMessages) ? recentMessages : [])
+        .map((message) => String(message?.text || '').trim())
+        .filter(Boolean)
+        .join(' \n ');
+    const combinedText = [userMessage, recentText].filter(Boolean).join(' \n ');
+    const keywords = extractKeywords(combinedText);
+    const normalizedEventKeys = (Array.isArray(activeEvents) ? activeEvents : [])
+        .filter((event) => event?.status === 'active')
+        .map((event) => String(event?.event_key || '').toLowerCase())
+        .filter(Boolean);
 
     for (const source of manifest.sources) {
         let score = 0;
+        const matchedBy = [];
+        const sourceTitle = String(source.title || '').toLowerCase();
+        const sourceId = String(source.id || '').toLowerCase();
+        const sourceScenes = Array.isArray(source.scene) ? source.scene : [];
+        const sourceTopics = normalizeManifestField(source.topic);
+        const sourceLifecycleStages = normalizeManifestField(source.lifecycle_stage);
+        const sourceEventStages = normalizeManifestField(source.event_stage);
+        const sourceKeywords = normalizeManifestField(source.keywords);
+        const sourceText = [
+            sourceTitle,
+            sourceId,
+            sourceScenes.join(' '),
+            sourceTopics.join(' '),
+            sourceLifecycleStages.join(' '),
+            sourceEventStages.join(' '),
+            sourceKeywords.join(' '),
+        ].join(' ').toLowerCase();
 
-        // Scene 匹配（最高优先级）
-        if (scene && source.scene && source.scene.includes(scene)) {
+        if (scene && sourceScenes.includes(scene)) {
             score += 10;
+            matchedBy.push('scene');
         }
 
-        // Operator 特定规则（playbook 类型）
-        if (operator && source.type === 'playbook') {
-            const sourceTitle = source.title.toLowerCase();
-            if (sourceTitle.includes(operator.toLowerCase())) {
-                score += 8;
-            }
+        if (operator && source.type === 'playbook' && sourceTitle.includes(String(operator).toLowerCase())) {
+            score += 8;
+            matchedBy.push('operator');
         }
 
-        // Policy 类型优先级最高
-        if (source.type === 'policy') {
+        if (forceTemplateSources && (source.type === 'playbook' || source.type === 'sop')) {
+            score += 6;
+            matchedBy.push('template_source');
+        } else if (source.type === 'policy') {
             score += 5;
-        }
-
-        // SOP 类型次之
-        if (source.type === 'sop') {
+        } else if (source.type === 'sop') {
             score += 3;
-        }
-
-        // FAQ 类型用于通用问题
-        if (source.type === 'faq') {
+        } else if (source.type === 'faq') {
             score += 2;
         }
 
-        // 关键词匹配（平衡实现）
-        if (userMessage) {
-            const keywords = extractKeywords(userMessage);
-            const sourceText = (source.title + ' ' + (source.scene || []).join(' ')).toLowerCase();
-
-            for (const keyword of keywords) {
-                if (sourceText.includes(keyword)) {
-                    score += 1;
-                }
-            }
-
-            // 特定关键词与源类型的强关联（仅在明确匹配时加分）
-            const lowerMsg = userMessage.toLowerCase();
-
-            // "safe" / "risk" / "violation" 强关联到 violation SOP
-            if ((lowerMsg.includes('safe') || lowerMsg.includes('risk') || lowerMsg.includes('violation'))
-                && source.id.includes('violation')) {
-                score += 3;
-            }
-
-            // "product" / "recommend" 强关联到 product/faq
-            if ((lowerMsg.includes('product') || lowerMsg.includes('recommend'))
-                && (source.id.includes('product') || source.type === 'faq')) {
-                score += 3;
-            }
-
-            // "post" / "posting" / "cadence" 强关联到 posting safety
-            if ((lowerMsg.includes('post') || lowerMsg.includes('cadence') || lowerMsg.includes('spammy'))
-                && source.id.includes('posting')) {
-                score += 3;
+        if (resolvedTopic) {
+            const normalizedTopic = String(resolvedTopic).toLowerCase();
+            if (sourceTopics.includes(normalizedTopic) || sourceId.includes(normalizedTopic) || sourceTitle.includes(normalizedTopic)) {
+                score += 9;
+                matchedBy.push('topic');
             }
         }
 
-        // 只保留有分数的候选
+        if (resolvedStage) {
+            const normalizedStage = String(resolvedStage).toLowerCase();
+            if (sourceLifecycleStages.includes(normalizedStage) || sourceEventStages.includes(normalizedStage) || sourceText.includes(normalizedStage)) {
+                score += 5;
+                matchedBy.push('stage');
+            }
+        }
+
+        if (normalizedEventKeys.length > 0) {
+            const eventMatch = normalizedEventKeys.some((eventKey) => sourceEventStages.includes(eventKey) || sourceText.includes(eventKey));
+            if (eventMatch) {
+                score += 4;
+                matchedBy.push('active_event');
+            }
+        }
+
+        for (const keyword of keywords) {
+            if (sourceText.includes(keyword)) {
+                score += sourceKeywords.includes(keyword) ? 2 : 1;
+                matchedBy.push(`keyword:${keyword}`);
+            }
+        }
+
+        if (combinedText) {
+            const lowerMsg = combinedText.toLowerCase();
+
+            if ((lowerMsg.includes('safe') || lowerMsg.includes('risk') || lowerMsg.includes('violation'))
+                && source.id.includes('violation')) {
+                score += 3;
+                matchedBy.push('keyword:violation');
+            }
+
+            if ((lowerMsg.includes('product') || lowerMsg.includes('recommend'))
+                && (source.id.includes('product') || source.type === 'faq')) {
+                score += 3;
+                matchedBy.push('keyword:product');
+            }
+
+            if ((lowerMsg.includes('post') || lowerMsg.includes('cadence') || lowerMsg.includes('spammy'))
+                && source.id.includes('posting')) {
+                score += 3;
+                matchedBy.push('keyword:posting');
+            }
+        }
+
         if (score > 0) {
             candidates.push({
                 ...source,
-                score
+                score,
+                matchedBy: Array.from(new Set(matchedBy)),
+                resolvedTopic,
+                resolvedStage,
             });
         }
     }
 
-    // 按分数排序，取前 N 个
     candidates.sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
-        // 分数相同时，优先级高的在前
-        return a.priority - b.priority;
+        const priorityA = Number.isFinite(a.priority) ? a.priority : Number.MAX_SAFE_INTEGER;
+        const priorityB = Number.isFinite(b.priority) ? b.priority : Number.MAX_SAFE_INTEGER;
+        if (priorityA !== priorityB) return priorityA - priorityB;
+        return String(a.id || '').localeCompare(String(b.id || ''));
     });
 
     return candidates.slice(0, maxSources);
+}
+
+function normalizeManifestField(value) {
+    if (Array.isArray(value)) {
+        return value
+            .map((item) => String(item || '').toLowerCase().trim())
+            .filter(Boolean);
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+        return [value.toLowerCase().trim()];
+    }
+
+    return [];
 }
 
 /**
@@ -173,7 +237,6 @@ function loadSourceContent(source) {
         const fullPath = path.join(__dirname, '../../', source.path);
         return fs.readFileSync(fullPath, 'utf8');
     } catch (e) {
-        console.error(`[localRuleRetrieval] Failed to load source ${source.id}:`, e.message);
         return null;
     }
 }
@@ -230,73 +293,83 @@ function retrieveAndBuildLocalRules(context) {
  * @param {string} sourceId - 知识源 ID
  * @returns {string|null} 提取的话术文本
  */
-function extractTemplateFromSource(content, sourceId) {
+function extractTemplateFromSource(content, sourceId, sourceType = '') {
     if (!content) return null;
 
-    // 策略 1: 提取 "Suggested Reply Template" 章节中的代码块
-    const templateSectionMatch = content.match(/##\s+Suggested Reply Template[\s\S]*?```(?:text)?\s*([\s\S]*?)```/i);
-    if (templateSectionMatch && templateSectionMatch[1]) {
-        return templateSectionMatch[1].trim();
-    }
+    const explicitTemplatePatterns = [
+        /##\s+Suggested Reply Template[\s\S]*?```(?:text)?\s*([\s\S]*?)```/i,
+        /##\s+Creator Reply Templates?[\s\S]*?```(?:text)?\s*([\s\S]*?)```/i,
+        /##\s+Standard response[\s\S]*?```(?:text)?\s*([\s\S]*?)```/i,
+        /##\s+Short explanation[\s\S]*?```(?:text)?\s*([\s\S]*?)```/i,
+    ];
 
-    // 策略 2: 提取任何代码块（排除代码示例）
-    const codeBlockMatches = content.match(/```(?:text)?\s*([\s\S]*?)```/g);
-    if (codeBlockMatches && codeBlockMatches.length > 0) {
-        // 取第一个代码块
-        const firstBlock = codeBlockMatches[0].replace(/```(?:text)?/g, '').trim();
-        if (firstBlock.length > 20 && firstBlock.length < 500) {
-            return firstBlock;
-        }
-    }
-
-    // 策略 3: 提取 "## How to ..." 或 "## When to ..." 之后的第一段文本
-    const howToMatch = content.match(/##\s+(?:How|When|What)[\s\S]*?\n\n([\s\S]*?)(?:\n\n##|\n\n-|$)/i);
-    if (howToMatch && howToMatch[1]) {
-        const text = howToMatch[1].trim();
-        if (text.length > 30 && text.length < 500 && !text.startsWith('-')) {
-            return text;
+    for (const pattern of explicitTemplatePatterns) {
+        const match = content.match(pattern);
+        if (match && match[1]) {
+            const text = sanitizeTemplateText(match[1]);
+            if (isUsableTemplate(text)) {
+                return text;
+            }
         }
     }
 
-    // 策略 4: 如果是 playbook 类型，提取第一个实际段落（跳过元数据）
-    if (sourceId.includes('playbook')) {
-        const lines = content.split('\n');
-        let inContent = false;
-        let paragraph = [];
-
-        for (const line of lines) {
-            // 跳过元数据部分
-            if (line.startsWith('## Scope') || line.startsWith('## Core Style') || line.startsWith('## Do Not')) {
-                inContent = false;
-                continue;
-            }
-
-            // 找到实际内容段落
-            if (line.startsWith('## ') && !line.includes('Scope') && !line.includes('Version')) {
-                inContent = true;
-                continue;
-            }
-
-            if (inContent && line.trim() && !line.startsWith('#') && !line.startsWith('-')) {
-                paragraph.push(line.trim());
-                if (paragraph.join(' ').length > 100) {
-                    break;
-                }
-            }
-        }
-
-        if (paragraph.length > 0) {
-            return paragraph.join('\n').trim();
+    if (String(sourceType).toLowerCase() === 'playbook') {
+        const playbookTemplate = extractPlaybookParagraph(content);
+        if (isUsableTemplate(playbookTemplate)) {
+            return playbookTemplate;
         }
     }
 
     return null;
 }
 
+function sanitizeTemplateText(text) {
+    return String(text || '')
+        .replace(/```(?:text)?/g, '')
+        .trim();
+}
+
+function isUsableTemplate(text) {
+    if (!text) return false;
+    const trimmed = text.trim();
+    if (trimmed.length < 20 || trimmed.length > 600) return false;
+    if (trimmed.startsWith('#') || trimmed.startsWith('|')) return false;
+    return /[.!?。！？]/.test(trimmed) || trimmed.split('\n').length >= 2;
+}
+
+function extractPlaybookParagraph(content) {
+    const lines = content.split('\n');
+    let inContent = false;
+    const paragraph = [];
+
+    for (const line of lines) {
+        if (line.startsWith('## Scope') || line.startsWith('## Core Style') || line.startsWith('## Do Not') || line.startsWith('## Version')) {
+            inContent = false;
+            continue;
+        }
+
+        if (line.startsWith('## ') && !line.includes('Scope') && !line.includes('Version')) {
+            inContent = true;
+            paragraph.length = 0;
+            continue;
+        }
+
+        if (inContent && line.trim() && !line.startsWith('#') && !line.startsWith('-')) {
+            paragraph.push(line.trim());
+            if (paragraph.join(' ').length > 120) {
+                break;
+            }
+        }
+    }
+
+    return paragraph.join('\n').trim();
+}
+
 module.exports = {
+    loadManifest,
     retrieveLocalRules,
     loadSourceContent,
     buildLocalRulesText,
     retrieveAndBuildLocalRules,
-    extractTemplateFromSource
+    extractTemplateFromSource,
 };
