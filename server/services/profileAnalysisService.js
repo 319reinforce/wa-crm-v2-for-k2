@@ -1,5 +1,6 @@
 const db = require('../../db');
 const { publishSse } = require('./realtimeBus');
+const creatorCache = require('./creatorCache');
 const { rebuildReplyStrategyForClient } = require('./replyStrategyService');
 
 const STRONG_SIGNAL_REGEX = /\b(how|can i|price|try)\b/i;
@@ -313,14 +314,10 @@ async function ensureProfileAnalysisSchema() {
 async function getClientByIdOrPhone({ creatorId = null, clientId = null }) {
     const db2 = db.getDb();
     if (creatorId) {
-        return await db2.prepare(
-            'SELECT id, wa_phone, wa_owner, primary_name FROM creators WHERE id = ?'
-        ).get(creatorId);
+        return await creatorCache.getCreator(db2, creatorId, 'id, wa_phone, wa_owner, primary_name');
     }
     if (clientId) {
-        return await db2.prepare(
-            'SELECT id, wa_phone, wa_owner, primary_name FROM creators WHERE wa_phone = ?'
-        ).get(clientId);
+        return await creatorCache.getCreatorByPhone(db2, clientId, 'id, wa_phone, wa_owner, primary_name');
     }
     return null;
 }

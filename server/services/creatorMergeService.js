@@ -1,5 +1,6 @@
 const db = require('../../db');
 const { normalizeOperatorName } = require('../utils/operator');
+const creatorCache = require('./creatorCache');
 const { purgeCreatorMessagesMatchingGroups } = require('./groupMessageService');
 
 const WACRM_COLUMNS = [
@@ -200,6 +201,7 @@ async function moveLifecycleState(tx, sourceCreatorId, targetCreatorId) {
 }
 
 async function getCreatorClientIds(tx, creatorId) {
+    // Note: tx transaction - use direct query, not cache
     const creator = await tx.prepare('SELECT wa_phone FROM creators WHERE id = ? LIMIT 1').get(creatorId);
     const aliasRows = await tx.prepare(`
         SELECT alias_value

@@ -7,6 +7,7 @@ const router = express.Router();
 const db = require('../../db');
 const { getCreatorFull } = require('../../db');
 const { getLockedOwner, matchesOwnerScope, resolveScopedOwner, sendOwnerScopeForbidden } = require('../middleware/appAuth');
+const creatorCache = require('../services/creatorCache');
 const { writeAudit } = require('../middleware/audit');
 const { normalizeOperatorName } = require('../utils/operator');
 const { buildLifecycle, STAGE_META } = require('../services/lifecycleService');
@@ -111,9 +112,7 @@ function buildCreatorWacrmAuditPayload(payload, {
 
 async function ensureCreatorAccess(req, res, creatorId, fields = 'id, primary_name, wa_phone, wa_owner') {
     const dbConn = db.getDb();
-    const row = await dbConn.prepare(
-        `SELECT ${fields} FROM creators WHERE id = ? LIMIT 1`
-    ).get(creatorId);
+    const row = await creatorCache.getCreator(dbConn, creatorId, fields);
     if (!row) {
         res.status(404).json({ ok: false, error: 'Creator not found' });
         return null;
@@ -1055,6 +1054,8 @@ router.put('/:id', async (req, res) => {
         await db2.prepare(`UPDATE creators SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 
         await writeAudit('creator_update', 'creators', id, null, buildCreatorUpdateAuditPayload(req.body), req);
+
+        await creatorCache.invalidateCreator(id, wa_phone);
         res.json({ ok: true });
     } catch (err) {
         console.error('PUT /api/creators/:id error:', err);
@@ -1155,22 +1156,23 @@ router.put('/:id/wacrm', async (req, res) => {
                 nextUpdatedFields.push(...kFields.map(f => 'k.' + f.split(' = ')[0]));
             }
 
-            const creatorPhone = await txDb.prepare('SELECT wa_phone FROM creators WHERE id = ?').get(creatorId);
-            if (creatorPhone) {
+            const creatorPhone = await creatorCache.getCreator(txDb, creatorId, 'wa_phone');
+            if (creatorPhone && creatorPhone.wa_phone) {
+                const clientId = String(creatorPhone.wa_phone);
                 if (ev_trial_active) {
-                    await txDb.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'stage:trial', 'system', 3)`).run(creatorPhone.wa_phone);
+                    await txDb.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'stage:trial', 'system', 3)`).run(clientId);
                 }
                 if (ev_monthly_started) {
-                    await txDb.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'stage:monthly', 'system', 3)`).run(creatorPhone.wa_phone);
+                    await txDb.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'stage:monthly', 'system', 3)`).run(clientId);
                 }
                 if (ev_gmv_1k) {
-                    await txDb.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:1k', 'system', 3)`).run(creatorPhone.wa_phone);
+                    await txDb.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:1k', 'system', 3)`).run(clientId);
                 }
                 if (ev_gmv_5k) {
-                    await txDb.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:5k', 'system', 3)`).run(creatorPhone.wa_phone);
+                    await txDb.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:5k', 'system', 3)`).run(clientId);
                 }
                 if (ev_gmv_10k) {
-                    await txDb.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:10k', 'system', 3)`).run(creatorPhone.wa_phone);
+                    await txDb.prepare(`INSERT IGNORE INTO client_tags (client_id, tag, source, confidence) VALUES (?, 'gmv_tier:10k', 'system', 3)`).run(clientId);
                 }
             }
 

@@ -3,6 +3,7 @@
  * 提取自 server/routes/ai.js
  */
 const db = require('../../db');
+const creatorCache = require('./creatorCache');
 
 const API_KEY = process.env.MINIMAX_API_KEY;
 const API_BASE = process.env.MINIMAX_API_BASE || 'https://api.minimaxi.com/anthropic';
@@ -13,7 +14,7 @@ const API_BASE = process.env.MINIMAX_API_BASE || 'https://api.minimaxi.com/anthr
 async function validateClientId(clientId) {
     if (!clientId) return true; // optional
     const db2 = db.getDb();
-    const valid = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(clientId);
+    const valid = await creatorCache.getCreatorByPhone(db2, clientId, 'id');
     return !!valid;
 }
 

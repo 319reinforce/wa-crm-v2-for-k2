@@ -21,6 +21,7 @@ const {
 const { assertNoGroupSend } = require('./groupSendGuard');
 const sessionRepository = require('./sessionRepository');
 const { getRegistry } = require('./sessionRegistry');
+const creatorCache = require('./creatorCache');
 
 const REPAIR_QUEUE_DIR = path.join(__dirname, '../../.wa_ipc/repair-queue');
 // Phase 3: REPAIR_QUEUE_POLL_MS 本来硬编码 15000ms；补 env 覆盖入口以便
@@ -256,13 +257,13 @@ async function resolveOperator({ creatorId, operator, phone }) {
         const assignment = await getAssignmentByCreatorId(creatorId);
         if (assignment?.operator) return normalizeOperatorName(assignment.operator, assignment.operator);
 
-        const row = await db.getDb().prepare('SELECT wa_owner FROM creators WHERE id = ?').get(creatorId);
+        const row = await creatorCache.getCreator(db.getDb(), creatorId, 'wa_owner');
         const ownerById = normalizeOperatorName(row?.wa_owner, row?.wa_owner || null);
         if (ownerById) return ownerById;
     }
 
     if (phone) {
-        const row = await db.getDb().prepare('SELECT wa_owner FROM creators WHERE wa_phone = ? LIMIT 1').get(phone);
+        const row = await creatorCache.getCreatorByPhone(db.getDb(), phone, 'wa_owner');
         const ownerByPhone = normalizeOperatorName(row?.wa_owner, row?.wa_owner || null);
         if (ownerByPhone) return ownerByPhone;
     }
@@ -517,9 +518,9 @@ async function reconcileRoutedContact({
 }) {
     const creatorId = Number(creator_id) || 0;
     const creatorRow = creatorId
-        ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1').get(creatorId)
+        ? await creatorCache.getCreator(db.getDb(), creatorId, 'id, primary_name, wa_phone, wa_owner')
         : (phone
-            ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE wa_phone = ? LIMIT 1').get(phone)
+            ? await creatorCache.getCreatorByPhone(db.getDb(), phone, 'id, primary_name, wa_phone, wa_owner')
             : null);
 
     if (!creatorRow) {
@@ -606,9 +607,9 @@ async function syncRoutedContact({
 }) {
     const creatorId = Number(creator_id) || 0;
     const creatorRow = creatorId
-        ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1').get(creatorId)
+        ? await creatorCache.getCreator(db.getDb(), creatorId, 'id, primary_name, wa_phone, wa_owner')
         : (phone
-            ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE wa_phone = ? LIMIT 1').get(phone)
+            ? await creatorCache.getCreatorByPhone(db.getDb(), phone, 'id, primary_name, wa_phone, wa_owner')
             : null);
 
     if (!creatorRow) {
@@ -678,9 +679,9 @@ async function replaceRoutedContact({
 }) {
     const creatorId = Number(creator_id) || 0;
     const creatorRow = creatorId
-        ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE id = ? LIMIT 1').get(creatorId)
+        ? await creatorCache.getCreator(db.getDb(), creatorId, 'id, primary_name, wa_phone, wa_owner')
         : (phone
-            ? await db.getDb().prepare('SELECT id, primary_name, wa_phone, wa_owner FROM creators WHERE wa_phone = ? LIMIT 1').get(phone)
+            ? await creatorCache.getCreatorByPhone(db.getDb(), phone, 'id, primary_name, wa_phone, wa_owner')
             : null);
 
     if (!creatorRow) {
