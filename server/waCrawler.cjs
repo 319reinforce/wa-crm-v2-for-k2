@@ -24,6 +24,8 @@ const {
 const {
     claimNextSessionCommand,
     completeClaimedCommand,
+    watchSessionCommandQueue,
+    shutdownIpc,
     writeSessionStatus,
 } = require('./services/waIpc');
 const { assertNoGroupSend } = require('./services/groupSendGuard');
@@ -37,6 +39,7 @@ const CRAWLER_TAG = `${WA_OWNER}/${WA_SESSION_ID}`;
 const DIRECT_CHAT_SUFFIXES = ['@c.us', '@lid'];
 let statusTimer = null;
 let commandTimer = null;
+let commandWatcherClose = null;
 let commandInFlight = false;
 
 function withTimeout(promise, timeoutMs, label) {
@@ -368,97 +371,119 @@ function publishStatus(extra = {}) {
     }
 }
 
+async function processSingleCommand() {
+    const claimed = claimNextSessionCommand(WA_SESSION_ID);
+    if (!claimed) return false;
+    try {
+        const payload = claimed.command || {};
+        await dispatchClaimedCommand(claimed, payload);
+    } catch (err) {
+        console.error(`[waCrawler:${CRAWLER_TAG}] process command failed:`, err.message);
+        try {
+            completeClaimedCommand(claimed, {
+                ok: false,
+                error: err.message,
+                routed_session_id: WA_SESSION_ID,
+                routed_operator: WA_OWNER,
+            });
+        } catch (_) {}
+    }
+    return true;
+}
+
 async function processSessionCommands() {
     if (commandInFlight) return;
     commandInFlight = true;
     try {
-        const claimed = claimNextSessionCommand(WA_SESSION_ID);
-        if (!claimed) return;
-
-        const payload = claimed.command || {};
-        if (payload.type === 'send_message') {
-            const targetGuard = assertNoGroupSend(payload.phone, { source: 'wa_crawler.send_message' });
-            if (!targetGuard.ok) {
-                completeClaimedCommand(claimed, {
-                    ok: false,
-                    error: targetGuard.error,
-                    routed_session_id: WA_SESSION_ID,
-                    routed_operator: WA_OWNER,
-                });
-                publishStatus();
-                return;
-            }
-            const result = await sendMessage(payload.phone, payload.text);
-            completeClaimedCommand(claimed, {
-                ...result,
-                routed_session_id: WA_SESSION_ID,
-                routed_operator: WA_OWNER,
-            });
-            publishStatus();
-            return;
+        // Drain：一次触发就吃干所有 pending 命令，避免 burst 时还要等下一次 watcher/fallback。
+        // 每条命令自带 whatsapp-web.js 发送耗时 500-2000ms，不会无限占用事件循环。
+        while (await processSingleCommand()) {
+            // keep pulling
         }
-        if (payload.type === 'send_media') {
-            const targetGuard = assertNoGroupSend(payload.phone, { source: 'wa_crawler.send_media' });
-            if (!targetGuard.ok) {
-                completeClaimedCommand(claimed, {
-                    ok: false,
-                    error: targetGuard.error,
-                    routed_session_id: WA_SESSION_ID,
-                    routed_operator: WA_OWNER,
-                });
-                publishStatus();
-                return;
-            }
-            const mediaPayload = payload.payload || {};
-            const result = await sendMedia(payload.phone, {
-                caption: mediaPayload.caption || payload.caption || '',
-                media_path: mediaPayload.media_path || null,
-                media_url: mediaPayload.media_url || null,
-                mime_type: mediaPayload.mime_type || null,
-                file_name: mediaPayload.file_name || null,
-                data_base64: mediaPayload.data_base64 || null,
-            });
-            completeClaimedCommand(claimed, {
-                ...result,
-                routed_session_id: WA_SESSION_ID,
-                routed_operator: WA_OWNER,
-            });
-            publishStatus();
-            return;
-        }
-        if (payload.type === 'audit_recent_messages') {
-            const auditPayload = payload.payload || {};
-            const result = await withTimeout(
-                fetchAuditMessagesByPhone(
-                    auditPayload.phone || payload.phone,
-                    Number(auditPayload.limit || payload.limit || 120)
-                ),
-                45000,
-                'audit_recent_messages timeout'
-            ).catch((error) => ({
-                ok: false,
-                error: error.message,
-            }));
-            completeClaimedCommand(claimed, {
-                ...result,
-                routed_session_id: WA_SESSION_ID,
-                routed_operator: WA_OWNER,
-            });
-            publishStatus();
-            return;
-        }
-
-        completeClaimedCommand(claimed, {
-            ok: false,
-            error: `unsupported command type: ${payload.type || 'unknown'}`,
-            routed_session_id: WA_SESSION_ID,
-            routed_operator: WA_OWNER,
-        });
-    } catch (err) {
-        console.error(`[waCrawler:${CRAWLER_TAG}] process command failed:`, err.message);
     } finally {
         commandInFlight = false;
     }
+}
+
+async function dispatchClaimedCommand(claimed, payload) {
+    if (payload.type === 'send_message') {
+        const targetGuard = assertNoGroupSend(payload.phone, { source: 'wa_crawler.send_message' });
+        if (!targetGuard.ok) {
+            completeClaimedCommand(claimed, {
+                ok: false,
+                error: targetGuard.error,
+                routed_session_id: WA_SESSION_ID,
+                routed_operator: WA_OWNER,
+            });
+            publishStatus();
+            return;
+        }
+        const result = await sendMessage(payload.phone, payload.text);
+        completeClaimedCommand(claimed, {
+            ...result,
+            routed_session_id: WA_SESSION_ID,
+            routed_operator: WA_OWNER,
+        });
+        publishStatus();
+        return;
+    }
+    if (payload.type === 'send_media') {
+        const targetGuard = assertNoGroupSend(payload.phone, { source: 'wa_crawler.send_media' });
+        if (!targetGuard.ok) {
+            completeClaimedCommand(claimed, {
+                ok: false,
+                error: targetGuard.error,
+                routed_session_id: WA_SESSION_ID,
+                routed_operator: WA_OWNER,
+            });
+            publishStatus();
+            return;
+        }
+        const mediaPayload = payload.payload || {};
+        const result = await sendMedia(payload.phone, {
+            caption: mediaPayload.caption || payload.caption || '',
+            media_path: mediaPayload.media_path || null,
+            media_url: mediaPayload.media_url || null,
+            mime_type: mediaPayload.mime_type || null,
+            file_name: mediaPayload.file_name || null,
+            data_base64: mediaPayload.data_base64 || null,
+        });
+        completeClaimedCommand(claimed, {
+            ...result,
+            routed_session_id: WA_SESSION_ID,
+            routed_operator: WA_OWNER,
+        });
+        publishStatus();
+        return;
+    }
+    if (payload.type === 'audit_recent_messages') {
+        const auditPayload = payload.payload || {};
+        const result = await withTimeout(
+            fetchAuditMessagesByPhone(
+                auditPayload.phone || payload.phone,
+                Number(auditPayload.limit || payload.limit || 120)
+            ),
+            45000,
+            'audit_recent_messages timeout'
+        ).catch((error) => ({
+            ok: false,
+            error: error.message,
+        }));
+        completeClaimedCommand(claimed, {
+            ...result,
+            routed_session_id: WA_SESSION_ID,
+            routed_operator: WA_OWNER,
+        });
+        publishStatus();
+        return;
+    }
+
+    completeClaimedCommand(claimed, {
+        ok: false,
+        error: `unsupported command type: ${payload.type || 'unknown'}`,
+        routed_session_id: WA_SESSION_ID,
+        routed_operator: WA_OWNER,
+    });
 }
 
 async function main() {
@@ -470,11 +495,15 @@ async function main() {
     startWaService();
     publishStatus();
     statusTimer = setInterval(() => publishStatus(), 2000);
-    commandTimer = setInterval(() => {
-        processSessionCommands().catch((err) => {
-            console.error(`[waCrawler:${CRAWLER_TAG}] command loop failed:`, err.message);
-        });
-    }, 1000);
+
+    // Phase 2: fs.watch 做主触发（sub-ms），5s setInterval 保底应对 watcher 静默死。
+    // 原来 1s setInterval 是唯一触发，每条命令 avg 500ms、worst 1000ms 的 claim 延迟。
+    const kickCommands = () => processSessionCommands().catch((err) => {
+        console.error(`[waCrawler:${CRAWLER_TAG}] command loop failed:`, err.message);
+    });
+    commandWatcherClose = watchSessionCommandQueue(WA_SESSION_ID, kickCommands);
+    commandTimer = setInterval(kickCommands, 5000);
+
     await startWaWorker({ syncHistory: true });
     publishStatus();
 }
@@ -486,6 +515,10 @@ async function shutdown(signal) {
     console.log(`[waCrawler:${CRAWLER_TAG}] ${signal} received, shutting down...`);
     if (statusTimer) clearInterval(statusTimer);
     if (commandTimer) clearInterval(commandTimer);
+    if (commandWatcherClose) {
+        try { commandWatcherClose(); } catch (_) {}
+    }
+    try { shutdownIpc(); } catch (_) {}
     publishStatus({
         ready: false,
         hasQr: false,

@@ -10,6 +10,13 @@ const {
     filterDirectMessagesAgainstGroups,
 } = require('./groupMessageService');
 const { normalizeOperatorName } = require('../utils/operator');
+const { perfLog } = require('./perfLog');
+const sseBus = require('../events/sseBus');
+
+// Phase 1: 默认在持久化成功后广播 wa-message SSE，修复爬虫路径不推 SSE 的黑洞。
+// SSE_PERSISTENCE_BROADCAST=false 可关闭（仅用于回滚）。
+const SSE_PERSISTENCE_BROADCAST =
+    String(process.env.SSE_PERSISTENCE_BROADCAST || 'true').toLowerCase() !== 'false';
 
 // Optional-require for message cache (perf-cache branch). No-op when not present.
 let invalidateMessageCache = () => {};
@@ -57,6 +64,16 @@ async function persistDirectMessageRecord({
         throw new Error('creatorId, role, and text are required');
     }
 
+    const persistStartedAt = Date.now();
+    perfLog('persist_start', {
+        creatorId,
+        waMsgId: normalizedWaMessageId,
+        role,
+        operator: normalizedOperator,
+        timestamp: timestampMs,
+        auditAction,
+    });
+
     let kept = [{
         creator_id: creatorId,
         role,
@@ -74,6 +91,14 @@ async function persistDirectMessageRecord({
         });
         kept = deduped.kept;
         if (kept.length === 0) {
+            perfLog('persist_end', {
+                creatorId,
+                waMsgId: normalizedWaMessageId,
+                persisted: false,
+                blocked: true,
+                reason: 'short_window_duplicate',
+                durationMs: Date.now() - persistStartedAt,
+            });
             return {
                 handled: true,
                 persisted: false,
@@ -97,6 +122,14 @@ async function persistDirectMessageRecord({
             messages: kept,
         });
         if (groupFiltered.kept.length === 0) {
+            perfLog('persist_end', {
+                creatorId,
+                waMsgId: normalizedWaMessageId,
+                persisted: false,
+                blocked: true,
+                reason: 'group_message_conflict',
+                durationMs: Date.now() - persistStartedAt,
+            });
             return {
                 handled: true,
                 persisted: false,
@@ -130,7 +163,45 @@ async function persistDirectMessageRecord({
                 wa_message_id: normalizedWaMessageId,
             }, req);
         }
+        if (SSE_PERSISTENCE_BROADCAST) {
+            // 查 wa_phone 是为了复用现有前端匹配逻辑（按 from_phone/to_phone
+            // 判断是否当前打开的会话）。这是一条短查询，不进事务。
+            let waPhone = null;
+            try {
+                const row = await dbConn.prepare(
+                    'SELECT wa_phone FROM creators WHERE id = ?'
+                ).get(creatorId);
+                waPhone = row && row.wa_phone ? String(row.wa_phone) : null;
+            } catch (err) {
+                console.error('[persistDirectMessageRecord] wa_phone lookup failed:', err.message);
+            }
+            try {
+                sseBus.broadcast('wa-message', {
+                    creator_id: creatorId,
+                    message_id: normalizedWaMessageId,
+                    wa_message_id: normalizedWaMessageId,
+                    role: safe.role,
+                    operator: safe.operator,
+                    text: safe.text,
+                    timestamp: safe.timestamp,
+                    from_phone: waPhone,
+                    to_phone: waPhone,
+                    source: 'persistence',
+                });
+            } catch (err) {
+                console.error('[persistDirectMessageRecord] SSE broadcast failed:', err.message);
+            }
+        }
     }
+
+    perfLog('persist_end', {
+        creatorId,
+        waMsgId: normalizedWaMessageId,
+        persisted,
+        blocked: false,
+        reason: persisted ? null : 'duplicate',
+        durationMs: Date.now() - persistStartedAt,
+    });
 
     return {
         handled: true,

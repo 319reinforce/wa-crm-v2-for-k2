@@ -41,6 +41,7 @@ const {
     purgeCreatorMessagesMatchingGroups,
 } = require('./services/groupMessageService');
 const { getInternalServiceHeaders } = require('./utils/internalAuth');
+const { perfLog } = require('./services/perfLog');
 
 // ================== 配置 ==================
 
@@ -930,10 +931,26 @@ async function notifyProfilePipelines({ creatorId, phone, text = '', role = 'use
 }
 
 async function handleIncomingMessage(msg) {
+    const handleStartedAt = Date.now();
+    const waMsgId = extractWaMessageId(msg);
+    perfLog('wa_event_received', {
+        source: 'worker',
+        sessionId: WA_SESSION_ID,
+        owner: WA_OWNER,
+        waMsgId,
+        fromMe: msg && msg.fromMe === true,
+        eventTimestamp: getWaMessageTimestampMs(msg),
+    });
     try {
         const msgChat = await msg.getChat().catch(() => msg.chat || null);
         if (isGroupChat(msgChat)) {
             await persistGroupChatMessages(msgChat, [msg]);
+            perfLog('wa_event_handled', {
+                source: 'worker',
+                waMsgId,
+                outcome: 'group',
+                durationMs: Date.now() - handleStartedAt,
+            });
             return;
         }
         if (!isDirectMessage(msg, msgChat)) return;
@@ -986,8 +1003,24 @@ async function handleIncomingMessage(msg) {
                 insertedCount: inserted,
             });
         }
+        perfLog('wa_event_handled', {
+            source: 'worker',
+            waMsgId,
+            creatorId: existingCreator && existingCreator.id,
+            role: getWaMessageRole(msg),
+            inserted,
+            outcome: inserted > 0 ? 'inserted' : 'skipped',
+            durationMs: Date.now() - handleStartedAt,
+        });
     } catch (e) {
         console.error(`${LOG_PREFIX} handleIncomingMessage error:`, e.message);
+        perfLog('wa_event_handled', {
+            source: 'worker',
+            waMsgId,
+            outcome: 'error',
+            errorMessage: e && e.message,
+            durationMs: Date.now() - handleStartedAt,
+        });
     }
 }
 
@@ -1069,6 +1102,23 @@ async function pollOnce(client) {
                 if (inserted > 0) {
                     await touchCreator(creatorId);
                     console.log(`${LOG_PREFIX}[Poll] ${name}: +${inserted} 条新消息`);
+                    // Phase 3: 轮询兜底捕获的消息数 = event path miss。
+                    // 对每条 inserted 打 perfLog，便于分析脚本聚合 miss-rate。
+                    for (const m of newer) {
+                        const ts = getWaMessageTimestampMs(m);
+                        const waMsgId = extractWaMessageId(m);
+                        if (!waMsgId) continue;
+                        perfLog('wa_poll_inserted', {
+                            sessionId: WA_SESSION_ID,
+                            owner: WA_OWNER,
+                            creatorId,
+                            waMsgId,
+                            role: getWaMessageRole(m),
+                            messageTimestamp: ts,
+                            ageMs: ts ? Date.now() - ts : null,
+                            source: 'poll',
+                        });
+                    }
                     const sampleMessage = newer.find((item) => getWaMessageText(item)) || newer[0];
                     notifyProfilePipelines({
                         creatorId,
@@ -1121,6 +1171,22 @@ async function pollOnce(client) {
             if (inserted > 0) {
                 await touchCreator(assignment.creator_id);
                 console.log(`${LOG_PREFIX}[Poll][Roster] ${assignment.primary_name || assignment.raw_name || maskPhone(assignment.wa_phone)}: +${inserted} 条新消息`);
+                // Phase 3: roster 路径 poll 兜底的 miss 也打 perfLog
+                for (const m of newer) {
+                    const ts = getWaMessageTimestampMs(m);
+                    const waMsgId = extractWaMessageId(m);
+                    if (!waMsgId) continue;
+                    perfLog('wa_poll_inserted', {
+                        sessionId: WA_SESSION_ID,
+                        owner: WA_OWNER,
+                        creatorId: assignment.creator_id,
+                        waMsgId,
+                        role: getWaMessageRole(m),
+                        messageTimestamp: ts,
+                        ageMs: ts ? Date.now() - ts : null,
+                        source: 'poll_roster',
+                    });
+                }
                 const sampleMessage = newer.find((item) => getWaMessageText(item)) || newer[0];
                 notifyProfilePipelines({
                     creatorId: assignment.creator_id,
