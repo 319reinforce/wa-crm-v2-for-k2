@@ -48,6 +48,7 @@ const sessionRepository = require('./services/sessionRepository');
 const { initRegistry } = require('./services/sessionRegistry');
 const sseBus = require('./events/sseBus');
 const { perfLog, perfLogEnabled } = require('./services/perfLog');
+const { shutdownIpc } = require('./services/waIpc');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -468,6 +469,7 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
             } catch (err) {
                 console.error('[Shutdown] registry.shutdown error:', err.message);
             }
+            try { shutdownIpc(); } catch (_) {}
             server.close(async () => {
                 await db.closeDb();
                 console.log('Server closed.');
