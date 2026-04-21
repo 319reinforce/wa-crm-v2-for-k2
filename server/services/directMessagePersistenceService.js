@@ -11,6 +11,17 @@ const {
 } = require('./groupMessageService');
 const { normalizeOperatorName } = require('../utils/operator');
 
+// Optional-require for message cache (perf-cache branch). No-op when not present.
+let invalidateMessageCache = () => {};
+try {
+    const cache = require('./messageCache');
+    if (cache && typeof cache.invalidateCreator === 'function') {
+        invalidateMessageCache = cache.invalidateCreator;
+    }
+} catch (_) {
+    // messageCache module not installed; leave no-op.
+}
+
 function buildMessageHash(role, text, timestampMs) {
     return crypto
         .createHash('sha256')
@@ -25,6 +36,7 @@ async function persistDirectMessageRecord({
     operator,
     text,
     timestamp = null,
+    waMessageId = null,
     req = null,
     auditAction = 'message_create',
     shortWindowGuard = true,
@@ -33,6 +45,10 @@ async function persistDirectMessageRecord({
     const normalizedText = normalizeMessageText(text);
     const normalizedOperator = normalizeOperatorName(operator, operator || null);
     const timestampMs = toTimestampMs(timestamp) || Date.now();
+    const normalizedWaMessageId =
+        typeof waMessageId === 'string' && waMessageId.trim().length > 0
+            ? waMessageId.trim()
+            : null;
 
     if (!dbConn) {
         throw new Error('dbConn is required');
@@ -49,7 +65,9 @@ async function persistDirectMessageRecord({
         timestamp: timestampMs,
     }];
 
-    if (shortWindowGuard) {
+    // short-window guard 只针对 AI 自动回复（role='assistant'）生效，
+    // 避免误伤人工/镜像 outbound（role='me'）和达人 inbound（role='user'）。
+    if (shortWindowGuard && role === 'assistant') {
         const deduped = await filterShortWindowDuplicates(dbConn, creatorId, kept, {
             windowMs: 15 * 60 * 1000,
             minTextLength: 12,
@@ -65,6 +83,7 @@ async function persistDirectMessageRecord({
                 timestamp: timestampMs,
                 operator: normalizedOperator,
                 message_hash: null,
+                wa_message_id: normalizedWaMessageId,
                 text: normalizedText,
             };
         }
@@ -87,6 +106,7 @@ async function persistDirectMessageRecord({
                 timestamp: timestampMs,
                 operator: normalizedOperator,
                 message_hash: null,
+                wa_message_id: normalizedWaMessageId,
                 text: normalizedText,
             };
         }
@@ -95,17 +115,21 @@ async function persistDirectMessageRecord({
 
     const messageHash = buildMessageHash(safe.role, safe.text, safe.timestamp);
     const insertResult = await dbConn.prepare(
-        'INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(creatorId, safe.role, safe.operator, safe.text, safe.timestamp, messageHash);
+        'INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash, wa_message_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(creatorId, safe.role, safe.operator, safe.text, safe.timestamp, messageHash, normalizedWaMessageId);
     const persisted = Number(insertResult?.changes || 0) > 0;
 
-    if (persisted && req) {
-        await writeAudit(auditAction, 'wa_messages', messageHash, null, {
-            creator_id: creatorId,
-            role: safe.role,
-            operator: safe.operator,
-            timestamp: safe.timestamp,
-        }, req);
+    if (persisted) {
+        try { invalidateMessageCache(creatorId); } catch (_) {}
+        if (req) {
+            await writeAudit(auditAction, 'wa_messages', messageHash, null, {
+                creator_id: creatorId,
+                role: safe.role,
+                operator: safe.operator,
+                timestamp: safe.timestamp,
+                wa_message_id: normalizedWaMessageId,
+            }, req);
+        }
     }
 
     return {
@@ -113,10 +137,11 @@ async function persistDirectMessageRecord({
         persisted,
         duplicate: !persisted,
         blocked: false,
-        reason: persisted ? null : 'message_hash_duplicate',
+        reason: persisted ? null : 'duplicate',
         timestamp: safe.timestamp,
         operator: safe.operator,
         message_hash: messageHash,
+        wa_message_id: normalizedWaMessageId,
         text: safe.text,
     };
 }
