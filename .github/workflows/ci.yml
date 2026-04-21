@@ -1,4 +1,8 @@
-# PR workflow: build + push wa-crm image + deploy to test env only.
+# PR workflow: build + push wa-crm image + deploy to test env.
+# 触发：
+#   - pull_request → main：PR 过程中每次 push 都会跑一次（预览构建 + 部署到测试）
+#   - push → main：PR 合并进 main 后再跑一次（用合并后的真实提交构建 + 部署到测试）
+#   - workflow_dispatch：手动重跑
 # 参考 K2Lab/keeper/.gitea/workflows/test-backend-build.yaml
 name: test-wa-crm-build
 
@@ -22,6 +26,26 @@ on:
       - "tailwind.config.js"
       - "systemPromptBuilder.cjs"
       - "migrate-*.js"
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/**"
+      - "server/**"
+      - "src/**"
+      - "public/**"
+      - "scripts/**"
+      - "db.js"
+      - "schema.sql"
+      - "Dockerfile"
+      - "package.json"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "vite.config.js"
+      - "postcss.config.mjs"
+      - "tailwind.config.js"
+      - "systemPromptBuilder.cjs"
+      - "migrate-*.js"
+  workflow_dispatch:
 
 jobs:
   build:
