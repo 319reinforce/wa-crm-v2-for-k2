@@ -47,20 +47,22 @@ CREATE INDEX idx_aliases_creator ON creator_aliases(creator_id);
 -- WA 消息表
 -- ============================================================
 CREATE TABLE IF NOT EXISTS wa_messages (
-    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
-    creator_id  INT NOT NULL,
-    role        VARCHAR(16) NOT NULL COMMENT "'me'|'user'|'assistant'",
-    operator    VARCHAR(32) DEFAULT NULL COMMENT "'Beau'|'Yiyun'|'WangYouKe'等",
-    text        TEXT,
-    timestamp   BIGINT COMMENT 'Unix timestamp (ms)',
-    message_hash VARCHAR(64) COMMENT 'SHA256(role|text|timestamp_ms)',
-    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+    creator_id    INT NOT NULL,
+    role          VARCHAR(16) NOT NULL COMMENT "'me'|'user'|'assistant'",
+    operator      VARCHAR(32) DEFAULT NULL COMMENT "'Beau'|'Yiyun'|'WangYouKe'等",
+    text          TEXT,
+    timestamp     BIGINT COMMENT 'Unix timestamp (ms)',
+    message_hash  VARCHAR(64) COMMENT 'SHA256(role|text|timestamp_ms) - legacy 兜底键',
+    wa_message_id VARCHAR(128) DEFAULT NULL COMMENT 'WhatsApp 原生 message id (Message.id._serialized)',
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_messages_creator ON wa_messages(creator_id);
 CREATE INDEX idx_messages_timestamp ON wa_messages(timestamp);
 CREATE UNIQUE INDEX idx_messages_dedup_hash ON wa_messages(creator_id, message_hash);
+CREATE UNIQUE INDEX uk_wa_message_id ON wa_messages(wa_message_id);
 CREATE INDEX idx_messages_creator_timestamp ON wa_messages(creator_id, timestamp DESC);
 CREATE INDEX idx_messages_creator_role_ts ON wa_messages(creator_id, role, timestamp);
 

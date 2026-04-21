@@ -41,6 +41,7 @@ const { listStatusSessions, readSessionStatus } = require('./services/waIpc');
 const waSessionsMigration = require('../migrate-wa-sessions');
 const usersAuthMigration = require('../migrate-users-auth');
 const auditLogUserFieldsMigration = require('../migrate-audit-log-user-fields');
+const waMessageIdMigration = require('../migrate-wa-message-id');
 const sessionCleaner = require('./services/sessionCleaner');
 const legacySessionsBootstrap = require('./bootstrap/migrateLegacySessions');
 const sessionRepository = require('./services/sessionRepository');
@@ -384,7 +385,16 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
             throw err;
         }
 
-        // 1.2) 启动 session 清理器
+        // 1.2) wa_messages 增加 wa_message_id 幂等键列 + UNIQUE 索引
+        try {
+            await waMessageIdMigration.run({ silent: true });
+            console.log('[Startup] wa_message_id migration done');
+        } catch (err) {
+            console.error('[Startup] wa_message_id migration failed:', err.message);
+            throw err;
+        }
+
+        // 1.3) 启动 session 清理器
         sessionCleaner.start();
 
         // 2) 一次性迁移旧 session 配置(ecosystem / env / auth dirs)

@@ -147,6 +147,7 @@ async function persistOutboundCrmMessage({
     operator,
     text,
     timestamp = null,
+    waMessageId = null,
 }) {
     try {
         return await persistDirectMessageRecord({
@@ -156,6 +157,7 @@ async function persistOutboundCrmMessage({
             operator,
             text,
             timestamp: timestamp || Date.now(),
+            waMessageId,
             req,
             shortWindowGuard: false,
             groupConflictGuard: false,
@@ -172,6 +174,7 @@ async function persistOutboundCrmMessage({
             timestamp: Number(timestamp) > 0 ? Number(timestamp) : Date.now(),
             operator: normalizeOperatorName(operator, operator || null),
             message_hash: null,
+            wa_message_id: waMessageId || null,
             text: String(text || ''),
         };
     }
@@ -212,6 +215,7 @@ router.post('/send', async (req, res) => {
                     creatorId: resolvedCreator.creator.id,
                     operator: result.routed_operator || effectiveOperator || resolvedCreator.creator.wa_owner || null,
                     text,
+                    waMessageId: typeof result.messageId === 'string' && result.messageId.trim() ? result.messageId.trim() : null,
                 })
                 : {
                     handled: false,
