@@ -167,6 +167,18 @@ function isImageMessage(message = {}) {
     return mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(url);
 }
 
+function isVideoMessage(message = {}) {
+    const mime = String(message?.mime_type || message?.mimeType || '').toLowerCase();
+    const url = String(message?.media_url || message?.previewUrl || '').toLowerCase();
+    return mime.startsWith('video/') || /\.(mp4|mov|webm|3gp|m4v)(\?|$)/i.test(url);
+}
+
+function isAudioMessage(message = {}) {
+    const mime = String(message?.mime_type || message?.mimeType || '').toLowerCase();
+    const url = String(message?.media_url || message?.previewUrl || '').toLowerCase();
+    return mime.startsWith('audio/') || /\.(ogg|mp3|wav|opus|m4a|aac)(\?|$)/i.test(url);
+}
+
 function hasMediaAttachment(message = {}) {
     return !!(message?.media_url || message?.previewUrl || message?.file_name || message?.fileName || message?.mime_type || message?.mimeType);
 }
@@ -185,8 +197,9 @@ function getMessageMime(message = {}) {
 
 function getMessageCaption(message = {}) {
     const raw = String(message?.caption || message?.text || '').trim();
-    if (raw === '🖼️ [Image]') return '';
-    return raw.replace(/^🖼️ \[Image\]\s*/i, '').trim();
+    const placeholderRe = /^(🖼️ \[Image\]|🎥 \[Video\]|🎵 \[Audio\]|📄 \[File\])\s*/i;
+    if (placeholderRe.test(raw) && raw.replace(placeholderRe, '').trim() === '') return '';
+    return raw.replace(placeholderRe, '').trim();
 }
 
 function getConversationStatusMeta(creator) {
@@ -2188,8 +2201,11 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         const fileName = getMessageFileName(item);
                         const mimeType = getMessageMime(item);
                         const captionText = getMessageCaption(item);
-                        const isImage = hasMediaAttachment(item) && isImageMessage(item);
-                        const isFile = hasMediaAttachment(item) && !isImage;
+                        const hasMedia = hasMediaAttachment(item);
+                        const isImage = hasMedia && isImageMessage(item);
+                        const isVideo = hasMedia && !isImage && isVideoMessage(item);
+                        const isAudio = hasMedia && !isImage && !isVideo && isAudioMessage(item);
+                        const isFile = hasMedia && !isImage && !isVideo && !isAudio;
                         return (
                             <div
                                 key={item.uiKey}
@@ -2229,6 +2245,40 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                                         className="block w-full max-h-[320px] object-cover"
                                                     />
                                                 </a>
+                                            )}
+                                            {captionText && (
+                                                <div className="whitespace-pre-wrap">{captionText}</div>
+                                            )}
+                                        </div>
+                                    ) : isVideo ? (
+                                        <div className="space-y-2">
+                                            {mediaUrl && (
+                                                <video
+                                                    src={mediaUrl}
+                                                    controls
+                                                    preload="metadata"
+                                                    playsInline
+                                                    className="block w-full max-h-[320px] rounded-[8px]"
+                                                    style={{ border: `1px solid ${WA.borderLight}`, background: '#000' }}
+                                                >
+                                                    {mimeType && <source src={mediaUrl} type={mimeType} />}
+                                                </video>
+                                            )}
+                                            {captionText && (
+                                                <div className="whitespace-pre-wrap">{captionText}</div>
+                                            )}
+                                        </div>
+                                    ) : isAudio ? (
+                                        <div className="space-y-2">
+                                            {mediaUrl && (
+                                                <audio
+                                                    src={mediaUrl}
+                                                    controls
+                                                    preload="metadata"
+                                                    className="block w-full"
+                                                >
+                                                    {mimeType && <source src={mediaUrl} type={mimeType} />}
+                                                </audio>
                                             )}
                                             {captionText && (
                                                 <div className="whitespace-pre-wrap">{captionText}</div>

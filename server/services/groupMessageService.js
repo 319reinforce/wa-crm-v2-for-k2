@@ -324,23 +324,34 @@ async function filterDirectMessagesAgainstGroups(dbConn, {
     messages,
 }) {
     await ensureGroupMessageSchema(dbConn);
-    const { normalized, pollutedKeys } = await findScopedGroupConflicts(dbConn, {
-        sessionId,
-        operator,
-        messages,
-    });
-    if (normalized.length === 0) {
+    const allMessages = Array.isArray(messages) ? messages : [];
+    if (allMessages.length === 0) {
         return { kept: [], dropped: [] };
     }
+
+    const { pollutedKeys } = await findScopedGroupConflicts(dbConn, {
+        sessionId,
+        operator,
+        messages: allMessages,
+    });
+
+    // conflict key 仅由 (role, 有效文本, timestamp) 构造。媒体/空文本消息天然无 key,
+    // 永远不会命中 pollutedKeys,应直接放行——而不是被当成 `normalized.length === 0`
+    // 的 "没东西可 check" 连带丢弃。早期实现丢了这批消息导致达人发送图片时
+    // insertMessages 收到空 kept、整条消息被静默吞掉。
     if (pollutedKeys.size === 0) {
-        return { kept: normalized, dropped: [] };
+        return { kept: allMessages, dropped: [] };
     }
 
     const kept = [];
     const dropped = [];
-    for (const message of normalized) {
-        const key = buildConflictKey(message);
-        if (pollutedKeys.has(key)) {
+    for (const message of allMessages) {
+        const key = buildConflictKey({
+            role: message?.role,
+            text: message?.text,
+            timestamp: message?.timestamp,
+        });
+        if (key && pollutedKeys.has(key)) {
             dropped.push(message);
         } else {
             kept.push(message);

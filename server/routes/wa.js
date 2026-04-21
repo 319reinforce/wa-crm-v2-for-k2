@@ -25,6 +25,7 @@ const {
     finalizeMediaSendLogSuccess,
     finalizeMediaSendLogFailed,
 } = require('../services/mediaAssetService');
+const { mediaTypeFromMime } = require('../services/waIncomingMediaService');
 const {
     getRoutedQr,
     getRoutedStatus,
@@ -150,6 +151,7 @@ async function persistOutboundCrmMessage({
     text,
     timestamp = null,
     waMessageId = null,
+    media = null,
 }) {
     try {
         return await persistDirectMessageRecord({
@@ -163,6 +165,15 @@ async function persistOutboundCrmMessage({
             req,
             shortWindowGuard: false,
             groupConflictGuard: false,
+            mediaAssetId: media?.assetId || null,
+            mediaType: media?.type || null,
+            mediaMime: media?.mime || null,
+            mediaSize: media?.size || null,
+            mediaWidth: media?.width || null,
+            mediaHeight: media?.height || null,
+            mediaCaption: media?.caption || null,
+            mediaThumbnail: media?.thumbnail || null,
+            mediaDownloadStatus: media?.assetId ? 'success' : null,
         });
     } catch (err) {
         console.error('[WA Route] CRM persist error:', err);
@@ -547,13 +558,31 @@ router.post('/send-media', async (req, res) => {
                 routedSessionId: result.routed_session_id || effectiveSessionId || null,
                 routedOperator: result.routed_operator || effectiveOperator || null,
             });
-            const timelineText = caption ? `🖼️ [Image] ${caption}` : '🖼️ [Image]';
+            const resolvedMediaType = mediaTypeFromMime(asset.mime_type || '');
+            const timelineLabel =
+                resolvedMediaType === 'video' ? '🎥 [Video]'
+                : resolvedMediaType === 'audio' ? '🎵 [Audio]'
+                : resolvedMediaType === 'document' ? '📄 [File]'
+                : '🖼️ [Image]';
+            const timelineText = caption ? `${timelineLabel} ${caption}` : timelineLabel;
+            const outboundMedia = {
+                assetId: asset.id || null,
+                type: resolvedMediaType,
+                mime: asset.mime_type || null,
+                size: asset.file_size || null,
+                width: asset.width || null,
+                height: asset.height || null,
+                caption: caption || null,
+                thumbnail: null,
+            };
             const crmMessage = persistToCrm
                 ? await persistOutboundCrmMessage({
                     req,
                     creatorId: resolvedCreatorId,
                     operator: result.routed_operator || effectiveOperator || resolvedCreator.creator.wa_owner || null,
                     text: timelineText,
+                    waMessageId: result.messageId || null,
+                    media: outboundMedia,
                 })
                 : {
                     handled: false,
@@ -723,6 +752,54 @@ router.get('/media-assets/:id', async (req, res) => {
     } catch (err) {
         console.error('[WA Route] get media asset error:', err);
         res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// GET /api/wa/media-assets/:id/download — 流式下载媒体文件（本地存储回退路径）
+// 前端拿到的 media_url 在 MEDIA_PUBLIC_BASE_URL 未配时会回退到这条。
+router.get('/media-assets/:id/download', async (req, res) => {
+    try {
+        const assetId = parsePositiveInt(req.params.id, null);
+        if (!assetId) {
+            return res.status(400).json({ ok: false, error: 'invalid asset id' });
+        }
+
+        const dbConn = db.getDb();
+        const asset = await dbConn.prepare(
+            `SELECT * FROM media_assets WHERE id = ? AND status = 'active'`
+        ).get(assetId);
+
+        if (!asset) {
+            return res.status(404).json({ ok: false, error: 'media asset not found or inactive' });
+        }
+
+        const lockedOwner = getLockedOwner(req);
+        if (lockedOwner && asset.operator && !matchesOwnerScope(req, asset.operator)) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
+
+        if (!asset.file_path) {
+            return res.status(404).json({ ok: false, error: 'asset has no local file_path' });
+        }
+
+        const fs = require('fs');
+        if (!fs.existsSync(asset.file_path)) {
+            return res.status(404).json({ ok: false, error: 'file missing on disk' });
+        }
+
+        const mime = asset.mime_type || 'application/octet-stream';
+        res.setHeader('Content-Type', mime);
+        if (asset.file_size) res.setHeader('Content-Length', String(asset.file_size));
+        // 长缓存安全：文件按内容 hash 命名，内容变了 id 也变
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        fs.createReadStream(asset.file_path).on('error', (err) => {
+            console.error('[WA Route] media stream error:', err);
+            if (!res.headersSent) res.status(500).end();
+            else res.destroy();
+        }).pipe(res);
+    } catch (err) {
+        console.error('[WA Route] download media error:', err);
+        if (!res.headersSent) res.status(500).json({ ok: false, error: err.message });
     }
 });
 
