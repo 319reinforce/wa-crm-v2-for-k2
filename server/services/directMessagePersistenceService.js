@@ -11,6 +11,12 @@ const {
 } = require('./groupMessageService');
 const { normalizeOperatorName } = require('../utils/operator');
 const { perfLog } = require('./perfLog');
+const sseBus = require('../events/sseBus');
+
+// Phase 1: 默认在持久化成功后广播 wa-message SSE，修复爬虫路径不推 SSE 的黑洞。
+// SSE_PERSISTENCE_BROADCAST=false 可关闭（仅用于回滚）。
+const SSE_PERSISTENCE_BROADCAST =
+    String(process.env.SSE_PERSISTENCE_BROADCAST || 'true').toLowerCase() !== 'false';
 
 // Optional-require for message cache (perf-cache branch). No-op when not present.
 let invalidateMessageCache = () => {};
@@ -156,6 +162,35 @@ async function persistDirectMessageRecord({
                 timestamp: safe.timestamp,
                 wa_message_id: normalizedWaMessageId,
             }, req);
+        }
+        if (SSE_PERSISTENCE_BROADCAST) {
+            // 查 wa_phone 是为了复用现有前端匹配逻辑（按 from_phone/to_phone
+            // 判断是否当前打开的会话）。这是一条短查询，不进事务。
+            let waPhone = null;
+            try {
+                const row = await dbConn.prepare(
+                    'SELECT wa_phone FROM creators WHERE id = ?'
+                ).get(creatorId);
+                waPhone = row && row.wa_phone ? String(row.wa_phone) : null;
+            } catch (err) {
+                console.error('[persistDirectMessageRecord] wa_phone lookup failed:', err.message);
+            }
+            try {
+                sseBus.broadcast('wa-message', {
+                    creator_id: creatorId,
+                    message_id: normalizedWaMessageId,
+                    wa_message_id: normalizedWaMessageId,
+                    role: safe.role,
+                    operator: safe.operator,
+                    text: safe.text,
+                    timestamp: safe.timestamp,
+                    from_phone: waPhone,
+                    to_phone: waPhone,
+                    source: 'persistence',
+                });
+            } catch (err) {
+                console.error('[persistDirectMessageRecord] SSE broadcast failed:', err.message);
+            }
         }
     }
 
