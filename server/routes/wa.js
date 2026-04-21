@@ -558,10 +558,16 @@ router.post('/send-media', async (req, res) => {
                 routedSessionId: result.routed_session_id || effectiveSessionId || null,
                 routedOperator: result.routed_operator || effectiveOperator || null,
             });
-            const timelineText = caption ? `🖼️ [Image] ${caption}` : '🖼️ [Image]';
+            const resolvedMediaType = mediaTypeFromMime(asset.mime_type || '');
+            const timelineLabel =
+                resolvedMediaType === 'video' ? '🎥 [Video]'
+                : resolvedMediaType === 'audio' ? '🎵 [Audio]'
+                : resolvedMediaType === 'document' ? '📄 [File]'
+                : '🖼️ [Image]';
+            const timelineText = caption ? `${timelineLabel} ${caption}` : timelineLabel;
             const outboundMedia = {
                 assetId: asset.id || null,
-                type: mediaTypeFromMime(asset.mime_type || ''),
+                type: resolvedMediaType,
                 mime: asset.mime_type || null,
                 size: asset.file_size || null,
                 width: asset.width || null,
