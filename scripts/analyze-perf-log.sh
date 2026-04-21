@@ -117,7 +117,31 @@ else
     echo "- 若 sse_broadcast=0 → 确认 Phase 1 的爬虫路径 SSE 黑洞（预期现象，Phase 1 修后会有）"
 fi
 
-# 6. 持久化耗时
+# 6. event-miss-rate（按 session 聚合）
+echo
+echo "## event-miss-rate：polling 兜底捕获的消息数 vs event 路径捕获数（按 session）"
+echo
+echo "| session | event_path | poll_path | miss_rate |"
+echo "|---|---|---|---|"
+jq -r 'select(.phase=="wa_event_received" and .sessionId != null) | .sessionId' < "$TMPDIR/all.jsonl" \
+    | sort | uniq -c > "$TMPDIR/event_count.txt"
+jq -r 'select(.phase=="wa_poll_inserted" and .sessionId != null) | .sessionId' < "$TMPDIR/all.jsonl" \
+    | sort | uniq -c > "$TMPDIR/poll_count.txt"
+
+# join 两个计数文件（格式 "count session"）按 session 名
+awk 'FILENAME ~ /event/ { e[$2] = $1 } FILENAME ~ /poll/ { p[$2] = $1 }
+    END {
+        for (s in e) if (!(s in p)) p[s] = 0
+        for (s in p) if (!(s in e)) e[s] = 0
+        for (s in e) {
+            total = e[s] + p[s]
+            if (total == 0) continue
+            miss = (p[s] * 100.0) / total
+            printf "| %s | %d | %d | %.1f%% |\n", s, e[s], p[s], miss
+        }
+    }' "$TMPDIR/event_count.txt" "$TMPDIR/poll_count.txt"
+
+# 7. 持久化耗时
 echo
 echo "## persistDirectMessageRecord 耗时"
 echo

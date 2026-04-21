@@ -23,7 +23,14 @@ const sessionRepository = require('./sessionRepository');
 const { getRegistry } = require('./sessionRegistry');
 
 const REPAIR_QUEUE_DIR = path.join(__dirname, '../../.wa_ipc/repair-queue');
-const REPAIR_QUEUE_POLL_MS = 15000;
+// Phase 3: REPAIR_QUEUE_POLL_MS 本来硬编码 15000ms；补 env 覆盖入口以便
+// 必要时在线调整（默认保持 15s，不缩短——polling 是兜底，缩短只增压不降延迟）
+function parseRepairPollMs(raw) {
+    const parsed = parseInt(raw || '', 10);
+    if (!Number.isInteger(parsed) || parsed < 1000) return 15000;
+    return parsed;
+}
+const REPAIR_QUEUE_POLL_MS = parseRepairPollMs(process.env.REPAIR_QUEUE_POLL_MS);
 let repairQueueTimer = null;
 let repairQueueBusy = false;
 
