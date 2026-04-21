@@ -26,14 +26,15 @@ export default function AIReplyPicker({
     compactMobile = false,
     collapsed = false,
     onToggleCollapse,
-    // 新增：标准话术相关 props
-    standardTemplate,
-    standardLoading,
-    standardError,
-    onSelectStandard,
     scene,
     operator,
     clientId,
+    messages,
+    currentTopic,
+    autoDetectedTopic,
+    activeEvents,
+    lifecycle,
+    refreshToken,
 }) {
     const translatingCustom = !!customToolLoading?.translate;
     const emojiCustomizing = !!customToolLoading?.emoji;
@@ -98,6 +99,12 @@ export default function AIReplyPicker({
                     operator={operator}
                     userMessage={incomingMsg?.text}
                     clientId={clientId}
+                    messages={messages}
+                    currentTopic={currentTopic}
+                    autoDetectedTopic={autoDetectedTopic}
+                    activeEvents={activeEvents}
+                    lifecycle={lifecycle}
+                    refreshToken={refreshToken}
                     onEdit={onEditCandidate}
                     onSend={(text) => onSelectStandard?.(text)}
                     compactMobile={compactMobile}

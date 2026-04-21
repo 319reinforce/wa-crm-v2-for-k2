@@ -2316,6 +2316,12 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         scene={activePicker.scene}
                         operator={activePicker.operator}
                         clientId={client?.phone}
+                        messages={messages}
+                        currentTopic={currentTopic}
+                        autoDetectedTopic={autoDetectedTopic}
+                        activeEvents={activeEvents}
+                        lifecycle={creator?._full?.lifecycle || creator?.lifecycle || null}
+                        refreshToken={activePicker.generated_at || activePicker.incomingMsg?.timestamp || null}
                     />
                 )}
 

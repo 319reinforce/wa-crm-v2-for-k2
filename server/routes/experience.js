@@ -331,49 +331,75 @@ router.get('/:operator/system-prompt', async (req, res) => {
 // 新增：检索标准话术端点
 router.post('/retrieve-template', async (req, res) => {
     try {
-        const { client_id, operator, scene, user_message } = req.body;
+        const {
+            client_id,
+            operator,
+            scene,
+            user_message,
+            recent_messages,
+            current_topic,
+            auto_detected_topic,
+            active_events,
+            lifecycle,
+            force_template_sources,
+        } = req.body || {};
+        const dbInstance = db.getDb();
+        const scope = await resolveExperienceScope(req, res, dbInstance, {
+            clientId: client_id || null,
+            operator: operator || null,
+        });
+        if (!scope?.ok) {
+            return;
+        }
 
-        // 调用 localRuleRetrievalService 检索相关知识源
         const { retrieveLocalRules, loadSourceContent, extractTemplateFromSource } = require('../services/localRuleRetrievalService');
 
         const sources = retrieveLocalRules({
+            clientId: client_id || null,
             scene,
-            operator,
+            operator: scope.owner,
             userMessage: user_message || '',
-            maxSources: 1 // 只取最匹配的一个
+            recentMessages: Array.isArray(recent_messages) ? recent_messages : [],
+            currentTopic: current_topic || null,
+            autoDetectedTopic: auto_detected_topic || null,
+            activeEvents: Array.isArray(active_events) ? active_events : [],
+            lifecycle: lifecycle || null,
+            forceTemplateSources: force_template_sources === true,
+            maxSources: 1,
         });
 
         if (!sources || sources.length === 0) {
-            return res.json({ template: null });
+            return res.json({ success: true, template: null });
         }
 
-        // 加载知识源内容
         const topSource = sources[0];
         const content = loadSourceContent(topSource);
 
         if (!content) {
-            return res.json({ template: null });
+            return res.json({ success: true, template: null });
         }
 
-        // 提取纯话术文本
-        const templateText = extractTemplateFromSource(content, topSource.id);
+        const templateText = extractTemplateFromSource(content, topSource.id, topSource.type);
 
         if (!templateText) {
-            return res.json({ template: null });
+            return res.json({ success: true, template: null });
         }
 
-        // 返回格式化的 template 对象
         res.json({
+            success: true,
             template: {
                 text: templateText,
                 source: topSource.id,
-                matchScore: topSource.score || 0
+                matchScore: topSource.score || 0,
+                matchedBy: topSource.matchedBy || [],
+                resolvedTopic: topSource.resolvedTopic || null,
+                resolvedStage: topSource.resolvedStage || null,
             }
         });
 
     } catch (err) {
-        console.error('[retrieve-template] Error:', err);
         res.status(500).json({
+            success: false,
             error: {
                 code: 'RETRIEVAL_ERROR',
                 message: '检索服务暂时不可用'
