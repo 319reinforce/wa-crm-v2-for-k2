@@ -295,6 +295,11 @@ CREATE TABLE IF NOT EXISTS media_assets (
     file_size           BIGINT NOT NULL,
     sha256_hash         VARCHAR(64) NOT NULL,
     status              VARCHAR(16) NOT NULL DEFAULT 'active' COMMENT 'active|deleted|blocked',
+    storage_tier        VARCHAR(16) NOT NULL DEFAULT 'hot' COMMENT 'hot|warm|cold|deleted',
+    original_size       BIGINT NULL COMMENT '压缩前原始大小',
+    compressed_at       DATETIME NULL COMMENT '压缩完成时间',
+    deleted_at          DATETIME NULL COMMENT '软删除时间',
+    cleanup_job_id      BIGINT NULL COMMENT 'FK to cleanup_jobs.id',
     meta_json           JSON NULL,
     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -304,6 +309,50 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE INDEX idx_media_assets_creator ON media_assets(creator_id);
 CREATE INDEX idx_media_assets_status ON media_assets(status);
 CREATE INDEX idx_media_assets_hash ON media_assets(sha256_hash);
+CREATE INDEX idx_media_assets_storage_tier ON media_assets(storage_tier);
+CREATE INDEX idx_media_assets_deleted_at ON media_assets(deleted_at);
+CREATE INDEX idx_media_assets_cleanup_job ON media_assets(cleanup_job_id);
+CREATE INDEX idx_media_assets_created_at ON media_assets(created_at);
+
+-- ============================================================
+-- Cleanup Jobs — 媒体清理任务
+-- ============================================================
+CREATE TABLE IF NOT EXISTS cleanup_jobs (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    job_type            VARCHAR(32) NOT NULL COMMENT "'retention'|'manual'|'purge'",
+    retention_days      INT NULL COMMENT '保留天数（retention 类型）',
+    status              VARCHAR(16) NOT NULL DEFAULT 'running' COMMENT 'running|completed|failed',
+    total_candidates    INT NOT NULL DEFAULT 0,
+    candidates_checked  INT NOT NULL DEFAULT 0,
+    candidates_deleted INT NOT NULL DEFAULT 0,
+    candidates_skipped INT NOT NULL DEFAULT 0,
+    started_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at       DATETIME NULL,
+    triggered_by       VARCHAR(64) NOT NULL DEFAULT 'system' COMMENT "'system'|'cron'|'manual'|'script'",
+    triggered_by_user  VARCHAR(64) NULL,
+    note               TEXT NULL,
+    error_message       TEXT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_cleanup_jobs_status ON cleanup_jobs(status);
+CREATE INDEX idx_cleanup_jobs_started ON cleanup_jobs(started_at DESC);
+
+-- ============================================================
+-- Cleanup Exemptions — 清理豁免记录（永久保留）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS cleanup_exemptions (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    media_asset_id      BIGINT NOT NULL,
+    exempted_by         VARCHAR(64) NOT NULL,
+    exemption_reason    VARCHAR(255) NOT NULL,
+    exempted_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at          DATETIME NULL COMMENT 'NULL = 永久豁免',
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (media_asset_id) REFERENCES media_assets(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE UNIQUE INDEX idx_exemptions_asset ON cleanup_exemptions(media_asset_id);
+CREATE INDEX idx_exemptions_expiry ON cleanup_exemptions(expires_at);
 
 -- ============================================================
 -- Media Send Log — 图片发送日志

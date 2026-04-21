@@ -43,6 +43,7 @@ const usersAuthMigration = require('../migrate-users-auth');
 const auditLogUserFieldsMigration = require('../migrate-audit-log-user-fields');
 const waMessageIdMigration = require('../migrate-wa-message-id');
 const waMessagesMediaMigration = require('../migrate-wa-messages-media');
+const mediaLifecycleMigration = require('../migrate-media-lifecycle');
 const sessionCleaner = require('./services/sessionCleaner');
 const legacySessionsBootstrap = require('./bootstrap/migrateLegacySessions');
 const sessionRepository = require('./services/sessionRepository');
@@ -415,7 +416,16 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
             throw err;
         }
 
-        // 1.3) 启动 session 清理器
+        // 1.3) 媒体生命周期:media_assets 扩列 + cleanup_jobs / cleanup_exemptions 建表
+        try {
+            await mediaLifecycleMigration.run({ silent: true });
+            console.log('[Startup] media-lifecycle migration done');
+        } catch (err) {
+            console.error('[Startup] media-lifecycle migration failed:', err.message);
+            throw err;
+        }
+
+        // 1.4) 启动 session 清理器
         sessionCleaner.start();
 
         // 2) 一次性迁移旧 session 配置(ecosystem / env / auth dirs)

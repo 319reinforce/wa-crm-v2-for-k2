@@ -697,4 +697,176 @@ router.get('/messages/:id/media', async (req, res) => {
     }
 });
 
+// GET /api/wa/media-assets/:id — 获取单个媒体资产详情
+router.get('/media-assets/:id', async (req, res) => {
+    try {
+        const assetId = parsePositiveInt(req.params.id, null);
+        if (!assetId) {
+            return res.status(400).json({ ok: false, error: 'invalid asset id' });
+        }
+
+        const dbConn = db.getDb();
+        const asset = await dbConn.prepare(`
+            SELECT * FROM media_assets WHERE id = ? AND status = 'active'
+        `).get(assetId);
+
+        if (!asset) {
+            return res.status(404).json({ ok: false, error: 'media asset not found or inactive' });
+        }
+
+        const lockedOwner = getLockedOwner(req);
+        if (lockedOwner && asset.operator && !matchesOwnerScope(req, asset.operator)) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
+
+        res.json({ ok: true, media_asset: asset });
+    } catch (err) {
+        console.error('[WA Route] get media asset error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// GET /api/wa/media-assets — 列表媒体资产
+router.get('/media-assets', async (req, res) => {
+    try {
+        const limit = Math.min(parsePositiveInt(req.query.limit, 50) || 50, 200);
+        const offset = parsePositiveInt(req.query.offset, 0) || 0;
+        const creatorId = parsePositiveInt(req.query.creator_id, null);
+        const operator = resolveScopedOwner(req, req.query.operator || null, null);
+
+        const dbConn = db.getDb();
+        const conditions = ['ma.status = ?'];
+        const params = ['active'];
+
+        if (creatorId) {
+            conditions.push('ma.creator_id = ?');
+            params.push(creatorId);
+        }
+        if (operator) {
+            conditions.push('ma.operator = ?');
+            params.push(operator);
+        }
+
+        const where = conditions.join(' AND ');
+
+        const rows = await dbConn.prepare(`
+            SELECT ma.*, c.primary_name as creator_name
+            FROM media_assets ma
+            LEFT JOIN creators c ON c.id = ma.creator_id
+            WHERE ${where}
+            ORDER BY ma.created_at DESC
+            LIMIT ? OFFSET ?
+        `).all(...params, limit, offset);
+
+        const countRow = await dbConn.prepare(`
+            SELECT COUNT(*) as total FROM media_assets ma WHERE ${where}
+        `).get(...params);
+
+        res.json({
+            ok: true,
+            media_assets: rows,
+            meta: {
+                total: countRow.total,
+                limit,
+                offset,
+            },
+        });
+    } catch (err) {
+        console.error('[WA Route] list media assets error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// DELETE /api/wa/media-assets/:id — 删除媒体资产（软删除）
+router.delete('/media-assets/:id', async (req, res) => {
+    try {
+        const assetId = parsePositiveInt(req.params.id, null);
+        if (!assetId) {
+            return res.status(400).json({ ok: false, error: 'invalid asset id' });
+        }
+
+        const actor = getRequestActor(req, req.body?.actor || '');
+
+        const dbConn = db.getDb();
+        const asset = await dbConn.prepare(`
+            SELECT * FROM media_assets WHERE id = ? AND status = 'active'
+        `).get(assetId);
+
+        if (!asset) {
+            return res.status(404).json({ ok: false, error: 'media asset not found or already deleted' });
+        }
+
+        const lockedOwner = getLockedOwner(req);
+        if (lockedOwner && asset.operator && !matchesOwnerScope(req, asset.operator)) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
+
+        await dbConn.prepare(`
+            UPDATE media_assets SET status = 'deleted', updated_at = CURRENT_TIMESTAMP WHERE id = ?
+        `).run(assetId);
+
+        res.json({ ok: true, deleted: assetId, actor });
+    } catch (err) {
+        console.error('[WA Route] delete media asset error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// GET /api/wa/media-assets/:id/stats — 媒体资产使用统计
+router.get('/media-assets/:id/stats', async (req, res) => {
+    try {
+        const assetId = parsePositiveInt(req.params.id, null);
+        if (!assetId) {
+            return res.status(400).json({ ok: false, error: 'invalid asset id' });
+        }
+
+        const dbConn = db.getDb();
+        const asset = await dbConn.prepare(`
+            SELECT * FROM media_assets WHERE id = ? AND status = 'active'
+        `).get(assetId);
+
+        if (!asset) {
+            return res.status(404).json({ ok: false, error: 'media asset not found' });
+        }
+
+        const sendLogs = await dbConn.prepare(`
+            SELECT COUNT(*) as send_count,
+                   SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+                   SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count,
+                   MAX(sent_at) as last_sent_at
+            FROM media_send_log WHERE media_asset_id = ?
+        `).get(assetId);
+
+        const referencedMessages = await dbConn.prepare(`
+            SELECT COUNT(*) as message_count
+            FROM wa_messages WHERE media_asset_id = ?
+        `).get(assetId);
+
+        const meta = asset.meta_json ? JSON.parse(asset.meta_json) : {};
+        const compressionRatio = meta.compressed && meta.original_size
+            ? (asset.file_size / meta.original_size).toFixed(2)
+            : null;
+
+        res.json({
+            ok: true,
+            stats: {
+                send_total: sendLogs.send_count || 0,
+                send_success: sendLogs.success_count || 0,
+                send_failed: sendLogs.failed_count || 0,
+                last_sent_at: sendLogs.last_sent_at || null,
+                message_refs: referencedMessages.message_count || 0,
+                compression: {
+                    compressed: meta.compressed || false,
+                    original_size: meta.original_size || null,
+                    stored_size: asset.file_size,
+                    ratio: compressionRatio,
+                },
+            },
+        });
+    } catch (err) {
+        console.error('[WA Route] media asset stats error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
 module.exports = router;
