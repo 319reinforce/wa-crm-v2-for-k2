@@ -91,4 +91,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { runMigration };
+module.exports = { run: runMigration };
