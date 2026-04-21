@@ -634,8 +634,81 @@ router.get('/status', async (req, res) => {
     }));
 });
 
-// POST /api/wa/sessions/:sessionId/driver — 切换 WA driver (wwebjs ↔ baileys)
-// admin-only：WhatsApp driver 切换会强制重扫 QR，破坏性强，service/owner token 一律拒
+// POST /api/wa/sessions/:sessionId/driver — 异步切换 WA driver (wwebjs ↔ baileys)
+// admin-only：WhatsApp driver 切换会强制重扫 QR，破坏性强，service/owner token 一律拒。
+// 返回 202 + command_id，真正工作在后台跑。客户端用 GET .../commands/:cmdId 轮询进度。
+// 这样避免同步 30s 卡死撞 CF 524 / nginx 60s 超时（见 WA_SESSIONS_DESIGN_REVIEW §HIGH-4）。
+const DRIVER_SWITCH_STOP_POLL_MAX_MS = 30000;
+const DRIVER_SWITCH_STOP_POLL_INTERVAL_MS = 1000;
+
+async function runDriverSwitch({ store, cmdId, dbConn, sessionId, driver, fromDriver, force, previousState, writeAuditFn, auditCtx }) {
+    const driverMeta = JSON.stringify({
+        switched_at: new Date().toISOString(),
+        switched_by: auditCtx.actor,
+        previous_driver: fromDriver,
+    });
+    try {
+        store.update(cmdId, { status: 'running', progress: 'updating_db' });
+
+        await dbConn.query(
+            'UPDATE wa_sessions SET driver=?, driver_meta=? WHERE session_id=?',
+            [driver, driverMeta, sessionId]
+        );
+        await dbConn.query(
+            "UPDATE wa_sessions SET desired_state='stopped', desired_state_changed_at=NOW(), desired_state_changed_by=? WHERE session_id=?",
+            [auditCtx.actor, sessionId]
+        );
+
+        try {
+            await writeAuditFn(auditCtx.req, 'wa_session_driver_changed', {
+                session_id: sessionId, from: fromDriver, to: driver,
+                forced: force, previous_state: previousState,
+            });
+        } catch (_) { /* audit 非阻断 */ }
+
+        store.update(cmdId, { progress: 'awaiting_stopped' });
+        const pollStartedAt = Date.now();
+        let stopped = false;
+        while (Date.now() - pollStartedAt < DRIVER_SWITCH_STOP_POLL_MAX_MS) {
+            await new Promise((r) => setTimeout(r, DRIVER_SWITCH_STOP_POLL_INTERVAL_MS));
+            const [s] = await dbConn.query('SELECT runtime_state FROM wa_sessions WHERE session_id=?', [sessionId]);
+            if (s[0]?.runtime_state === 'stopped') { stopped = true; break; }
+        }
+
+        if (!stopped) {
+            store.update(cmdId, {
+                status: 'timeout',
+                progress: 'stopped_wait_exceeded',
+                error: `runtime_state 未在 ${DRIVER_SWITCH_STOP_POLL_MAX_MS}ms 内变为 stopped；desired_state 已写 stopped，reconciler 会继续推进。`,
+            });
+            return;
+        }
+
+        store.update(cmdId, { progress: 'requesting_restart' });
+        await dbConn.query(
+            "UPDATE wa_sessions SET desired_state='running', desired_state_changed_at=NOW(), desired_state_changed_by=? WHERE session_id=?",
+            [auditCtx.actor, sessionId]
+        );
+
+        store.update(cmdId, {
+            status: 'completed',
+            progress: 'done',
+            result: {
+                driver,
+                hint: driver === 'baileys'
+                    ? '账号将使用 Baileys 重新连接，请在 /api/wa/qr 扫码'
+                    : '账号将使用 whatsapp-web.js 重新连接，请在 /api/wa/qr 扫码',
+            },
+        });
+    } catch (err) {
+        store.update(cmdId, {
+            status: 'failed',
+            progress: 'error',
+            error: err?.message || String(err),
+        });
+    }
+}
+
 router.post('/sessions/:sessionId/driver', requireAdminOnly, async (req, res) => {
     const { sessionId } = req.params;
     const { driver, force_disconnect } = req.body || {};
@@ -646,15 +719,14 @@ router.post('/sessions/:sessionId/driver', requireAdminOnly, async (req, res) =>
 
     const dbConn = require('../../db').getDb();
     const { writeAudit } = require('../middleware/audit');
+    const { getStore } = require('../services/driverSwitchCommands');
 
-    // Read session row
     let rows;
     try {
         [rows] = await dbConn.query('SELECT * FROM wa_sessions WHERE session_id = ?', [sessionId]);
     } catch (err) {
         return res.status(500).json({ ok: false, error: err.message });
     }
-
     if (!rows || rows.length === 0) {
         return res.status(404).json({ ok: false, error: `session not found: ${sessionId}` });
     }
@@ -667,60 +739,63 @@ router.post('/sessions/:sessionId/driver', requireAdminOnly, async (req, res) =>
 
     const force = force_disconnect === true || force_disconnect === 'true' || force_disconnect === 1;
     const currentState = session.runtime_state;
-
-    if (currentState === 'ready' || currentState === 'starting') {
-        if (!force) {
-            return res.status(400).json({
-                ok: false, error: `session is ${currentState}; pass force_disconnect:true to force switch`
-            });
-        }
+    if ((currentState === 'ready' || currentState === 'starting') && !force) {
+        return res.status(400).json({
+            ok: false, error: `session is ${currentState}; pass force_disconnect:true to force switch`,
+        });
     }
 
-    const driverMeta = JSON.stringify({
-        switched_at: new Date().toISOString(),
-        switched_by: getEffectiveOperator(req, null, 'api'),
-        previous_driver: fromDriver,
+    const store = getStore();
+    const actor = getEffectiveOperator(req, null, 'api');
+    const cmd = store.create({
+        sessionId, fromDriver, toDriver: driver, forced: force, actor,
     });
 
-    try {
-        // 1. Update DB: set new driver + stop
-        await dbConn.query(
-            'UPDATE wa_sessions SET driver=?, driver_meta=? WHERE session_id=?',
-            [driver, driverMeta, sessionId]
-        );
-        await dbConn.query(
-            "UPDATE wa_sessions SET desired_state='stopped', desired_state_changed_at=NOW(), desired_state_changed_by=? WHERE session_id=?",
-            [getEffectiveOperator(req, null, 'api'), sessionId]
-        );
-
-        await writeAudit(req, 'wa_session_driver_changed', {
-            session_id: sessionId, from: fromDriver, to: driver,
-            forced: force, previous_state: currentState,
+    // Fire-and-forget：立刻返回 command_id，真正工作在后台；
+    // 用 setImmediate 而不是 await，保证 HTTP 响应先刷出去不被 async 阻塞。
+    setImmediate(() => {
+        runDriverSwitch({
+            store, cmdId: cmd.id, dbConn, sessionId, driver, fromDriver, force,
+            previousState: currentState,
+            writeAuditFn: writeAudit,
+            auditCtx: { req, actor },
+        }).catch((err) => {
+            store.update(cmd.id, { status: 'failed', progress: 'unhandled', error: err?.message || String(err) });
         });
+    });
 
-        // 2. Poll for runtime_state='stopped' (up to 30s)
-        for (let i = 0; i < 30; i++) {
-            await new Promise(r => setTimeout(r, 1000));
-            const [s] = await dbConn.query('SELECT runtime_state FROM wa_sessions WHERE session_id=?', [sessionId]);
-            if (s[0]?.runtime_state === 'stopped') break;
-        }
+    res.status(202).json({
+        ok: true,
+        accepted: true,
+        command_id: cmd.id,
+        status: cmd.status,
+        poll_url: `/api/wa/sessions/${encodeURIComponent(sessionId)}/commands/${cmd.id}`,
+    });
+});
 
-        // 3. Trigger restart with new driver
-        await dbConn.query(
-            "UPDATE wa_sessions SET desired_state='running', desired_state_changed_at=NOW(), desired_state_changed_by=? WHERE session_id=?",
-            [getEffectiveOperator(req, null, 'api'), sessionId]
-        );
-
-        res.json({
-            ok: true,
-            driver,
-            hint: driver === 'baileys'
-                ? '账号将使用 Baileys 重新连接，请在 /api/wa/qr 扫码'
-                : '账号将使用 whatsapp-web.js 重新连接，请在 /api/wa/qr 扫码',
-        });
-    } catch (err) {
-        res.status(500).json({ ok: false, error: err.message });
+// GET /api/wa/sessions/:sessionId/commands/:cmdId — 查询异步命令状态
+router.get('/sessions/:sessionId/commands/:cmdId', (req, res) => {
+    const { sessionId, cmdId } = req.params;
+    const { getStore } = require('../services/driverSwitchCommands');
+    const rec = getStore().get(cmdId);
+    if (!rec) return res.status(404).json({ ok: false, error: 'command not found or expired' });
+    if (rec.sessionId !== sessionId) {
+        return res.status(404).json({ ok: false, error: 'command does not belong to this session' });
     }
+    // Owner-scope: 非 admin 只能查自己 owner 的 session command
+    if (getLockedOwner(req)) {
+        const dbConn = require('../../db').getDb();
+        // 快路径：直接读 session.owner 校对
+        dbConn.query('SELECT owner FROM wa_sessions WHERE session_id = ?', [sessionId]).then(([rows]) => {
+            if (!rows?.[0]) return res.status(404).json({ ok: false, error: 'session not found' });
+            if (!matchesOwnerScope(req, rows[0].owner)) {
+                return sendOwnerScopeForbidden(res, getLockedOwner(req));
+            }
+            return res.json({ ok: true, command: rec });
+        }).catch((err) => res.status(500).json({ ok: false, error: err.message }));
+        return;
+    }
+    res.json({ ok: true, command: rec });
 });
 
 

@@ -30,18 +30,27 @@ HTTP /api/wa/*
 
 ## 核心运维端点
 
-### 切换 Driver
+### 切换 Driver（异步 202 + cmdId）
 
 ```bash
 # 查看当前 driver
 curl -s http://localhost:3000/api/wa/sessions \
   -H "Authorization: Bearer $TOKEN" | jq '.[]|{session_id, driver}'
 
-# 切换到 Baileys（需要重新扫码）
+# 切换到 Baileys（admin-only，立即 202 返回 command_id）
 curl -X POST http://localhost:3000/api/wa/sessions/jiawen/driver \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"driver":"baileys","force_disconnect":true}'
+# → 202 { "command_id": "...", "status": "pending",
+#         "poll_url": "/api/wa/sessions/jiawen/commands/..." }
+
+# 轮询命令状态（pending → running → completed | failed | timeout）
+CMD_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+curl -s http://localhost:3000/api/wa/sessions/jiawen/commands/$CMD_ID \
+  -H "Authorization: Bearer $TOKEN"
+# → { "ok": true, "command": { "status": "completed", "progress": "done",
+#     "result": { "driver": "baileys", "hint": "..." }, ... } }
 
 # 切换回 wwebjs
 curl -X POST http://localhost:3000/api/wa/sessions/jiawen/driver \
@@ -50,7 +59,12 @@ curl -X POST http://localhost:3000/api/wa/sessions/jiawen/driver \
   -d '{"driver":"wwebjs","force_disconnect":true}'
 ```
 
-**注意**: 切换后 session 会重启，新 QR 会在 `/api/wa/qr?session_id=jiawen` 生成。
+**说明**:
+- 端点 admin-only，owner-scoped / service token 403
+- 同步阶段只写 DB 字段 + 入队 cmdId，< 500ms 返回（不再吃 30s）
+- 异步后台：等 runtime_state=stopped（最多 30s）→ desired_state=running
+- timeout 不影响正确性：desired_state 已是 stopped，reconciler 会继续推进
+- 切换后 session 会重启，新 QR 在 `/api/wa/qr?session_id=jiawen` 生成
 
 ### 监控指标
 
