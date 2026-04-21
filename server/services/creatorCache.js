@@ -21,6 +21,12 @@ const { getRedis, isAvailable } = require('./creatorCacheClient');
 // Env config
 const TTL_SEC = parseInt(process.env.REDIS_CREATOR_TTL_SEC || '60', 10);
 
+// Cache keys are shared across all callers regardless of the `fields` each one
+// asks for, so we must always persist the full row; otherwise a narrow-field
+// caller would overwrite a wide-field caller's payload and return partial rows
+// (e.g. a cached row without `wa_phone` → `creator has empty wa_phone`).
+const FULL_ROW_SELECT = '*';
+
 // Key prefixes
 const K_ID    = (id)    => `creator:id:${id}`;
 const K_PHONE = (phone) => {
@@ -41,14 +47,50 @@ function normalizeCacheKey(phone) {
         .toLowerCase();
 }
 
+/**
+ * Parse a SQL SELECT field list into required column names.
+ * Returns `null` if the list includes `*` (no column-level check needed).
+ */
+function parseRequiredColumns(fields) {
+    const raw = String(fields || '').trim();
+    if (!raw || raw === '*') return null;
+    const cols = raw
+        .split(',')
+        .map((f) => f.trim().toLowerCase())
+        .filter(Boolean);
+    if (cols.includes('*')) return null;
+    return cols;
+}
+
+/**
+ * Validate that a cached row satisfies the caller's `fields` request.
+ * Returns the row if it exposes every requested column (null values count as
+ * present); returns null when the row is missing columns so the caller falls
+ * back to DB (protects against legacy partial cache entries).
+ */
+function validateCachedRow(row, fields) {
+    if (!row || typeof row !== 'object') return null;
+    const required = parseRequiredColumns(fields);
+    if (!required) return row;
+    for (const col of required) {
+        if (!Object.prototype.hasOwnProperty.call(row, col)) {
+            return null;
+        }
+    }
+    return row;
+}
+
 // ─── Read path ─────────────────────────────────────────────────────────────
 
 /**
  * Fetch a single creator by id from cache, falling back to MySQL.
  *
+ * NOTE: The `fields` parameter only gates cache-hit validation; the DB query
+ * always selects `*` so the cache payload is uniform across all callers.
+ *
  * @param {object} dbConn   - better-sqlite3 connection
  * @param {number|string} creatorId
- * @param {string[]} fields - SELECT fields (default: id, primary_name, wa_phone, wa_owner)
+ * @param {string} [fields] - SELECT fields the caller expects (default: all common ones)
  * @returns {Promise<object|null>}
  */
 async function getCreator(dbConn, creatorId, fields = 'id, primary_name, wa_phone, wa_owner') {
@@ -61,19 +103,17 @@ async function getCreator(dbConn, creatorId, fields = 'id, primary_name, wa_phon
             const cached = await redis.get(K_ID(id));
             if (cached) {
                 const parsed = JSON.parse(cached);
-                // Only return if has all requested fields
-                if (typeof parsed === 'object' && parsed !== null) {
-                    return parsed;
-                }
+                const validated = validateCachedRow(parsed, fields);
+                if (validated) return validated;
             }
         } catch (err) {
             console.warn(`[creatorCache] get id=${id} cache read error: ${err.message}`);
         }
     }
 
-    // Cache miss — query DB
+    // Cache miss (or partial cached row) — query DB for the full row.
     const row = await dbConn.prepare(
-        `SELECT ${fields} FROM creators WHERE id = ? LIMIT 1`
+        `SELECT ${FULL_ROW_SELECT} FROM creators WHERE id = ? LIMIT 1`
     ).get(id);
 
     if (row && redis) {
@@ -105,18 +145,17 @@ async function getCreatorByPhone(dbConn, phone, fields = 'id, primary_name, wa_p
             const cached = await redis.get(K_PHONE(normalized));
             if (cached) {
                 const parsed = JSON.parse(cached);
-                if (typeof parsed === 'object' && parsed !== null) {
-                    return parsed;
-                }
+                const validated = validateCachedRow(parsed, fields);
+                if (validated) return validated;
             }
         } catch (err) {
             console.warn(`[creatorCache] get phone=${normalized} cache read error: ${err.message}`);
         }
     }
 
-    // Cache miss
+    // Cache miss (or partial cached row) — query DB for the full row.
     const row = await dbConn.prepare(
-        `SELECT ${fields} FROM creators WHERE wa_phone = ? LIMIT 1`
+        `SELECT ${FULL_ROW_SELECT} FROM creators WHERE wa_phone = ? LIMIT 1`
     ).get(phone);
 
     if (row && redis) {
@@ -135,9 +174,11 @@ async function getCreatorByPhone(dbConn, phone, fields = 'id, primary_name, wa_p
 /**
  * Batch fetch creators by id — cache-aside with Redis MGET.
  *
+ * NOTE: `fields` only gates cache-hit validation; DB queries always SELECT *.
+ *
  * @param {object} dbConn
  * @param {number[]} creatorIds
- * @param {string[]} fields
+ * @param {string} [fields] - SELECT fields the caller expects
  * @returns {Promise<Map<number, object|null>>}  id → creator row (null = not found)
  */
 async function getCreatorsByIds(dbConn, creatorIds, fields = 'id, primary_name, wa_phone, wa_owner') {
@@ -160,8 +201,9 @@ async function getCreatorsByIds(dbConn, creatorIds, fields = 'id, primary_name, 
                 if (cachedRow) {
                     try {
                         const parsed = JSON.parse(cachedRow);
-                        if (typeof parsed === 'object' && parsed !== null) {
-                            result.set(ids[i], parsed);
+                        const validated = validateCachedRow(parsed, fields);
+                        if (validated) {
+                            result.set(ids[i], validated);
                             continue;
                         }
                     } catch (_) {}
@@ -176,11 +218,11 @@ async function getCreatorsByIds(dbConn, creatorIds, fields = 'id, primary_name, 
         missIds.push(...ids);
     }
 
-    // Fetch misses from DB
+    // Fetch misses from DB (always full row for cache uniformity).
     if (missIds.length > 0) {
         const placeholders = missIds.map(() => '?').join(',');
         const rows = await dbConn.prepare(
-            `SELECT ${fields} FROM creators WHERE id IN (${placeholders})`
+            `SELECT ${FULL_ROW_SELECT} FROM creators WHERE id IN (${placeholders})`
         ).all(...missIds);
 
         const rowMap = new Map(rows.map((r) => [r.id, r]));
@@ -290,4 +332,9 @@ module.exports = {
     invalidateByPhone,
     warmCache,
     cacheStats,
+    _internal: {
+        parseRequiredColumns,
+        validateCachedRow,
+        normalizeCacheKey,
+    },
 };
