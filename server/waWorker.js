@@ -22,6 +22,18 @@ const {
     filterShortWindowDuplicates,
     toTimestampMs,
 } = require('./services/messageDedupService');
+const { extractWaMessageId } = require('./utils/waMessageId');
+
+// Optional-require for message cache (perf-cache branch). No-op when not present.
+let invalidateMessageCache = () => {};
+try {
+    const cache = require('./services/messageCache');
+    if (cache && typeof cache.invalidateCreator === 'function') {
+        invalidateMessageCache = cache.invalidateCreator;
+    }
+} catch (_) {
+    // messageCache module not installed; leave no-op.
+}
 const {
     ensureGroupMessageSchema,
     filterDirectMessagesAgainstGroups,
@@ -437,22 +449,33 @@ async function insertMessages(creatorId, messages) {
         const timestampMs = m.timestamp_ms || m.timestamp
             ? toTimestampMs(m.timestamp || m.timestamp_ms)
             : getWaMessageTimestampMs(m);
+        // wa_message_id 优先取调用方显式传入;否则从 WA 原始消息对象抽取。
+        const waMessageId = typeof m.wa_message_id === 'string' && m.wa_message_id.trim()
+            ? m.wa_message_id.trim()
+            : extractWaMessageId(m.source || m.raw || m);
         return {
             creator_id: creatorId,
             role,
             operator: resolveCurrentOwner(),
             text,
             timestamp: timestampMs,
+            wa_message_id: waMessageId || null,
         };
     });
 
-    const { kept, dropped } = await filterShortWindowDuplicates(db2, creatorId, normalizedMessages, {
-        windowMs: 15 * 60 * 1000,
-        minTextLength: 12,
-    });
-
-    if (dropped.length > 0) {
-        console.warn(`${LOG_PREFIX} short-window duplicate blocked: creator=${creatorId} dropped=${dropped.length}`);
+    // short-window guard 仅对 role='assistant' 生效,避免误伤人工/镜像 outbound 与 inbound
+    const assistantRows = normalizedMessages.filter((m) => m.role === 'assistant');
+    const nonAssistantRows = normalizedMessages.filter((m) => m.role !== 'assistant');
+    let kept = nonAssistantRows;
+    if (assistantRows.length > 0) {
+        const deduped = await filterShortWindowDuplicates(db2, creatorId, assistantRows, {
+            windowMs: 15 * 60 * 1000,
+            minTextLength: 12,
+        });
+        if (deduped.dropped.length > 0) {
+            console.warn(`${LOG_PREFIX} short-window duplicate blocked (assistant): creator=${creatorId} dropped=${deduped.dropped.length}`);
+        }
+        kept = kept.concat(deduped.kept);
     }
 
     const groupFiltered = await filterDirectMessagesAgainstGroups(db2, {
@@ -467,15 +490,19 @@ async function insertMessages(creatorId, messages) {
 
     const ops = groupFiltered.kept.map((m) => {
         const messageHash = buildMessageHash(m.role, m.text, m.timestamp);
-        return [creatorId, m.role, m.operator, m.text, m.timestamp, messageHash];
+        return [creatorId, m.role, m.operator, m.text, m.timestamp, messageHash, m.wa_message_id || null];
     }).filter(([, , , text, timestampMs]) => text && timestampMs > 0);
-    const placeholders = ops.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+    const placeholders = ops.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
     if (ops.length === 0) return 0;
     try {
-        await db2.prepare(
-            `INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash)
+        const result = await db2.prepare(
+            `INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash, wa_message_id)
              VALUES ${placeholders}`
         ).run(...ops.flat());
+        const changes = Number(result?.changes || 0);
+        if (changes > 0) {
+            try { invalidateMessageCache(creatorId); } catch (_) {}
+        }
         return ops.length;
     } catch (e) {
         console.error(`${LOG_PREFIX} insertMessages error:`, e.message);
@@ -619,6 +646,7 @@ async function syncRosterCreatorHistory(client, assignment, chat = null) {
         role: getWaMessageRole(m),
         text: getWaMessageText(m),
         timestamp: getWaMessageTimestampMs(m),
+        wa_message_id: extractWaMessageId(m),
     })));
 
     await getOrCreateCreator(assignment.wa_phone, name);
@@ -774,6 +802,7 @@ async function syncHistory(client) {
                 role: getWaMessageRole(m),
                 text: getWaMessageText(m),
                 timestamp: getWaMessageTimestampMs(m),
+                wa_message_id: extractWaMessageId(m),
             }));
 
             const inserted = await insertMessages(creatorId, msgsForDb);
@@ -938,6 +967,7 @@ async function handleIncomingMessage(msg) {
             role: getWaMessageRole(msg),
             text: getWaMessageText(msg),
             timestamp: getWaMessageTimestampMs(msg),
+            wa_message_id: extractWaMessageId(msg),
         }]);
 
         if (inserted > 0) {
@@ -1033,6 +1063,7 @@ async function pollOnce(client) {
                     role: getWaMessageRole(m),
                     text: getWaMessageText(m),
                     timestamp: getWaMessageTimestampMs(m),
+                    wa_message_id: extractWaMessageId(m),
                 })));
                 newTotal += inserted;
                 if (inserted > 0) {
@@ -1084,6 +1115,7 @@ async function pollOnce(client) {
                 role: getWaMessageRole(m),
                 text: getWaMessageText(m),
                 timestamp: getWaMessageTimestampMs(m),
+                wa_message_id: extractWaMessageId(m),
             })));
             newTotal += inserted;
             if (inserted > 0) {

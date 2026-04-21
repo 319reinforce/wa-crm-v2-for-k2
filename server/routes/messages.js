@@ -15,17 +15,12 @@ function isLegacySecondTimestamp(value) {
     return Number.isFinite(n) && n > 0 && n < 1e12;
 }
 
-function getSecPairKey(message) {
-    return [
-        message?.role || '',
-        message?.text || '',
-        Math.floor(toTimestampMs(message?.timestamp) / 1000),
-    ].join('\u0000');
-}
-
 function buildMessageKey(message, index = 0) {
+    // wa_message_id 是 WhatsApp 原生幂等键,优先使用;
+    // 缺失时回退到 DB 自增 id / message_hash / 组合 key。
     return String(
-        message?.id
+        message?.wa_message_id
+        ?? message?.id
         ?? message?.message_hash
         ?? `${message?.creator_id || ''}:${message?.role || ''}:${toTimestampMs(message?.timestamp)}:${index}`
     );
@@ -33,21 +28,18 @@ function buildMessageKey(message, index = 0) {
 
 function normalizeMessagesForTimeline(messages = []) {
     const rows = Array.isArray(messages) ? messages : [];
-    const msPairKeys = new Set();
 
-    for (const message of rows) {
-        if (!isLegacySecondTimestamp(message?.timestamp)) {
-            msPairKeys.add(getSecPairKey(message));
-        }
-    }
-
+    // 以 wa_message_id 为主去重(防 DB 双写这种假设性场景);同一 wa_message_id 只保留第一次出现。
+    // 缺 id 的行按原样保留,由下游 UI 自行以 DB id 辨识。
+    const seenWaIds = new Set();
     const normalized = [];
     rows.forEach((message, index) => {
-        const legacySecond = isLegacySecondTimestamp(message?.timestamp);
-        if (legacySecond && msPairKeys.has(getSecPairKey(message))) {
-            return;
+        const rawWaId = typeof message?.wa_message_id === 'string' ? message.wa_message_id.trim() : '';
+        if (rawWaId) {
+            if (seenWaIds.has(rawWaId)) return;
+            seenWaIds.add(rawWaId);
         }
-
+        const legacySecond = isLegacySecondTimestamp(message?.timestamp);
         const timestampMs = toTimestampMs(message?.timestamp);
         normalized.push({
             ...message,
@@ -226,3 +218,8 @@ router.post('/', async (req, res) => {
 });
 
 module.exports = router;
+module.exports._private = {
+    normalizeMessagesForTimeline,
+    buildMessageKey,
+    isLegacySecondTimestamp,
+};
