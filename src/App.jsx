@@ -22,6 +22,8 @@ import { fetchWaAdmin } from './utils/waAdmin'
 import WA from './utils/waTheme'
 
 const API_BASE = '/api'
+const V1_APP_BASE = String(import.meta.env.VITE_V1_BASE || '').trim()
+const LOCAL_CROSS_APP_HOSTS = new Set(['localhost', '127.0.0.1'])
 
 const EVENT_BADGES = [
   { key: 'ev_trial_active', label: '七日挑战进行中', color: '#3b82f6', bg: 'rgba(59,130,246,0.15)' },
@@ -106,6 +108,48 @@ function isMorasCoreGroup(groupName) {
   return MORAS_GROUP_KEYWORDS.some((keyword) => normalized.includes(keyword))
 }
 
+function parsePositiveInt(value) {
+  const n = parseInt(String(value || '').trim(), 10)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function normalizeLookupText(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function normalizePhoneKey(value) {
+  return String(value || '').replace(/[^\d+]/g, '').trim()
+}
+
+function normalizeWorkspaceTab(value) {
+  const tab = String(value || '').trim().toLowerCase()
+  return DESKTOP_PRIMARY_TABS.some((item) => item.key === tab) ? tab : 'creators'
+}
+
+function resolveCrossAppBase(configuredBase, fallbackPort) {
+  const explicit = String(configuredBase || '').trim().replace(/\/+$/, '')
+  if (explicit) return explicit
+  if (typeof window === 'undefined') return ''
+  const { protocol, hostname, port, origin } = window.location
+  if (!hostname) return ''
+  if (!LOCAL_CROSS_APP_HOSTS.has(hostname)) return origin.replace(/\/+$/, '')
+  const targetPort = String(fallbackPort || '').trim()
+  if (!targetPort || port === targetPort) return origin.replace(/\/+$/, '')
+  return `${protocol}//${hostname}:${targetPort}`
+}
+
+function buildV1DashboardUrl(options = {}) {
+  const base = resolveCrossAppBase(V1_APP_BASE, 2000)
+  const params = new URLSearchParams()
+  params.set('tab', String(options.tab || 'wa'))
+  params.set('source', 'v2')
+  if (options.creatorId) params.set('creatorId', String(options.creatorId))
+  if (options.openChat) params.set('openChat', '1')
+  if (options.phone) params.set('phone', String(options.phone))
+  if (options.name) params.set('name', String(options.name))
+  return `${base}/?${params.toString()}`
+}
+
 function App() {
   const lockedOwner = getAppAuthScopeOwner()
   const ownerLocked = isAppAuthOwnerLocked() && !!lockedOwner
@@ -148,6 +192,7 @@ function App() {
   const [manualCheckLoading, setManualCheckLoading] = useState(false)
   const [manualCheck, setManualCheck] = useState(null)
   const creatorsCacheRef = useRef(new Map())
+  const queryBootstrapDoneRef = useRef(false)
 
   // 轮询 WhatsApp 状态和二维码
   useEffect(() => {
@@ -445,29 +490,77 @@ function App() {
     })
   }, [])
 
+  const resolveCreatorIdFromQuery = useCallback(async ({ waPhone, jbName, keeperUsername }) => {
+    const normalizedPhone = normalizePhoneKey(waPhone)
+    const normalizedJbName = normalizeLookupText(jbName)
+    const normalizedKeeperUsername = normalizeLookupText(keeperUsername)
+    const searchValue = waPhone || keeperUsername || jbName
+    if (!searchValue) return null
+
+    try {
+      const params = new URLSearchParams()
+      params.set('search', searchValue)
+      params.set('fields', 'wa_phone')
+      const list = await fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`)
+      if (!Array.isArray(list) || list.length === 0) return null
+
+      const exact =
+        list.find((item) => normalizedPhone && normalizePhoneKey(item?.wa_phone) === normalizedPhone)
+        || list.find((item) => normalizedKeeperUsername && normalizeLookupText(item?.keeper_username) === normalizedKeeperUsername)
+        || list.find((item) => normalizedJbName && normalizeLookupText(item?.primary_name) === normalizedJbName)
+
+      return Number(exact?.id || list[0]?.id || 0) || null
+    } catch (e) {
+      console.error('[workspaceBootstrap] resolveCreatorIdFromQuery error:', e)
+      return null
+    }
+  }, [])
+
+  const selectCreatorById = useCallback(async (creatorId, options = {}) => {
+    const normalizedCreatorId = Number(creatorId || 0)
+    if (!normalizedCreatorId) return null
+
+    try {
+      const detail = await fetchJsonOrThrow(`${API_BASE}/creators/${normalizedCreatorId}`)
+      const previous =
+        creators.find(c => Number(c.id) === normalizedCreatorId)
+        || (selectedCreator?.id === normalizedCreatorId ? selectedCreator : {})
+      const vm = buildCreatorViewModel(detail, previous)
+
+      setSelectedGroupChat(null)
+      setConversationScope('creators')
+      setSelectedCreator(vm)
+      setDetailPanelExpanded(options.expandDetail ? detailPanelPinned : false)
+      if (options.activeTab) setActiveTab(options.activeTab)
+      if (Object.prototype.hasOwnProperty.call(options, 'selectedEventId')) {
+        setSelectedEventId(options.selectedEventId || null)
+      }
+      if (Object.prototype.hasOwnProperty.call(options, 'chatJumpTarget')) {
+        setChatJumpTarget(options.chatJumpTarget || null)
+      }
+      return vm
+    } catch (e) {
+      console.error('[workspaceBootstrap] selectCreatorById error:', e)
+      return null
+    }
+  }, [creators, detailPanelPinned, selectedCreator])
+
   const handleOpenCreatorChatFromEvent = useCallback(async (jumpPayload) => {
     const creatorId = Number(jumpPayload?.creatorId || 0)
     if (!creatorId) return
 
-    try {
-      const detail = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}`)
-      const previous =
-        creators.find(c => Number(c.id) === creatorId)
-        || (selectedCreator?.id === creatorId ? selectedCreator : {})
-      const vm = buildCreatorViewModel(detail, previous)
+    const nextEventId = jumpPayload?.eventId ? Number(jumpPayload.eventId) : null
+    setEventReturnContext(nextEventId ? {
+      source: 'events',
+      eventId: nextEventId,
+      scrollTop: Number(jumpPayload.returnScrollTop || 0),
+    } : null)
 
-      setSelectedEventId(jumpPayload?.eventId || null)
-      setEventReturnContext(jumpPayload?.eventId ? {
-        source: 'events',
-        eventId: Number(jumpPayload.eventId),
-        scrollTop: Number(jumpPayload.returnScrollTop || 0),
-      } : null)
-      setActiveTab('creators')
-      setConversationScope('creators')
-      setSelectedGroupChat(null)
-      setDetailPanelExpanded(detailPanelPinned)
-      setSelectedCreator(vm)
-      setChatJumpTarget({
+    await selectCreatorById(creatorId, {
+      activeTab: 'creators',
+      selectedEventId: nextEventId,
+      expandDetail: detailPanelPinned,
+      chatJumpTarget: {
         requestId: Date.now(),
         creatorId,
         sourceMessageId: jumpPayload?.sourceMessageId || null,
@@ -475,11 +568,49 @@ function App() {
         sourceText: jumpPayload?.sourceText || '',
         triggerText: jumpPayload?.triggerText || '',
         eventKey: jumpPayload?.eventKey || '',
-      })
-    } catch (e) {
-      console.error('handleOpenCreatorChatFromEvent error:', e)
+      },
+    })
+  }, [detailPanelPinned, selectCreatorById])
+
+  useEffect(() => {
+    if (queryBootstrapDoneRef.current) return
+
+    const params = new URLSearchParams(window.location.search)
+    const hasQuery = ['tab', 'creatorId', 'eventId', 'waPhone', 'jbName', 'keeperUsername'].some((key) => params.has(key))
+    if (!hasQuery) {
+      queryBootstrapDoneRef.current = true
+      return
     }
-  }, [creators, detailPanelPinned, selectedCreator])
+
+    queryBootstrapDoneRef.current = true
+    const targetTab = normalizeWorkspaceTab(params.get('tab'))
+    const eventId = parsePositiveInt(params.get('eventId'))
+    const creatorId = parsePositiveInt(params.get('creatorId'))
+    const waPhone = String(params.get('waPhone') || '').trim()
+    const jbName = String(params.get('jbName') || '').trim()
+    const keeperUsername = String(params.get('keeperUsername') || '').trim()
+
+    const bootstrap = async () => {
+      setActiveTab(targetTab)
+      if (eventId) setSelectedEventId(eventId)
+
+      let resolvedCreatorId = creatorId
+      if (!resolvedCreatorId) {
+        resolvedCreatorId = await resolveCreatorIdFromQuery({ waPhone, jbName, keeperUsername })
+      }
+      if (!resolvedCreatorId) return
+
+      await selectCreatorById(resolvedCreatorId, {
+        activeTab: targetTab,
+        selectedEventId: eventId,
+        expandDetail: targetTab === 'creators' && detailPanelPinned,
+      })
+    }
+
+    bootstrap().catch((e) => {
+      console.error('[workspaceBootstrap] error:', e)
+    })
+  }, [detailPanelPinned, resolveCreatorIdFromQuery, selectCreatorById])
 
   const handleCloseConversation = useCallback(() => {
     setChatJumpTarget(null)

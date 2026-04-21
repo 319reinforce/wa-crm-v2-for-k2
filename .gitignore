@@ -23,3 +23,12 @@ backups/
 
 # 设计/内部文档不随代码仓库分发
 docs/
+!docs/
+!docs/rag/
+!docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md
+!docs/rag/shadow-cases/
+!docs/rag/shadow-cases/README.md
+!docs/rag/shadow-cases/local-rule-shadow-cases.json
+!docs/rag/sources/policy-trial-pack-v1.md
+!docs/rag/sources/playbook-yiyun-onboarding-and-payment-apr-2026-v1.md
+!docs/rag/sources/faq-moras-product-mechanics-and-support-apr-2026-v1.md

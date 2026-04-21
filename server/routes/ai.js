@@ -134,12 +134,12 @@ router.post('/ai/system-prompt', async (req, res) => {
     }
 });
 
-// POST /api/translate — 翻译接口（固定 MiniMax + 系统提示）
+// POST /api/translate — 翻译接口（固定 MiniMax；单条支持 auto/to_zh）
 router.post('/translate', async (req, res) => {
     try {
-        const { text, role, timestamp, texts } = req.body;
+        const { text, role, timestamp, texts, mode } = req.body;
         if (text !== undefined) {
-            const result = await aiService.translateText(text, role, timestamp);
+            const result = await aiService.translateText(text, role, timestamp, mode);
             return res.json(result);
         }
 

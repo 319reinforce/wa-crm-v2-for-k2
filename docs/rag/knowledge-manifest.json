@@ -1,5 +1,5 @@
 {
-  "version": "2026-04-11",
+  "version": "2026-04-20",
   "owner": "wa-crm-ops",
   "sources": [
     {
@@ -15,7 +15,7 @@
       "priority": 1,
       "sensitivity": "internal",
       "status": "approved",
-      "updated_at": "2026-04-11",
+      "updated_at": "2026-04-20",
       "effective_from": "2026-04-15",
       "rule_version": "2026-04-15"
     },
@@ -74,6 +74,46 @@
       "updated_at": "2026-04-11",
       "effective_from": "2026-04-15",
       "rule_version": "2026-04-15"
+    },
+    {
+      "id": "playbook-yiyun-onboarding-and-payment-apr-2026-v1",
+      "title": "Yiyun Playbook: Onboarding And Payment Guardrails (April 2026)",
+      "type": "playbook",
+      "format": "md",
+      "path": "docs/rag/sources/playbook-yiyun-onboarding-and-payment-apr-2026-v1.md",
+      "scene": [
+        "first_contact",
+        "monthly_inquiry",
+        "mcn_binding",
+        "video_not_loading",
+        "payment_issue"
+      ],
+      "priority": 2,
+      "sensitivity": "internal",
+      "status": "approved",
+      "updated_at": "2026-04-20",
+      "effective_from": "2026-04-20",
+      "rule_version": "2026-04-20"
+    },
+    {
+      "id": "faq-moras-product-mechanics-and-support-apr-2026-v1",
+      "title": "Moras FAQ: Product Mechanics And Creator Control (April 2026)",
+      "type": "faq",
+      "format": "md",
+      "path": "docs/rag/sources/faq-moras-product-mechanics-and-support-apr-2026-v1.md",
+      "scene": [
+        "first_contact",
+        "content_request",
+        "gmv_inquiry",
+        "general",
+        "video_not_loading"
+      ],
+      "priority": 2,
+      "sensitivity": "internal",
+      "status": "approved",
+      "updated_at": "2026-04-20",
+      "effective_from": "2026-04-20",
+      "rule_version": "2026-04-20"
     }
   ]
 }

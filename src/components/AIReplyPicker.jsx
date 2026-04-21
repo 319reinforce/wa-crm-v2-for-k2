@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import WA from '../utils/waTheme';
+import StandardReplyCard from './StandardReplyCard';
 
 export default function AIReplyPicker({
     incomingMsg,
@@ -25,6 +26,14 @@ export default function AIReplyPicker({
     compactMobile = false,
     collapsed = false,
     onToggleCollapse,
+    // 新增：标准话术相关 props
+    standardTemplate,
+    standardLoading,
+    standardError,
+    onSelectStandard,
+    scene,
+    operator,
+    clientId,
 }) {
     const translatingCustom = !!customToolLoading?.translate;
     const emojiCustomizing = !!customToolLoading?.emoji;
@@ -83,6 +92,16 @@ export default function AIReplyPicker({
                     onEdit={() => onEditCandidate(candidates?.opt2)}
                     onSend={() => onSelect('opt2')}
                     compactMobile={compactMobile}
+                />
+                <StandardReplyCard
+                    scene={scene}
+                    operator={operator}
+                    userMessage={incomingMsg?.text}
+                    clientId={clientId}
+                    onEdit={onEditCandidate}
+                    onSend={(text) => onSelectStandard?.(text)}
+                    compactMobile={compactMobile}
+                    autoFetch={true}
                 />
             </div>
 

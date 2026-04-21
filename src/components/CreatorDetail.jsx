@@ -13,6 +13,8 @@ import {
 import WA from '../utils/waTheme'
 
 const API_BASE = '/api'
+const V1_APP_BASE = String(import.meta.env.VITE_V1_BASE || '').trim()
+const LOCAL_CROSS_APP_HOSTS = new Set(['localhost', '127.0.0.1'])
 const CONTEXT_TABS = [
   { key: 'overview', label: '概览' },
   { key: 'events', label: '事件' },
@@ -55,6 +57,30 @@ const PORTRAIT_FIELD_CONFIG = [
     hint: '正向=兴奋/好奇/想尝试；中性=理性观察；负向=质疑/抵触/不信',
   },
 ]
+
+function resolveCrossAppBase(configuredBase, fallbackPort) {
+  const explicit = String(configuredBase || '').trim().replace(/\/+$/, '')
+  if (explicit) return explicit
+  if (typeof window === 'undefined') return ''
+  const { protocol, hostname, port, origin } = window.location
+  if (!hostname) return ''
+  if (!LOCAL_CROSS_APP_HOSTS.has(hostname)) return origin.replace(/\/+$/, '')
+  const targetPort = String(fallbackPort || '').trim()
+  if (!targetPort || port === targetPort) return origin.replace(/\/+$/, '')
+  return `${protocol}//${hostname}:${targetPort}`
+}
+
+function buildV1DashboardUrl(options = {}) {
+  const base = resolveCrossAppBase(V1_APP_BASE, 2000)
+  const params = new URLSearchParams()
+  params.set('tab', String(options.tab || 'wa'))
+  params.set('source', 'v2')
+  if (options.creatorId) params.set('creatorId', String(options.creatorId))
+  if (options.openChat) params.set('openChat', '1')
+  if (options.phone) params.set('phone', String(options.phone))
+  if (options.name) params.set('name', String(options.name))
+  return `${base}/?${params.toString()}`
+}
 
 function buildPortraitDraft(source = null) {
   const input = (source && typeof source === 'object') ? source : {}
@@ -511,6 +537,15 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   const displayKeeperUsername = displayCreator?.keeper_username || '-'
   const displayOwner = displayCreator?.wa_owner || '-'
   const displayKeeper = displayCreator?.keeper || {}
+  const v1DashboardUrl = (displayCreator?.id || displayPhone !== '-')
+    ? buildV1DashboardUrl({
+      tab: 'wa',
+      creatorId: displayCreator?.id,
+      openChat: true,
+      phone: displayPhone !== '-' ? displayPhone : '',
+      name: displayName || '',
+    })
+    : ''
   const lifecycleOption0 = lifecycle?.option0 || null
   const lifecycleEntrySignals = Array.isArray(lifecycle?.entry_signals)
     ? lifecycle.entry_signals.filter(Boolean)
@@ -1310,6 +1345,18 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
               <div className="font-semibold text-lg truncate" style={{ color: WA.textDark }}>{displayName}</div>
               <div className="text-sm" style={{ color: WA.textMuted }}>{displayPhone}</div>
             </div>
+            {v1DashboardUrl && (
+              <a
+                href={v1DashboardUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full px-3 py-1.5 text-sm font-semibold transition-all hover:opacity-85"
+                style={{ background: 'rgba(0,168,132,0.10)', color: WA.teal }}
+                title="在 V1 看板打开该达人"
+              >
+                V1看板
+              </a>
+            )}
             <button
               type="button"
               onClick={onTogglePin}
@@ -1355,6 +1402,18 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                   <div className="font-semibold text-lg text-white truncate">{displayName}</div>
                   <div className="text-sm text-white/50">{displayPhone}</div>
                 </div>
+                {v1DashboardUrl && (
+                  <a
+                    href={v1DashboardUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-full px-3 py-1.5 text-sm font-semibold transition-all hover:opacity-85"
+                    style={{ background: 'rgba(255,255,255,0.16)', color: '#fff' }}
+                    title="在 V1 看板打开该达人"
+                  >
+                    V1看板
+                  </a>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto p-5 space-y-5">

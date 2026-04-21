@@ -18,6 +18,13 @@ const CHAT_PATTERN = [
     'radial-gradient(circle at 1px 1px, rgba(111,106,98,0.05) 1px, transparent 0)',
     'radial-gradient(circle at 12px 12px, rgba(111,106,98,0.03) 1px, transparent 0)',
 ].join(', ');
+const LIFECYCLE_AARRR_META = [
+    { key: 'acquisition', label: '获取', color: '#6d8fe5' },
+    { key: 'activation', label: '激活', color: '#e2a55f' },
+    { key: 'retention', label: '留存', color: '#58a68b' },
+    { key: 'revenue', label: '变现', color: '#2f7d65' },
+    { key: 'referral', label: '传播', color: '#b8734c' },
+];
 
 function formatBytes(value = 0) {
     const bytes = Number(value) || 0;
@@ -207,6 +214,313 @@ function getConversationStatusMeta(creator) {
     }
 
     return null;
+}
+
+function parseLifecycleTimestamp(value) {
+    if (!value) return null;
+    if (typeof value === 'number') {
+        if (!Number.isFinite(value) || value <= 0) return null;
+        return toTimestampMs(value);
+    }
+    if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+        const n = Number(value.trim());
+        if (!Number.isFinite(n) || n <= 0) return null;
+        return toTimestampMs(n);
+    }
+    const parsed = Date.parse(String(value));
+    return Number.isNaN(parsed) || parsed <= 0 ? null : parsed;
+}
+
+function getLifecycleChartSource(creator) {
+    const full = creator?._full || creator || {};
+    return {
+        lifecycle: creator?.lifecycle || full?.lifecycle || {},
+        events: creator?.events || full?.events || {},
+        keeperGmv: Number(
+            creator?.keeper_gmv
+            ?? full?.keeper_gmv
+            ?? full?.keeper?.keeper_gmv
+            ?? 0
+        ) || 0,
+        createdAt: creator?.created_at || full?.created_at || null,
+        updatedAt: creator?.updated_at || full?.updated_at || null,
+        lastActive: creator?.last_active || full?.last_active || null,
+    };
+}
+
+function getLifecycleMilestonesForChat(creator) {
+    const { lifecycle } = getLifecycleChartSource(creator);
+    const raw = lifecycle?.milestones || {};
+    return {
+        acquisition_at: parseLifecycleTimestamp(raw.acquisition_at),
+        activation_at: parseLifecycleTimestamp(raw.activation_at),
+        retention_at: parseLifecycleTimestamp(raw.retention_at),
+        revenue_at: parseLifecycleTimestamp(raw.revenue_at),
+        terminated_at: parseLifecycleTimestamp(raw.terminated_at),
+    };
+}
+
+function getReferralActivatedAtForChat(creator) {
+    const { lifecycle, events } = getLifecycleChartSource(creator);
+    const referrals = Array.isArray(events?.referrals) ? events.referrals : [];
+    const inviteTs = referrals
+        .map((item) => parseLifecycleTimestamp(item?.invited_at))
+        .filter(Boolean);
+    if (inviteTs.length > 0) return Math.min(...inviteTs);
+    if (lifecycle?.flags?.referral_active) {
+        return parseLifecycleTimestamp(lifecycle?.evaluated_at);
+    }
+    return null;
+}
+
+function getLifecycleEventMilestonesForChat(creator) {
+    const { lifecycle, events, keeperGmv, createdAt, updatedAt, lastActive } = getLifecycleChartSource(creator);
+    const milestones = getLifecycleMilestonesForChat(creator);
+    const flags = lifecycle?.flags || {};
+    const beta = events?.monthly_beta || {};
+    const fee = events?.monthly_fee || {};
+    const agency = events?.agency_binding || {};
+    const fallbackAnchor = parseLifecycleTimestamp(lastActive) || parseLifecycleTimestamp(updatedAt);
+    const milestone = {
+        acquisition_at: milestones.acquisition_at || parseLifecycleTimestamp(createdAt) || fallbackAnchor,
+        activation_at: milestones.activation_at,
+        retention_at: milestones.retention_at,
+        revenue_at: milestones.revenue_at,
+        referral_at: getReferralActivatedAtForChat(creator),
+    };
+
+    if (!milestone.activation_at) {
+        const trialTs = parseLifecycleTimestamp(beta?.challenge_completed_at)
+            || parseLifecycleTimestamp(beta?.joined_at)
+            || parseLifecycleTimestamp(beta?.cycle_start_date);
+        const feeTs = parseLifecycleTimestamp(fee?.deducted_at)
+            || parseLifecycleTimestamp(fee?.last_attempt_at);
+        if (trialTs && feeTs) milestone.activation_at = Math.max(trialTs, feeTs);
+        else if ((flags?.trial_completed || beta?.status === 'joined') && feeTs) milestone.activation_at = feeTs;
+        else if (trialTs) milestone.activation_at = trialTs;
+    }
+
+    if (!milestone.retention_at && (agency?.bound || flags?.agency_bound)) {
+        milestone.retention_at = parseLifecycleTimestamp(agency?.bound_at)
+            || parseLifecycleTimestamp(agency?.updated_at)
+            || fallbackAnchor;
+    }
+
+    if (!milestone.revenue_at && (
+        keeperGmv >= 2000
+        || ['gte_2k', 'gte_5k', 'gte_10k', '2k', '5k', '10k'].includes(String(flags?.gmv_tier || '').toLowerCase())
+    )) {
+        milestone.revenue_at = fallbackAnchor;
+    }
+
+    return milestone;
+}
+
+function buildLifecycleJourneyModel(creator) {
+    if (!creator) return null;
+    const { lifecycle } = getLifecycleChartSource(creator);
+    const milestones = getLifecycleEventMilestonesForChat(creator);
+    const seq = ['acquisition', 'activation', 'retention', 'revenue'];
+    let progressIndex = -1;
+    seq.forEach((key, idx) => {
+        if (milestones[`${key}_at`]) progressIndex = idx;
+    });
+    const hasReferral = !!milestones.referral_at;
+    const width = 320;
+    const left = 14;
+    const right = 14;
+    const top = 14;
+    const bottom = 64;
+    const innerWidth = width - left - right;
+    const xs = LIFECYCLE_AARRR_META.map((_, idx) => left + (innerWidth / (LIFECYCLE_AARRR_META.length - 1)) * idx);
+    const ys = LIFECYCLE_AARRR_META.map((stage, idx) => {
+        const reached = stage.key === 'referral' ? hasReferral : idx <= progressIndex;
+        return reached ? top + 8 : bottom;
+    });
+    const points = xs.map((x, idx) => `${x},${ys[idx]}`).join(' ');
+    const reachedCount = seq.filter((key) => milestones[`${key}_at`]).length + (hasReferral ? 1 : 0);
+    const stageLabel = lifecycle?.stage_label
+        || LIFECYCLE_AARRR_META.find((item) => item.key === lifecycle?.stage_key)?.label
+        || '获取';
+
+    return {
+        stageKey: lifecycle?.stage_key || 'acquisition',
+        stageLabel,
+        reachedCount,
+        progressIndex,
+        xs,
+        ys,
+        points,
+        top,
+        bottom,
+        left,
+        right,
+        width,
+        hasReferral,
+    };
+}
+
+function formatLifecycleStripTime(value) {
+    const ts = parseLifecycleTimestamp(value);
+    if (!ts) return '';
+    const date = new Date(ts);
+    return date.toLocaleString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    });
+}
+
+function LifecycleJourneyStrip({ creator }) {
+    const [expanded, setExpanded] = useState(false);
+    const model = buildLifecycleJourneyModel(creator);
+    if (!model) return null;
+
+    const { lifecycle } = getLifecycleChartSource(creator);
+    const evaluatedLabel = formatLifecycleStripTime(lifecycle?.evaluated_at);
+
+    return (
+        <div
+            className="px-4 md:px-5 py-3"
+            style={{ background: WA.shellPanelStrong, borderBottom: `1px solid ${WA.borderLight}` }}
+        >
+            <div
+                className="rounded-[22px] overflow-hidden"
+                style={{
+                    background: 'linear-gradient(180deg, rgba(255,253,250,0.98) 0%, rgba(247,242,233,0.98) 100%)',
+                    border: `1px solid ${WA.borderLight}`,
+                    boxShadow: '0 12px 28px rgba(32,26,21,0.05)',
+                }}
+            >
+                {/* Header - Always Visible, Clickable */}
+                <div
+                    className="px-4 py-3 md:px-5 md:py-3.5 cursor-pointer select-none hover:bg-black/[0.02] active:bg-black/[0.04] transition-colors"
+                    onClick={() => setExpanded(!expanded)}
+                >
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                                <div
+                                    className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+                                    style={{ color: WA.textMuted }}
+                                >
+                                    Lifecycle Journey
+                                </div>
+                                <svg
+                                    className="transition-transform duration-200"
+                                    style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 12 12"
+                                    fill="none"
+                                >
+                                    <path
+                                        d="M3 4.5L6 7.5L9 4.5"
+                                        stroke={WA.textMuted}
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    />
+                                </svg>
+                            </div>
+                            <div className="mt-0.5 text-sm md:text-[15px] font-semibold" style={{ color: WA.textDark }}>
+                                生命周期轨迹
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-2 shrink-0">
+                            <span
+                                className="text-[11px] px-2.5 py-1 rounded-full font-semibold"
+                                style={{ background: 'rgba(45,138,160,0.12)', color: '#2d8aa0' }}
+                            >
+                                {model.stageLabel}
+                            </span>
+                            <span
+                                className="text-[11px] px-2.5 py-1 rounded-full font-semibold"
+                                style={{ background: 'rgba(185,133,63,0.12)', color: '#9a6f2f' }}
+                            >
+                                命中 {model.reachedCount}/5
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Expandable Content */}
+                {expanded && (
+                    <div className="px-4 pb-3 md:px-5 md:pb-4 pt-0">
+                        {evaluatedLabel && (
+                            <div className="mb-3 text-[11px]" style={{ color: WA.textMuted }}>
+                                最近评估 {evaluatedLabel}
+                            </div>
+                        )}
+
+                        <svg viewBox={`0 0 ${model.width} 88`} className="block w-full h-[88px] md:h-[96px]" preserveAspectRatio="none">
+                            <line
+                                x1={model.left}
+                                y1={model.bottom}
+                                x2={model.width - model.right}
+                                y2={model.bottom}
+                                stroke="rgba(153,133,107,0.20)"
+                                strokeWidth="1"
+                            />
+                            {model.xs.map((x) => (
+                                <line
+                                    key={`guide_${x}`}
+                                    x1={x}
+                                    y1={model.top + 2}
+                                    x2={x}
+                                    y2={model.bottom + 4}
+                                    stroke="rgba(153,133,107,0.12)"
+                                    strokeWidth="1"
+                                />
+                            ))}
+                            <polyline
+                                fill="none"
+                                stroke="#9f8e7a"
+                                strokeWidth="2"
+                                points={model.points}
+                            />
+                            {LIFECYCLE_AARRR_META.map((stage, idx) => {
+                                const reached = stage.key === 'referral' ? model.hasReferral : idx <= model.progressIndex;
+                                return (
+                                    <circle
+                                        key={stage.key}
+                                        cx={model.xs[idx]}
+                                        cy={model.ys[idx]}
+                                        r={reached ? 4 : 3}
+                                        fill={reached ? stage.color : '#d1c4b3'}
+                                        stroke="#fffdfa"
+                                        strokeWidth="1.5"
+                                    />
+                                );
+                            })}
+                        </svg>
+
+                        <div className="grid grid-cols-5 gap-1.5 mt-2.5">
+                            {LIFECYCLE_AARRR_META.map((stage, idx) => {
+                                const reached = stage.key === 'referral' ? model.hasReferral : idx <= model.progressIndex;
+                                const active = stage.key === model.stageKey;
+                                return (
+                                    <div key={stage.key} className="min-w-0 text-center">
+                                        <div
+                                            className="text-[11px] font-semibold"
+                                            style={{ color: active ? stage.color : (reached ? WA.textDark : WA.textMuted) }}
+                                        >
+                                            {stage.label}
+                                        </div>
+                                        <div className="mt-1 text-[10px]" style={{ color: reached ? '#8b7761' : '#b6a28b' }}>
+                                            {reached ? '已达成' : '待推进'}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }
 
 export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwipeLeft, onMessageSent, onCreatorUpdated, asPanel }) {
@@ -888,17 +1202,27 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         setPickerError(null);
         setCustomToolLoading(prev => ({ ...prev, [toolKey]: true }));
         try {
-            const systemPrompt = mode === 'translate'
-                ? [
-                    '你是 WhatsApp 客服翻译助手。',
-                    '任务：翻译输入文本，保持原意和礼貌语气。',
-                    '规则：',
-                    '1) 如果输入主要是中文，翻译成自然、简洁的英文。',
-                    '2) 如果输入主要是英文，翻译成自然、简洁的中文。',
-                    '3) 不新增承诺、价格、时限等业务事实。',
-                    '4) 只输出翻译结果，不要解释。',
-                ].join('\n')
-                : [
+            if (mode === 'translate') {
+                const response = await fetchAppAuth(`${API_BASE}/translate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: sourceText,
+                        mode: 'auto',
+                    }),
+                    signal: AbortSignal.timeout(30000),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data?.error || `HTTP ${response.status}`);
+                }
+
+                const transformed = String(data?.translation || '').trim();
+                setPickerCustom(transformed || sourceText);
+                return;
+            }
+
+            const systemPrompt = [
                     '你是 WhatsApp 客服文案润色助手。',
                     '任务：在不改变原意的前提下，为文本添加自然 emoji 风格。',
                     '规则：',
@@ -1767,6 +2091,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                     </>
                 )}
 
+                <LifecycleJourneyStrip creator={creator} />
+
                 {/* Translation Progress Bar */}
                 {translating && translateProgress && typeof translateProgress === 'string' && (
                     <div className="px-4 py-2 flex items-center gap-3" style={{ background: 'rgba(0,168,132,0.15)', borderBottom: `1px solid rgba(0,168,132,0.3)` }}>
@@ -1982,6 +2308,14 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         compactMobile={isMobileViewport}
                         collapsed={isMobileViewport ? pickerCollapsed : false}
                         onToggleCollapse={() => setPickerCollapsed(v => !v)}
+                        // 标准话术相关 props
+                        onSelectStandard={(text) => {
+                            setPickerCustom(text);
+                            handleSelectCandidate('custom');
+                        }}
+                        scene={activePicker.scene}
+                        operator={activePicker.operator}
+                        clientId={client?.phone}
                     />
                 )}
 
