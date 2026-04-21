@@ -363,6 +363,7 @@ module.exports = {
     VIDEO_AUDIO_MIME,
     MEDIA_UPLOAD_MAX_BYTES,
     ensureMediaSchema,
+    normalizeMimeType,
     createMediaAsset,
     getActiveMediaAssetById,
     createMediaSendLog,
