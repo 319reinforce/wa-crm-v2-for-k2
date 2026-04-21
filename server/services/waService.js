@@ -631,9 +631,23 @@ module.exports = {
     getStatus: () => requireSingleService().getStatus(),
     getQrValue: () => requireSingleService().getQrValue(),
     getResolvedOwner: () => requireSingleService().getResolvedOwner(),
-    getClient: () => requireSingleService().getClient(),
+    getClient: (sessionId) => {
+        if (sessionId) {
+            const svc = services.get(String(sessionId));
+            if (!svc) throw new Error(`[WA Service] unknown session: ${sessionId}`);
+            return svc.getClient();
+        }
+        return requireSingleService().getClient();
+    },
     getReady: () => requireSingleService().getReady(),
-    waitForReady: (...args) => requireSingleService().waitForReady(...args),
+    waitForReady: (timeoutMs, sessionId) => {
+        if (sessionId) {
+            const svc = services.get(String(sessionId));
+            if (!svc) throw new Error(`[WA Service] unknown session: ${sessionId}`);
+            return svc.waitForReady(timeoutMs);
+        }
+        return requireSingleService().waitForReady(timeoutMs);
+    },
     stop: stopAllServices,
     start: startAllServices,
 };

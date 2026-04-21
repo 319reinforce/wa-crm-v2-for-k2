@@ -22,6 +22,11 @@ const {
     VIDEO_AUDIO_MIME,
 } = require('./mediaAssetService');
 
+const {
+    shouldCompress,
+    compressBuffer,
+} = require('./mediaCompressionService');
+
 const LOG_PREFIX = '[IncomingMedia]';
 
 const MIME_EXT = {
@@ -136,10 +141,19 @@ async function createIncomingMediaAsset({
     height = null,
     caption = '',
     thumbnail = null,
+    // 兼容旧调用（waWorker.js 的 poll 路径传 dataBase64）
+    dataBase64 = null,
+    meta: extraMeta = {},
 }) {
     await ensureMediaSchema();
 
-    if (!buffer || buffer.length === 0) {
+    // 支持直接传 buffer 或 base64 字符串
+    let rawBuffer = buffer;
+    if (!rawBuffer && dataBase64) {
+        rawBuffer = decodeDataUrl(dataBase64);
+    }
+
+    if (!rawBuffer || rawBuffer.length === 0) {
         throw new Error('empty buffer payload');
     }
 
@@ -148,11 +162,11 @@ async function createIncomingMediaAsset({
         throw new Error(`unsupported mime_type: ${normalizedMime}`);
     }
 
-    if (buffer.length > WA_INCOMING_MEDIA_MAX_BYTES) {
-        throw new Error(`incoming media too large: ${buffer.length} bytes > ${WA_INCOMING_MEDIA_MAX_BYTES}`);
+    if (rawBuffer.length > WA_INCOMING_MEDIA_MAX_BYTES) {
+        throw new Error(`incoming media too large: ${rawBuffer.length} bytes > ${WA_INCOMING_MEDIA_MAX_BYTES}`);
     }
 
-    const hash = sha256Buffer(buffer);
+    const hash = sha256Buffer(rawBuffer);
     const ext = extFromMime(normalizedMime);
     const storageKey = buildIncomingMediaKey(hash, ext);
 
@@ -165,25 +179,52 @@ async function createIncomingMediaAsset({
 
     if (existing) {
         console.log(`${LOG_PREFIX} dedup hit: hash=${hash.slice(0, 12)}... existing_id=${existing.id}`);
-        return existing;
+        return { ...existing, compressed: false };
     }
+
+    // 压缩图片（视频暂不在此压缩，依赖 compressAndReplaceFile 脚本）
+    let processedBuffer = rawBuffer;
+    let processedMime = normalizedMime;
+    let originalSize = rawBuffer.length;
+
+    if (shouldCompress(rawBuffer.length, normalizedMime)) {
+        try {
+            const compressed = await compressBuffer(rawBuffer, normalizedMime, `incoming_${hash.slice(0, 8)}.${ext}`);
+            if (!compressed.skipped && compressed.buffer.length < rawBuffer.length) {
+                processedBuffer = compressed.buffer;
+                processedMime = compressed.mimeType;
+                originalSize = rawBuffer.length;
+                console.log(`${LOG_PREFIX} compressed: ${rawBuffer.length} → ${compressed.buffer.length} (${compressed.ratio.toFixed(2)}x) mime: ${normalizedMime} → ${compressed.mimeType}`);
+            }
+        } catch (err) {
+            console.warn(`${LOG_PREFIX} compression failed, storing original: ${err.message}`);
+        }
+    }
+
+    const finalHash = sha256Buffer(processedBuffer);
+    const finalExt = extFromMime(processedMime);
+    const finalStorageKey = buildIncomingMediaKey(finalHash, finalExt);
 
     // 写入本地文件
     const mediaLocalDir = path.resolve(
         process.env.MEDIA_LOCAL_DIR || path.join(process.cwd(), 'data', 'media-assets')
     );
-    const filePath = path.join(mediaLocalDir, storageKey);
+    const filePath = path.join(mediaLocalDir, finalStorageKey);
     ensureParentDir(filePath);
-    fs.writeFileSync(filePath, buffer);
+    fs.writeFileSync(filePath, processedBuffer);
 
-    const fileUrl = toPublicUrl(storageKey);
-    const fileName = `wa_${hash.slice(0, 12)}.${ext}`;
+    const fileUrl = toPublicUrl(finalStorageKey);
+    const fileName = `wa_${finalHash.slice(0, 12)}.${finalExt}`;
 
     const meta = {
         source: 'whatsapp_incoming',
         wa_message_id: waMessageId,
         width,
         height,
+        original_size: originalSize !== processedBuffer.length ? originalSize : undefined,
+        compressed: processedBuffer.length < rawBuffer.length,
+        mime_before_compress: processedBuffer.length < rawBuffer.length ? normalizedMime : undefined,
+        ...extraMeta,
     };
 
     const result = await db2.prepare(`
@@ -194,20 +235,27 @@ async function createIncomingMediaAsset({
     `).run(
         creatorId || null,
         operator || null,
-        storageKey,
+        finalStorageKey,
         filePath,
         fileUrl,
         fileName,
-        normalizedMime,
-        buffer.length,
-        hash,
+        processedMime,
+        processedBuffer.length,
+        finalHash,
         JSON.stringify(meta)
     );
 
     const insertedId = result.lastInsertRowid;
     const row = await db2.prepare('SELECT * FROM media_assets WHERE id = ?').get(insertedId);
-    console.log(`${LOG_PREFIX} stored: id=${insertedId} hash=${hash.slice(0, 12)}... mime=${normalizedMime} size=${buffer.length}`);
-    return row;
+    console.log(`${LOG_PREFIX} stored: id=${insertedId} hash=${finalHash.slice(0, 12)}... mime=${processedMime} size=${processedBuffer.length}`);
+    return {
+        asset: row,
+        compressed: processedBuffer.length < rawBuffer.length,
+        processedMime,
+        processedSize: processedBuffer.length,
+        originalSize,
+        savedBytes: rawBuffer.length - processedBuffer.length,
+    };
 }
 
 /**
@@ -279,7 +327,7 @@ async function downloadAndStoreIncomingMedia(msg, { creatorId, operator }) {
         ? msg.id
         : msg.id?._serialized || msg.id?.id || null;
 
-    const asset = await createIncomingMediaAsset({
+    const { asset, processedMime, processedSize, originalSize } = await createIncomingMediaAsset({
         buffer,
         mimeType,
         creatorId,
@@ -293,9 +341,10 @@ async function downloadAndStoreIncomingMedia(msg, { creatorId, operator }) {
 
     return {
         mediaAssetId: asset.id,
-        mediaType: mediaTypeFromMime(mimeType),
-        mime: mimeType,
-        size: buffer.length,
+        mediaType: mediaTypeFromMime(processedMime),
+        mime: processedMime,
+        size: processedSize,
+        originalSize: originalSize,
         width: msg.width || null,
         height: msg.height || null,
         caption: (msg.body || msg.caption || '').trim() || null,

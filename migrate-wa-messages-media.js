@@ -13,24 +13,25 @@
  * 使用方法：
  *   node migrate-wa-messages-media.js
  */
-require('dotenv').config();
 const mysql = require('mysql2/promise');
 
-const MYSQL_CONFIG = {
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: parseInt(process.env.DB_PORT || '3306', 10),
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'wa_crm_v2',
-    timezone: '+08:00',
-};
+function getMysqlConfig() {
+    return {
+        host: process.env.DB_HOST || '127.0.0.1',
+        port: parseInt(process.env.DB_PORT || '3306', 10),
+        user: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_NAME || 'wa_crm_v2',
+        timezone: '+08:00',
+    };
+}
 
 async function hasColumn(conn, tableName, columnName) {
     const [rows] = await conn.query(`
         SELECT COLUMN_NAME
         FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?
-    `, [MYSQL_CONFIG.database, tableName, columnName]);
+    `, [getMysqlConfig().database, tableName, columnName]);
     return rows.length > 0;
 }
 
@@ -39,20 +40,21 @@ async function hasIndex(conn, tableName, indexName) {
         SELECT INDEX_NAME
         FROM INFORMATION_SCHEMA.STATISTICS
         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?
-    `, [MYSQL_CONFIG.database, tableName, indexName]);
+    `, [getMysqlConfig().database, tableName, indexName]);
     return rows.length > 0;
 }
 
-async function main() {
-    console.log('[migrate-wa-messages-media] Starting...');
-    const conn = await mysql.createConnection(MYSQL_CONFIG);
+async function runMigration({ silent = false } = {}) {
+    const log = silent ? () => {} : (...args) => console.log(...args);
+    log('[migrate-wa-messages-media] Starting...');
+    const conn = await mysql.createConnection(getMysqlConfig());
 
     try {
         // 检查 updated_at 是否存在（updated_at 是最早添加的字段之一）
         const updatedAtExists = await hasColumn(conn, 'wa_messages', 'updated_at');
 
         if (!updatedAtExists) {
-            console.log('[migrate-wa-messages-media] Adding updated_at...');
+            log('[migrate-wa-messages-media] Adding updated_at...');
             await conn.query(`
                 ALTER TABLE wa_messages
                 ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -61,7 +63,7 @@ async function main() {
 
         const mediaAssetIdExists = await hasColumn(conn, 'wa_messages', 'media_asset_id');
         if (!mediaAssetIdExists) {
-            console.log('[migrate-wa-messages-media] Adding media columns...');
+            log('[migrate-wa-messages-media] Adding media columns...');
             await conn.query(`
                 ALTER TABLE wa_messages
                 ADD COLUMN media_asset_id         BIGINT NULL COMMENT 'FK to media_assets.id',
@@ -75,35 +77,40 @@ async function main() {
                 ADD COLUMN media_download_status  VARCHAR(16) NULL COMMENT 'pending|success|failed'
             `);
         } else {
-            console.log('[migrate-wa-messages-media] media columns already exist, skipping');
+            log('[migrate-wa-messages-media] media columns already exist, skipping');
         }
 
         // 创建索引
         const idxAssetExists = await hasIndex(conn, 'wa_messages', 'idx_messages_media_asset');
         if (!idxAssetExists) {
-            console.log('[migrate-wa-messages-media] Creating idx_messages_media_asset...');
+            log('[migrate-wa-messages-media] Creating idx_messages_media_asset...');
             await conn.query(`CREATE INDEX idx_messages_media_asset ON wa_messages(media_asset_id)`);
         }
 
         const idxStatusExists = await hasIndex(conn, 'wa_messages', 'idx_messages_media_status');
         if (!idxStatusExists) {
-            console.log('[migrate-wa-messages-media] Creating idx_messages_media_status...');
+            log('[migrate-wa-messages-media] Creating idx_messages_media_status...');
             await conn.query(`CREATE INDEX idx_messages_media_status ON wa_messages(media_download_status)`);
         }
 
         const idxTypeExists = await hasIndex(conn, 'wa_messages', 'idx_messages_media_type');
         if (!idxTypeExists) {
-            console.log('[migrate-wa-messages-media] Creating idx_messages_media_type...');
+            log('[migrate-wa-messages-media] Creating idx_messages_media_type...');
             await conn.query(`CREATE INDEX idx_messages_media_type ON wa_messages(media_type)`);
         }
 
-        console.log('[migrate-wa-messages-media] Done.');
+        log('[migrate-wa-messages-media] Done.');
     } finally {
         await conn.end();
     }
 }
 
-main().catch((err) => {
-    console.error('[migrate-wa-messages-media] Error:', err.message);
-    process.exit(1);
-});
+module.exports = { run: runMigration };
+
+if (require.main === module) {
+    require('dotenv').config();
+    runMigration().then(() => process.exit(0)).catch((err) => {
+        console.error('[migrate-wa-messages-media] Error:', err.message);
+        process.exit(1);
+    });
+}
