@@ -4,6 +4,7 @@
  */
 
 const { getGroundingContext } = require('./server/services/retrievalService');
+const { retrieveAndBuildLocalRules } = require('./server/services/localRuleRetrievalService');
 
 // ========== Reply Style（前后端共用）==========
 
@@ -129,6 +130,23 @@ ${clientInfo.next_action ? `- 运营计划: ${clientInfo.next_action}` : ''}
 	if (clientMemory && clientMemory.length > 0) {
 		const memoryText = formatClientMemory(clientMemory);
 		prompt += '\n\n【客户历史偏好】以下信息仅供个性化参考：\n' + memoryText;
+	}
+
+	// Local Rules 检索（新增）
+	try {
+		const localRulesResult = retrieveAndBuildLocalRules({
+			scene,
+			operator,
+			userMessage: '', // 这里没有用户消息上下文，只用 scene + operator
+			maxSources: 3
+		});
+
+		if (localRulesResult.text) {
+			prompt += localRulesResult.text;
+		}
+	} catch (err) {
+		console.error('[compileSystemPrompt] Local rules retrieval failed:', err.message);
+		// 不阻断流程，继续使用旧的 policy_documents
 	}
 
 	// 政策文档

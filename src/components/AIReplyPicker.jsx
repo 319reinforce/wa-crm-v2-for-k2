@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import WA from '../utils/waTheme';
+import StandardReplyCard from './StandardReplyCard';
 
 export default function AIReplyPicker({
     incomingMsg,
@@ -19,12 +20,22 @@ export default function AIReplyPicker({
     onSelect,
     onSkip,
     onEditCandidate,
+    onSelectStandard,
     onRegenerate,
     loading,
     error,
     compactMobile = false,
     collapsed = false,
     onToggleCollapse,
+    scene,
+    operator,
+    clientId,
+    messages,
+    currentTopic,
+    autoDetectedTopic,
+    activeEvents,
+    lifecycle,
+    refreshToken,
 }) {
     const translatingCustom = !!customToolLoading?.translate;
     const emojiCustomizing = !!customToolLoading?.emoji;
@@ -83,6 +94,22 @@ export default function AIReplyPicker({
                     onEdit={() => onEditCandidate(candidates?.opt2)}
                     onSend={() => onSelect('opt2')}
                     compactMobile={compactMobile}
+                />
+                <StandardReplyCard
+                    scene={scene}
+                    operator={operator}
+                    userMessage={incomingMsg?.text}
+                    clientId={clientId}
+                    messages={messages}
+                    currentTopic={currentTopic}
+                    autoDetectedTopic={autoDetectedTopic}
+                    activeEvents={activeEvents}
+                    lifecycle={lifecycle}
+                    refreshToken={refreshToken}
+                    onEdit={onEditCandidate}
+                    onSend={(text) => onSelectStandard?.(text)}
+                    compactMobile={compactMobile}
+                    autoFetch={true}
                 />
             </div>
 

@@ -1,10 +1,8 @@
 {
-  "version": "2026-04-20",
-  "owner": "wa-crm-ops",
   "sources": [
     {
       "id": "policy-trial-pack-v1",
-      "title": "Trial Package Policy",
+      "title": "Trial Package Policy (v1)",
       "type": "policy",
       "format": "md",
       "path": "docs/rag/sources/policy-trial-pack-v1.md",
@@ -12,27 +10,57 @@
         "trial_intro",
         "trial_followup"
       ],
+      "topic": [
+        "trial",
+        "payment",
+        "monthly"
+      ],
+      "keywords": [
+        "trial",
+        "7-day",
+        "completed",
+        "monthly",
+        "subscription"
+      ],
       "priority": 1,
       "sensitivity": "internal",
       "status": "approved",
       "updated_at": "2026-04-20",
-      "effective_from": "2026-04-15",
-      "rule_version": "2026-04-15"
+      "effective_from": "2026-04-20",
+      "rule_version": "2026-04-20"
     },
     {
       "id": "sop-creator-outreach-mar-2026-v1",
-      "title": "Creator Outreach SOP (March 2026)",
+      "title": "Moras Creator Outreach SOP (March 2026)",
       "type": "sop",
       "format": "md",
       "path": "docs/rag/sources/sop-creator-outreach-mar-2026-v1.md",
       "scene": [
         "trial_intro",
-        "follow_up",
+        "trial_followup",
         "payment_intro",
+        "monthly_inquiry",
         "payment_issue",
-        "gmv_inquiry"
+        "first_contact",
+        "follow_up",
+        "mcn_binding"
       ],
-      "priority": 1,
+      "topic": [
+        "trial",
+        "payment",
+        "onboarding",
+        "mcn_binding"
+      ],
+      "keywords": [
+        "trial",
+        "monthly",
+        "payment",
+        "subsidy",
+        "earnings",
+        "invite code",
+        "mcn"
+      ],
+      "priority": 2,
       "sensitivity": "internal",
       "status": "approved",
       "updated_at": "2026-04-11",
@@ -49,6 +77,21 @@
         "payment_issue",
         "follow_up",
         "gmv_inquiry"
+      ],
+      "topic": [
+        "violation",
+        "risk_control",
+        "appeal"
+      ],
+      "event_stage": [
+        "violation",
+        "appeal"
+      ],
+      "keywords": [
+        "violation",
+        "risk",
+        "safe",
+        "appeal"
       ],
       "priority": 1,
       "sensitivity": "internal",
@@ -67,6 +110,22 @@
         "follow_up",
         "gmv_inquiry",
         "trial_intro"
+      ],
+      "topic": [
+        "product",
+        "posting",
+        "safety"
+      ],
+      "lifecycle_stage": [
+        "activation",
+        "growth"
+      ],
+      "keywords": [
+        "product",
+        "posting",
+        "cadence",
+        "spammy",
+        "safe"
       ],
       "priority": 1,
       "sensitivity": "internal",
@@ -88,6 +147,23 @@
         "video_not_loading",
         "payment_issue"
       ],
+      "topic": [
+        "onboarding",
+        "payment",
+        "mcn_binding",
+        "video_not_loading"
+      ],
+      "lifecycle_stage": [
+        "onboarding",
+        "activation"
+      ],
+      "keywords": [
+        "payment",
+        "monthly",
+        "username",
+        "paypal",
+        "mcn"
+      ],
       "priority": 2,
       "sensitivity": "internal",
       "status": "approved",
@@ -107,6 +183,22 @@
         "gmv_inquiry",
         "general",
         "video_not_loading"
+      ],
+      "topic": [
+        "product",
+        "creator_control",
+        "how_it_works"
+      ],
+      "lifecycle_stage": [
+        "onboarding",
+        "activation"
+      ],
+      "keywords": [
+        "product",
+        "recommend",
+        "control",
+        "works",
+        "publish"
       ],
       "priority": 2,
       "sensitivity": "internal",

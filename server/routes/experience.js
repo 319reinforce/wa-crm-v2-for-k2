@@ -14,6 +14,7 @@ const {
     resolveRequestedOwnerScope,
     resolveClientAndOwnerScope,
 } = require('../utils/ownerScope');
+const { retrieveAndBuildLocalRules } = require('../services/localRuleRetrievalService');
 
 // ========== Helper Functions ==========
 
@@ -39,7 +40,7 @@ async function getAllOperatorExperiences() {
     ).all();
 }
 
-async function compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs) {
+async function compileSystemPrompt(operator, scene, clientInfo, clientMemory, policyDocs, userMessage = '') {
     const exp = await getOperatorExperience(operator);
     if (!exp) {
         throw new Error(`Operator ${operator} not found or inactive`);
@@ -67,6 +68,23 @@ async function compileSystemPrompt(operator, scene, clientInfo, clientMemory, po
     if (clientMemory && clientMemory.length > 0) {
         const memoryText = formatClientMemory(clientMemory);
         prompt += '\n\n【客户历史偏好】以下信息仅供个性化参考：\n' + memoryText;
+    }
+
+    // 注入 Local Rules（新增）
+    try {
+        const localRulesResult = retrieveAndBuildLocalRules({
+            scene,
+            operator,
+            userMessage,
+            maxSources: 3
+        });
+
+        if (localRulesResult.text) {
+            prompt += localRulesResult.text;
+        }
+    } catch (err) {
+        console.error('[compileSystemPrompt] Local rules retrieval failed:', err.message);
+        // 不阻断流程，继续使用旧的 policy_documents
     }
 
     const scenePolicies = filterPoliciesByScene(policyDocs, scene);
@@ -307,6 +325,86 @@ router.get('/:operator/system-prompt', async (req, res) => {
         res.json({ success: true, operator: normalizedOperator, scene, client_id: scopedClientId, system_prompt: systemPrompt, version });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// 新增：检索标准话术端点
+router.post('/retrieve-template', async (req, res) => {
+    try {
+        const {
+            client_id,
+            operator,
+            scene,
+            user_message,
+            recent_messages,
+            current_topic,
+            auto_detected_topic,
+            active_events,
+            lifecycle,
+            force_template_sources,
+        } = req.body || {};
+        const dbInstance = db.getDb();
+        const scope = await resolveExperienceScope(req, res, dbInstance, {
+            clientId: client_id || null,
+            operator: operator || null,
+        });
+        if (!scope?.ok) {
+            return;
+        }
+
+        const { retrieveLocalRules, loadSourceContent, extractTemplateFromSource } = require('../services/localRuleRetrievalService');
+
+        const sources = retrieveLocalRules({
+            clientId: client_id || null,
+            scene,
+            operator: scope.owner,
+            userMessage: user_message || '',
+            recentMessages: Array.isArray(recent_messages) ? recent_messages : [],
+            currentTopic: current_topic || null,
+            autoDetectedTopic: auto_detected_topic || null,
+            activeEvents: Array.isArray(active_events) ? active_events : [],
+            lifecycle: lifecycle || null,
+            forceTemplateSources: force_template_sources === true,
+            maxSources: 1,
+        });
+
+        if (!sources || sources.length === 0) {
+            return res.json({ success: true, template: null });
+        }
+
+        const topSource = sources[0];
+        const content = loadSourceContent(topSource);
+
+        if (!content) {
+            return res.json({ success: true, template: null });
+        }
+
+        const templateText = extractTemplateFromSource(content, topSource.id, topSource.type);
+
+        if (!templateText) {
+            return res.json({ success: true, template: null });
+        }
+
+        res.json({
+            success: true,
+            template: {
+                text: templateText,
+                source: topSource.id,
+                matchScore: topSource.score || 0,
+                matchedBy: topSource.matchedBy || [],
+                resolvedTopic: topSource.resolvedTopic || null,
+                resolvedStage: topSource.resolvedStage || null,
+            }
+        });
+
+    } catch (err) {
+        res.status(500).json({
+            success: false,
+            error: {
+                code: 'RETRIEVAL_ERROR',
+                message: '检索服务暂时不可用'
+            }
+        });
     }
 });
 

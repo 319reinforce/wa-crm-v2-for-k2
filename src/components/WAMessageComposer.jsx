@@ -236,6 +236,8 @@ function getLifecycleChartSource(creator) {
     return {
         lifecycle: creator?.lifecycle || full?.lifecycle || {},
         events: creator?.events || full?.events || {},
+        wacrm: creator?.wacrm || full?.wacrm || {},
+        joinbrands: creator?.joinbrands || full?.joinbrands || {},
         keeperGmv: Number(
             creator?.keeper_gmv
             ?? full?.keeper_gmv
@@ -248,78 +250,99 @@ function getLifecycleChartSource(creator) {
     };
 }
 
-function getLifecycleMilestonesForChat(creator) {
-    const { lifecycle } = getLifecycleChartSource(creator);
-    const raw = lifecycle?.milestones || {};
-    return {
-        acquisition_at: parseLifecycleTimestamp(raw.acquisition_at),
-        activation_at: parseLifecycleTimestamp(raw.activation_at),
-        retention_at: parseLifecycleTimestamp(raw.retention_at),
-        revenue_at: parseLifecycleTimestamp(raw.revenue_at),
-        terminated_at: parseLifecycleTimestamp(raw.terminated_at),
+function getLifecycleStageRank(stageKey) {
+    const rankMap = {
+        acquisition: 0,
+        activation: 1,
+        retention: 2,
+        revenue: 3,
+        terminated: 4,
     };
+    const normalized = String(stageKey || '').toLowerCase();
+    return Object.prototype.hasOwnProperty.call(rankMap, normalized) ? rankMap[normalized] : -1;
 }
 
-function getReferralActivatedAtForChat(creator) {
-    const { lifecycle, events } = getLifecycleChartSource(creator);
-    const referrals = Array.isArray(events?.referrals) ? events.referrals : [];
-    const inviteTs = referrals
-        .map((item) => parseLifecycleTimestamp(item?.invited_at))
+function getEventAnchorTimestamp(event) {
+    return parseLifecycleTimestamp(event?.display_start_at)
+        || parseLifecycleTimestamp(event?.completed_at)
+        || parseLifecycleTimestamp(event?.verified_at)
+        || parseLifecycleTimestamp(event?.updated_at)
+        || parseLifecycleTimestamp(event?.created_at)
+        || parseLifecycleTimestamp(event?.start_at)
+        || null;
+}
+
+function getEventKeyTimestamp(events = [], eventKeys = []) {
+    const normalizedKeys = eventKeys.map((item) => String(item || '').toLowerCase()).filter(Boolean);
+    const timestamps = (Array.isArray(events) ? events : [])
+        .filter((event) => normalizedKeys.includes(String(event?.event_key || '').toLowerCase()))
+        .map((event) => getEventAnchorTimestamp(event))
         .filter(Boolean);
-    if (inviteTs.length > 0) return Math.min(...inviteTs);
+    if (timestamps.length === 0) return null;
+    return Math.min(...timestamps);
+}
+
+function getReferralActivatedAtForChat(creator, events = []) {
+    const { lifecycle } = getLifecycleChartSource(creator);
+    const referralTs = getEventKeyTimestamp(events, ['referral']);
+    if (referralTs) return referralTs;
     if (lifecycle?.flags?.referral_active) {
         return parseLifecycleTimestamp(lifecycle?.evaluated_at);
     }
     return null;
 }
 
-function getLifecycleEventMilestonesForChat(creator) {
-    const { lifecycle, events, keeperGmv, createdAt, updatedAt, lastActive } = getLifecycleChartSource(creator);
-    const milestones = getLifecycleMilestonesForChat(creator);
+function getLifecycleEventMilestonesForChat(creator, events = []) {
+    const { lifecycle, wacrm, keeperGmv, createdAt, updatedAt, lastActive } = getLifecycleChartSource(creator);
     const flags = lifecycle?.flags || {};
-    const beta = events?.monthly_beta || {};
-    const fee = events?.monthly_fee || {};
-    const agency = events?.agency_binding || {};
+    const stageRank = getLifecycleStageRank(lifecycle?.stage_key);
     const fallbackAnchor = parseLifecycleTimestamp(lastActive) || parseLifecycleTimestamp(updatedAt);
     const milestone = {
-        acquisition_at: milestones.acquisition_at || parseLifecycleTimestamp(createdAt) || fallbackAnchor,
-        activation_at: milestones.activation_at,
-        retention_at: milestones.retention_at,
-        revenue_at: milestones.revenue_at,
-        referral_at: getReferralActivatedAtForChat(creator),
+        acquisition_at: parseLifecycleTimestamp(createdAt) || parseLifecycleTimestamp(lifecycle?.evaluated_at) || fallbackAnchor,
+        activation_at: null,
+        retention_at: null,
+        revenue_at: null,
+        referral_at: getReferralActivatedAtForChat(creator, events),
     };
 
-    if (!milestone.activation_at) {
-        const trialTs = parseLifecycleTimestamp(beta?.challenge_completed_at)
-            || parseLifecycleTimestamp(beta?.joined_at)
-            || parseLifecycleTimestamp(beta?.cycle_start_date);
-        const feeTs = parseLifecycleTimestamp(fee?.deducted_at)
-            || parseLifecycleTimestamp(fee?.last_attempt_at);
-        if (trialTs && feeTs) milestone.activation_at = Math.max(trialTs, feeTs);
-        else if ((flags?.trial_completed || beta?.status === 'joined') && feeTs) milestone.activation_at = feeTs;
-        else if (trialTs) milestone.activation_at = trialTs;
+    const trialTs = getEventKeyTimestamp(events, ['trial_7day', 'monthly_challenge']);
+    const agencyTs = getEventKeyTimestamp(events, ['agency_bound']);
+    const revenueTs = getEventKeyTimestamp(events, ['gmv_milestone']);
+
+    if (trialTs) {
+        milestone.activation_at = trialTs;
+    } else if (
+        stageRank >= 1
+        || flags?.trial_completed
+        || ['joined', 'active', 'completed'].includes(String(wacrm?.beta_status || '').toLowerCase())
+        || String(wacrm?.monthly_fee_status || '').toLowerCase() === 'paid'
+    ) {
+        milestone.activation_at = parseLifecycleTimestamp(lifecycle?.evaluated_at) || fallbackAnchor;
     }
 
-    if (!milestone.retention_at && (agency?.bound || flags?.agency_bound)) {
-        milestone.retention_at = parseLifecycleTimestamp(agency?.bound_at)
-            || parseLifecycleTimestamp(agency?.updated_at)
-            || fallbackAnchor;
+    if (agencyTs) {
+        milestone.retention_at = agencyTs;
+    } else if (stageRank >= 2 || flags?.agency_bound) {
+        milestone.retention_at = parseLifecycleTimestamp(lifecycle?.evaluated_at) || fallbackAnchor;
     }
 
-    if (!milestone.revenue_at && (
-        keeperGmv >= 2000
+    if (revenueTs) {
+        milestone.revenue_at = revenueTs;
+    } else if (
+        stageRank >= 3
+        || keeperGmv >= 2000
         || ['gte_2k', 'gte_5k', 'gte_10k', '2k', '5k', '10k'].includes(String(flags?.gmv_tier || '').toLowerCase())
-    )) {
-        milestone.revenue_at = fallbackAnchor;
+    ) {
+        milestone.revenue_at = parseLifecycleTimestamp(lifecycle?.evaluated_at) || fallbackAnchor;
     }
 
     return milestone;
 }
 
-function buildLifecycleJourneyModel(creator) {
+function buildLifecycleJourneyModel(creator, events = []) {
     if (!creator) return null;
     const { lifecycle } = getLifecycleChartSource(creator);
-    const milestones = getLifecycleEventMilestonesForChat(creator);
+    const milestones = getLifecycleEventMilestonesForChat(creator, events);
     const seq = ['acquisition', 'activation', 'retention', 'revenue'];
     let progressIndex = -1;
     seq.forEach((key, idx) => {
@@ -373,8 +396,9 @@ function formatLifecycleStripTime(value) {
     });
 }
 
-function LifecycleJourneyStrip({ creator }) {
-    const model = buildLifecycleJourneyModel(creator);
+function LifecycleJourneyStrip({ creator, events = [] }) {
+    const [expanded, setExpanded] = useState(false);
+    const model = buildLifecycleJourneyModel(creator, events);
     if (!model) return null;
 
     const { lifecycle } = getLifecycleChartSource(creator);
@@ -386,107 +410,137 @@ function LifecycleJourneyStrip({ creator }) {
             style={{ background: WA.shellPanelStrong, borderBottom: `1px solid ${WA.borderLight}` }}
         >
             <div
-                className="rounded-[22px] px-4 py-3 md:px-5 md:py-4"
+                className="rounded-[22px] overflow-hidden"
                 style={{
                     background: 'linear-gradient(180deg, rgba(255,253,250,0.98) 0%, rgba(247,242,233,0.98) 100%)',
                     border: `1px solid ${WA.borderLight}`,
                     boxShadow: '0 12px 28px rgba(32,26,21,0.05)',
                 }}
             >
-                <div className="flex items-start justify-between gap-3 mb-3">
-                    <div className="min-w-0">
-                        <div
-                            className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-                            style={{ color: WA.textMuted }}
-                        >
-                            Lifecycle Journey
+                {/* Header - Always Visible, Clickable */}
+                <div
+                    className="px-4 py-3 md:px-5 md:py-3.5 cursor-pointer select-none hover:bg-black/[0.02] active:bg-black/[0.04] transition-colors"
+                    onClick={() => setExpanded(!expanded)}
+                >
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                                <div
+                                    className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+                                    style={{ color: WA.textMuted }}
+                                >
+                                    Lifecycle Journey
+                                </div>
+                                <svg
+                                    className="transition-transform duration-200"
+                                    style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 12 12"
+                                    fill="none"
+                                >
+                                    <path
+                                        d="M3 4.5L6 7.5L9 4.5"
+                                        stroke={WA.textMuted}
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    />
+                                </svg>
+                            </div>
+                            <div className="mt-0.5 text-sm md:text-[15px] font-semibold" style={{ color: WA.textDark }}>
+                                生命周期轨迹
+                            </div>
                         </div>
-                        <div className="mt-1 text-sm md:text-[15px] font-semibold" style={{ color: WA.textDark }}>
-                            生命周期轨迹
+                        <div className="flex flex-wrap justify-end gap-2 shrink-0">
+                            <span
+                                className="text-[11px] px-2.5 py-1 rounded-full font-semibold"
+                                style={{ background: 'rgba(45,138,160,0.12)', color: '#2d8aa0' }}
+                            >
+                                {model.stageLabel}
+                            </span>
+                            <span
+                                className="text-[11px] px-2.5 py-1 rounded-full font-semibold"
+                                style={{ background: 'rgba(185,133,63,0.12)', color: '#9a6f2f' }}
+                            >
+                                命中 {model.reachedCount}/5
+                            </span>
                         </div>
+                    </div>
+                </div>
+
+                {/* Expandable Content */}
+                {expanded && (
+                    <div className="px-4 pb-3 md:px-5 md:pb-4 pt-0">
                         {evaluatedLabel && (
-                            <div className="mt-1 text-[11px]" style={{ color: WA.textMuted }}>
+                            <div className="mb-3 text-[11px]" style={{ color: WA.textMuted }}>
                                 最近评估 {evaluatedLabel}
                             </div>
                         )}
-                    </div>
-                    <div className="flex flex-wrap justify-end gap-2 shrink-0">
-                        <span
-                            className="text-[11px] px-2.5 py-1 rounded-full font-semibold"
-                            style={{ background: 'rgba(45,138,160,0.12)', color: '#2d8aa0' }}
-                        >
-                            {model.stageLabel}
-                        </span>
-                        <span
-                            className="text-[11px] px-2.5 py-1 rounded-full font-semibold"
-                            style={{ background: 'rgba(185,133,63,0.12)', color: '#9a6f2f' }}
-                        >
-                            命中 {model.reachedCount}/5
-                        </span>
-                    </div>
-                </div>
 
-                <svg viewBox={`0 0 ${model.width} 88`} className="block w-full h-[88px] md:h-[96px]" preserveAspectRatio="none">
-                    <line
-                        x1={model.left}
-                        y1={model.bottom}
-                        x2={model.width - model.right}
-                        y2={model.bottom}
-                        stroke="rgba(153,133,107,0.20)"
-                        strokeWidth="1"
-                    />
-                    {model.xs.map((x) => (
-                        <line
-                            key={`guide_${x}`}
-                            x1={x}
-                            y1={model.top + 2}
-                            x2={x}
-                            y2={model.bottom + 4}
-                            stroke="rgba(153,133,107,0.12)"
-                            strokeWidth="1"
-                        />
-                    ))}
-                    <polyline
-                        fill="none"
-                        stroke="#9f8e7a"
-                        strokeWidth="2"
-                        points={model.points}
-                    />
-                    {LIFECYCLE_AARRR_META.map((stage, idx) => {
-                        const reached = stage.key === 'referral' ? model.hasReferral : idx <= model.progressIndex;
-                        return (
-                            <circle
-                                key={stage.key}
-                                cx={model.xs[idx]}
-                                cy={model.ys[idx]}
-                                r={reached ? 4 : 3}
-                                fill={reached ? stage.color : '#d1c4b3'}
-                                stroke="#fffdfa"
-                                strokeWidth="1.5"
+                        <svg viewBox={`0 0 ${model.width} 88`} className="block w-full h-[88px] md:h-[96px]" preserveAspectRatio="none">
+                            <line
+                                x1={model.left}
+                                y1={model.bottom}
+                                x2={model.width - model.right}
+                                y2={model.bottom}
+                                stroke="rgba(153,133,107,0.20)"
+                                strokeWidth="1"
                             />
-                        );
-                    })}
-                </svg>
+                            {model.xs.map((x) => (
+                                <line
+                                    key={`guide_${x}`}
+                                    x1={x}
+                                    y1={model.top + 2}
+                                    x2={x}
+                                    y2={model.bottom + 4}
+                                    stroke="rgba(153,133,107,0.12)"
+                                    strokeWidth="1"
+                                />
+                            ))}
+                            <polyline
+                                fill="none"
+                                stroke="#9f8e7a"
+                                strokeWidth="2"
+                                points={model.points}
+                            />
+                            {LIFECYCLE_AARRR_META.map((stage, idx) => {
+                                const reached = stage.key === 'referral' ? model.hasReferral : idx <= model.progressIndex;
+                                return (
+                                    <circle
+                                        key={stage.key}
+                                        cx={model.xs[idx]}
+                                        cy={model.ys[idx]}
+                                        r={reached ? 4 : 3}
+                                        fill={reached ? stage.color : '#d1c4b3'}
+                                        stroke="#fffdfa"
+                                        strokeWidth="1.5"
+                                    />
+                                );
+                            })}
+                        </svg>
 
-                <div className="grid grid-cols-5 gap-1.5 mt-2.5">
-                    {LIFECYCLE_AARRR_META.map((stage, idx) => {
-                        const reached = stage.key === 'referral' ? model.hasReferral : idx <= model.progressIndex;
-                        const active = stage.key === model.stageKey;
-                        return (
-                            <div key={stage.key} className="min-w-0 text-center">
-                                <div
-                                    className="text-[11px] font-semibold"
-                                    style={{ color: active ? stage.color : (reached ? WA.textDark : WA.textMuted) }}
-                                >
-                                    {stage.label}
-                                </div>
-                                <div className="mt-1 text-[10px]" style={{ color: reached ? '#8b7761' : '#b6a28b' }}>
-                                    {reached ? '已达成' : '待推进'}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                        <div className="grid grid-cols-5 gap-1.5 mt-2.5">
+                            {LIFECYCLE_AARRR_META.map((stage, idx) => {
+                                const reached = stage.key === 'referral' ? model.hasReferral : idx <= model.progressIndex;
+                                const active = stage.key === model.stageKey;
+                                return (
+                                    <div key={stage.key} className="min-w-0 text-center">
+                                        <div
+                                            className="text-[11px] font-semibold"
+                                            style={{ color: active ? stage.color : (reached ? WA.textDark : WA.textMuted) }}
+                                        >
+                                            {stage.label}
+                                        </div>
+                                        <div className="mt-1 text-[10px]" style={{ color: reached ? '#8b7761' : '#b6a28b' }}>
+                                            {reached ? '已达成' : '待推进'}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -572,6 +626,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const [agencyStrategies, setAgencyStrategies] = useState(DEFAULT_UNBOUND_AGENCY_STRATEGIES);
     // 活跃事件数据（用于 inferAutoTopic 置信度加权 + Prompt 注入）
     const [activeEvents, setActiveEvents] = useState([]);
+    const [allEvents, setAllEvents] = useState([]);
 
     const chatScrollRef = useRef(null);
     const inputRef = useRef(null);
@@ -675,6 +730,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         setLastRepairSummary(null);
         setCurrentTopic(null);
         setAutoDetectedTopic(null);
+        setAllEvents([]);
+        setActiveEvents([]);
         clearPendingImage();
         jumpContextUntilRef.current = 0;
         pendingCandidatesRef.current = [];
@@ -705,6 +762,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             setPolicyDocs(docs);
             setClientMemory(mem || []);
             setAgencyStrategies(strategyConfig);
+            setAllEvents(evtData.events || []);
             setActiveEvents((evtData.events || []).filter(e => e.status === 'active'));
 
             // 等 policyDocs 加载后再生成
@@ -2060,7 +2118,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                     </>
                 )}
 
-                <LifecycleJourneyStrip creator={creator} />
+                <LifecycleJourneyStrip creator={creator} events={allEvents} />
 
                 {/* Translation Progress Bar */}
                 {translating && translateProgress && typeof translateProgress === 'string' && (
@@ -2277,6 +2335,20 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         compactMobile={isMobileViewport}
                         collapsed={isMobileViewport ? pickerCollapsed : false}
                         onToggleCollapse={() => setPickerCollapsed(v => !v)}
+                        // 标准话术相关 props
+                        onSelectStandard={(text) => {
+                            setPickerCustom(text);
+                            handleSelectCandidate('custom');
+                        }}
+                        scene={activePicker.scene}
+                        operator={activePicker.operator}
+                        clientId={client?.phone}
+                        messages={messages}
+                        currentTopic={currentTopic}
+                        autoDetectedTopic={autoDetectedTopic}
+                        activeEvents={activeEvents}
+                        lifecycle={creator?._full?.lifecycle || creator?.lifecycle || null}
+                        refreshToken={activePicker.generated_at || activePicker.incomingMsg?.timestamp || null}
                     />
                 )}
 
