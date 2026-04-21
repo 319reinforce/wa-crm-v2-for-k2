@@ -1185,8 +1185,11 @@ async function start(options = {}) {
     progress.clientReady = true;
     progress.clientError = null;
 
-    // 注册实时监听
+    // 注册实时监听（'message' 不触发 fromMe，需额外挂 'message_create' 才能捕获操作员手机端发出的消息）
     c.on('message', (msg) => handleIncomingMessage(msg));
+    c.on('message_create', (msg) => {
+        if (msg?.fromMe) handleIncomingMessage(msg);
+    });
 
     // 历史同步
     if (options.syncHistory !== false) {
