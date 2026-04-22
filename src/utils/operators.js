@@ -1,3 +1,6 @@
+import { useEffect, useMemo, useState } from 'react'
+import { fetchJsonOrThrow } from './api'
+
 export const OWNER_COLORS = {
   Beau: '#3b82f6',
   Yiyun: '#8b5cf6',
@@ -5,6 +8,9 @@ export const OWNER_COLORS = {
   WangYouKe: '#14b8a6',
 }
 
+// Fallback ordering when the dynamic /api/operator-roster is unavailable.
+// The list below is intentionally duplicated from server/config/operatorRoster.js
+// so the UI still renders something usable before the roster fetch resolves.
 export const OWNER_ORDER = ['Beau', 'Yiyun', 'Jiawen', 'WangYouKe']
 
 export function getOwnerColor(owner, fallback = '#94a3b8') {
@@ -34,4 +40,53 @@ export function buildOwnerOptions(values = [], { includeAll = false } = {}) {
   }
   const ordered = [...names].sort(sortOwners)
   return includeAll ? [''].concat(ordered) : ordered
+}
+
+let _rosterPromise = null
+
+function loadRosterCached() {
+  if (!_rosterPromise) {
+    _rosterPromise = fetchJsonOrThrow('/api/operator-roster')
+      .then((res) => (Array.isArray(res?.data) ? res.data : []))
+      .catch((err) => {
+        _rosterPromise = null
+        throw err
+      })
+  }
+  return _rosterPromise
+}
+
+/**
+ * React hook that fetches `/api/operator-roster` once per session and returns
+ * a dynamic owner list. Falls back to `OWNER_ORDER` until the fetch resolves
+ * (or if it fails), so callers can render a selector immediately.
+ */
+export function useOperatorRoster() {
+  const [roster, setRoster] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let mounted = true
+    loadRosterCached()
+      .then((data) => {
+        if (!mounted) return
+        setRoster(data)
+        setLoading(false)
+      })
+      .catch((err) => {
+        if (!mounted) return
+        setError(err)
+        setLoading(false)
+      })
+    return () => { mounted = false }
+  }, [])
+
+  const owners = useMemo(() => {
+    const names = (roster || []).map((item) => item?.operator).filter(Boolean)
+    if (names.length === 0) return [...OWNER_ORDER]
+    return [...names].sort(sortOwners)
+  }, [roster])
+
+  return { roster: roster || [], owners, loading, error }
 }

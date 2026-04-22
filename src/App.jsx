@@ -17,7 +17,7 @@ import { UsersPanel } from './components/UsersPanel'
 import { getAppAuthScopeOwner, isAppAuthOwnerLocked, isAppAuthAdmin } from './utils/appAuth'
 import { fetchJsonOrThrow } from './utils/api'
 import { getCreatorMessages, getCreatorStatusMeta } from './utils/creatorMeta'
-import { buildOwnerOptions, getOwnerColor } from './utils/operators'
+import { buildOwnerOptions, getOwnerColor, useOperatorRoster } from './utils/operators'
 import { fetchWaAdmin } from './utils/waAdmin'
 import WA from './utils/waTheme'
 
@@ -1603,7 +1603,17 @@ function ManualCreatorModal({
   checkResult,
   error,
 }) {
+  const { owners: rosterOwners } = useOperatorRoster()
+
   if (!open) return null
+
+  const ownerOptions = (() => {
+    const base = rosterOwners && rosterOwners.length > 0 ? rosterOwners : []
+    if (form?.owner && !base.includes(form.owner)) {
+      return [form.owner, ...base]
+    }
+    return base
+  })()
 
   const samePhone = checkResult?.conflicts?.same_phone || []
   const sameName = checkResult?.conflicts?.same_name || []
@@ -1645,12 +1655,9 @@ function ManualCreatorModal({
               {ownerLocked ? (
                 <option value={lockedOwner}>{lockedOwner}</option>
               ) : (
-                <>
-                  <option value="Yiyun">Yiyun</option>
-                  <option value="Beau">Beau</option>
-                  <option value="Jiawen">Jiawen</option>
-                  <option value="WangYouKe">WangYouKe</option>
-                </>
+                ownerOptions.map(owner => (
+                  <option key={owner} value={owner}>{owner}</option>
+                ))
               )}
             </select>
           </label>

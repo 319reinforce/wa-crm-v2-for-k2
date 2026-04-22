@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import JudgeQuickForm from './JudgeQuickForm'
-import { OWNER_ORDER, getOwnerColor } from '../utils/operators'
+import { OWNER_ORDER, getOwnerColor, useOperatorRoster } from '../utils/operators'
 import { getAppAuthScopeOwner, isAppAuthOwnerLocked } from '../utils/appAuth'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 import sharedWA from '../utils/waTheme'
@@ -89,12 +89,15 @@ const VERIFICATION_LABELS = {
   uncertain: { label: '核对不确定', color: '#64748b', bg: 'rgba(100,116,139,0.15)' },
 }
 
-const OWNER_OPTIONS = OWNER_ORDER
-
 export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEventChange, restoreState }) {
   const lockedOwner = getAppAuthScopeOwner()
   const ownerLocked = isAppAuthOwnerLocked() && !!lockedOwner
-  const ownerOptions = ownerLocked ? [lockedOwner] : OWNER_OPTIONS
+  const { owners: rosterOwners } = useOperatorRoster()
+  const dynamicOwnerOptions = useMemo(() => (
+    rosterOwners && rosterOwners.length > 0 ? rosterOwners : [...OWNER_ORDER]
+  ), [rosterOwners])
+  const ownerOptions = ownerLocked ? [lockedOwner] : dynamicOwnerOptions
+  const defaultOwner = lockedOwner || dynamicOwnerOptions[0] || OWNER_ORDER[0]
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
@@ -117,7 +120,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
     creator_id: '',
     event_key: 'trial_7day',
     event_type: 'challenge',
-    owner: lockedOwner || OWNER_OPTIONS[0],
+    owner: defaultOwner,
     trigger_source: 'manual',
     trigger_text: '',
     start_at: toLocalDateTimeInputValue(),
@@ -275,7 +278,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
         creator_id: '',
         event_key: 'trial_7day',
         event_type: 'challenge',
-        owner: lockedOwner || OWNER_OPTIONS[0],
+        owner: defaultOwner,
         trigger_source: 'manual',
         trigger_text: '',
         start_at: toLocalDateTimeInputValue(),
