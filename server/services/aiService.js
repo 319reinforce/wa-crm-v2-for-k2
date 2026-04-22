@@ -3,10 +3,38 @@
  * 提取自 server/routes/ai.js
  */
 const db = require('../../db');
-const creatorCache = require('./creatorCache');
+const DEFAULT_MINIMAX_BASE = 'https://minimax.a7m.com.cn';
+const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.7-highspeed';
 
-const API_KEY = process.env.MINIMAX_API_KEY;
-const API_BASE = process.env.MINIMAX_API_BASE || 'https://api.minimaxi.com/anthropic';
+function resolveMinimaxMessagesUrl(rawBase) {
+    const input = String(rawBase || '').trim() || DEFAULT_MINIMAX_BASE;
+    try {
+        const url = new URL(input);
+        const normalizedPath = url.pathname.replace(/\/+$/, '');
+        const basePath = normalizedPath && normalizedPath !== '/'
+            ? normalizedPath
+            : '';
+        const messagesPath = /\/v1$/i.test(basePath)
+            ? `${basePath}/messages`
+            : `${basePath}/v1/messages`;
+        return `${url.origin}${messagesPath}`;
+    } catch (_) {
+        const normalized = input.replace(/\/+$/, '');
+        return /\/v1$/i.test(normalized)
+            ? `${normalized}/messages`
+            : `${normalized}/v1/messages`;
+    }
+}
+
+function resolveMinimaxModel(explicitModel) {
+    const input = String(explicitModel || '').trim();
+    if (input) return input;
+    return String(process.env.MINIMAX_MODEL || '').trim() || DEFAULT_MINIMAX_MODEL;
+}
+
+// 翻译使用专用的 API Key 和 Base URL
+const TRANSLATION_API_KEY = process.env.MINIMAX_TRANSLATION_API_KEY || process.env.MINIMAX_API_KEY;
+const TRANSLATION_API_BASE = process.env.MINIMAX_TRANSLATION_API_BASE || process.env.MINIMAX_API_BASE || DEFAULT_MINIMAX_BASE;
 
 /**
  * 验证 client_id 是否在 creators 表中
@@ -14,7 +42,7 @@ const API_BASE = process.env.MINIMAX_API_BASE || 'https://api.minimaxi.com/anthr
 async function validateClientId(clientId) {
     if (!clientId) return true; // optional
     const db2 = db.getDb();
-    const valid = await creatorCache.getCreatorByPhone(db2, clientId, 'id');
+    const valid = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(clientId);
     return !!valid;
 }
 
@@ -30,38 +58,40 @@ function extractTextFromResponse(data) {
  * @returns {{ content, content_opt2 }}
  */
 async function generateWithDualTemperature(messages, model, maxTokens, temperatures) {
-    if (!API_KEY) {
-        throw new Error('MINIMAX_API_KEY environment variable not set');
+    if (!TRANSLATION_API_KEY) {
+        throw new Error('MINIMAX_TRANSLATION_API_KEY environment variable not set');
     }
 
     const temps = Array.isArray(temperatures) ? temperatures : [0.8, 0.4];
+    const messagesUrl = resolveMinimaxMessagesUrl(TRANSLATION_API_BASE);
+    const resolvedModel = resolveMinimaxModel(model);
     const [raw1, raw2] = await Promise.all([
-        fetch(`${API_BASE}/v1/messages`, {
+        fetch(messagesUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${API_KEY}`,
-                'x-api-key': API_KEY,
+                'Authorization': `Bearer ${TRANSLATION_API_KEY}`,
+                'x-api-key': TRANSLATION_API_KEY,
                 'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-                model: model || 'mini-max-typing',
+                model: resolvedModel,
                 messages,
                 max_tokens: maxTokens || 500,
                 temperature: temps[0],
             }),
             signal: AbortSignal.timeout(60000),
         }),
-        fetch(`${API_BASE}/v1/messages`, {
+        fetch(messagesUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${API_KEY}`,
-                'x-api-key': API_KEY,
+                'Authorization': `Bearer ${TRANSLATION_API_KEY}`,
+                'x-api-key': TRANSLATION_API_KEY,
                 'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-                model: model || 'mini-max-typing',
+                model: resolvedModel,
                 messages,
                 max_tokens: maxTokens || 500,
                 temperature: temps[1],
@@ -115,25 +145,25 @@ function sleep(ms) {
 }
 
 async function requestMiniMaxText(messages, {
-    model = 'mini-max-typing',
+    model = resolveMinimaxModel(),
     maxTokens = 1000,
     temperature = 0.3,
     timeoutMs = 30000,
     retries = 4,
 } = {}) {
-    if (!API_KEY) {
-        throw new Error('MINIMAX_API_KEY environment variable not set');
+    if (!TRANSLATION_API_KEY) {
+        throw new Error('MINIMAX_TRANSLATION_API_KEY environment variable not set');
     }
 
     let lastError = null;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
         try {
-            const response = await fetch(`${API_BASE}/v1/messages`, {
+            const response = await fetch(resolveMinimaxMessagesUrl(TRANSLATION_API_BASE), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${API_KEY}`,
-                    'x-api-key': API_KEY,
+                    'Authorization': `Bearer ${TRANSLATION_API_KEY}`,
+                    'x-api-key': TRANSLATION_API_KEY,
                     'anthropic-version': '2023-06-01',
                 },
                 body: JSON.stringify({

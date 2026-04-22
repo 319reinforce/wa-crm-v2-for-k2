@@ -70,8 +70,14 @@ function getConfiguredLogin() {
 // EventSource 通过同源 httpOnly cookie 复用认证态
 app.get('/api/events/subscribe', requireAppAuth, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    // HTTP/2 禁止 connection-specific 头（RFC 9113 §8.2.2），否则走 HTTP/2 反代会触发
+    // 客户端 ERR_HTTP2_PROTOCOL_ERROR。HTTP/1.1 下 Node 默认已是 keep-alive。
+    if (req.httpVersionMajor < 2) {
+        res.setHeader('Connection', 'keep-alive');
+    }
+    // 显式禁压缩：即便上游误启 gzip/br 也被强制 identity，避免 SSE 被缓冲
+    res.setHeader('Content-Encoding', 'identity');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
@@ -165,7 +171,21 @@ async function tryListenWithRetry(app, port, retries = 3) {
 // compression: 让 origin 自己回 gzip，避免 Cloudflare 再做一次 Brotli 压缩
 // （动态 API 无法边缘缓存，Cloudflare 每次都要重新压缩 350KB 响应，占 TTFB 500-900ms）
 // origin 回 gzip 后 Cloudflare 默认会透传已压缩响应，不再重编
-app.use(require('compression')({ threshold: 1024 }));
+//
+// filter：SSE（text/event-stream）必须排除，否则响应会被缓冲，HTTP/2 流会异常。
+// 不再依赖路由注册顺序，任何后续挪动路由都不会让 SSE 被误压缩。
+const _compression = require('compression');
+app.use(_compression({
+    threshold: 1024,
+    filter: (req, res) => {
+        if (req.headers.accept && req.headers.accept.includes('text/event-stream')) return false;
+        const ct = res.getHeader('Content-Type');
+        if (ct && String(ct).includes('text/event-stream')) return false;
+        const cc = res.getHeader('Cache-Control');
+        if (cc && String(cc).includes('no-transform')) return false;
+        return _compression.filter(req, res);
+    },
+}));
 app.use(jsonBody);
 app.use(timeout);
 

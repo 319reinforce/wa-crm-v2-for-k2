@@ -1,36 +1,66 @@
 {
   "sources": [
     {
-      "id": "policy-tiktok-shop-compliance-mar-2026-v1",
-      "title": "TikTok Shop Compliance Policy Notes (March 2026)",
+      "id": "policy-trial-pack-v1",
+      "title": "Trial Package Policy (v1)",
       "type": "policy",
       "format": "md",
-      "path": "docs/rag/sources/policy-tiktok-shop-compliance-mar-2026-v1.md",
+      "path": "docs/rag/sources/policy-trial-pack-v1.md",
       "scene": [
-        "general",
-        "payment_issue",
-        "gmv_inquiry"
+        "trial_intro",
+        "trial_followup"
+      ],
+      "topic": [
+        "trial",
+        "payment",
+        "monthly"
+      ],
+      "keywords": [
+        "trial",
+        "7-day",
+        "completed",
+        "monthly",
+        "subscription"
       ],
       "priority": 1,
       "sensitivity": "internal",
       "status": "approved",
-      "updated_at": "2026-04-11",
-      "effective_from": "2026-04-15",
-      "rule_version": "2026-04-15"
+      "updated_at": "2026-04-20",
+      "effective_from": "2026-04-20",
+      "rule_version": "2026-04-20"
     },
     {
-      "id": "policy-moras-payment-and-trial-faq-mar-2026-v1",
-      "title": "Moras Payment / Trial FAQ Policy Notes (March 2026)",
-      "type": "policy",
+      "id": "sop-creator-outreach-mar-2026-v1",
+      "title": "Moras Creator Outreach SOP (March 2026)",
+      "type": "sop",
       "format": "md",
-      "path": "docs/rag/sources/policy-moras-payment-and-trial-faq-mar-2026-v1.md",
+      "path": "docs/rag/sources/sop-creator-outreach-mar-2026-v1.md",
       "scene": [
         "trial_intro",
+        "trial_followup",
+        "payment_intro",
         "monthly_inquiry",
         "payment_issue",
+        "first_contact",
+        "follow_up",
         "mcn_binding"
       ],
-      "priority": 1,
+      "topic": [
+        "trial",
+        "payment",
+        "onboarding",
+        "mcn_binding"
+      ],
+      "keywords": [
+        "trial",
+        "monthly",
+        "payment",
+        "subsidy",
+        "earnings",
+        "invite code",
+        "mcn"
+      ],
+      "priority": 2,
       "sensitivity": "internal",
       "status": "approved",
       "updated_at": "2026-04-11",

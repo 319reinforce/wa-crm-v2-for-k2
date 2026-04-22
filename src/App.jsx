@@ -393,47 +393,90 @@ function App() {
   }, [ownerLocked])
 
   // SSE 实时订阅（populate_db.cjs 写完 MySQL 后会收到广播）
+  // 指数退避 + 可见性感知重连，避免后端短暂抖动时浏览器以默认 3s 节奏无限重试打满日志。
   useEffect(() => {
-    let es
+    let es = null
     let debounceTimer = null
+    let reconnectTimer = null
+    let reconnectDelay = 1000 // 1s → 2s → 4s → 8s → 15s → 30s 上限
+    let destroyed = false
+
     const debouncedLoadData = () => {
       clearTimeout(debounceTimer)
       debounceTimer = setTimeout(() => { loadDataRef.current?.() }, 1500)
     }
-    try {
-      es = new EventSource('/api/events/subscribe')
-      es.addEventListener('creators-updated', () => {
-        debouncedLoadData()
-      })
-      // Step 7: 新消息到达时立即刷新列表(替代 5s 轮询 + populate broadcast)
-      es.addEventListener('wa-message', (event) => {
-        try {
-          const data = event.data ? JSON.parse(event.data) : null
-          // 派发 window 事件,让 useMessagePolling / CreatorDetail 等子组件也能收到
-          window.dispatchEvent(new CustomEvent('wa-message-received', { detail: data }))
-        } catch (_) {}
-        debouncedLoadData()
-      })
-      // session 状态变化(ready/qr/disconnected/error)
-      es.addEventListener('wa-session-status', (event) => {
-        try {
-          const data = event.data ? JSON.parse(event.data) : null
-          window.dispatchEvent(new CustomEvent('wa-session-status-changed', { detail: data }))
-        } catch (_) {}
-      })
-      es.onerror = () => {
-        console.warn('[SSE] 连接断开，5秒后自动重连')
-      }
-    } catch (e) {
-      console.warn('[SSE] 连接失败，使用轮询兜底:', e.message)
+
+    const scheduleReconnect = () => {
+      if (destroyed) return
+      if (reconnectTimer) return
+      if (document.visibilityState === 'hidden') return // 标签页隐藏时暂停重连
+      const delay = reconnectDelay
+      reconnectDelay = Math.min(reconnectDelay * 2, 30000)
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        connect()
+      }, delay)
     }
+
+    const connect = () => {
+      if (destroyed) return
+      try {
+        es = new EventSource('/api/events/subscribe')
+        es.addEventListener('open', () => {
+          reconnectDelay = 1000 // 连上即复位
+        })
+        es.addEventListener('creators-updated', () => {
+          debouncedLoadData()
+        })
+        es.addEventListener('wa-message', (event) => {
+          try {
+            const data = event.data ? JSON.parse(event.data) : null
+            window.dispatchEvent(new CustomEvent('wa-message-received', { detail: data }))
+          } catch (_) {}
+          debouncedLoadData()
+        })
+        es.addEventListener('wa-session-status', (event) => {
+          try {
+            const data = event.data ? JSON.parse(event.data) : null
+            window.dispatchEvent(new CustomEvent('wa-session-status-changed', { detail: data }))
+          } catch (_) {}
+        })
+        es.onerror = () => {
+          console.warn(`[SSE] 连接断开，${Math.round(reconnectDelay / 1000)}s 后重连`)
+          try { es && es.close() } catch (_) {}
+          es = null
+          scheduleReconnect()
+        }
+      } catch (e) {
+        console.warn('[SSE] 连接失败，使用轮询兜底:', e.message)
+        scheduleReconnect()
+      }
+    }
+
+    const onVisibility = () => {
+      // 标签页从隐藏恢复且没有活动连接时立刻重连
+      if (document.visibilityState === 'visible' && !es && !reconnectTimer) {
+        reconnectDelay = 1000
+        connect()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    connect()
+
     return () => {
+      destroyed = true
+      document.removeEventListener('visibilitychange', onVisibility)
       clearTimeout(debounceTimer)
-      if (es) es.close()
+      clearTimeout(reconnectTimer)
+      if (es) {
+        try { es.close() } catch (_) {}
+      }
     }
   }, [])
 
-  const handleSelectCreator = (creator) => {
+  const handleSelectCreator = async (creator) => {
+    if (!creator?.id) return
     if (!shouldShowUnread(creator)) {
       setUnreadCounts(prev => ({ ...prev, [creator.id]: 0 }))
     }
@@ -443,7 +486,11 @@ function App() {
     setConversationScope('creators')
     setSelectedGroupChat(null)
     setDetailPanelExpanded(detailPanelPinned)
-    setSelectedCreator(creator)
+    setSelectedCreator(null)
+    await selectCreatorById(creator.id, {
+      activeTab: 'creators',
+      expandDetail: detailPanelPinned,
+    })
   }
 
   const handleSelectGroupChat = useCallback((groupChat) => {
@@ -490,11 +537,14 @@ function App() {
     })
   }, [])
 
-  const resolveCreatorIdFromQuery = useCallback(async ({ waPhone, jbName, keeperUsername }) => {
+  const resolveCreatorIdFromQuery = useCallback(async ({ waPhone, jbName, keeperUsername, creator }) => {
     const normalizedPhone = normalizePhoneKey(waPhone)
     const normalizedJbName = normalizeLookupText(jbName)
     const normalizedKeeperUsername = normalizeLookupText(keeperUsername)
-    const searchValue = waPhone || keeperUsername || jbName
+    const normalizedCreatorLookup = normalizeLookupText(creator)
+    const normalizedCreatorPhone = normalizePhoneKey(creator)
+    const fallbackCreatorId = parsePositiveInt(creator)
+    const searchValue = waPhone || keeperUsername || jbName || creator
     if (!searchValue) return null
 
     try {
@@ -508,11 +558,14 @@ function App() {
         list.find((item) => normalizedPhone && normalizePhoneKey(item?.wa_phone) === normalizedPhone)
         || list.find((item) => normalizedKeeperUsername && normalizeLookupText(item?.keeper_username) === normalizedKeeperUsername)
         || list.find((item) => normalizedJbName && normalizeLookupText(item?.primary_name) === normalizedJbName)
+        || list.find((item) => normalizedCreatorPhone && normalizePhoneKey(item?.wa_phone) === normalizedCreatorPhone)
+        || list.find((item) => normalizedCreatorLookup && normalizeLookupText(item?.keeper_username) === normalizedCreatorLookup)
+        || list.find((item) => normalizedCreatorLookup && normalizeLookupText(item?.primary_name) === normalizedCreatorLookup)
 
-      return Number(exact?.id || list[0]?.id || 0) || null
+      return Number(exact?.id || list[0]?.id || 0) || fallbackCreatorId || null
     } catch (e) {
       console.error('[workspaceBootstrap] resolveCreatorIdFromQuery error:', e)
-      return null
+      return fallbackCreatorId || null
     }
   }, [])
 
@@ -576,7 +629,7 @@ function App() {
     if (queryBootstrapDoneRef.current) return
 
     const params = new URLSearchParams(window.location.search)
-    const hasQuery = ['tab', 'creatorId', 'eventId', 'waPhone', 'jbName', 'keeperUsername'].some((key) => params.has(key))
+    const hasQuery = ['tab', 'creatorId', 'creator', 'eventId', 'waPhone', 'jbName', 'keeperUsername'].some((key) => params.has(key))
     if (!hasQuery) {
       queryBootstrapDoneRef.current = true
       return
@@ -586,6 +639,7 @@ function App() {
     const targetTab = normalizeWorkspaceTab(params.get('tab'))
     const eventId = parsePositiveInt(params.get('eventId'))
     const creatorId = parsePositiveInt(params.get('creatorId'))
+    const legacyCreator = String(params.get('creator') || '').trim()
     const waPhone = String(params.get('waPhone') || '').trim()
     const jbName = String(params.get('jbName') || '').trim()
     const keeperUsername = String(params.get('keeperUsername') || '').trim()
@@ -596,7 +650,7 @@ function App() {
 
       let resolvedCreatorId = creatorId
       if (!resolvedCreatorId) {
-        resolvedCreatorId = await resolveCreatorIdFromQuery({ waPhone, jbName, keeperUsername })
+        resolvedCreatorId = await resolveCreatorIdFromQuery({ waPhone, jbName, keeperUsername, creator: legacyCreator })
       }
       if (!resolvedCreatorId) return
 
