@@ -1184,21 +1184,31 @@ async function handleBaileysIncomingMessage(incoming) {
             });
             return;
         }
-        const phone = normalizePhone(incoming?.chatId || incoming?.from || '');
-        if (!phone) return;
+        const phoneRaw = normalizePhone(incoming?.chatId || incoming?.from || '');
+        if (!phoneRaw) return;
         const text = incoming?.text || '';
         if (!text && !incoming?.media) return;
 
+        // Baileys 从 JID 解出来的是 "+<digits>" 格式；DB 里 creators.wa_phone
+        // 约 99% 是无 "+" 的纯数字（仅 3 条群/特殊号带 +）。查询和写入都必须
+        // 双格式兼容，否则收到的消息找不到 creator → UI 看不到新消息。
+        const phoneDigits = phoneRaw.replace(/^\+/, '');
         const name = incoming?.authorName || 'Unknown';
         const db2 = getDb();
-        const existing = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(phone);
+        const existing = await db2.prepare(
+            'SELECT id, wa_phone FROM creators WHERE wa_phone IN (?, ?) LIMIT 1'
+        ).get(phoneRaw, phoneDigits);
+
+        // 沿用 DB 里已有的 phone 格式，避免 getOrCreateCreator 再用另一种格式
+        // insert 一条重复的 creator；新 creator 默认用 digits-only（匹配主流）
+        const canonicalPhone = existing ? existing.wa_phone : phoneDigits;
 
         let creatorId;
         if (existing) {
-            creatorId = await getOrCreateCreator(phone, name);
+            creatorId = await getOrCreateCreator(canonicalPhone, name);
         } else {
             // Baileys 没有 fetchRecentMessages 的预取历史，走空消息 eligibility
-            const eligibility = getEligibilityForRealtime(phone, name, []);
+            const eligibility = getEligibilityForRealtime(canonicalPhone, name, []);
             if (!eligibility.eligible) {
                 perfLog('wa_event_handled', {
                     source: 'worker', waMsgId,
@@ -1208,7 +1218,7 @@ async function handleBaileysIncomingMessage(incoming) {
                 });
                 return;
             }
-            creatorId = await getOrCreateCreator(phone, name);
+            creatorId = await getOrCreateCreator(canonicalPhone, name);
         }
 
         const role = incoming.fromMe ? 'me' : 'user';
@@ -1224,9 +1234,9 @@ async function handleBaileysIncomingMessage(incoming) {
             await touchCreator(creatorId);
             console.log(`${LOG_PREFIX} 📩 ${name} (baileys): ${text.slice(0, 50)}`);
             messageHandlers.forEach(fn => {
-                try { fn({ phone, name, text, creatorId }); } catch (_) {}
+                try { fn({ phone: canonicalPhone, name, text, creatorId }); } catch (_) {}
             });
-            notifyProfilePipelines({ creatorId, phone, text, role, insertedCount: inserted });
+            notifyProfilePipelines({ creatorId, phone: canonicalPhone, text, role, insertedCount: inserted });
         }
 
         perfLog('wa_event_handled', {
