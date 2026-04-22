@@ -95,6 +95,14 @@ class BaileysDriver extends EventEmitter {
         /** @type {Map<string, import('./types').IncomingMessage[]>} */
         this._msgBuffer = new Map();
 
+        // LID → PN 映射：WhatsApp 1:1 对话里收到的 remoteJid 可能是 LID（@lid）
+        // 别名；DB 里 creators.wa_phone 是真实电话 (PN / @s.whatsapp.net)。
+        // 我们在 sendMessage 的 onWhatsApp 预检里会拿到 {jid, lid} 对，记进
+        // 这个 map，_normalizeMessage 收到 @lid 时反查回 PN，避免 LID 被当成
+        // "假号码" 新建野生 creator。
+        /** @type {Map<string, string>} lidJid → pnJid */
+        this._lidToPnMap = new Map();
+
         // Proxyquire target for tests
         this._baileysModule = null;
     }
@@ -281,9 +289,13 @@ class BaileysDriver extends EventEmitter {
                     console.warn(`[BaileysDriver:${this.sessionId}] onWhatsApp: ${jid} NOT registered (check=${JSON.stringify(check)})`);
                     return { ok: false, error: `phone ${phoneE164} 未注册 WhatsApp 或 lid 未解析` };
                 }
-                // Baileys 6.x 推荐用 returned jid（可能是 @lid）替换 @s.whatsapp.net
+                // 建立 LID ↔ PN 映射：onWhatsApp 返回 { jid: <pn>, lid: <lid>, exists }
+                // 后续收 @lid 格式 remoteJid 的消息时反查回 PN，避免走错 creator。
+                if (entry.lid && entry.jid) {
+                    this._lidToPnMap.set(String(entry.lid), String(entry.jid));
+                }
                 if (entry.jid && entry.jid !== jid) {
-                    console.log(`[BaileysDriver:${this.sessionId}] onWhatsApp 解析 jid ${jid} → ${entry.jid}`);
+                    console.log(`[BaileysDriver:${this.sessionId}] onWhatsApp ${jid} → pn=${entry.jid} lid=${entry.lid || 'none'}`);
                 }
             }
         } catch (err) {
@@ -414,8 +426,33 @@ class BaileysDriver extends EventEmitter {
         const rawText = this._extractText(msg);
         const fromMe = !!key.fromMe;
         const isGroup = isGroupJid(key.remoteJid);
-        const chatId = jidToPhoneE164(key.remoteJid);
-        const from = jidToPhoneE164(fromMe ? key.remoteJid : (key.participant || key.remoteJid));
+
+        // WhatsApp 1:1 对话里 remoteJid 可能是 PN (@s.whatsapp.net) 或 LID (@lid)
+        // 两种格式，同一个人的不同标识。DB creators.wa_phone 存 PN 格式（真实号码）。
+        // LID 是 WA 内部别名、值和手机号完全不同；直接当号码用会创建野生 creator。
+        //
+        // 三级兜底找 PN:
+        //   1. 如果 remoteJid 本身就是 PN (@s.whatsapp.net) → 直接用
+        //   2. 如果 key.senderPn / msg.senderPn 存在 → 用它（baileys 6.x 某些版本有）
+        //   3. 否则查 _lidToPnMap（sendMessage 时从 onWhatsApp 结果缓存的 LID→PN）
+        const resolvePnJid = (jidCandidate) => {
+            if (!jidCandidate) return null;
+            const str = String(jidCandidate);
+            if (str.endsWith('@s.whatsapp.net') || str.endsWith('@g.us')) return str;
+            if (str.endsWith('@lid')) {
+                const pn = this._lidToPnMap.get(str);
+                if (pn) return pn;
+                console.warn(`[BaileysDriver:${this.sessionId}] LID ${str} no PN in map; falling back to LID`);
+            }
+            return str;
+        };
+
+        const chatJidForPhone = !fromMe && !isGroup
+            ? (key.senderPn || msg?.senderPn || resolvePnJid(key.remoteJid))
+            : key.remoteJid;
+
+        const chatId = jidToPhoneE164(chatJidForPhone);
+        const from = jidToPhoneE164(fromMe ? chatJidForPhone : (key.participant || chatJidForPhone));
 
         /** @type {import('./types').IncomingMessage} */
         const normalized = {
