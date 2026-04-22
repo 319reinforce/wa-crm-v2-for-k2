@@ -138,28 +138,46 @@ class BaileysDriver extends EventEmitter {
 
         if (!fs.existsSync(this._authDir)) fs.mkdirSync(this._authDir, { recursive: true });
 
-        const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+        const baileys = require('@whiskeysockets/baileys');
+        const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = baileys;
         this._baileysModule = { makeWASocket, useMultiFileAuthState, DisconnectReason };
 
         const { state, saveCreds } = await useMultiFileAuthState(this._authDir);
 
         // Baileys 要求 logger 实现 pino 接口（含 child()），裸 { level: 'silent' }
         // 会让 makeWASocket 在内部调用 logger.child(...) 时抛 TypeError。
-        // 用真的 pino，保留 silent 以避免噪声。
         const pino = require('pino');
         const baileysLogger = pino({ level: 'silent' });
+
+        // WhatsApp 握手对 browser 三元组有要求；自制的 ['K2Lab-Bot','Chrome','1.0']
+        // 在 6.17.x 会被拒 DisconnectReason 405。用 Baileys 自带 Browsers 工厂生成
+        // 合规格式（含真实 OS + 合理 agent/version）。
+        const browserTuple = (Browsers && typeof Browsers.ubuntu === 'function')
+            ? Browsers.ubuntu('Chrome')
+            : ['Ubuntu', 'Chrome', '22.04.4'];
+
+        // 动态拉最新版本号，避免协议过时导致 405。失败就用编译期常量。
+        let version;
+        try {
+            if (typeof fetchLatestBaileysVersion === 'function') {
+                const r = await fetchLatestBaileysVersion();
+                version = r?.version;
+            }
+        } catch (_) { /* 忽略，用 baileys 默认 */ }
 
         this._sock = makeWASocket({
             auth: state,
             printQRInTerminal: false,
             logger: baileysLogger,
-            browser: ['K2Lab-Bot', 'Chrome', '1.0'],
+            browser: browserTuple,
+            ...(version ? { version } : {}),
             syncFullHistory: false,
             markOnlineOnConnect: false,
-            // Larger timeout for slow connections
             connectTimeoutMs: 60_000,
             keepAliveIntervalMs: 30_000,
         });
+
+        console.log(`[BaileysDriver:${this.sessionId}] socket 已创建 browser=${JSON.stringify(browserTuple)} version=${JSON.stringify(version || 'default')}`);
 
         this._sock.ev.on('creds.update', saveCreds);
 
