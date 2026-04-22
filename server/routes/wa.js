@@ -755,9 +755,10 @@ router.get('/media-assets/:id', async (req, res) => {
     }
 });
 
-// GET /api/wa/media-assets/:id/download — 流式下载媒体文件（本地存储回退路径）
-// 前端拿到的 media_url 在 MEDIA_PUBLIC_BASE_URL 未配时会回退到这条。
-router.get('/media-assets/:id/download', async (req, res) => {
+// GET /api/wa/media-assets/:id/file — 以原 mime 内联读出媒体文件
+// 浏览器默认以 Content-Type 决定显示方式（图片/视频/音频内联预览）。
+// /download 是旧名称，保留 301 兼容已入库数据。
+async function serveMediaAssetFile(req, res) {
     try {
         const assetId = parsePositiveInt(req.params.id, null);
         if (!assetId) {
@@ -790,6 +791,8 @@ router.get('/media-assets/:id/download', async (req, res) => {
         const mime = asset.mime_type || 'application/octet-stream';
         res.setHeader('Content-Type', mime);
         if (asset.file_size) res.setHeader('Content-Length', String(asset.file_size));
+        // 显式 inline disposition，防止某些代理/浏览器当附件下载
+        res.setHeader('Content-Disposition', 'inline');
         // 长缓存安全：文件按内容 hash 命名，内容变了 id 也变
         res.setHeader('Cache-Control', 'private, max-age=3600');
         fs.createReadStream(asset.file_path).on('error', (err) => {
@@ -798,10 +801,14 @@ router.get('/media-assets/:id/download', async (req, res) => {
             else res.destroy();
         }).pipe(res);
     } catch (err) {
-        console.error('[WA Route] download media error:', err);
+        console.error('[WA Route] serve media error:', err);
         if (!res.headersSent) res.status(500).json({ ok: false, error: err.message });
     }
-});
+}
+
+router.get('/media-assets/:id/file', serveMediaAssetFile);
+// 兼容：PR #29 起用过 /download，旧数据/书签仍能工作
+router.get('/media-assets/:id/download', serveMediaAssetFile);
 
 // GET /api/wa/media-assets — 列表媒体资产
 router.get('/media-assets', async (req, res) => {

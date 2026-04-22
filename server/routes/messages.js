@@ -15,18 +15,21 @@ const creatorCache = require('../services/creatorCache');
 // 前端（WAMessageComposer.jsx）读 message.media_url / message.mime_type / message.file_name
 // 来判定和渲染媒体；wa_messages 本身只有 media_asset_id / media_mime 等内部列。
 // 若 media_assets.file_url 为空（本地存储、未配 MEDIA_PUBLIC_BASE_URL），
-// 则回退到后端代理下载端点 /api/wa/media-assets/:id/download。
+// 则回退到后端文件流端点 /api/wa/media-assets/:id/file。
+// JOIN 条件限定 status='active'：已被 mediaCleanupService 或人工 soft-delete
+// 的资产不再产出 media_url，避免前端出现 404 / 坏图标。
 const WA_MESSAGES_SELECT = `
     wm.*,
     COALESCE(
       NULLIF(ma.file_url, ''),
-      CASE WHEN ma.id IS NOT NULL THEN CONCAT('/api/wa/media-assets/', ma.id, '/download') ELSE NULL END
+      CASE WHEN ma.id IS NOT NULL THEN CONCAT('/api/wa/media-assets/', ma.id, '/file') ELSE NULL END
     ) AS media_url,
     COALESCE(ma.mime_type, wm.media_mime) AS mime_type,
     ma.file_name AS file_name,
     ma.file_size AS media_file_size
   FROM wa_messages wm
-  LEFT JOIN media_assets ma ON ma.id = wm.media_asset_id
+  LEFT JOIN media_assets ma
+    ON ma.id = wm.media_asset_id AND ma.status = 'active'
 `;
 
 function isLegacySecondTimestamp(value) {
