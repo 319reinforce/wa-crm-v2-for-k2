@@ -143,10 +143,16 @@ class BaileysDriver extends EventEmitter {
 
         const { state, saveCreds } = await useMultiFileAuthState(this._authDir);
 
+        // Baileys 要求 logger 实现 pino 接口（含 child()），裸 { level: 'silent' }
+        // 会让 makeWASocket 在内部调用 logger.child(...) 时抛 TypeError。
+        // 用真的 pino，保留 silent 以避免噪声。
+        const pino = require('pino');
+        const baileysLogger = pino({ level: 'silent' });
+
         this._sock = makeWASocket({
             auth: state,
             printQRInTerminal: false,
-            logger: { level: 'silent' },
+            logger: baileysLogger,
             browser: ['K2Lab-Bot', 'Chrome', '1.0'],
             syncFullHistory: false,
             markOnlineOnConnect: false,
@@ -439,7 +445,7 @@ class BaileysDriver extends EventEmitter {
         const dir = path.dirname(localPath);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
-            logger: { level: 'silent' },
+            logger: require('pino')({ level: 'silent' }),
             reuploadRequest: this._sock.updateMediaMessage,
         });
         fs.writeFileSync(localPath, buffer);
