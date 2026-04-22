@@ -73,7 +73,10 @@ CREATE TABLE IF NOT EXISTS wa_messages (
 CREATE INDEX idx_messages_creator ON wa_messages(creator_id);
 CREATE INDEX idx_messages_timestamp ON wa_messages(timestamp);
 CREATE UNIQUE INDEX idx_messages_dedup_hash ON wa_messages(creator_id, message_hash);
-CREATE UNIQUE INDEX uk_wa_message_id ON wa_messages(wa_message_id);
+-- 组合 UNIQUE：同一条 WA message id 允许在不同 creator 下各存一份。
+-- 多 session（例如 test 账号是 lotus 手机 + jiawei 账号是对话对端）会同时观察到同一全局 message id，
+-- 如果用全表 UNIQUE(wa_message_id) 会让后到的那条被 INSERT IGNORE 静默 drop。
+CREATE UNIQUE INDEX uk_wa_message_id_creator ON wa_messages(wa_message_id, creator_id);
 CREATE INDEX idx_messages_creator_timestamp ON wa_messages(creator_id, timestamp DESC);
 CREATE INDEX idx_messages_creator_role_ts ON wa_messages(creator_id, role, timestamp);
 -- 媒体索引

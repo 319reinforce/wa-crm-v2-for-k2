@@ -558,11 +558,13 @@ async function insertMessages(creatorId, messages) {
               media_download_status)
              VALUES ${ops.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}`
         ).run(...ops.flat());
+        // INSERT IGNORE 在 UNIQUE 冲突时 changes=0（与 ops.length 不同），
+        // 必须返回实际入库条数，否则调用方会误判 "📩 已保存" 并触发下游 pipeline。
         const changes = Number(result?.changes || 0);
         if (changes > 0) {
             try { invalidateMessageCache(creatorId); } catch (_) {}
         }
-        return ops.length;
+        return changes;
     } catch (e) {
         console.error(`${LOG_PREFIX} insertMessages error:`, e.message);
         return 0;
