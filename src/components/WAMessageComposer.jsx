@@ -167,18 +167,6 @@ function isImageMessage(message = {}) {
     return mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(url);
 }
 
-function isVideoMessage(message = {}) {
-    const mime = String(message?.mime_type || message?.mimeType || '').toLowerCase();
-    const url = String(message?.media_url || message?.previewUrl || '').toLowerCase();
-    return mime.startsWith('video/') || /\.(mp4|mov|webm|3gp|m4v)(\?|$)/i.test(url);
-}
-
-function isAudioMessage(message = {}) {
-    const mime = String(message?.mime_type || message?.mimeType || '').toLowerCase();
-    const url = String(message?.media_url || message?.previewUrl || '').toLowerCase();
-    return mime.startsWith('audio/') || /\.(ogg|mp3|wav|opus|m4a|aac)(\?|$)/i.test(url);
-}
-
 function hasMediaAttachment(message = {}) {
     return !!(message?.media_url || message?.previewUrl || message?.file_name || message?.fileName || message?.mime_type || message?.mimeType);
 }
@@ -197,9 +185,8 @@ function getMessageMime(message = {}) {
 
 function getMessageCaption(message = {}) {
     const raw = String(message?.caption || message?.text || '').trim();
-    const placeholderRe = /^(🖼️ \[Image\]|🎥 \[Video\]|🎵 \[Audio\]|📄 \[File\])\s*/i;
-    if (placeholderRe.test(raw) && raw.replace(placeholderRe, '').trim() === '') return '';
-    return raw.replace(placeholderRe, '').trim();
+    if (raw === '🖼️ [Image]') return '';
+    return raw.replace(/^🖼️ \[Image\]\s*/i, '').trim();
 }
 
 function getConversationStatusMeta(creator) {
@@ -249,6 +236,8 @@ function getLifecycleChartSource(creator) {
     return {
         lifecycle: creator?.lifecycle || full?.lifecycle || {},
         events: creator?.events || full?.events || {},
+        wacrm: creator?.wacrm || full?.wacrm || {},
+        joinbrands: creator?.joinbrands || full?.joinbrands || {},
         keeperGmv: Number(
             creator?.keeper_gmv
             ?? full?.keeper_gmv
@@ -261,78 +250,99 @@ function getLifecycleChartSource(creator) {
     };
 }
 
-function getLifecycleMilestonesForChat(creator) {
-    const { lifecycle } = getLifecycleChartSource(creator);
-    const raw = lifecycle?.milestones || {};
-    return {
-        acquisition_at: parseLifecycleTimestamp(raw.acquisition_at),
-        activation_at: parseLifecycleTimestamp(raw.activation_at),
-        retention_at: parseLifecycleTimestamp(raw.retention_at),
-        revenue_at: parseLifecycleTimestamp(raw.revenue_at),
-        terminated_at: parseLifecycleTimestamp(raw.terminated_at),
+function getLifecycleStageRank(stageKey) {
+    const rankMap = {
+        acquisition: 0,
+        activation: 1,
+        retention: 2,
+        revenue: 3,
+        terminated: 4,
     };
+    const normalized = String(stageKey || '').toLowerCase();
+    return Object.prototype.hasOwnProperty.call(rankMap, normalized) ? rankMap[normalized] : -1;
 }
 
-function getReferralActivatedAtForChat(creator) {
-    const { lifecycle, events } = getLifecycleChartSource(creator);
-    const referrals = Array.isArray(events?.referrals) ? events.referrals : [];
-    const inviteTs = referrals
-        .map((item) => parseLifecycleTimestamp(item?.invited_at))
+function getEventAnchorTimestamp(event) {
+    return parseLifecycleTimestamp(event?.display_start_at)
+        || parseLifecycleTimestamp(event?.completed_at)
+        || parseLifecycleTimestamp(event?.verified_at)
+        || parseLifecycleTimestamp(event?.updated_at)
+        || parseLifecycleTimestamp(event?.created_at)
+        || parseLifecycleTimestamp(event?.start_at)
+        || null;
+}
+
+function getEventKeyTimestamp(events = [], eventKeys = []) {
+    const normalizedKeys = eventKeys.map((item) => String(item || '').toLowerCase()).filter(Boolean);
+    const timestamps = (Array.isArray(events) ? events : [])
+        .filter((event) => normalizedKeys.includes(String(event?.event_key || '').toLowerCase()))
+        .map((event) => getEventAnchorTimestamp(event))
         .filter(Boolean);
-    if (inviteTs.length > 0) return Math.min(...inviteTs);
+    if (timestamps.length === 0) return null;
+    return Math.min(...timestamps);
+}
+
+function getReferralActivatedAtForChat(creator, events = []) {
+    const { lifecycle } = getLifecycleChartSource(creator);
+    const referralTs = getEventKeyTimestamp(events, ['referral']);
+    if (referralTs) return referralTs;
     if (lifecycle?.flags?.referral_active) {
         return parseLifecycleTimestamp(lifecycle?.evaluated_at);
     }
     return null;
 }
 
-function getLifecycleEventMilestonesForChat(creator) {
-    const { lifecycle, events, keeperGmv, createdAt, updatedAt, lastActive } = getLifecycleChartSource(creator);
-    const milestones = getLifecycleMilestonesForChat(creator);
+function getLifecycleEventMilestonesForChat(creator, events = []) {
+    const { lifecycle, wacrm, keeperGmv, createdAt, updatedAt, lastActive } = getLifecycleChartSource(creator);
     const flags = lifecycle?.flags || {};
-    const beta = events?.monthly_beta || {};
-    const fee = events?.monthly_fee || {};
-    const agency = events?.agency_binding || {};
+    const stageRank = getLifecycleStageRank(lifecycle?.stage_key);
     const fallbackAnchor = parseLifecycleTimestamp(lastActive) || parseLifecycleTimestamp(updatedAt);
     const milestone = {
-        acquisition_at: milestones.acquisition_at || parseLifecycleTimestamp(createdAt) || fallbackAnchor,
-        activation_at: milestones.activation_at,
-        retention_at: milestones.retention_at,
-        revenue_at: milestones.revenue_at,
-        referral_at: getReferralActivatedAtForChat(creator),
+        acquisition_at: parseLifecycleTimestamp(createdAt) || parseLifecycleTimestamp(lifecycle?.evaluated_at) || fallbackAnchor,
+        activation_at: null,
+        retention_at: null,
+        revenue_at: null,
+        referral_at: getReferralActivatedAtForChat(creator, events),
     };
 
-    if (!milestone.activation_at) {
-        const trialTs = parseLifecycleTimestamp(beta?.challenge_completed_at)
-            || parseLifecycleTimestamp(beta?.joined_at)
-            || parseLifecycleTimestamp(beta?.cycle_start_date);
-        const feeTs = parseLifecycleTimestamp(fee?.deducted_at)
-            || parseLifecycleTimestamp(fee?.last_attempt_at);
-        if (trialTs && feeTs) milestone.activation_at = Math.max(trialTs, feeTs);
-        else if ((flags?.trial_completed || beta?.status === 'joined') && feeTs) milestone.activation_at = feeTs;
-        else if (trialTs) milestone.activation_at = trialTs;
+    const trialTs = getEventKeyTimestamp(events, ['trial_7day', 'monthly_challenge']);
+    const agencyTs = getEventKeyTimestamp(events, ['agency_bound']);
+    const revenueTs = getEventKeyTimestamp(events, ['gmv_milestone']);
+
+    if (trialTs) {
+        milestone.activation_at = trialTs;
+    } else if (
+        stageRank >= 1
+        || flags?.trial_completed
+        || ['joined', 'active', 'completed'].includes(String(wacrm?.beta_status || '').toLowerCase())
+        || String(wacrm?.monthly_fee_status || '').toLowerCase() === 'paid'
+    ) {
+        milestone.activation_at = parseLifecycleTimestamp(lifecycle?.evaluated_at) || fallbackAnchor;
     }
 
-    if (!milestone.retention_at && (agency?.bound || flags?.agency_bound)) {
-        milestone.retention_at = parseLifecycleTimestamp(agency?.bound_at)
-            || parseLifecycleTimestamp(agency?.updated_at)
-            || fallbackAnchor;
+    if (agencyTs) {
+        milestone.retention_at = agencyTs;
+    } else if (stageRank >= 2 || flags?.agency_bound) {
+        milestone.retention_at = parseLifecycleTimestamp(lifecycle?.evaluated_at) || fallbackAnchor;
     }
 
-    if (!milestone.revenue_at && (
-        keeperGmv >= 2000
+    if (revenueTs) {
+        milestone.revenue_at = revenueTs;
+    } else if (
+        stageRank >= 3
+        || keeperGmv >= 2000
         || ['gte_2k', 'gte_5k', 'gte_10k', '2k', '5k', '10k'].includes(String(flags?.gmv_tier || '').toLowerCase())
-    )) {
-        milestone.revenue_at = fallbackAnchor;
+    ) {
+        milestone.revenue_at = parseLifecycleTimestamp(lifecycle?.evaluated_at) || fallbackAnchor;
     }
 
     return milestone;
 }
 
-function buildLifecycleJourneyModel(creator) {
+function buildLifecycleJourneyModel(creator, events = []) {
     if (!creator) return null;
     const { lifecycle } = getLifecycleChartSource(creator);
-    const milestones = getLifecycleEventMilestonesForChat(creator);
+    const milestones = getLifecycleEventMilestonesForChat(creator, events);
     const seq = ['acquisition', 'activation', 'retention', 'revenue'];
     let progressIndex = -1;
     seq.forEach((key, idx) => {
@@ -386,9 +396,9 @@ function formatLifecycleStripTime(value) {
     });
 }
 
-function LifecycleJourneyStrip({ creator }) {
+function LifecycleJourneyStrip({ creator, events = [] }) {
     const [expanded, setExpanded] = useState(false);
-    const model = buildLifecycleJourneyModel(creator);
+    const model = buildLifecycleJourneyModel(creator, events);
     if (!model) return null;
 
     const { lifecycle } = getLifecycleChartSource(creator);
@@ -616,6 +626,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const [agencyStrategies, setAgencyStrategies] = useState(DEFAULT_UNBOUND_AGENCY_STRATEGIES);
     // 活跃事件数据（用于 inferAutoTopic 置信度加权 + Prompt 注入）
     const [activeEvents, setActiveEvents] = useState([]);
+    const [allEvents, setAllEvents] = useState([]);
 
     const chatScrollRef = useRef(null);
     const inputRef = useRef(null);
@@ -719,6 +730,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         setLastRepairSummary(null);
         setCurrentTopic(null);
         setAutoDetectedTopic(null);
+        setAllEvents([]);
+        setActiveEvents([]);
         clearPendingImage();
         jumpContextUntilRef.current = 0;
         pendingCandidatesRef.current = [];
@@ -749,6 +762,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             setPolicyDocs(docs);
             setClientMemory(mem || []);
             setAgencyStrategies(strategyConfig);
+            setAllEvents(evtData.events || []);
             setActiveEvents((evtData.events || []).filter(e => e.status === 'active'));
 
             // 等 policyDocs 加载后再生成
@@ -2104,7 +2118,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                     </>
                 )}
 
-                <LifecycleJourneyStrip creator={creator} />
+                <LifecycleJourneyStrip creator={creator} events={allEvents} />
 
                 {/* Translation Progress Bar */}
                 {translating && translateProgress && typeof translateProgress === 'string' && (
@@ -2201,11 +2215,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         const fileName = getMessageFileName(item);
                         const mimeType = getMessageMime(item);
                         const captionText = getMessageCaption(item);
-                        const hasMedia = hasMediaAttachment(item);
-                        const isImage = hasMedia && isImageMessage(item);
-                        const isVideo = hasMedia && !isImage && isVideoMessage(item);
-                        const isAudio = hasMedia && !isImage && !isVideo && isAudioMessage(item);
-                        const isFile = hasMedia && !isImage && !isVideo && !isAudio;
+                        const isImage = hasMediaAttachment(item) && isImageMessage(item);
+                        const isFile = hasMediaAttachment(item) && !isImage;
                         return (
                             <div
                                 key={item.uiKey}
@@ -2245,40 +2256,6 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                                         className="block w-full max-h-[320px] object-cover"
                                                     />
                                                 </a>
-                                            )}
-                                            {captionText && (
-                                                <div className="whitespace-pre-wrap">{captionText}</div>
-                                            )}
-                                        </div>
-                                    ) : isVideo ? (
-                                        <div className="space-y-2">
-                                            {mediaUrl && (
-                                                <video
-                                                    src={mediaUrl}
-                                                    controls
-                                                    preload="metadata"
-                                                    playsInline
-                                                    className="block w-full max-h-[320px] rounded-[8px]"
-                                                    style={{ border: `1px solid ${WA.borderLight}`, background: '#000' }}
-                                                >
-                                                    {mimeType && <source src={mediaUrl} type={mimeType} />}
-                                                </video>
-                                            )}
-                                            {captionText && (
-                                                <div className="whitespace-pre-wrap">{captionText}</div>
-                                            )}
-                                        </div>
-                                    ) : isAudio ? (
-                                        <div className="space-y-2">
-                                            {mediaUrl && (
-                                                <audio
-                                                    src={mediaUrl}
-                                                    controls
-                                                    preload="metadata"
-                                                    className="block w-full"
-                                                >
-                                                    {mimeType && <source src={mediaUrl} type={mimeType} />}
-                                                </audio>
                                             )}
                                             {captionText && (
                                                 <div className="whitespace-pre-wrap">{captionText}</div>
