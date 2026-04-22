@@ -1137,9 +1137,10 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    texts: last20.map(m => ({ text: m.text, role: m.role }))
+                    texts: last20.map(m => ({ text: m.text, role: m.role })),
+                    mode: 'auto',
                 }),
-                signal: AbortSignal.timeout(30000),
+                signal: AbortSignal.timeout(60000),
             });
             const data = await response.json();
             const newMap = {};
