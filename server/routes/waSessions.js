@@ -63,6 +63,8 @@ function formatSession(row, agentState = null) {
         session_id: row.session_id,
         owner: row.owner,
         aliases: row.aliases || [],
+        driver: row.driver || 'wwebjs',
+        driver_meta: row.driver_meta || null,
         desired_state: row.desired_state,
         runtime_state: row.runtime_state,
         runtime_phase: row.runtime_phase,
