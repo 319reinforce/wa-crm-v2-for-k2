@@ -1,16 +1,23 @@
 /**
- * 幂等迁移：为 wa_messages 表新增 wa_message_id 列 + UNIQUE 索引。
+ * 幂等迁移：为 wa_messages 表新增 wa_message_id 列 + (wa_message_id, creator_id) 组合 UNIQUE。
  *
- * 目的：用 WhatsApp 原生 message.id._serialized 作为消息的幂等主键,
- * 替代原先以 (creator_id, message_hash) 为去重键的实现。
+ * 目的：用 WhatsApp 原生 message.id._serialized + creator_id 作为幂等键。
  *
- * 兼容：旧行 wa_message_id 为 NULL,UNIQUE 允许多 NULL,互不干扰。
+ * 历史：早期版本建的是全表 UNIQUE (wa_message_id)，多 session 场景下
+ * （两端同时观察到同一全局 messageId）会把后到的那条 INSERT IGNORE 静默 drop。
+ * 组合键允许同一消息在不同 creator 视角下各留一份。
+ *
+ * 迁移会执行：
+ *   1. 如果列不存在 → ADD COLUMN
+ *   2. 如果存在旧的单列 UNIQUE `uk_wa_message_id` → DROP
+ *   3. 如果组合 UNIQUE `uk_wa_message_id_creator` 不存在 → ADD
  */
 
 const db = require('./db');
 
 const COLUMN_NAME = 'wa_message_id';
-const INDEX_NAME = 'uk_wa_message_id';
+const OLD_INDEX_NAME = 'uk_wa_message_id';
+const NEW_INDEX_NAME = 'uk_wa_message_id_creator';
 
 async function columnExists(conn, tableName, columnName) {
     const rows = await conn.prepare(
@@ -38,15 +45,21 @@ async function run({ silent = false } = {}) {
         if (!silent) console.log(`[migrate-wa-message-id] added column ${COLUMN_NAME}`);
     }
 
-    const hasIndex = await indexExists(conn, 'wa_messages', INDEX_NAME);
-    if (!hasIndex) {
-        await conn.prepare(
-            `ALTER TABLE wa_messages ADD UNIQUE KEY ${INDEX_NAME} (${COLUMN_NAME})`
-        ).run();
-        if (!silent) console.log(`[migrate-wa-message-id] added unique index ${INDEX_NAME}`);
+    const hasOldIndex = await indexExists(conn, 'wa_messages', OLD_INDEX_NAME);
+    if (hasOldIndex) {
+        await conn.prepare(`ALTER TABLE wa_messages DROP INDEX ${OLD_INDEX_NAME}`).run();
+        if (!silent) console.log(`[migrate-wa-message-id] dropped legacy single-column unique ${OLD_INDEX_NAME}`);
     }
 
-    if (hasColumn && hasIndex && !silent) {
+    const hasNewIndex = await indexExists(conn, 'wa_messages', NEW_INDEX_NAME);
+    if (!hasNewIndex) {
+        await conn.prepare(
+            `ALTER TABLE wa_messages ADD UNIQUE KEY ${NEW_INDEX_NAME} (${COLUMN_NAME}, creator_id)`
+        ).run();
+        if (!silent) console.log(`[migrate-wa-message-id] added composite unique index ${NEW_INDEX_NAME} (wa_message_id, creator_id)`);
+    }
+
+    if (hasColumn && hasNewIndex && !hasOldIndex && !silent) {
         console.log('[migrate-wa-message-id] already up to date');
     }
 }

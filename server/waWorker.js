@@ -16,7 +16,7 @@ const {
     normalizeCreatorOwner,
     normalizePhone,
 } = require('./services/creatorEligibilityService');
-const { resolveCanonicalCreator, invalidateOperatorCache } = require('./services/canonicalCreatorResolver');
+const { resolveCanonicalCreator, invalidateOperatorCache, isGenericName } = require('./services/canonicalCreatorResolver');
 const { getPrimaryAssignmentsByOperator } = require('./services/operatorRosterService');
 const {
     filterShortWindowDuplicates,
@@ -558,11 +558,13 @@ async function insertMessages(creatorId, messages) {
               media_download_status)
              VALUES ${ops.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}`
         ).run(...ops.flat());
+        // INSERT IGNORE 在 UNIQUE 冲突时 changes=0（与 ops.length 不同），
+        // 必须返回实际入库条数，否则调用方会误判 "📩 已保存" 并触发下游 pipeline。
         const changes = Number(result?.changes || 0);
         if (changes > 0) {
             try { invalidateMessageCache(creatorId); } catch (_) {}
         }
-        return ops.length;
+        return changes;
     } catch (e) {
         console.error(`${LOG_PREFIX} insertMessages error:`, e.message);
         return 0;
@@ -784,14 +786,20 @@ async function getOrCreateCreator(phone, name) {
         return await ensureCreatorRuntimeRows(resolved.creatorId);
     }
 
-    let row = await db2.prepare('SELECT id, wa_owner FROM creators WHERE wa_phone = ?').get(normalizedPhone);
+    let row = await db2.prepare('SELECT id, wa_owner, primary_name FROM creators WHERE wa_phone = ?').get(normalizedPhone);
     if (row) {
-        if (!row.wa_owner) {
-            await db2.prepare('UPDATE creators SET primary_name = ?, wa_owner = ?, updated_at = NOW() WHERE id = ?')
-                .run(name || 'Unknown', normalizeCreatorOwner(resolveCurrentOwner()), row.id);
-        } else {
-            await db2.prepare('UPDATE creators SET primary_name = ?, updated_at = NOW() WHERE id = ?')
-                .run(name || 'Unknown', row.id);
+        // 只有当新 name 是真名、且原 primary_name 是空/generic 时才更新 name —
+        // 否则 baileys fromMe=true 反射时传的 'Unknown' 会把用户在 CRM 里填的真名盖掉。
+        const shouldUpdateName = name && !isGenericName(name) && (!row.primary_name || isGenericName(row.primary_name));
+        const shouldUpdateOwner = !row.wa_owner;
+        if (shouldUpdateName || shouldUpdateOwner) {
+            const parts = [];
+            const vals = [];
+            if (shouldUpdateName) { parts.push('primary_name = ?'); vals.push(name); }
+            if (shouldUpdateOwner) { parts.push('wa_owner = ?'); vals.push(normalizeCreatorOwner(resolveCurrentOwner())); }
+            parts.push('updated_at = NOW()');
+            vals.push(row.id);
+            await db2.prepare(`UPDATE creators SET ${parts.join(', ')} WHERE id = ?`).run(...vals);
         }
         return await ensureCreatorRuntimeRows(row.id);
     }

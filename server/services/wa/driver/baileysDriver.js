@@ -526,7 +526,11 @@ class BaileysDriver extends EventEmitter {
             role: fromMe ? 'me' : 'user',
             text: rawText || '',
             authorJid: isGroup ? String(key.participant || '') : null,
-            authorName: null,
+            // baileys 在消息上直接带 pushName（发送方自己设置的显示名）/ verifiedBizName（企业认证名）。
+            // 只在 fromMe=false 时填 — fromMe 的 pushName 是本账号自己的名字，填进去会污染对方 creator。
+            // 拿不到名字时宁可留 null，让 waWorker 走 'Unknown' fallback → canonicalCreatorResolver 会按
+            // GENERIC_NAME_BLOCKLIST 跳过 primary_name fuzzy 匹配，避免串台。
+            authorName: !fromMe ? (msg?.pushName || msg?.verifiedBizName || null) : null,
             media: null,
             raw: msg,
         };
