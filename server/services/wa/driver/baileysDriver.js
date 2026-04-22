@@ -297,10 +297,13 @@ class BaileysDriver extends EventEmitter {
                 new Promise((_, reject) => setTimeout(() => reject(new Error('baileys sendMessage 20s 无 ack')), 20000)),
             ]);
             const elapsed = Date.now() - startedAt;
-            console.log(`[BaileysDriver:${this.sessionId}] sendMessage ok id=${sent?.key?.id} ${elapsed}ms`);
+            const msgId = String(sent?.key?.id || '');
+            console.log(`[BaileysDriver:${this.sessionId}] sendMessage ok messageId=${msgId} ${elapsed}ms`);
             return {
                 ok: true,
-                id: String(sent?.key?.id || ''),
+                // 对齐 wwebjs 返回字段名，下游 CRM persist 依赖 messageId；
+                // 同时保留 id 给内部引用（但父 IPC envelope 会覆盖它）
+                messageId: msgId,
                 timestamp: typeof sent?.messageTimestamp === 'number' ? sent.messageTimestamp * 1000 : Date.now(),
                 chatId: phoneE164,
             };
@@ -345,7 +348,7 @@ class BaileysDriver extends EventEmitter {
             const sent = await this._sock.sendMessage(jid, content);
             return {
                 ok: true,
-                id: String(sent?.key?.id || ''),
+                messageId: String(sent?.key?.id || ''),
                 timestamp: typeof sent?.messageTimestamp === 'number' ? sent.messageTimestamp * 1000 : Date.now(),
                 chatId: phoneE164,
             };

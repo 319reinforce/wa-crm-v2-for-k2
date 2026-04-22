@@ -31,7 +31,10 @@ function makeCommand(id, cmd, payload = {}) {
 }
 
 function makeCommandResult(id, result) {
-    return { type: TYPE_CMD_RESULT, id, ...result };
+    // 注意：id 必须在 ...result 之后展开，否则 result 里同名字段（比如
+    // BaileysDriver.sendMessage 返回的 WhatsApp 消息 id）会把 envelope id
+    // 覆盖掉，parent 拿到错的 id → pendingCommands 查不到 → 命令超时。
+    return { type: TYPE_CMD_RESULT, ...result, id };
 }
 
 function makeEvent(kind, payload = {}) {
