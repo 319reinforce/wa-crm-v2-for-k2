@@ -110,6 +110,12 @@ class BaileysDriver extends EventEmitter {
         /** @type {Map<string, string>} outgoing msg key.id → target PN jid */
         this._sentIdToTargetJid = new Map();
         this._SENT_ID_MAP_CAP = 500;
+        // 最近一次 outgoing 的 PN jid + 时间戳，用于兜底：未映射 LID 若在 2min
+        // 窗口内就认定是刚发出消息的那个 chat（1:1 场景下大概率正确；多 chat
+        // 并发场景有错配风险，打 warn 方便审计）。
+        this._lastOutgoingPnJid = null;
+        this._lastOutgoingAt = 0;
+        this._LID_TIMING_WINDOW_MS = 2 * 60 * 1000;
 
         // Proxyquire target for tests
         this._baileysModule = null;
@@ -253,6 +259,35 @@ class BaileysDriver extends EventEmitter {
             }
         });
 
+        // 尝试从 baileys 的其它事件里挖出 LID↔PN 映射。Baileys 6.17.16 的
+        // onWhatsApp 不返回 lid，唯有通过这些事件捕获对方 contact 的 lid 字段
+        // （若 WhatsApp 服务端下发）。
+
+        this._sock.ev.on('contacts.upsert', (contacts) => {
+            for (const c of contacts) {
+                if (c?.id && c?.lid) {
+                    this._lidToPnMap.set(String(c.lid), String(c.id));
+                    console.log(`[BaileysDriver:${this.sessionId}] contacts.upsert mapped LID ${c.lid} → PN ${c.id}`);
+                }
+            }
+        });
+        this._sock.ev.on('contacts.update', (updates) => {
+            for (const u of updates) {
+                if (u?.id && u?.lid) {
+                    this._lidToPnMap.set(String(u.lid), String(u.id));
+                    console.log(`[BaileysDriver:${this.sessionId}] contacts.update mapped LID ${u.lid} → PN ${u.id}`);
+                }
+            }
+        });
+        this._sock.ev.on('chats.upsert', (chats) => {
+            for (const c of chats) {
+                if (c?.id && c?.lid) {
+                    this._lidToPnMap.set(String(c.lid), String(c.id));
+                    console.log(`[BaileysDriver:${this.sessionId}] chats.upsert mapped LID ${c.lid} → PN ${c.id}`);
+                }
+            }
+        });
+
         this._sock.ev.on('groups.upsert', (groups) => {
             // Groups upsert — we emit a synthetic group_message for each group's metadata update
             // (actual messages still come via messages.upsert)
@@ -319,8 +354,8 @@ class BaileysDriver extends EventEmitter {
             ]);
             const elapsed = Date.now() - startedAt;
             const msgId = String(sent?.key?.id || '');
-            // 记 msg id → 目标 PN jid，messages.upsert 的 fromMe 回显可据此
-            // 建立 LID ↔ PN 映射（见 _registerSentForLidMap）
+            // 记 msg id → 目标 PN jid + 最近 outgoing 时间戳，用于多级 LID
+            // 还原策略（见 _maybeLearnLidMapping、_normalizeMessage fallback）
             if (msgId) {
                 if (this._sentIdToTargetJid.size >= this._SENT_ID_MAP_CAP) {
                     const firstKey = this._sentIdToTargetJid.keys().next().value;
@@ -328,6 +363,8 @@ class BaileysDriver extends EventEmitter {
                 }
                 this._sentIdToTargetJid.set(msgId, jid);
             }
+            this._lastOutgoingPnJid = jid;
+            this._lastOutgoingAt = Date.now();
             console.log(`[BaileysDriver:${this.sessionId}] sendMessage ok messageId=${msgId} ${elapsed}ms`);
             return {
                 ok: true,
@@ -460,20 +497,13 @@ class BaileysDriver extends EventEmitter {
             if (str.endsWith('@lid')) {
                 const pn = this._lidToPnMap.get(str);
                 if (pn) return pn;
-                // 深度 dump：key + msg 顶层字段 + message 内部容器字段名
-                const msgFieldsSnapshot = {
-                    key: key,
-                    topLevel: Object.keys(msg || {}),
-                    senderKeysEtc: {
-                        senderPn: msg?.senderPn,
-                        participantPn: msg?.participantPn,
-                        senderAlt: msg?.senderAlt,
-                        participantAlt: msg?.participantAlt,
-                        pushName: msg?.pushName,
-                    },
-                    messageFields: Object.keys(msg?.message || {}),
-                };
-                console.warn(`[BaileysDriver:${this.sessionId}] LID ${str} no PN in map; dump=${JSON.stringify(msgFieldsSnapshot)}`);
+                // 兜底：最近 2min 内刚给某 PN 发过消息 → 假设是同一 chat 回复
+                if (this._lastOutgoingPnJid && Date.now() - this._lastOutgoingAt < this._LID_TIMING_WINDOW_MS) {
+                    this._lidToPnMap.set(str, this._lastOutgoingPnJid);
+                    console.warn(`[BaileysDriver:${this.sessionId}] LID ${str} resolved by timing heuristic → PN ${this._lastOutgoingPnJid} (lastSent ${Date.now() - this._lastOutgoingAt}ms ago)`);
+                    return this._lastOutgoingPnJid;
+                }
+                console.warn(`[BaileysDriver:${this.sessionId}] LID ${str} 无法还原 PN (no map entry, no recent outgoing), using LID as-is`);
             }
             return str;
         };
