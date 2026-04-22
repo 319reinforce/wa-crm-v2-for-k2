@@ -139,8 +139,8 @@ class BaileysDriver extends EventEmitter {
         if (!fs.existsSync(this._authDir)) fs.mkdirSync(this._authDir, { recursive: true });
 
         const baileys = require('@whiskeysockets/baileys');
-        const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = baileys;
-        this._baileysModule = { makeWASocket, useMultiFileAuthState, DisconnectReason };
+        const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, downloadMediaMessage } = baileys;
+        this._baileysModule = { makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage };
 
         const { state, saveCreds } = await useMultiFileAuthState(this._authDir);
 
@@ -264,9 +264,40 @@ class BaileysDriver extends EventEmitter {
         if (!this._sock || !this._ready) {
             return { ok: false, error: 'WhatsApp 未就绪，请先扫码认证' };
         }
+        const startedAt = Date.now();
+        const jid = normalizeJid(phoneE164, 'baileys');
+        console.log(`[BaileysDriver:${this.sessionId}] sendMessage → ${jid} len=${String(text || '').length}`);
+
+        // 预检：目标号码是否在 WhatsApp 上。onWhatsApp 结果为空/exists=false 时
+        // sock.sendMessage 会永久等 ack，父进程 30s 超时（用户看到的 command timeout）。
         try {
-            const jid = normalizeJid(phoneE164, 'baileys');
-            const sent = await this._sock.sendMessage(jid, { text });
+            if (typeof this._sock.onWhatsApp === 'function') {
+                const check = await Promise.race([
+                    this._sock.onWhatsApp(jid),
+                    new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+                ]);
+                const entry = Array.isArray(check) ? check[0] : null;
+                if (!entry?.exists) {
+                    console.warn(`[BaileysDriver:${this.sessionId}] onWhatsApp: ${jid} NOT registered (check=${JSON.stringify(check)})`);
+                    return { ok: false, error: `phone ${phoneE164} 未注册 WhatsApp 或 lid 未解析` };
+                }
+                // Baileys 6.x 推荐用 returned jid（可能是 @lid）替换 @s.whatsapp.net
+                if (entry.jid && entry.jid !== jid) {
+                    console.log(`[BaileysDriver:${this.sessionId}] onWhatsApp 解析 jid ${jid} → ${entry.jid}`);
+                }
+            }
+        } catch (err) {
+            console.warn(`[BaileysDriver:${this.sessionId}] onWhatsApp 预检失败: ${err.message}，继续尝试直发`);
+        }
+
+        try {
+            // 硬超时 20s（父进程 30s，留 10s 给结果回传）
+            const sent = await Promise.race([
+                this._sock.sendMessage(jid, { text }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('baileys sendMessage 20s 无 ack')), 20000)),
+            ]);
+            const elapsed = Date.now() - startedAt;
+            console.log(`[BaileysDriver:${this.sessionId}] sendMessage ok id=${sent?.key?.id} ${elapsed}ms`);
             return {
                 ok: true,
                 id: String(sent?.key?.id || ''),
@@ -274,6 +305,8 @@ class BaileysDriver extends EventEmitter {
                 chatId: phoneE164,
             };
         } catch (err) {
+            const elapsed = Date.now() - startedAt;
+            console.error(`[BaileysDriver:${this.sessionId}] sendMessage 失败 ${elapsed}ms: ${err?.message || err}`);
             return { ok: false, error: err?.message || String(err) };
         }
     }
