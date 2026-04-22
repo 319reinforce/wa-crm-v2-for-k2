@@ -311,8 +311,13 @@ function emitHeartbeat() {
 }
 
 function wireClientEvents() {
+    // 旧行为：wwebjs 模式要求 getClient() 非空才挂监听。baileys 模式 getClient()
+    // 必然返回 null，但 probe() 只用 getWaStatus()/getQrValue() 这类 facade API，
+    // 两种 driver 都可用，不应因为 client 缺失就放弃转发 QR/ready 到父进程。
     const client = getClient();
-    if (!client) return;
+    if (!client) {
+        console.log(`[waAgent:${AGENT_TAG}] wireClientEvents: no wwebjs Client (baileys 模式?)，仍启动 status probe 以转发 QR/ready 给父进程`);
+    }
 
     const forwardedFlags = { qr: false, ready: false };
 
