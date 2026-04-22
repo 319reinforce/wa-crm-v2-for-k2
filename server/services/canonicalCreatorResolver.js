@@ -28,6 +28,28 @@ function tokenize(value) {
         .filter((item) => item.length >= 2);
 }
 
+// 所有 driver 和历史数据里出现过的"查无此人"占位名，决不能参与 fuzzy 匹配 —
+// baileys 在 pushName 缺失时默认填 'Unknown'，而 3443 之类的老 creator
+// primary_name 也是 'Unknown'，不过滤会让任意陌生号码的消息 score+900 命中同名 creator，
+// resolver 然后 attachPhoneToCreator 把陌生 LID 挂到那个 creator 的 alias 上，串台到底。
+const GENERIC_NAME_BLOCKLIST = new Set([
+    'unknown',
+    'noname',
+    'nobody',
+    'contact',
+    'user',
+    'anonymous',
+    'guest',
+    'friend',
+    'null',
+    'undefined',
+]);
+
+function isGenericName(normalized) {
+    if (!normalized) return true;
+    return GENERIC_NAME_BLOCKLIST.has(normalized);
+}
+
 function buildIncomingEntries(name) {
     const values = Array.from(new Set([String(name || '').trim()].filter(Boolean)));
     return values.map((raw) => ({
@@ -35,7 +57,11 @@ function buildIncomingEntries(name) {
         normalized: normalizeText(raw),
         compact: compactText(raw),
         tokens: tokenize(raw),
-    })).filter((entry) => entry.normalized || entry.compact);
+    })).filter((entry) => {
+        if (!entry.normalized && !entry.compact) return false;
+        if (isGenericName(entry.normalized)) return false;
+        return true;
+    });
 }
 
 function keyEntry(raw, source) {
@@ -43,6 +69,10 @@ function keyEntry(raw, source) {
     const compact = compactText(raw);
     const tokens = tokenize(raw);
     if (!normalized && !compact) return null;
+    // primary_name='Unknown' 在老数据里非常多，它参与匹配会导致任何 name='Unknown'
+    // 的入站消息 score +900 → attachPhoneToCreator 把陌生号码 alias 到 Unknown creator。
+    // 其它 source（keeper_username、joinbrands_name 等）不过滤。
+    if (source === 'primary_name' && isGenericName(normalized)) return null;
     return { raw, source, normalized, compact, tokens };
 }
 
