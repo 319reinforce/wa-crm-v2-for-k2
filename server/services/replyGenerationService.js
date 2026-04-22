@@ -5,6 +5,39 @@ const { extractAndSaveMemories } = require('./memoryExtractionService');
 const { normalizeOperatorName } = require('../utils/operator');
 const { resolveClientAndOwnerScope } = require('../utils/ownerScope');
 const REPLY_PIPELINE_VERSION = 'reply_generation_v2';
+const DEFAULT_MINIMAX_BASE = 'https://minimax.a7m.com.cn';
+const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.7-highspeed';
+
+function resolveMinimaxMessagesUrl(rawBase) {
+    const input = String(rawBase || '').trim() || DEFAULT_MINIMAX_BASE;
+    try {
+        const url = new URL(input);
+        const normalizedPath = url.pathname.replace(/\/+$/, '');
+        const basePath = normalizedPath && normalizedPath !== '/'
+            ? normalizedPath
+            : '';
+        const messagesPath = /\/v1$/i.test(basePath)
+            ? `${basePath}/messages`
+            : `${basePath}/v1/messages`;
+        return `${url.origin}${messagesPath}`;
+    } catch (_) {
+        const normalized = input.replace(/\/+$/, '');
+        return /\/v1$/i.test(normalized)
+            ? `${normalized}/messages`
+            : `${normalized}/v1/messages`;
+    }
+}
+
+function resolveOpenAiCompatibleBase(rawBase) {
+    const input = String(rawBase || '').trim() || 'https://minimax.a7m.com.cn/v1';
+    return input.replace(/\/+$/, '');
+}
+
+function resolveMinimaxModel(explicitModel) {
+    const input = String(explicitModel || '').trim();
+    if (input) return input;
+    return String(process.env.MINIMAX_MODEL || '').trim() || DEFAULT_MINIMAX_MODEL;
+}
 
 function shouldUseFinetuned() {
     if (process.env.USE_FINETUNED !== 'true') return false;
@@ -484,6 +517,8 @@ async function generateCandidatesFromMessages({
             const systemPrompt = normalizedMessages.find((message) => message.role === 'system')?.content || '';
             const userMessages = normalizedMessages.filter((message) => message.role !== 'system');
             const temps = Array.isArray(temperature) ? temperature : [0.8, 0.4];
+            process.env.OPENAI_API_BASE = resolveOpenAiCompatibleBase(process.env.OPENAI_API_BASE);
+            process.env.OPENAI_MODEL = resolveMinimaxModel(process.env.OPENAI_MODEL || model);
             const { opt1, opt2 } = await generateCandidates(systemPrompt, userMessages, temps);
             const latency = Date.now() - startTs;
             if (scopedClientId && !finetunedHookFired && resolvedScope.clientScope.owner) {
@@ -497,7 +532,7 @@ async function generateCandidatesFromMessages({
                     }).catch(e => console.error('[memoryExtraction] replyGeneration openai hook error:', e.message));
                 });
             }
-            const openAiModel = process.env.OPENAI_MODEL || 'gpt-4o';
+            const openAiModel = process.env.OPENAI_MODEL || resolveMinimaxModel(model);
             const generationLogId = await writeGenerationLog({
                 ...logBase,
                 provider: 'openai',
@@ -523,6 +558,9 @@ async function generateCandidatesFromMessages({
         }
 
         const apiKey = process.env.MINIMAX_API_KEY;
+        const apiBase = process.env.MINIMAX_API_BASE || DEFAULT_MINIMAX_BASE;
+        const defaultModel = resolveMinimaxModel(model);
+        const messagesUrl = resolveMinimaxMessagesUrl(apiBase);
         if (!apiKey) {
             const error = new Error('MINIMAX_API_KEY environment variable not set');
             error.statusCode = 500;
@@ -531,7 +569,7 @@ async function generateCandidatesFromMessages({
 
         const temps = Array.isArray(temperature) ? temperature : [0.8, 0.4];
         const candidateRequests = temps.map((temp, index) => (async () => {
-            const response = await fetch('https://api.minimaxi.com/anthropic/v1/messages', {
+            const response = await fetch(messagesUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -540,7 +578,7 @@ async function generateCandidatesFromMessages({
                     'anthropic-version': '2023-06-01',
                 },
                 body: JSON.stringify({
-                    model: model || 'mini-max-typing',
+                    model: defaultModel,
                     messages: normalizedMessages,
                     max_tokens: maxTokens || 500,
                     temperature: temp,
@@ -566,7 +604,7 @@ async function generateCandidatesFromMessages({
             const generationLogId = await writeGenerationLog({
                 ...logBase,
                 provider: 'minimax',
-                model: model || 'mini-max-typing',
+                model: defaultModel,
                 route: routeName,
                 ab_bucket: 'minimax',
                 latency_ms: Date.now() - startTs,
@@ -595,7 +633,7 @@ async function generateCandidatesFromMessages({
                 }).catch(e => console.error('[memoryExtraction] replyGeneration minimax hook error:', e.message));
             });
         }
-        const resolvedModel = opt1Candidate?.payload?.model || model || 'mini-max-typing';
+        const resolvedModel = opt1Candidate?.payload?.model || defaultModel;
         const generationLogId = await writeGenerationLog({
             ...logBase,
             provider: 'minimax',
