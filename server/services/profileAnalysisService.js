@@ -98,26 +98,19 @@ async function analyzeWithLLM(messages = [], owner = 'Beau') {
 
     let raw = '';
     if (USE_OPENAI && OPENAI_API_KEY) {
-        const resp = await fetch(`${OPENAI_API_BASE}/chat/completions`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${OPENAI_API_KEY}`,
-            },
-            body: JSON.stringify({
-                model: OPENAI_MODEL,
+        const { generateResponseFor } = require('../utils/openai');
+        raw = await generateResponseFor(
+            'profile-analysis',
+            [
+                { role: 'system', content: schemaPrompt },
+                { role: 'user', content: convo },
+            ],
+            {
                 temperature: 0.2,
-                max_tokens: 1000,
-                messages: [
-                    { role: 'system', content: schemaPrompt },
-                    { role: 'user', content: convo },
-                ],
-            }),
-            signal: AbortSignal.timeout(30000),
-        });
-        if (!resp.ok) throw new Error(`OpenAI error ${resp.status}`);
-        const data = await resp.json();
-        raw = data?.choices?.[0]?.message?.content || '';
+                maxTokens: 1000,
+                source: 'profileAnalysisService.analyzeWithLLM',
+            }
+        );
     } else if (MINIMAX_API_KEY) {
         const resp = await fetch('https://api.minimaxi.com/anthropic/v1/messages', {
             method: 'POST',

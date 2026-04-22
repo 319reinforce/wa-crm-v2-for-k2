@@ -91,28 +91,19 @@ Trigger type: ${triggerType}`;
 
     let raw;
     if (USE_OPENAI) {
-        const response = await fetch(`${OPENAI_API_BASE}/chat/completions`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            },
-            body: JSON.stringify({
-                model: OPENAI_MODEL,
-                max_tokens: 1024,
+        const { generateResponseFor } = require('../utils/openai');
+        raw = await generateResponseFor(
+            'memory-extraction',
+            [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+            ],
+            {
+                maxTokens: 1024,
                 temperature: 0.2,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt },
-                ],
-            }),
-            signal: AbortSignal.timeout(30000),
-        });
-        if (!response.ok) {
-            throw new Error(`OpenAI API error ${response.status}`);
-        }
-        const data = await response.json();
-        raw = data.choices?.[0]?.message?.content || '';
+                source: 'memoryExtractionService.callLLMExtract',
+            }
+        );
     } else {
         const response = await fetch(`${MINIMAX_BASE}/messages`, {
             method: 'POST',

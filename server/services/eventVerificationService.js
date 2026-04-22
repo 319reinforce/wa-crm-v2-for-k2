@@ -334,35 +334,19 @@ function buildEventVerificationPrompt({ owner = 'Beau', candidate = {}, messages
 }
 
 async function callOpenAIForVerification({ systemPrompt, userPrompt }) {
-  if (!OPENAI_API_KEY || OPENAI_API_KEY === 'sk-YourKeyHere') {
-    throw new Error('OpenAI API key not configured for event verification');
-  }
-
-  const response = await fetch(`${OPENAI_API_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
+  const { generateResponseFor } = require('../utils/openai');
+  return generateResponseFor(
+    'event-verification',
+    [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    {
       temperature: 0.1,
-      max_tokens: 700,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    }),
-    signal: AbortSignal.timeout(45000),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`OpenAI error ${response.status}: ${detail}`);
-  }
-
-  const data = await response.json();
-  return data?.choices?.[0]?.message?.content || '';
+      maxTokens: 700,
+      source: 'eventVerificationService.callOpenAIForVerification',
+    }
+  );
 }
 
 function normalizeVerificationResult(raw, candidate = {}) {

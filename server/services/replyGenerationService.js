@@ -513,13 +513,20 @@ async function generateCandidatesFromMessages({
         }
 
         if (process.env.USE_OPENAI === 'true') {
-            const { generateCandidates } = require('../utils/openai');
+            const { generateCandidatesFor } = require('../utils/openai');
             const systemPrompt = normalizedMessages.find((message) => message.role === 'system')?.content || '';
             const userMessages = normalizedMessages.filter((message) => message.role !== 'system');
             const temps = Array.isArray(temperature) ? temperature : [0.8, 0.4];
-            process.env.OPENAI_API_BASE = resolveOpenAiCompatibleBase(process.env.OPENAI_API_BASE);
-            process.env.OPENAI_MODEL = resolveMinimaxModel(process.env.OPENAI_MODEL || model);
-            const { opt1, opt2 } = await generateCandidates(systemPrompt, userMessages, temps);
+            const { opt1, opt2 } = await generateCandidatesFor(
+                'reply-generation',
+                systemPrompt,
+                userMessages,
+                temps,
+                {
+                    source: 'replyGenerationService.generateCandidates',
+                    creator_id: scopedClientId,
+                }
+            );
             const latency = Date.now() - startTs;
             if (scopedClientId && !finetunedHookFired && resolvedScope.clientScope.owner) {
                 const msgs = normalizeMessagesForMemory(normalizedMessages);
