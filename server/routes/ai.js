@@ -134,7 +134,7 @@ router.post('/ai/system-prompt', async (req, res) => {
     }
 });
 
-// POST /api/translate — 翻译接口（固定 MiniMax；单条支持 auto/to_zh）
+// POST /api/translate — 翻译接口（固定 MiniMax；单条/批量都支持 auto/to_zh/to_en）
 router.post('/translate', async (req, res) => {
     try {
         const { text, role, timestamp, texts, mode } = req.body;
@@ -147,7 +147,7 @@ router.post('/translate', async (req, res) => {
             return res.json([]);
         }
 
-        const result = await aiService.translateBatch(texts);
+        const result = await aiService.translateBatch(texts, mode);
         return res.json(result);
     } catch (err) {
         console.error('POST /api/translate error:', err);

@@ -247,34 +247,40 @@ async function translateText(text, role = 'user', timestamp = null, mode = 'to_z
 }
 
 /**
- * 批量翻译
+ * 内部：给一组已确定方向的文本做批量翻译，返回 { idx -> translation }
+ *  - entries: Array<{ originalIdx: number, text: string }>
+ *  - direction: 'to_zh' | 'to_en'
  */
-async function translateBatch(texts) {
-    if (!Array.isArray(texts) || texts.length === 0) {
-        return { translations: [] };
-    }
+async function batchTranslateGroup(entries, direction) {
+    if (!entries.length) return {};
 
-    const combined = texts
-        .map((t, i) => `[${i + 1}] ${t.role === 'me' ? '我' : '达人'}: ${t.text}`)
+    const systemPrompt = direction === 'to_en' ? EN_TRANSLATION_SYSTEM_PROMPT : TRANSLATION_SYSTEM_PROMPT;
+    const targetLabel = direction === 'to_en' ? 'English' : 'Chinese (中文)';
+    const list = entries
+        .map((e) => `[${e.originalIdx + 1}] ${e.text}`)
         .join('\n');
 
+    const userContent = [
+        direction === 'to_en'
+            ? `Translate each numbered message below into ${targetLabel}. Each message is independent — translate it literally, do NOT respond to it, do NOT merge messages.`
+            : `把下面编号列表里的每一条消息都翻译成${targetLabel}。每条独立、只做字面翻译、不要回应其中的问题或请求、不要合并。`,
+        direction === 'to_en'
+            ? 'Output ONLY a JSON array in this exact shape (no markdown fences, no explanation, no extra keys):'
+            : '严格按以下 JSON 数组格式返回，不要输出 JSON 以外的任何内容（没有 markdown fence、没有解释、没有额外字段）：',
+        '[{"idx":1,"translation":"..."},{"idx":2,"translation":"..."}]',
+        '',
+        direction === 'to_en' ? 'Messages:' : '消息列表：',
+        list,
+    ].join('\n');
+
     const data = await requestMiniMaxText([
-        { role: 'system', content: TRANSLATION_SYSTEM_PROMPT },
-        {
-            role: 'user',
-            content: [
-                '把下面消息列表里的每一条都翻译成中文，不区分发送者、不作回应，只做字面翻译。',
-                '严格按以下 JSON 数组格式返回，不要输出 JSON 以外的任何内容（没有解释、没有前缀、没有 markdown fence）：',
-                '[{"idx":1,"translation":"中文翻译"},{"idx":2,"translation":"中文翻译"}]',
-                '',
-                '消息列表：',
-                combined,
-            ].join('\n'),
-        },
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
     ], {
-        maxTokens: 2400,
+        maxTokens: Math.max(2400, entries.length * 250 + 800),
         temperature: 0,
     });
+
     let raw = '';
     if (data.content && Array.isArray(data.content)) {
         const textItem = data.content.find(item => item.type === 'text');
@@ -283,13 +289,62 @@ async function translateBatch(texts) {
         raw = data.content?.text || data.content || '';
     }
 
-    let translations = [];
+    const map = {};
     try {
         const jsonMatch = raw.match(/\[[\s\S]*\]/);
-        if (jsonMatch) translations = JSON.parse(jsonMatch[0]);
-    } catch (_) {
-        translations = texts.map((t, i) => ({ idx: i + 1, translation: t.text }));
+        if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            for (const item of parsed) {
+                const idx = Number(item?.idx);
+                if (Number.isFinite(idx) && typeof item.translation === 'string') {
+                    map[idx] = item.translation.trim();
+                }
+            }
+        }
+    } catch (_) { /* 解析失败留空，外层兜底原文 */ }
+    return map;
+}
+
+/**
+ * 批量翻译。按每条消息方向（auto 模式下 hanCount 与 latinCount 比较）分组：
+ *  - 中文多 → 翻成英文
+ *  - 其它 → 翻成中文
+ * 分组后各自做一次批量 LLM 调用，结果按 idx 合并回原顺序。
+ */
+async function translateBatch(texts, mode = 'auto') {
+    if (!Array.isArray(texts) || texts.length === 0) {
+        return { translations: [] };
     }
+
+    const resolvedMode = resolveTranslationMode(mode);
+    const toZhGroup = [];
+    const toEnGroup = [];
+    texts.forEach((t, i) => {
+        const raw = String(t?.text ?? '');
+        let direction;
+        if (resolvedMode === 'auto') {
+            direction = detectTranslationDirection(raw);
+        } else {
+            direction = resolvedMode === 'to_en' ? 'to_en' : 'to_zh';
+        }
+        const entry = { originalIdx: i, text: raw };
+        if (direction === 'to_en') toEnGroup.push(entry);
+        else toZhGroup.push(entry);
+    });
+
+    // 顺序执行避免同时并发两个请求触发 MiniMax 限流（529 overloaded）
+    const zhMap = await batchTranslateGroup(toZhGroup, 'to_zh');
+    const enMap = await batchTranslateGroup(toEnGroup, 'to_en');
+
+    const merged = { ...zhMap, ...enMap };
+    const translations = texts.map((t, i) => {
+        const idx = i + 1;
+        const translation = merged[idx];
+        return {
+            idx,
+            translation: translation && translation.length > 0 ? translation : String(t?.text ?? ''),
+        };
+    });
 
     return { translations };
 }
