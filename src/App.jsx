@@ -393,43 +393,85 @@ function App() {
   }, [ownerLocked])
 
   // SSE 实时订阅（populate_db.cjs 写完 MySQL 后会收到广播）
+  // 指数退避 + 可见性感知重连，避免后端短暂抖动时浏览器以默认 3s 节奏无限重试打满日志。
   useEffect(() => {
-    let es
+    let es = null
     let debounceTimer = null
+    let reconnectTimer = null
+    let reconnectDelay = 1000 // 1s → 2s → 4s → 8s → 15s → 30s 上限
+    let destroyed = false
+
     const debouncedLoadData = () => {
       clearTimeout(debounceTimer)
       debounceTimer = setTimeout(() => { loadDataRef.current?.() }, 1500)
     }
-    try {
-      es = new EventSource('/api/events/subscribe')
-      es.addEventListener('creators-updated', () => {
-        debouncedLoadData()
-      })
-      // Step 7: 新消息到达时立即刷新列表(替代 5s 轮询 + populate broadcast)
-      es.addEventListener('wa-message', (event) => {
-        try {
-          const data = event.data ? JSON.parse(event.data) : null
-          // 派发 window 事件,让 useMessagePolling / CreatorDetail 等子组件也能收到
-          window.dispatchEvent(new CustomEvent('wa-message-received', { detail: data }))
-        } catch (_) {}
-        debouncedLoadData()
-      })
-      // session 状态变化(ready/qr/disconnected/error)
-      es.addEventListener('wa-session-status', (event) => {
-        try {
-          const data = event.data ? JSON.parse(event.data) : null
-          window.dispatchEvent(new CustomEvent('wa-session-status-changed', { detail: data }))
-        } catch (_) {}
-      })
-      es.onerror = () => {
-        console.warn('[SSE] 连接断开，5秒后自动重连')
-      }
-    } catch (e) {
-      console.warn('[SSE] 连接失败，使用轮询兜底:', e.message)
+
+    const scheduleReconnect = () => {
+      if (destroyed) return
+      if (reconnectTimer) return
+      if (document.visibilityState === 'hidden') return // 标签页隐藏时暂停重连
+      const delay = reconnectDelay
+      reconnectDelay = Math.min(reconnectDelay * 2, 30000)
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        connect()
+      }, delay)
     }
+
+    const connect = () => {
+      if (destroyed) return
+      try {
+        es = new EventSource('/api/events/subscribe')
+        es.addEventListener('open', () => {
+          reconnectDelay = 1000 // 连上即复位
+        })
+        es.addEventListener('creators-updated', () => {
+          debouncedLoadData()
+        })
+        es.addEventListener('wa-message', (event) => {
+          try {
+            const data = event.data ? JSON.parse(event.data) : null
+            window.dispatchEvent(new CustomEvent('wa-message-received', { detail: data }))
+          } catch (_) {}
+          debouncedLoadData()
+        })
+        es.addEventListener('wa-session-status', (event) => {
+          try {
+            const data = event.data ? JSON.parse(event.data) : null
+            window.dispatchEvent(new CustomEvent('wa-session-status-changed', { detail: data }))
+          } catch (_) {}
+        })
+        es.onerror = () => {
+          console.warn(`[SSE] 连接断开，${Math.round(reconnectDelay / 1000)}s 后重连`)
+          try { es && es.close() } catch (_) {}
+          es = null
+          scheduleReconnect()
+        }
+      } catch (e) {
+        console.warn('[SSE] 连接失败，使用轮询兜底:', e.message)
+        scheduleReconnect()
+      }
+    }
+
+    const onVisibility = () => {
+      // 标签页从隐藏恢复且没有活动连接时立刻重连
+      if (document.visibilityState === 'visible' && !es && !reconnectTimer) {
+        reconnectDelay = 1000
+        connect()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    connect()
+
     return () => {
+      destroyed = true
+      document.removeEventListener('visibilitychange', onVisibility)
       clearTimeout(debounceTimer)
-      if (es) es.close()
+      clearTimeout(reconnectTimer)
+      if (es) {
+        try { es.close() } catch (_) {}
+      }
     }
   }, [])
 

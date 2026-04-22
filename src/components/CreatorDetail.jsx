@@ -618,11 +618,15 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
           <div className="text-[10px] font-semibold tracking-wide" style={{ color: '#dc2626' }}>
             生命周期冲突
           </div>
-          {lifecycleConflicts.map((item) => (
-            <div key={item} className="text-[10px] leading-4" style={{ color: WA.textDark }}>
-              {formatLifecycleConflict(item)}
-            </div>
-          ))}
+          {lifecycleConflicts.map((item, idx) => {
+            const conflictCode = (item && typeof item === 'object') ? (item.code || item.key || item.type) : item
+            const keyStr = conflictCode ? String(conflictCode) : `conflict_${idx}`
+            return (
+              <div key={keyStr} className="text-[10px] leading-4" style={{ color: WA.textDark }}>
+                {formatLifecycleConflict(item)}
+              </div>
+            )
+          })}
         </div>
       )}
       {lifecycleOption0 && (
@@ -1857,7 +1861,7 @@ function formatLifecycleFlagValue(key, value) {
   return String(value)
 }
 
-function formatLifecycleConflict(code) {
+function formatLifecycleConflict(item) {
   const map = {
     mainline_without_wa_channel: '尚未确认进入 WA 渠道，但已经被放入生命周期主线。',
     completed_trial_not_activated: '7 日挑战已完成，但主阶段仍停留在获取。',
@@ -1866,7 +1870,14 @@ function formatLifecycleConflict(code) {
     churn_not_terminated: '已经出现流失信号，但当前主阶段还没进入终止池。',
     referral_without_wa_join: '已出现推荐信号，但还没有确认进入 WA 渠道。',
   }
-  return map[code] || code || '-'
+  if (item && typeof item === 'object') {
+    const code = item.code || item.key || item.type
+    if (code && map[code]) return map[code]
+    if (item.message) return String(item.message)
+    if (code) return String(code)
+    return '-'
+  }
+  return map[item] || (item ? String(item) : '-')
 }
 
 export { CreatorDetail }
