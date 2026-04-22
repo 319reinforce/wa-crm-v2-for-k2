@@ -95,13 +95,21 @@ class BaileysDriver extends EventEmitter {
         /** @type {Map<string, import('./types').IncomingMessage[]>} */
         this._msgBuffer = new Map();
 
-        // LID → PN 映射：WhatsApp 1:1 对话里收到的 remoteJid 可能是 LID（@lid）
-        // 别名；DB 里 creators.wa_phone 是真实电话 (PN / @s.whatsapp.net)。
-        // 我们在 sendMessage 的 onWhatsApp 预检里会拿到 {jid, lid} 对，记进
-        // 这个 map，_normalizeMessage 收到 @lid 时反查回 PN，避免 LID 被当成
-        // "假号码" 新建野生 creator。
+        // LID → PN 映射：WA 1:1 对话 remoteJid 可能是 LID（@lid 别名），DB
+        // creators.wa_phone 存的是 PN（真实号码）。两种标识不通用必须映射。
+        //
+        // 映射来源：
+        //   1) sendMessage 时 onWhatsApp 返回的 {jid, lid} 对（6.17.x 不稳定，
+        //      大概率没 lid 字段）
+        //   2) 发送回显关联：sendMessage 内部记 {key.id → 目标 PN jid}，
+        //      messages.upsert 收到 fromMe=true 的消息时以 key.id 反查记下
+        //      的 PN，跟当前事件的 remoteJid (LID) 建立映射。这是确定性路径，
+        //      只要你发过一次消息给某个 contact，他以后回的 LID 就能解出 PN。
         /** @type {Map<string, string>} lidJid → pnJid */
         this._lidToPnMap = new Map();
+        /** @type {Map<string, string>} outgoing msg key.id → target PN jid */
+        this._sentIdToTargetJid = new Map();
+        this._SENT_ID_MAP_CAP = 500;
 
         // Proxyquire target for tests
         this._baileysModule = null;
@@ -231,6 +239,9 @@ class BaileysDriver extends EventEmitter {
             if (!['notify', 'append'].includes(type)) return;
             for (const msg of messages) {
                 try {
+                    // LID ↔ PN 映射建立：fromMe 回显的 key.id 与我们 sendMessage
+                    // 记下的 target PN 关联；若 remoteJid 回显是 LID，就建立映射
+                    this._maybeLearnLidMapping(msg);
                     const normalized = await this._normalizeMessage(msg);
                     if (!normalized) continue;
                     this._bufferMessage(normalized);
@@ -308,6 +319,15 @@ class BaileysDriver extends EventEmitter {
             ]);
             const elapsed = Date.now() - startedAt;
             const msgId = String(sent?.key?.id || '');
+            // 记 msg id → 目标 PN jid，messages.upsert 的 fromMe 回显可据此
+            // 建立 LID ↔ PN 映射（见 _registerSentForLidMap）
+            if (msgId) {
+                if (this._sentIdToTargetJid.size >= this._SENT_ID_MAP_CAP) {
+                    const firstKey = this._sentIdToTargetJid.keys().next().value;
+                    if (firstKey) this._sentIdToTargetJid.delete(firstKey);
+                }
+                this._sentIdToTargetJid.set(msgId, jid);
+            }
             console.log(`[BaileysDriver:${this.sessionId}] sendMessage ok messageId=${msgId} ${elapsed}ms`);
             return {
                 ok: true,
@@ -440,9 +460,20 @@ class BaileysDriver extends EventEmitter {
             if (str.endsWith('@lid')) {
                 const pn = this._lidToPnMap.get(str);
                 if (pn) return pn;
-                // 打印完整 key 字段帮助定位；不同 baileys 版本字段名可能是
-                // senderPn / participantPn / participantAlt / senderKey 等
-                console.warn(`[BaileysDriver:${this.sessionId}] LID ${str} no PN in map; key dump=${JSON.stringify(key)}`);
+                // 深度 dump：key + msg 顶层字段 + message 内部容器字段名
+                const msgFieldsSnapshot = {
+                    key: key,
+                    topLevel: Object.keys(msg || {}),
+                    senderKeysEtc: {
+                        senderPn: msg?.senderPn,
+                        participantPn: msg?.participantPn,
+                        senderAlt: msg?.senderAlt,
+                        participantAlt: msg?.participantAlt,
+                        pushName: msg?.pushName,
+                    },
+                    messageFields: Object.keys(msg?.message || {}),
+                };
+                console.warn(`[BaileysDriver:${this.sessionId}] LID ${str} no PN in map; dump=${JSON.stringify(msgFieldsSnapshot)}`);
             }
             return str;
         };
@@ -546,6 +577,29 @@ class BaileysDriver extends EventEmitter {
             size: buffer.length,
             localPath,
         };
+    }
+
+    /**
+     * 用 fromMe 回显建立 LID↔PN 映射。
+     * 场景：我们 sendMessage(pnJid, ...)，WhatsApp 把这条消息回显给本会话
+     * 作为 fromMe=true 的 messages.upsert 事件。如果回显的 remoteJid 是 @lid，
+     * 那就是同一 chat 的 LID 别名；结合 sendMessage 存的 key.id → pnJid，
+     * 可以精确地学到 LID → PN 映射。对方以后再回消息的 remoteJid @lid 就
+     * 能反解出真实手机号。
+     * @param {any} msg raw baileys message
+     */
+    _maybeLearnLidMapping(msg) {
+        const key = msg?.key;
+        if (!key?.fromMe) return;
+        const remoteJid = String(key.remoteJid || '');
+        if (!remoteJid.endsWith('@lid')) return;
+        const msgId = String(key.id || '');
+        if (!msgId) return;
+        const targetPnJid = this._sentIdToTargetJid.get(msgId);
+        if (!targetPnJid) return;
+        if (this._lidToPnMap.get(remoteJid) === targetPnJid) return;
+        this._lidToPnMap.set(remoteJid, targetPnJid);
+        console.log(`[BaileysDriver:${this.sessionId}] learned LID ${remoteJid} → PN ${targetPnJid} (via fromMe reflection msgId=${msgId})`);
     }
 
     /** @param {import('./types').IncomingMessage} msg */
