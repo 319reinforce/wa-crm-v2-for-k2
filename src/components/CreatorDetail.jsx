@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { WAMessageComposer } from './WAMessageComposer'
 import { CreatorEventsSection } from './CreatorEventsSection'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 import { getCreatorStatusMeta } from '../utils/creatorMeta'
-import { OWNER_ORDER } from '../utils/operators'
+import { OWNER_ORDER, useOperatorRoster } from '../utils/operators'
 import {
   DEFAULT_UNBOUND_AGENCY_STRATEGIES,
   isAgencyBoundStatus,
@@ -177,6 +177,7 @@ function buildEditFormSnapshot(creator) {
 
 // ====== Creator Detail Panel ======
 function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreatorUpdated, asPanel, collapsed = false, pinned = false, onTogglePin, onExpand }) {
+  const { owners: rosterOwners } = useOperatorRoster()
   const [creator, setCreator] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -202,6 +203,12 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   const [portraitDraft, setPortraitDraft] = useState(buildPortraitDraft(null))
   const [portraitSaving, setPortraitSaving] = useState(false)
   const [portraitError, setPortraitError] = useState('')
+
+  const ownerOptions = useMemo(() => {
+    const base = rosterOwners && rosterOwners.length > 0 ? rosterOwners : [...OWNER_ORDER]
+    const current = editForm?.wa_owner
+    return current && !base.includes(current) ? [current, ...base] : base
+  }, [rosterOwners, editForm?.wa_owner])
 
   const fetchCreator = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true)
@@ -877,7 +884,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
       <div className="text-[10px] font-semibold tracking-wide mb-1" style={{ color: WA.textMuted }}>编辑达人</div>
       <InlineEditField compact label="姓名" value={editForm.primary_name || ''} onChange={v => setEditForm(f => ({ ...f, primary_name: v }))} type="text" />
       <InlineEditField compact label="电话" value={editForm.wa_phone || ''} onChange={v => setEditForm(f => ({ ...f, wa_phone: v }))} type="text" />
-      <InlineEditField compact label="负责人" value={editForm.wa_owner || ''} onChange={v => setEditForm(f => ({ ...f, wa_owner: v }))} type="select" options={OWNER_ORDER.map(owner => [owner, owner])} />
+      <InlineEditField compact label="负责人" value={editForm.wa_owner || ''} onChange={v => setEditForm(f => ({ ...f, wa_owner: v }))} type="select" options={ownerOptions.map(owner => [owner, owner])} />
       <InlineEditField compact label="Keeper" value={editForm.keeper_username || ''} onChange={v => setEditForm(f => ({ ...f, keeper_username: v }))} type="text" />
       <InlineEditField compact label="优先级" value={editForm.priority || ''} onChange={v => setEditForm(f => ({ ...f, priority: v }))} type="select" options={[['normal', '普通'], ['high', '高'], ['urgent', '紧急']]} />
       <InlineEditField compact label="Agency" value={editForm.agency_bound || '0'} onChange={v => setEditForm(f => ({ ...f, agency_bound: v }))} type="select" options={[['0', '否'], ['1', '是']]} />
@@ -1486,7 +1493,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                   value={editForm.wa_owner}
                   onChange={e => setEditForm(f => ({ ...f, wa_owner: e.target.value }))}
                 >
-                  {OWNER_ORDER.map(owner => (
+                  {ownerOptions.map(owner => (
                     <option key={owner} value={owner}>{owner}</option>
                   ))}
                 </select>
