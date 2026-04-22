@@ -285,17 +285,15 @@ class BaileysDriver extends EventEmitter {
                     new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
                 ]);
                 const entry = Array.isArray(check) ? check[0] : null;
+                console.log(`[BaileysDriver:${this.sessionId}] onWhatsApp raw: ${JSON.stringify(check)}`);
                 if (!entry?.exists) {
                     console.warn(`[BaileysDriver:${this.sessionId}] onWhatsApp: ${jid} NOT registered (check=${JSON.stringify(check)})`);
                     return { ok: false, error: `phone ${phoneE164} 未注册 WhatsApp 或 lid 未解析` };
                 }
                 // 建立 LID ↔ PN 映射：onWhatsApp 返回 { jid: <pn>, lid: <lid>, exists }
-                // 后续收 @lid 格式 remoteJid 的消息时反查回 PN，避免走错 creator。
                 if (entry.lid && entry.jid) {
                     this._lidToPnMap.set(String(entry.lid), String(entry.jid));
-                }
-                if (entry.jid && entry.jid !== jid) {
-                    console.log(`[BaileysDriver:${this.sessionId}] onWhatsApp ${jid} → pn=${entry.jid} lid=${entry.lid || 'none'}`);
+                    console.log(`[BaileysDriver:${this.sessionId}] mapped LID ${entry.lid} → PN ${entry.jid}`);
                 }
             }
         } catch (err) {
@@ -442,7 +440,9 @@ class BaileysDriver extends EventEmitter {
             if (str.endsWith('@lid')) {
                 const pn = this._lidToPnMap.get(str);
                 if (pn) return pn;
-                console.warn(`[BaileysDriver:${this.sessionId}] LID ${str} no PN in map; falling back to LID`);
+                // 打印完整 key 字段帮助定位；不同 baileys 版本字段名可能是
+                // senderPn / participantPn / participantAlt / senderKey 等
+                console.warn(`[BaileysDriver:${this.sessionId}] LID ${str} no PN in map; key dump=${JSON.stringify(key)}`);
             }
             return str;
         };
