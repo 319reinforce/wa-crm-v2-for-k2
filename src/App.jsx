@@ -23,8 +23,6 @@ import { fetchWaAdmin } from './utils/waAdmin'
 import WA from './utils/waTheme'
 
 const API_BASE = '/api'
-const V1_APP_BASE = String(import.meta.env.VITE_V1_BASE || '').trim()
-const LOCAL_CROSS_APP_HOSTS = new Set(['localhost', '127.0.0.1'])
 
 const EVENT_BADGES = [
   { key: 'ev_trial_active', label: '七日挑战进行中', color: '#3b82f6', bg: 'rgba(59,130,246,0.15)' },
@@ -126,30 +124,6 @@ function normalizePhoneKey(value) {
 function normalizeWorkspaceTab(value) {
   const tab = String(value || '').trim().toLowerCase()
   return DESKTOP_PRIMARY_TABS.some((item) => item.key === tab) ? tab : 'creators'
-}
-
-function resolveCrossAppBase(configuredBase, fallbackPort) {
-  const explicit = String(configuredBase || '').trim().replace(/\/+$/, '')
-  if (explicit) return explicit
-  if (typeof window === 'undefined') return ''
-  const { protocol, hostname, port, origin } = window.location
-  if (!hostname) return ''
-  if (!LOCAL_CROSS_APP_HOSTS.has(hostname)) return origin.replace(/\/+$/, '')
-  const targetPort = String(fallbackPort || '').trim()
-  if (!targetPort || port === targetPort) return origin.replace(/\/+$/, '')
-  return `${protocol}//${hostname}:${targetPort}`
-}
-
-function buildV1DashboardUrl(options = {}) {
-  const base = resolveCrossAppBase(V1_APP_BASE, 2000)
-  const params = new URLSearchParams()
-  params.set('tab', String(options.tab || 'wa'))
-  params.set('source', 'v2')
-  if (options.creatorId) params.set('creatorId', String(options.creatorId))
-  if (options.openChat) params.set('openChat', '1')
-  if (options.phone) params.set('phone', String(options.phone))
-  if (options.name) params.set('name', String(options.name))
-  return `${base}/?${params.toString()}`
 }
 
 function App() {
