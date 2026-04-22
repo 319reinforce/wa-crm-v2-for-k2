@@ -650,14 +650,12 @@ async function runDriverSwitch({ store, cmdId, dbConn, sessionId, driver, fromDr
     try {
         store.update(cmdId, { status: 'running', progress: 'updating_db' });
 
-        await dbConn.query(
-            'UPDATE wa_sessions SET driver=?, driver_meta=? WHERE session_id=?',
-            [driver, driverMeta, sessionId]
-        );
-        await dbConn.query(
-            "UPDATE wa_sessions SET desired_state='stopped', desired_state_changed_at=NOW(), desired_state_changed_by=? WHERE session_id=?",
-            [auditCtx.actor, sessionId]
-        );
+        await dbConn.prepare(
+            'UPDATE wa_sessions SET driver=?, driver_meta=? WHERE session_id=?'
+        ).run(driver, driverMeta, sessionId);
+        await dbConn.prepare(
+            "UPDATE wa_sessions SET desired_state='stopped', desired_state_changed_at=NOW(), desired_state_changed_by=? WHERE session_id=?"
+        ).run(auditCtx.actor, sessionId);
 
         try {
             await writeAuditFn(auditCtx.req, 'wa_session_driver_changed', {
@@ -671,8 +669,10 @@ async function runDriverSwitch({ store, cmdId, dbConn, sessionId, driver, fromDr
         let stopped = false;
         while (Date.now() - pollStartedAt < DRIVER_SWITCH_STOP_POLL_MAX_MS) {
             await new Promise((r) => setTimeout(r, DRIVER_SWITCH_STOP_POLL_INTERVAL_MS));
-            const [s] = await dbConn.query('SELECT runtime_state FROM wa_sessions WHERE session_id=?', [sessionId]);
-            if (s[0]?.runtime_state === 'stopped') { stopped = true; break; }
+            const row = await dbConn.prepare(
+                'SELECT runtime_state FROM wa_sessions WHERE session_id = ?'
+            ).get(sessionId);
+            if (row?.runtime_state === 'stopped') { stopped = true; break; }
         }
 
         if (!stopped) {
@@ -685,10 +685,9 @@ async function runDriverSwitch({ store, cmdId, dbConn, sessionId, driver, fromDr
         }
 
         store.update(cmdId, { progress: 'requesting_restart' });
-        await dbConn.query(
-            "UPDATE wa_sessions SET desired_state='running', desired_state_changed_at=NOW(), desired_state_changed_by=? WHERE session_id=?",
-            [auditCtx.actor, sessionId]
-        );
+        await dbConn.prepare(
+            "UPDATE wa_sessions SET desired_state='running', desired_state_changed_at=NOW(), desired_state_changed_by=? WHERE session_id=?"
+        ).run(auditCtx.actor, sessionId);
 
         store.update(cmdId, {
             status: 'completed',
@@ -721,16 +720,17 @@ router.post('/sessions/:sessionId/driver', requireAdminOnly, async (req, res) =>
     const { writeAudit } = require('../middleware/audit');
     const { getStore } = require('../services/driverSwitchCommands');
 
-    let rows;
+    let session;
     try {
-        [rows] = await dbConn.query('SELECT * FROM wa_sessions WHERE session_id = ?', [sessionId]);
+        session = await dbConn.prepare(
+            'SELECT * FROM wa_sessions WHERE session_id = ? LIMIT 1'
+        ).get(sessionId);
     } catch (err) {
         return res.status(500).json({ ok: false, error: err.message });
     }
-    if (!rows || rows.length === 0) {
+    if (!session) {
         return res.status(404).json({ ok: false, error: `session not found: ${sessionId}` });
     }
-    const session = rows[0];
 
     const fromDriver = session.driver || 'wwebjs';
     if (fromDriver === driver) {
@@ -785,14 +785,15 @@ router.get('/sessions/:sessionId/commands/:cmdId', (req, res) => {
     // Owner-scope: 非 admin 只能查自己 owner 的 session command
     if (getLockedOwner(req)) {
         const dbConn = require('../../db').getDb();
-        // 快路径：直接读 session.owner 校对
-        dbConn.query('SELECT owner FROM wa_sessions WHERE session_id = ?', [sessionId]).then(([rows]) => {
-            if (!rows?.[0]) return res.status(404).json({ ok: false, error: 'session not found' });
-            if (!matchesOwnerScope(req, rows[0].owner)) {
-                return sendOwnerScopeForbidden(res, getLockedOwner(req));
-            }
-            return res.json({ ok: true, command: rec });
-        }).catch((err) => res.status(500).json({ ok: false, error: err.message }));
+        dbConn.prepare('SELECT owner FROM wa_sessions WHERE session_id = ? LIMIT 1').get(sessionId)
+            .then((row) => {
+                if (!row) return res.status(404).json({ ok: false, error: 'session not found' });
+                if (!matchesOwnerScope(req, row.owner)) {
+                    return sendOwnerScopeForbidden(res, getLockedOwner(req));
+                }
+                return res.json({ ok: true, command: rec });
+            })
+            .catch((err) => res.status(500).json({ ok: false, error: err.message }));
         return;
     }
     res.json({ ok: true, command: rec });

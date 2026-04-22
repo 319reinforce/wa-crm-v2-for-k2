@@ -1,94 +1,87 @@
 /**
  * WA Sessions Driver Migration
  *
- * Adds `driver` and `driver_meta` columns to wa_sessions.
- * Idempotent: safe to run multiple times.
+ * 给 wa_sessions 表添加 driver / driver_meta 列 + idx_driver 索引。
+ * 幂等：存在就跳过。
  *
- * 运行:
+ * 运行：
  *   node migrate-wa-sessions-driver.js           # CLI
- *   require('./migrate-wa-sessions-driver').run() # 内嵌
+ *   require('./migrate-wa-sessions-driver').run() # server/index.cjs startup
  */
 const db = require('./db');
-const path = require('path');
-const fs = require('fs');
+
+async function runStep(label, fn, { silent }) {
+    if (!silent) process.stdout.write(`${label}... `);
+    await fn();
+    if (!silent) console.log('OK');
+}
 
 async function runMigration({ silent = false } = {}) {
     const dbConn = db.getDb();
     if (!silent) console.log('=== WA Sessions Driver Migration ===');
 
-    const step = (label, fn) => {
-        if (!silent) process.stdout.write(`${label}... `);
-        return fn().then(() => {
-            if (!silent) console.log('OK');
-        });
-    };
+    const step = (label, fn) => runStep(label, fn, { silent });
 
-    // Check if column exists
-    await step('[1/2] check if driver column exists', async () => {
-        try {
-            const [rows] = await dbConn.query(`
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = DATABASE()
-                  AND table_name = 'wa_sessions'
-                  AND column_name = 'driver'
-            `);
-            if (rows.length > 0) {
-                if (!silent) console.log('(already exists, skipping)');
-                return;
-            }
-        } catch (err) {
-            // information_schema may not be accessible; proceed with ALTER
-        }
-
-        // Run the migration SQL (read from file)
-        const sqlPath = path.join(__dirname, 'server/migrations/003_add_wa_sessions_driver.sql');
-        let sql = fs.readFileSync(sqlPath, 'utf8');
-        // Remove -- comments and clean up for mysql2 query()
-        sql = sql.replace(/--.*$/gm, '').trim();
-        // Split on semicolons, filter empty
-        const statements = sql.split(';').map(s => s.trim()).filter(Boolean);
-        for (const stmt of statements) {
-            if (!stmt) continue;
-            try {
-                await dbConn.query(stmt);
-            } catch (err) {
-                // Ignore "Duplicate key name" for index creation
-                if (!err.message.includes('Duplicate key name') && !err.message.includes('already exists')) {
-                    console.error(`SQL error: ${err.message}`);
-                    throw err;
-                }
-            }
+    await step('[1/3] add driver column', async () => {
+        const row = await dbConn.prepare(`
+            SELECT COUNT(*) AS c
+              FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name = 'wa_sessions'
+               AND column_name = 'driver'
+        `).get();
+        if (Number(row?.c || 0) === 0) {
+            await dbConn.prepare(`
+                ALTER TABLE wa_sessions
+                ADD COLUMN driver VARCHAR(16) NOT NULL DEFAULT 'wwebjs' AFTER aliases
+            `).run();
         }
     });
 
-    // Verify
-    await step('[2/2] verify columns', async () => {
-        const [rows] = await dbConn.query(`
-            SELECT column_name, data_type, column_default, is_nullable
-            FROM information_schema.columns
-            WHERE table_schema = DATABASE()
-              AND table_name = 'wa_sessions'
-              AND column_name IN ('driver', 'driver_meta')
-            ORDER BY ordinal_position
-        `);
-        if (!silent) {
-            console.log('Columns:');
-            for (const r of rows) {
-                console.log(`  - ${r.column_name}: ${r.data_type} default=${r.column_default} nullable=${r.is_nullable}`);
-            }
+    await step('[2/3] add driver_meta column', async () => {
+        const row = await dbConn.prepare(`
+            SELECT COUNT(*) AS c
+              FROM information_schema.columns
+             WHERE table_schema = DATABASE()
+               AND table_name = 'wa_sessions'
+               AND column_name = 'driver_meta'
+        `).get();
+        if (Number(row?.c || 0) === 0) {
+            await dbConn.prepare(`
+                ALTER TABLE wa_sessions
+                ADD COLUMN driver_meta JSON NULL AFTER driver
+            `).run();
         }
     });
 
-    if (!silent) console.log('=== Done ===');
-}
-
-// CLI mode
-if (require.main === module) {
-    runMigration().catch((err) => {
-        console.error('Migration failed:', err.message);
-        process.exit(1);
+    await step('[3/3] add idx_driver index', async () => {
+        const row = await dbConn.prepare(`
+            SELECT COUNT(*) AS c
+              FROM information_schema.statistics
+             WHERE table_schema = DATABASE()
+               AND table_name = 'wa_sessions'
+               AND index_name = 'idx_driver'
+        `).get();
+        if (Number(row?.c || 0) === 0) {
+            await dbConn.prepare(`
+                ALTER TABLE wa_sessions ADD INDEX idx_driver (driver)
+            `).run();
+        }
     });
+
+    if (!silent) console.log('\n✅ wa_sessions driver migration complete');
 }
 
 module.exports = { run: runMigration };
+
+// CLI 入口
+if (require.main === module) {
+    require('dotenv').config();
+    runMigration()
+        .then(async () => { try { await db.closeDb(); } catch (_) {} process.exit(0); })
+        .catch(async (err) => {
+            console.error('\n❌ migration failed:', err);
+            try { await db.closeDb(); } catch (_) {}
+            process.exit(1);
+        });
+}
