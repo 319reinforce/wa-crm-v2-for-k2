@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "context7",
+    "filesystem",
+    "sequential-thinking",
+    "mysql"
+  ]
+}

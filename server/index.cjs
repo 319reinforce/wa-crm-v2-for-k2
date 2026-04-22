@@ -37,6 +37,7 @@ const waSessionsRouter = require('./routes/waSessions');
 const trainingRouter = require('./routes/training');
 const usersRouter = require('./routes/users');
 const operatorRosterRouter = require('./routes/operatorRoster');
+const aiProvidersRouter = require('./routes/aiProviders');
 const { listStatusSessions, readSessionStatus } = require('./services/waIpc');
 const waSessionsMigration = require('../migrate-wa-sessions');
 const usersAuthMigration = require('../migrate-users-auth');
@@ -359,6 +360,7 @@ app.get('/metrics/wa', (req, res) => {
 app.use('/api/training', requireAppAuth, trainingRouter);
 app.use('/api/users', requireAppAuth, usersRouter);
 app.use('/api/operator-roster', requireAppAuth, operatorRosterRouter);
+app.use('/api/admin', aiProvidersRouter);
 
 // WA Worker 路由
 // 聚合所有 agent 进程的 worker 状态,Registry 启用时优先读内存态,
