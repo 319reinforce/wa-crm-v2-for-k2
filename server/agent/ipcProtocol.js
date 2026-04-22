@@ -9,6 +9,7 @@
 const CMD_SEND_MESSAGE = 'send_message';
 const CMD_SEND_MEDIA = 'send_media';
 const CMD_AUDIT_RECENT_MESSAGES = 'audit_recent_messages';
+const CMD_CHANGE_DRIVER = 'change_driver';
 const CMD_SHUTDOWN = 'shutdown';
 
 // ===== Agent → Parent (events, one-way) =====

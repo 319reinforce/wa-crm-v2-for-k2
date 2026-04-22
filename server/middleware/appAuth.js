@@ -311,6 +311,18 @@ function requireHumanAdmin(req, res, next) {
     });
 }
 
+// 销毁性 admin-only 门禁（Phase 1a）：拒绝 owner-scoped token + service token。
+// 只看 req.auth.role === 'admin'；必须挂在 requireAppAuth 之后，req.auth 由其填充。
+// 与 requireHumanAdmin 的区别：这里不强制 source === 'db'（env 层将来若出现 admin
+// 角色也应放行，而目前 buildTokenEntries 里 env 只出 role='service'，行为等价）。
+function requireAdminOnly(req, res, next) {
+    if (req?.auth?.role === 'admin') return next();
+    return res.status(403).json({
+        ok: false,
+        error: 'Forbidden: admin role required',
+    });
+}
+
 // 管理员 or 内部服务(waSessions 跨 owner 动作 / training 触发)
 function requireAdminOrService(req, res, next) {
     const a = req?.auth;
@@ -328,6 +340,7 @@ module.exports = {
     APP_AUTH_COOKIE_MAX_AGE_SECONDS,
     requireAppAuth,
     requireHumanAdmin,
+    requireAdminOnly,
     requireAdminOrService,
     getAllowedTokens,
     getPrimaryLoginTokenEntry,

@@ -44,6 +44,7 @@ const auditLogUserFieldsMigration = require('../migrate-audit-log-user-fields');
 const waMessageIdMigration = require('../migrate-wa-message-id');
 const waMessagesMediaMigration = require('../migrate-wa-messages-media');
 const mediaLifecycleMigration = require('../migrate-media-lifecycle');
+const waDriverMigration = require('../migrate-wa-sessions-driver');
 const sessionCleaner = require('./services/sessionCleaner');
 const legacySessionsBootstrap = require('./bootstrap/migrateLegacySessions');
 const sessionRepository = require('./services/sessionRepository');
@@ -343,6 +344,17 @@ app.use('/api', requireAppAuth, strategyRouter);
 app.use('/api', requireAppAuth, lifecycleRouter);
 app.use('/api/wa/sessions', requireAppAuth, waSessionsRouter);
 app.use('/api/wa', requireAppAuth, waRouter);
+
+// WA metrics endpoint (no auth — for internal Prometheus scraping)
+app.use('/metrics/wa', (req, res, next) => {
+    req.user = { username: 'metrics', role: 'admin' };
+    next();
+});
+app.get('/metrics/wa', (req, res) => {
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.send(require('./services/waMetrics').prometheusText());
+});
+
 app.use('/api/training', requireAppAuth, trainingRouter);
 app.use('/api/users', requireAppAuth, usersRouter);
 app.use('/api/operator-roster', requireAppAuth, operatorRosterRouter);
@@ -413,6 +425,15 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
             console.log('[Startup] wa_sessions schema migration done');
         } catch (err) {
             console.error('[Startup] wa_sessions schema migration failed:', err.message);
+            throw err;
+        }
+
+        // 0.1) wa_sessions driver column migration
+        try {
+            await waDriverMigration.run({ silent: true });
+            console.log('[Startup] wa_driver schema migration done');
+        } catch (err) {
+            console.error('[Startup] wa_driver schema migration failed:', err.message);
             throw err;
         }
 

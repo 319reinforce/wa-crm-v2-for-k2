@@ -36,6 +36,7 @@
     "preview:lan": "vite preview --host 0.0.0.0 --port 3001",
     "lifecycle:migrate": "node migrate-lifecycle-state.js",
     "wa:sessions:migrate": "node migrate-wa-sessions.js",
+    "wa:driver:migrate": "node migrate-wa-sessions-driver.js",
     "wa:sessions:bootstrap": "node server/bootstrap/migrateLegacySessions.js",
     "lifecycle:backfill": "node migrate-lifecycle-state.js --backfill",
     "cleanup:creators": "node scripts/cleanup-invalid-creators.cjs",
@@ -75,7 +76,10 @@
     "react-dom": "^19.2.4",
     "react-resizable-panels": "^4.9.0",
     "react-router-dom": "^6.22.3",
-    "whatsapp-web.js": "^1.26.0"
+    "whatsapp-web.js": "^1.26.0",
+    "@whiskeysockets/baileys": "^6.7.8",
+    "pino": "^9.7.0",
+    "mime-types": "^2.1.35"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",

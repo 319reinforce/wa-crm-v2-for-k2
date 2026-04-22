@@ -50,6 +50,15 @@ function normalizeSessionIdValue(value) {
     return raw.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
 }
 
+function parseDriverMeta(raw) {
+    if (!raw) return null;
+    if (typeof raw === 'object') return raw;
+    if (typeof raw === 'string') {
+        try { return JSON.parse(raw); } catch (_) { return null; }
+    }
+    return null;
+}
+
 function rowToSession(row) {
     if (!row) return null;
     return {
@@ -57,6 +66,8 @@ function rowToSession(row) {
         session_id: row.session_id,
         owner: row.owner,
         aliases: parseAliases(row.aliases),
+        driver: row.driver || 'wwebjs',
+        driver_meta: parseDriverMeta(row.driver_meta),
         desired_state: row.desired_state,
         desired_state_changed_at: row.desired_state_changed_at,
         desired_state_changed_by: row.desired_state_changed_by,

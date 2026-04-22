@@ -189,6 +189,7 @@ function AddAccountModal({ onClose, onCreated }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [qrDataUrl, setQrDataUrl] = useState(null)
+  const [qrStatus, setQrStatus] = useState('waiting')
   const [qrPolling, setQrPolling] = useState(false)
   const [createdSessionId, setCreatedSessionId] = useState(null)
   const [lastQrAt, setLastQrAt] = useState(null)
@@ -208,18 +209,26 @@ function AddAccountModal({ onClose, onCreated }) {
 
   const startQrPolling = useCallback((sid) => {
     setQrPolling(true)
+    setQrStatus('loading')
     const poll = async () => {
       try {
         const data = await fetchJsonOrThrow(`${API_BASE}/wa/sessions/${sid}/qr`)
         if (data?.qr) {
           setQrDataUrl(data.qr)
+          setQrStatus('has_qr')
           setLastQrAt(data.last_qr_at || new Date().toISOString())
         }
       } catch (err) {
-        if (/ready/i.test(err.message)) {
+        const msg = err.message || ''
+        if (/ready|authenticated/i.test(msg)) {
+          setQrStatus('ready')
           stopPolling()
           onCreated?.({ session_id: sid })
           onClose?.()
+        } else if (/no QR available/i.test(msg)) {
+          setQrStatus('waiting')
+        } else if (/http \d+/i.test(msg)) {
+          setQrStatus('error')
         }
       }
     }
@@ -309,7 +318,7 @@ function AddAccountModal({ onClose, onCreated }) {
       )}
 
       {createdSessionId && (
-        <QrBody qrDataUrl={qrDataUrl} lastQrAt={lastQrAt} status={qrPolling ? 'polling' : 'waiting'} onClose={onClose} />
+        <QrBody qrDataUrl={qrDataUrl} lastQrAt={lastQrAt} status={qrStatus} onClose={onClose} />
       )}
     </ModalShell>
   )
@@ -367,6 +376,198 @@ function QrModal({ sessionId, onClose }) {
         error={error}
         onClose={onClose}
       />
+    </ModalShell>
+  )
+}
+
+const DRIVER_LABELS = {
+  wwebjs: 'WWeb (Chrome/Puppeteer)',
+  baileys: 'Baileys (WebSocket)',
+}
+
+const PROGRESS_LABELS = {
+  queued: '排队中',
+  updating_db: '更新 driver 配置',
+  awaiting_stopped: '等待原 driver 停止',
+  requesting_restart: '启动新 driver',
+  done: '切换完成',
+  stopped_wait_exceeded: '等待超时（desired_state 已写入，后台继续推进）',
+  unhandled: '出错',
+  error: '出错',
+}
+
+function DriverSwitchModal({ session, onClose, onSwitchedToScan }) {
+  const currentDriver = (session.driver || 'wwebjs').toLowerCase()
+  const defaultTarget = currentDriver === 'baileys' ? 'wwebjs' : 'baileys'
+  const [target, setTarget] = useState(defaultTarget)
+  const [forceDisconnect, setForceDisconnect] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [progress, setProgress] = useState(null)
+  const [error, setError] = useState(null)
+  const pollTimerRef = useRef(null)
+
+  useEffect(() => () => { if (pollTimerRef.current) clearInterval(pollTimerRef.current) }, [])
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (target === currentDriver) {
+      setError(`session 当前已经是 ${target}，无需切换`)
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    setProgress({ status: 'pending', progress: 'queued' })
+    try {
+      const resp = await fetchJsonOrThrow(`${API_BASE}/wa/sessions/${session.session_id}/driver`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driver: target, force_disconnect: forceDisconnect }),
+      })
+      if (resp?.already_set) {
+        setProgress({ status: 'completed', progress: 'done' })
+        setTimeout(() => { onSwitchedToScan?.(session.session_id); onClose?.() }, 600)
+        return
+      }
+      const cmdId = resp?.command_id
+      if (!cmdId) throw new Error('后端未返回 command_id')
+      // poll
+      const poll = async () => {
+        try {
+          const status = await fetchJsonOrThrow(`${API_BASE}/wa/sessions/${session.session_id}/commands/${cmdId}`)
+          const cmd = status?.command
+          if (!cmd) return
+          setProgress({ status: cmd.status, progress: cmd.progress, error: cmd.error })
+          if (['completed', 'failed', 'timeout'].includes(cmd.status)) {
+            clearInterval(pollTimerRef.current)
+            if (cmd.status === 'completed') {
+              setTimeout(() => { onSwitchedToScan?.(session.session_id); onClose?.() }, 800)
+            } else {
+              setError(cmd.error || `切换失败 (${cmd.status})`)
+              setSubmitting(false)
+            }
+          }
+        } catch (err) {
+          clearInterval(pollTimerRef.current)
+          setError(err.message || String(err))
+          setSubmitting(false)
+        }
+      }
+      poll()
+      pollTimerRef.current = setInterval(poll, 1500)
+    } catch (err) {
+      setError(err.message || String(err))
+      setSubmitting(false)
+    }
+  }
+
+  const isTerminal = progress && ['completed', 'failed', 'timeout'].includes(progress.status)
+
+  return (
+    <ModalShell title={`切换驱动：${session.session_id}`} onClose={submitting && !isTerminal ? undefined : onClose}>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div
+          className="rounded-[12px] px-3 py-2 text-[12px]"
+          style={{ background: `${ACCENT.info}10`, color: WA.textDark, border: `1px solid ${ACCENT.info}33` }}
+        >
+          <div>当前驱动：<b>{DRIVER_LABELS[currentDriver] || currentDriver}</b></div>
+          <div className="mt-1" style={{ color: WA.textMuted }}>
+            切换会强制断开当前连接，需要 <b>重新扫描 QR 码</b>，消息历史不会丢失（DB 里已存）。
+          </div>
+        </div>
+
+        <FormField label="目标驱动">
+          <div className="space-y-2">
+            {['wwebjs', 'baileys'].map((d) => (
+              <label
+                key={d}
+                className="flex items-start gap-2 rounded-[12px] px-3 py-2 cursor-pointer"
+                style={{
+                  border: `1px solid ${target === d ? WA.teal : WA.borderLight}`,
+                  background: target === d ? `${WA.teal}0c` : WA.white,
+                }}
+              >
+                <input
+                  type="radio"
+                  name="driver"
+                  value={d}
+                  checked={target === d}
+                  onChange={() => setTarget(d)}
+                  disabled={submitting}
+                  style={{ marginTop: 3 }}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-semibold" style={{ color: WA.textDark }}>
+                    {DRIVER_LABELS[d]} {d === currentDriver && <span style={{ color: WA.textMuted, fontWeight: 400 }}>（当前）</span>}
+                  </div>
+                  <div className="text-[11px] mt-0.5" style={{ color: WA.textMuted }}>
+                    {d === 'wwebjs'
+                      ? 'Chromium + Puppeteer，稳定但重（200–500MB/session）'
+                      : 'WebSocket 原生协议，轻量（30–60MB）、秒级重连；第三方协议有封号风险'}
+                  </div>
+                </div>
+              </label>
+            ))}
+          </div>
+        </FormField>
+
+        <label className="flex items-center gap-2 text-[12px]" style={{ color: WA.textDark }}>
+          <input
+            type="checkbox"
+            checked={forceDisconnect}
+            onChange={(e) => setForceDisconnect(e.target.checked)}
+            disabled={submitting}
+          />
+          <span>强制断开当前连接（force_disconnect，建议勾选）</span>
+        </label>
+
+        {progress && (
+          <div
+            className="rounded-[12px] px-3 py-2 text-[12px]"
+            style={{
+              background: progress.status === 'failed' || progress.status === 'timeout'
+                ? `${ACCENT.danger}14`
+                : `${WA.teal}0f`,
+              color: WA.textDark,
+              border: `1px solid ${progress.status === 'failed' || progress.status === 'timeout' ? ACCENT.danger : WA.teal}33`,
+            }}
+          >
+            <div><b>状态：</b>{progress.status} · {PROGRESS_LABELS[progress.progress] || progress.progress}</div>
+            {progress.error && (
+              <div className="mt-1 break-words" style={{ color: ACCENT.danger }}>{progress.error}</div>
+            )}
+            {progress.status === 'completed' && (
+              <div className="mt-1" style={{ color: WA.teal }}>即将跳转到扫码页面…</div>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <div
+            className="rounded-[12px] px-3 py-2 text-[12px]"
+            style={{ background: `${ACCENT.danger}14`, color: ACCENT.danger, border: `1px solid ${ACCENT.danger}33` }}
+          >
+            {error}
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting && !isTerminal}
+            style={{ ...secondaryBtnStyle, flex: 1, minWidth: 100 }}
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            disabled={submitting || target === currentDriver}
+            style={{ ...primaryBtnStyle(submitting || target === currentDriver), flex: 1, minWidth: 120 }}
+          >
+            {submitting ? '切换中…' : `切换到 ${target}`}
+          </button>
+        </div>
+      </form>
     </ModalShell>
   )
 }
@@ -492,7 +693,28 @@ function SummaryPill({ label, value, color, dotted }) {
   )
 }
 
-function SessionActions({ session, pending, onRestart, onToggle, onDelete, onScan }) {
+function DriverBadge({ driver }) {
+  const current = (driver || 'wwebjs').toLowerCase()
+  const cfg = current === 'baileys'
+    ? { color: WA.teal, label: 'Baileys' }
+    : { color: ACCENT.info, label: 'WWeb (Chrome)' }
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide"
+      style={{
+        background: `${cfg.color}14`,
+        color: cfg.color,
+        border: `1px solid ${cfg.color}33`,
+      }}
+      title={`当前驱动：${current}`}
+    >
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: cfg.color }} />
+      {cfg.label}
+    </span>
+  )
+}
+
+function SessionActions({ session, pending, onRestart, onToggle, onDelete, onScan, onSwitchDriver }) {
   const showScan = session.agent?.has_qr || (session.agent && !session.agent.ready && session.desired_state === 'running')
   const isRunning = session.desired_state === 'running'
   const isActionPending = (key) => !!pending[`${session.session_id}:${key}`]
@@ -504,6 +726,14 @@ function SessionActions({ session, pending, onRestart, onToggle, onDelete, onSca
           扫码登录
         </button>
       )}
+      <button
+        onClick={() => onSwitchDriver(session)}
+        disabled={isActionPending('driver')}
+        style={{ ...secondaryBtnStyle, minHeight: 36, padding: '0 14px', fontSize: 12 }}
+        title="切换 WhatsApp 驱动（需要重扫 QR）"
+      >
+        {isActionPending('driver') ? '切换中…' : '切换驱动'}
+      </button>
       <button
         onClick={() => onRestart(session.session_id)}
         disabled={isActionPending('restart')}
@@ -529,7 +759,7 @@ function SessionActions({ session, pending, onRestart, onToggle, onDelete, onSca
   )
 }
 
-function SessionCard({ session, pending, onRestart, onToggle, onDelete, onScan }) {
+function SessionCard({ session, pending, onRestart, onToggle, onDelete, onScan, onSwitchDriver }) {
   return (
     <article
       className="rounded-[20px] p-4 space-y-3"
@@ -538,7 +768,10 @@ function SessionCard({ session, pending, onRestart, onToggle, onDelete, onScan }
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="docs-kicker">Session</div>
-          <div className="docs-title mt-0.5" style={{ fontSize: 16 }}>{session.session_id}</div>
+          <div className="docs-title mt-0.5 flex items-center gap-2 flex-wrap" style={{ fontSize: 16 }}>
+            <span>{session.session_id}</span>
+            <DriverBadge driver={session.driver} />
+          </div>
           {session.aliases?.length > 0 && (
             <div className="text-[11px] mt-1" style={{ color: WA.textMuted }}>
               别名：{session.aliases.join('、')}
@@ -582,6 +815,7 @@ function SessionCard({ session, pending, onRestart, onToggle, onDelete, onScan }
           onToggle={onToggle}
           onDelete={onDelete}
           onScan={onScan}
+          onSwitchDriver={onSwitchDriver}
         />
       </div>
     </article>
@@ -604,6 +838,7 @@ export function AccountsPanel() {
   const [error, setError] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [scanSessionId, setScanSessionId] = useState(null)
+  const [switchDriverSession, setSwitchDriverSession] = useState(null)
   const [actionPending, setActionPending] = useState({})
 
   const loadSessions = useCallback(async () => {
@@ -669,6 +904,8 @@ export function AccountsPanel() {
 
   const handleScan = (sid) => setScanSessionId(sid)
 
+  const handleSwitchDriver = (session) => setSwitchDriverSession(session)
+
   return (
     <div className="h-full overflow-y-auto docs-scrollbar px-3 py-3 md:px-6 md:py-6 space-y-4" style={{ background: WA.shellBg }}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -716,6 +953,7 @@ export function AccountsPanel() {
               onToggle={handleToggleDesired}
               onDelete={handleDelete}
               onScan={handleScan}
+              onSwitchDriver={handleSwitchDriver}
             />
           ))}
         </div>
@@ -732,6 +970,14 @@ export function AccountsPanel() {
         <QrModal
           sessionId={scanSessionId}
           onClose={() => { setScanSessionId(null); loadSessions() }}
+        />
+      )}
+
+      {switchDriverSession && (
+        <DriverSwitchModal
+          session={switchDriverSession}
+          onClose={() => { setSwitchDriverSession(null); loadSessions() }}
+          onSwitchedToScan={(sid) => { setSwitchDriverSession(null); setScanSessionId(sid); loadSessions() }}
         />
       )}
     </div>

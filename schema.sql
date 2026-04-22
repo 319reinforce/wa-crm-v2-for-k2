@@ -739,6 +739,8 @@ CREATE TABLE IF NOT EXISTS wa_sessions (
     session_id                 VARCHAR(64)  NOT NULL,
     owner                      VARCHAR(64)  NOT NULL,
     aliases                    JSON         DEFAULT NULL,
+    driver                     VARCHAR(16)  NOT NULL DEFAULT 'wwebjs',
+    driver_meta                JSON         DEFAULT NULL,
 
     desired_state              ENUM('running','stopped') NOT NULL DEFAULT 'running',
     desired_state_changed_at   DATETIME     DEFAULT CURRENT_TIMESTAMP,
@@ -771,7 +773,8 @@ CREATE TABLE IF NOT EXISTS wa_sessions (
     UNIQUE KEY uniq_owner_running  (owner_if_running),
     KEY        idx_desired         (desired_state),
     KEY        idx_runtime         (runtime_state),
-    KEY        idx_owner           (owner)
+    KEY        idx_owner           (owner),
+    KEY        idx_driver          (driver)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ==========================================

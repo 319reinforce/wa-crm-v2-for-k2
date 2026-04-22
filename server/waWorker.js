@@ -7,7 +7,7 @@
 
 require('dotenv').config();
 const { getDb } = require('../db');
-const { getClient, waitForReady, stop: stopWaService, getResolvedOwner } = require('./services/waService');
+const { getClient, waitForReady, stop: stopWaService, getResolvedOwner, getDriverName, onDriverEvent } = require('./services/waService');
 const { sha256 } = require('./utils/crypto');
 const { normalizeOperatorName } = require('./utils/operator');
 const {
@@ -1155,6 +1155,101 @@ async function handleIncomingMessage(msg) {
     }
 }
 
+/**
+ * Baileys IncomingMessage 专用持久化路径（C2.2）。
+ * 与 handleIncomingMessage(wwebjs) 不同：baileys 给的是归一化后的
+ * IncomingMessage 对象，不是 wwebjs Message。共享 getOrCreateCreator /
+ * insertMessages / touchCreator / messageHandlers / notifyProfilePipelines。
+ *
+ * 群消息（isGroup=true）暂不落库，等 wa_group_messages 也支持 baileys 后再接。
+ */
+async function handleBaileysIncomingMessage(incoming) {
+    const handleStartedAt = Date.now();
+    const waMsgId = incoming?.id || null;
+    perfLog('wa_event_received', {
+        source: 'worker',
+        sessionId: WA_SESSION_ID,
+        owner: WA_OWNER,
+        driver: 'baileys',
+        waMsgId,
+        fromMe: !!incoming?.fromMe,
+        eventTimestamp: typeof incoming?.timestamp === 'number' ? incoming.timestamp : null,
+    });
+    try {
+        if (incoming?.isGroup) {
+            perfLog('wa_event_handled', {
+                source: 'worker', waMsgId,
+                outcome: 'group_skipped_baileys',
+                durationMs: Date.now() - handleStartedAt,
+            });
+            return;
+        }
+        const phone = normalizePhone(incoming?.chatId || incoming?.from || '');
+        if (!phone) return;
+        const text = incoming?.text || '';
+        if (!text && !incoming?.media) return;
+
+        const name = incoming?.authorName || 'Unknown';
+        const db2 = getDb();
+        const existing = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ?').get(phone);
+
+        let creatorId;
+        if (existing) {
+            creatorId = await getOrCreateCreator(phone, name);
+        } else {
+            // Baileys 没有 fetchRecentMessages 的预取历史，走空消息 eligibility
+            const eligibility = getEligibilityForRealtime(phone, name, []);
+            if (!eligibility.eligible) {
+                perfLog('wa_event_handled', {
+                    source: 'worker', waMsgId,
+                    outcome: 'ineligible_new_creator',
+                    reason: eligibility.reason || null,
+                    durationMs: Date.now() - handleStartedAt,
+                });
+                return;
+            }
+            creatorId = await getOrCreateCreator(phone, name);
+        }
+
+        const role = incoming.fromMe ? 'me' : 'user';
+        const timestampMs = typeof incoming.timestamp === 'number' ? incoming.timestamp : Date.now();
+        const inserted = await insertMessages(creatorId, [{
+            role,
+            text,
+            timestamp: timestampMs,
+            wa_message_id: incoming.id || null,
+        }]);
+
+        if (inserted > 0) {
+            await touchCreator(creatorId);
+            console.log(`${LOG_PREFIX} 📩 ${name} (baileys): ${text.slice(0, 50)}`);
+            messageHandlers.forEach(fn => {
+                try { fn({ phone, name, text, creatorId }); } catch (_) {}
+            });
+            notifyProfilePipelines({ creatorId, phone, text, role, insertedCount: inserted });
+        }
+
+        perfLog('wa_event_handled', {
+            source: 'worker',
+            waMsgId,
+            creatorId,
+            role,
+            inserted,
+            outcome: inserted > 0 ? 'inserted' : 'skipped',
+            durationMs: Date.now() - handleStartedAt,
+        });
+    } catch (e) {
+        console.error(`${LOG_PREFIX} handleBaileysIncomingMessage error:`, e.message);
+        perfLog('wa_event_handled', {
+            source: 'worker',
+            waMsgId,
+            outcome: 'error',
+            errorMessage: e && e.message,
+            durationMs: Date.now() - handleStartedAt,
+        });
+    }
+}
+
 // ================== 增量轮询 ==================
 
 let pollInterval = null;
@@ -1435,8 +1530,11 @@ async function start(options = {}) {
         return;
     }
 
+    const driverName = (typeof getDriverName === 'function' ? getDriverName() : null) || 'wwebjs';
     const c = getClient();
-    if (!c) {
+
+    // wwebjs 模式：必须拿到底层 Client 才能挂监听和跑 Puppeteer-driven 同步
+    if (driverName === 'wwebjs' && !c) {
         console.error(`${LOG_PREFIX} WhatsApp Client 未初始化`);
         progress.clientError = 'Client 未初始化';
         return;
@@ -1445,23 +1543,47 @@ async function start(options = {}) {
     progress.clientReady = true;
     progress.clientError = null;
 
-    // 注册实时监听（'message' 不触发 fromMe，需额外挂 'message_create' 才能捕获操作员手机端发出的消息）
-    c.on('message', (msg) => handleIncomingMessage(msg));
-    c.on('message_create', (msg) => {
-        if (msg?.fromMe) handleIncomingMessage(msg);
-    });
+    if (driverName === 'wwebjs') {
+        // 注册实时监听（'message' 不触发 fromMe，需额外挂 'message_create' 才能捕获操作员手机端发出的消息）
+        c.on('message', (msg) => handleIncomingMessage(msg));
+        c.on('message_create', (msg) => {
+            if (msg?.fromMe) handleIncomingMessage(msg);
+        });
 
-    // 历史同步
-    if (options.syncHistory !== false) {
-        await syncHistory(c);
+        // 历史同步
+        if (options.syncHistory !== false) {
+            await syncHistory(c);
+        }
+
+        // 启动增量轮询
+        startPolling(c);
+
+        progress.phase = 'live';
+        console.log('═'.repeat(60));
+        console.log(`  WA Worker 已就绪 (wwebjs 实时监听 + 增量轮询) (${WORKER_TAG})`);
+        console.log('═'.repeat(60));
+        return;
     }
 
-    // 启动增量轮询
-    startPolling(c);
-
+    // Baileys 模式：driver 通过 WebSocket 收消息，没有 Puppeteer Chat，
+    // 跳过 syncHistory + Puppeteer 轮询，订阅 facade 'message' 事件直接持久化。
+    if (typeof onDriverEvent !== 'function') {
+        console.error(`${LOG_PREFIX} driver=${driverName}: facade 缺 onDriverEvent，无法订阅消息事件`);
+        progress.clientError = 'facade onDriverEvent missing';
+        return;
+    }
+    onDriverEvent('message', (incoming) => {
+        handleBaileysIncomingMessage(incoming).catch((err) => {
+            console.error(`${LOG_PREFIX} baileys message handler 异常:`, err.message);
+        });
+    });
+    onDriverEvent('group_message', (incoming) => {
+        // 群持久化暂未接；事件仍然穿过 handler 以走 perfLog 和未来扩展
+        handleBaileysIncomingMessage(incoming).catch(() => {});
+    });
     progress.phase = 'live';
     console.log('═'.repeat(60));
-    console.log(`  WA Worker 已就绪 (实时监听 + 增量轮询) (${WORKER_TAG})`);
+    console.log(`  WA Worker 已就绪 (driver=${driverName}, 事件驱动持久化 1:1 消息) (${WORKER_TAG})`);
     console.log('═'.repeat(60));
 }
 
