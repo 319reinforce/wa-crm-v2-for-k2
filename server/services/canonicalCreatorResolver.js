@@ -45,7 +45,10 @@ const GENERIC_NAME_BLOCKLIST = new Set([
     'undefined',
 ]);
 
-function isGenericName(normalized) {
+// 接受 raw 或已 normalized 的字符串（normalizeText 幂等），
+// 外部调用方不需要关心是否已经归一化。
+function isGenericName(value) {
+    const normalized = normalizeText(value);
     if (!normalized) return true;
     return GENERIC_NAME_BLOCKLIST.has(normalized);
 }
@@ -263,7 +266,11 @@ async function attachPhoneToCreator({ creatorId, phone, name, operator }) {
         updates.push('wa_phone = ?');
         values.push(phone);
     }
-    if (name) {
+    // 只有当新 name 是真实名字、且原 primary_name 是 generic（'Unknown' 等占位）时才更新 —
+    // baileys fromMe=true 反射的消息 pushName 是本账号自己的名字，不应污染对方 creator；
+    // 即使是 fromMe=false，新 pushName 跟旧 primary_name 不一致也多数是对方改名 / 机翻
+    // 扰动，稳妥起见不动已经是真名的 primary_name。
+    if (name && !isGenericName(name) && (!creator.primary_name || isGenericName(creator.primary_name))) {
         updates.push('primary_name = ?');
         values.push(name);
     }
@@ -283,7 +290,9 @@ async function attachPhoneToCreator({ creatorId, phone, name, operator }) {
             'INSERT IGNORE INTO creator_aliases (creator_id, alias_type, alias_value, is_verified) VALUES (?, ?, ?, ?)'
         ).run(creatorId, 'wa_phone', phone, 1);
     }
-    if (name) {
+    // generic 占位名（'Unknown' 等）不进 alias —— 否则会让后续任意陌生 'Unknown'
+    // 来访者通过 name fuzzy match 串到这个 creator。
+    if (name && !isGenericName(name)) {
         await db.getDb().prepare(
             'INSERT IGNORE INTO creator_aliases (creator_id, alias_type, alias_value, is_verified) VALUES (?, ?, ?, ?)'
         ).run(creatorId, 'wa_name', name, 1);
@@ -400,6 +409,7 @@ module.exports = {
     resolveCanonicalCreator,
     attachPhoneToCreator,
     invalidateOperatorCache,
+    isGenericName,
     normalizeText,
     compactText,
 };
