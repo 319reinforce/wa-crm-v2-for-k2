@@ -1,0 +1,4702 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WA CRM - Moras达人跟进看板</title>
+    <link rel="icon" type="image/svg+xml" href="/v1/favicon.svg">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #f6f2e9;
+            --bg-secondary: #efe7da;
+            --bg-card: #fffdfa;
+            --bg-card-hover: #faf3e8;
+            --border: #ddd2c4;
+            --text-primary: #201a15;
+            --text-secondary: #62574b;
+            --text-muted: #897b6b;
+            --accent-blue: #3f7ae0;
+            --accent-cyan: #2d8aa0;
+            --accent-green: #2f7d65;
+            --accent-yellow: #b9853f;
+            --accent-red: #c26045;
+            --accent-orange: #c9783d;
+            --accent-purple: #7967b5;
+            --glow-blue: rgba(63, 122, 224, 0.12);
+            --glow-cyan: rgba(45, 138, 160, 0.12);
+        }
+
+        body {
+            font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            background-image:
+                radial-gradient(ellipse at 20% 0%, rgba(188, 166, 132, 0.12) 0%, transparent 46%),
+                radial-gradient(ellipse at 80% 100%, rgba(63, 122, 224, 0.08) 0%, transparent 42%);
+        }
+
+        /* Header */
+        .header {
+            background: rgba(247, 243, 234, 0.86);
+            border-bottom: 1px solid var(--border);
+            padding: 24px 32px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(12px);
+        }
+
+        .header-content {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #f0c58c, #d97648);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: 0 12px 24px rgba(217, 118, 72, 0.16);
+        }
+
+        .logo-text {
+            font-size: 24px;
+            font-weight: 700;
+            font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+            color: #1e1813;
+            letter-spacing: -0.02em;
+        }
+
+        /* Tab Navigation */
+        .tab-nav {
+            display: flex;
+            gap: 8px;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .tab-btn:hover {
+            border-color: #c4b093;
+            color: var(--text-primary);
+            background: #f5eee4;
+        }
+
+        .tab-btn.active {
+            background: #e7dfd1;
+            border-color: #ccbda6;
+            color: #30271f;
+        }
+
+        .header-time {
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Stats Bar */
+        .stats-bar {
+            max-width: 1600px;
+            margin: 24px auto;
+            padding: 0 32px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: 0 12px 32px rgba(120, 104, 72, 0.08);
+        }
+
+        .stat-card:hover {
+            border-color: #c9b79d;
+            box-shadow: 0 18px 36px rgba(120, 104, 72, 0.12);
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #e0b374, #6788d8);
+        }
+
+        .stat-label {
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .stat-value.cyan { color: var(--accent-cyan); }
+        .stat-value.green { color: var(--accent-green); }
+        .stat-value.yellow { color: var(--accent-yellow); }
+        .stat-value.red { color: var(--accent-red); }
+        .stat-value.orange { color: var(--accent-orange); }
+        .stat-value.blue { color: var(--accent-blue); }
+
+        /* Funnel Chart */
+        .funnel-section {
+            max-width: 1600px;
+            margin: 24px auto;
+            padding: 0 32px;
+        }
+
+        .section-title {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .funnel-chart {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .funnel-step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .funnel-bar {
+            height: 40px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 600;
+            min-width: 80px;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .funnel-bar::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+            opacity: 0.3;
+            transition: width 0.5s ease;
+        }
+
+        .funnel-bar span {
+            position: relative;
+            z-index: 1;
+        }
+
+        .funnel-arrow {
+            color: var(--text-muted);
+            font-size: 16px;
+        }
+
+        /* View Toggle */
+        .view-toggle {
+            display: flex;
+            gap: 4px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 4px;
+        }
+
+        .view-btn {
+            padding: 6px 12px;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .view-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .view-btn.active {
+            background: #e7dfd1;
+            color: #2b241c;
+        }
+
+        /* Sheet View */
+        .sheet-view {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 12px 30px rgba(120, 104, 72, 0.06);
+        }
+
+        .sheet-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .sheet-table th {
+            text-align: left;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        .sheet-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+
+        .sheet-table tr:hover td {
+            background: var(--bg-card-hover);
+        }
+
+        .sheet-table tr {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .sheet-table .priority-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .sheet-table .priority-badge.urgent { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+        .sheet-table .priority-badge.high { background: rgba(249, 115, 22, 0.15); color: var(--accent-orange); }
+        .sheet-table .priority-badge.medium { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+        .sheet-table .priority-badge.low { background: rgba(100, 116, 139, 0.15); color: var(--text-muted); }
+
+        .sheet-table .urgency-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .sheet-table .urgency-badge.urgent { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+        .sheet-table .urgency-badge.high { background: rgba(249, 115, 22, 0.15); color: var(--accent-orange); }
+        .sheet-table .urgency-badge.medium { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+
+        .sheet-table .status-text {
+            font-size: 12px;
+        }
+
+        .sheet-table .status-text.bound { color: var(--accent-green); }
+        .sheet-table .status-text.unbound { color: var(--accent-orange); }
+
+        .sheet-table .owner-beau { color: #9b5b2e; font-weight: 600; }
+        .sheet-table .owner-jiawen { color: #3f7ae0; font-weight: 600; }
+        .sheet-table .owner-yiyun { color: #8b5cf6; font-weight: 600; }
+        .sheet-table .last-active { color: var(--text-muted); font-size: 11px; }
+        .sheet-table .gmv { color: #10b981; font-weight: 500; }
+        .sheet-table .stage { font-size: 11px; color: var(--text-secondary); }
+
+        /* Filter Bar */
+        .filter-bar {
+            max-width: 1600px;
+            margin: 0 auto 24px;
+            padding: 0 32px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filter-result-bar {
+            max-width: 1600px;
+            margin: 0 auto 12px;
+            padding: 0 32px;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .filter-result-bar span {
+            color: var(--accent-cyan);
+            font-weight: 600;
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 240px;
+            position: relative;
+        }
+
+        .search-box input {
+            width: 100%;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 10px 16px 10px 40px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 13px;
+            transition: all 0.3s ease;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 4px rgba(63, 122, 224, 0.12);
+        }
+
+        .search-box::before {
+            content: '🔍';
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 14px;
+        }
+
+        .filter-select {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 10px 16px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 140px;
+        }
+
+        .filter-select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 4px rgba(63, 122, 224, 0.12);
+        }
+
+        .filter-select option {
+            background: var(--bg-secondary);
+        }
+
+        /* Main Content */
+        .main-content {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 32px 32px;
+        }
+
+        /* Cards Grid */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+            gap: 20px;
+        }
+
+        /* User Card */
+        .user-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            padding: 0;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            position: relative;
+            box-shadow: 0 16px 32px rgba(120, 104, 72, 0.08);
+        }
+
+        .user-card:hover {
+            border-color: #c7b49a;
+            box-shadow: 0 20px 40px rgba(120, 104, 72, 0.14);
+            transform: translateY(-2px);
+        }
+
+        .user-card.urgent {
+            border-color: var(--accent-red);
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+        }
+
+        .user-card.urgent::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-red), var(--accent-orange));
+        }
+
+        .user-card.high::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-orange), var(--accent-yellow));
+        }
+
+        .card-header {
+            padding: 20px 20px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            background: linear-gradient(180deg, rgba(239, 231, 218, 0.6) 0%, rgba(255, 253, 250, 0) 100%);
+        }
+
+        .card-header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--bg-primary);
+        }
+
+        .avatar.cyan { background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue)); }
+        .avatar.green { background: linear-gradient(135deg, var(--accent-green), var(--accent-cyan)); }
+        .avatar.yellow { background: linear-gradient(135deg, var(--accent-yellow), var(--accent-orange)); }
+        .avatar.red { background: linear-gradient(135deg, var(--accent-red), var(--accent-orange)); }
+        .avatar.blue { background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple)); }
+        .avatar.orange { background: linear-gradient(135deg, var(--accent-orange), var(--accent-yellow)); }
+        .avatar.purple { background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue)); }
+
+        .user-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .user-phone {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .card-badges {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge.priority-urgent { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.3); }
+        .badge.priority-high { background: rgba(249, 115, 22, 0.15); color: var(--accent-orange); border: 1px solid rgba(249, 115, 22, 0.3); }
+        .badge.priority-medium { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); border: 1px solid rgba(59, 130, 246, 0.3); }
+        .badge.priority-low { background: rgba(100, 116, 139, 0.15); color: var(--text-muted); border: 1px solid rgba(100, 116, 139, 0.3); }
+
+        .badge.sentiment-positive { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+        .badge.sentiment-neutral { background: rgba(148, 163, 184, 0.15); color: var(--text-secondary); border: 1px solid rgba(148, 163, 184, 0.3); }
+        .badge.sentiment-negative { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.3); }
+
+        .card-body {
+            padding: 16px 20px;
+        }
+
+        .metrics-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .metric {
+            text-align: center;
+            padding: 12px 8px;
+            background: var(--bg-secondary);
+            border-radius: 14px;
+            border: 1px solid var(--border);
+        }
+
+        .metric-value {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .metric-label {
+            font-size: 9px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-value.score { color: var(--accent-cyan); }
+        .metric-value.score-high { color: var(--accent-green); }
+        .metric-value.score-mid { color: var(--accent-yellow); }
+        .metric-value.score-low { color: var(--accent-red); }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .info-item {
+            background: var(--bg-secondary);
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+
+        .info-label {
+            font-size: 9px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            font-size: 12px;
+            color: var(--text-primary);
+            word-break: break-word;
+        }
+
+        .section-title-old {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-title-old::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .insights-list {
+            margin-bottom: 16px;
+        }
+
+        .insight-item {
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            margin-bottom: 6px;
+            border-left: 2px solid var(--accent-blue);
+            line-height: 1.5;
+        }
+
+        .action-box {
+            background: linear-gradient(135deg, rgba(63, 122, 224, 0.08), rgba(240, 197, 140, 0.12));
+            border: 1px solid rgba(63, 122, 224, 0.18);
+            border-radius: 16px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+        }
+
+        .action-label {
+            font-size: 9px;
+            color: var(--accent-blue);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+
+        .action-text {
+            font-size: 13px;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .event-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .event-tag {
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid transparent;
+        }
+
+        .event-tag.event-done {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+            border-color: rgba(16, 185, 129, 0.22);
+        }
+
+        .event-tag.event-pending {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-yellow);
+            border-color: rgba(245, 158, 11, 0.22);
+        }
+
+        .event-tag.event-none {
+            background: rgba(156, 163, 175, 0.15);
+            color: #9ca3af;
+            border-color: rgba(156, 163, 175, 0.22);
+        }
+
+        .event-logo-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            line-height: 1;
+            background: rgba(255,255,255,0.88);
+        }
+
+        .metric-value.badge-logo-wrap {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .metric-badge-logo {
+            border-radius: 999px;
+            border: 1px solid #dfd4c3;
+            background: #fff;
+            color: #49627f;
+            padding: 3px 8px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .card-footer {
+            padding: 12px 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-secondary);
+        }
+
+        .followup-time {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .followup-time span {
+            color: var(--accent-yellow);
+            font-weight: 600;
+        }
+
+        .card-tags {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .tag {
+            padding: 3px 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .empty-state-text {
+            font-size: 14px;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .stats-bar {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .filter-bar {
+                flex-direction: column;
+            }
+
+            .filter-select, .search-box {
+                width: 100%;
+            }
+
+            .cards-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .metrics-row {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .profile-portrait-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .count-badge {
+            background: var(--accent-cyan);
+            color: var(--bg-primary);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        /* ============ Lifecycle Workspace ============ */
+        #tab-lifecycle {
+            max-width: 1600px;
+            margin: 24px auto 32px;
+            padding: 0 32px;
+        }
+
+        #tab-lifecycle .main-content {
+            max-width: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .lifecycle-shell {
+            display: grid;
+            grid-template-columns: 280px minmax(0, 1fr);
+            background: #f7f3ea;
+            border: 1px solid #d8d0c2;
+            border-radius: 28px;
+            overflow: hidden;
+            box-shadow: 0 30px 80px rgba(15, 23, 42, 0.22);
+        }
+
+        .lifecycle-sidebar {
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(247, 243, 234, 0.82) 100%),
+                #f1ebdf;
+            border-right: 1px solid #ddd3c5;
+            padding: 28px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .lifecycle-sidebar-card,
+        .lifecycle-panel,
+        .lifecycle-table-panel {
+            background: rgba(255, 255, 255, 0.76);
+            border: 1px solid #e1d9cd;
+            border-radius: 20px;
+            box-shadow: 0 12px 32px rgba(120, 104, 72, 0.08);
+        }
+
+        .lifecycle-sidebar-card {
+            padding: 18px;
+        }
+
+        .lifecycle-sidebar-eyebrow,
+        .lifecycle-panel-eyebrow {
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #8a7761;
+            margin-bottom: 10px;
+        }
+
+        .lifecycle-sidebar-title,
+        .lifecycle-hero-title,
+        .lifecycle-panel-title {
+            font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+            color: #211c17;
+        }
+
+        .lifecycle-sidebar-title {
+            font-size: 26px;
+            line-height: 1.1;
+            margin-bottom: 10px;
+        }
+
+        .lifecycle-sidebar-copy,
+        .lifecycle-hero-copy,
+        .lifecycle-panel-copy,
+        .lifecycle-mini-note {
+            color: #6d6256;
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        .lifecycle-filters {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .lifecycle-filter-label {
+            font-size: 12px;
+            color: #7a6d60;
+            margin-bottom: 6px;
+        }
+
+        #tab-lifecycle .search-box,
+        #tab-lifecycle .filter-select {
+            width: 100%;
+            min-width: 0;
+        }
+
+        #tab-lifecycle .search-box input,
+        #tab-lifecycle .filter-select {
+            background: #fffdfa;
+            color: #2d241d;
+            border: 1px solid #d6ccbc;
+            box-shadow: none;
+            font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+        }
+
+        #tab-lifecycle .search-box input:focus,
+        #tab-lifecycle .filter-select:focus {
+            border-color: #3f7ae0;
+            box-shadow: 0 0 0 4px rgba(63, 122, 224, 0.12);
+        }
+
+        #tab-lifecycle .filter-select option {
+            background: #fffdfa;
+            color: #2d241d;
+        }
+
+        .lifecycle-stage-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .lifecycle-stage-item {
+            width: 100%;
+            background: transparent;
+            border: 1px solid #ddd1c3;
+            border-radius: 16px;
+            padding: 12px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.24s ease;
+            color: #312820;
+        }
+
+        .lifecycle-stage-item:hover {
+            background: rgba(255, 255, 255, 0.72);
+            border-color: #bca98b;
+            transform: translateX(2px);
+        }
+
+        .lifecycle-stage-item.active {
+            background: #f5efe4;
+            border-color: #a88f6c;
+            box-shadow: inset 0 0 0 1px rgba(168, 143, 108, 0.2);
+        }
+
+        .lifecycle-stage-item-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .lifecycle-stage-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            flex: 0 0 10px;
+        }
+
+        .lifecycle-stage-name {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .lifecycle-stage-count {
+            font-size: 12px;
+            color: #8a7761;
+            background: rgba(148, 134, 114, 0.08);
+            border-radius: 999px;
+            padding: 4px 8px;
+        }
+
+        .lifecycle-main {
+            background: #fcfaf6;
+            padding: 26px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .lifecycle-hero {
+            display: flex;
+            justify-content: space-between;
+            gap: 24px;
+            align-items: flex-start;
+        }
+
+        .lifecycle-hero-title {
+            font-size: 52px;
+            line-height: 0.98;
+            margin-bottom: 12px;
+            letter-spacing: -0.03em;
+        }
+
+        .lifecycle-hero-copy {
+            max-width: 900px;
+            font-size: 15px;
+        }
+
+        .lifecycle-hero-note {
+            min-width: 230px;
+            background: #f3ede2;
+            border: 1px solid #e0d5c4;
+            border-radius: 18px;
+            padding: 16px 18px;
+        }
+
+        .lifecycle-hero-note-value {
+            font-size: 28px;
+            color: #2b241c;
+            font-weight: 700;
+            margin-top: 6px;
+        }
+
+        .lifecycle-callout {
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+            background: rgba(70, 126, 236, 0.08);
+            border: 1px solid rgba(70, 126, 236, 0.34);
+            border-radius: 18px;
+            padding: 16px 18px;
+            color: #3458a3;
+        }
+
+        .lifecycle-callout-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 999px;
+            background: rgba(70, 126, 236, 0.14);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex: 0 0 30px;
+        }
+
+        .lifecycle-callout strong {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 14px;
+        }
+
+        .lifecycle-kpis {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .lifecycle-kpi {
+            padding: 18px;
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid #e1d7c8;
+            border-radius: 18px;
+        }
+
+        .lifecycle-kpi .stat-label {
+            color: #83725d;
+            margin-bottom: 12px;
+        }
+
+        .lifecycle-kpi .stat-value {
+            color: #2b241c;
+            font-size: 32px;
+        }
+
+        .lifecycle-visual-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 16px;
+        }
+
+        .lifecycle-panel-hidden {
+            display: none;
+        }
+
+        .lifecycle-view-switch {
+            display: inline-flex;
+            background: #f4ecdf;
+            border: 1px solid #dfd1bf;
+            border-radius: 999px;
+            padding: 4px;
+            gap: 4px;
+            margin: 12px 0 2px;
+        }
+
+        .lifecycle-view-btn {
+            border: none;
+            border-radius: 999px;
+            background: transparent;
+            color: #7f6d59;
+            padding: 8px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .lifecycle-view-btn.active {
+            background: #fff;
+            color: #2c251c;
+            box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+        }
+
+        .lifecycle-data-strip {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin: 12px 0 4px;
+        }
+
+        .lifecycle-data-chip {
+            border: 1px solid #e0d3c2;
+            background: rgba(255, 255, 255, 0.72);
+            border-radius: 12px;
+            padding: 10px 12px;
+            color: #6d6053;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .lifecycle-data-chip strong {
+            display: block;
+            color: #2c251c;
+            margin-bottom: 2px;
+            font-size: 13px;
+        }
+
+        .lifecycle-panel {
+            padding: 20px;
+        }
+
+        .lifecycle-panel-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+            align-items: flex-start;
+        }
+
+        .lifecycle-panel-title {
+            font-size: 30px;
+            line-height: 1.05;
+            margin-bottom: 8px;
+        }
+
+        .lifecycle-panel-meta {
+            color: #7e6f5f;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .lifecycle-funnel-list {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .lifecycle-funnel-row {
+            display: grid;
+            grid-template-columns: 112px minmax(0, 1fr) 132px;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .lifecycle-funnel-stage {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #30271f;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .lifecycle-funnel-track {
+            position: relative;
+            height: 42px;
+            border-radius: 14px;
+            background: #f2ebe0;
+            border: 1px solid #e5dacb;
+            overflow: hidden;
+        }
+
+        .lifecycle-funnel-fill {
+            position: absolute;
+            inset: 0 auto 0 0;
+            display: flex;
+            align-items: center;
+            padding: 0 14px;
+            border-radius: 13px;
+            color: white;
+            font-weight: 600;
+            font-size: 13px;
+            transition: width 0.35s ease;
+            min-width: 72px;
+        }
+
+        .lifecycle-funnel-metrics {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+            color: #6d6256;
+            font-size: 12px;
+        }
+
+        .lifecycle-funnel-metrics strong {
+            color: #2f271f;
+            font-size: 18px;
+        }
+
+        .lifecycle-chart-wrap {
+            border-radius: 18px;
+            background: linear-gradient(180deg, rgba(246, 241, 232, 0.86) 0%, rgba(255, 255, 255, 0.86) 100%);
+            border: 1px solid #e3d8c9;
+            padding: 12px 12px 8px;
+        }
+
+        .lifecycle-chart-canvas {
+            width: 100%;
+            height: 290px;
+            display: block;
+        }
+
+        .lifecycle-chart-legend {
+            margin-top: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 14px;
+        }
+
+        .lifecycle-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #6d6256;
+            font-size: 12px;
+        }
+
+        .lifecycle-legend-line {
+            width: 18px;
+            height: 3px;
+            border-radius: 999px;
+        }
+
+        .lifecycle-mini-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .lifecycle-mini-card {
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid #e5dccc;
+            border-radius: 16px;
+            padding: 16px 18px;
+        }
+
+        .lifecycle-mini-value {
+            font-size: 28px;
+            color: #262019;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .lifecycle-table-panel {
+            overflow: hidden;
+        }
+
+        .lifecycle-table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            padding: 22px 22px 0;
+        }
+
+        .lifecycle-table-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .lifecycle-table-header .lifecycle-panel-title {
+            margin-bottom: 6px;
+        }
+
+        .lifecycle-table-count {
+            font-size: 13px;
+            color: #8a7761;
+            background: #f5ede0;
+            border: 1px solid #e2d6c6;
+            padding: 8px 12px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+
+        .lifecycle-table-wrap {
+            padding: 18px 22px 22px;
+            overflow-x: auto;
+        }
+
+        .life-view-hidden {
+            display: none !important;
+        }
+
+        .life-board-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .life-board-card {
+            border: 1px solid #e3d8c9;
+            border-radius: 18px;
+            background: #fffdfa;
+            padding: 14px;
+            box-shadow: 0 8px 20px rgba(120, 104, 72, 0.06);
+        }
+
+        .life-board-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .life-board-name {
+            font-size: 18px;
+            line-height: 1.25;
+            color: #2d241d;
+            font-weight: 700;
+        }
+
+        .life-board-sub {
+            color: #8b7761;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+
+        .life-board-stage {
+            white-space: nowrap;
+        }
+
+        .life-board-meta {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .life-board-metric {
+            background: #f6efe3;
+            border: 1px solid #e7dbc9;
+            border-radius: 12px;
+            padding: 8px;
+        }
+
+        .life-board-metric-label {
+            color: #877562;
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .life-board-metric-value {
+            color: #2d241d;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .life-board-events {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .life-board-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 12px;
+        }
+
+        .life-board-event-chip {
+            border-radius: 999px;
+            border: 1px solid #d7ccba;
+            padding: 4px 8px;
+            font-size: 11px;
+            color: #5f5448;
+            background: #f8f2e8;
+            white-space: nowrap;
+        }
+
+        .life-mini-chart {
+            border: 1px solid #e7dbc9;
+            border-radius: 14px;
+            background: linear-gradient(180deg, rgba(248, 243, 235, 0.86) 0%, rgba(255, 255, 255, 0.92) 100%);
+            padding: 10px 10px 8px;
+        }
+
+        .life-mini-chart-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            color: #7f6d59;
+            font-size: 11px;
+            margin-bottom: 8px;
+        }
+
+        .life-mini-chart-svg {
+            width: 100%;
+            height: 88px;
+            display: block;
+        }
+
+        .life-mini-chart-axis {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 2px;
+            margin-top: 4px;
+            font-size: 10px;
+            color: #8b7761;
+            text-align: center;
+        }
+
+        .life-process-track {
+            margin-top: 10px;
+            border: 1px solid #e7dbc9;
+            border-radius: 14px;
+            background: #fdfaf4;
+            padding: 10px;
+        }
+
+        .life-process-line {
+            position: relative;
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 6px 2px 2px;
+        }
+
+        .life-process-line::before {
+            content: "";
+            position: absolute;
+            left: 10px;
+            right: 10px;
+            top: 16px;
+            height: 2px;
+            background: #dacdbc;
+        }
+
+        .life-process-item {
+            position: relative;
+            width: 20%;
+            min-width: 0;
+            text-align: center;
+        }
+
+        .life-process-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            margin: 6px auto 8px;
+            border: 2px solid #fffdfa;
+            box-shadow: 0 0 0 1px rgba(167, 145, 112, 0.2);
+        }
+
+        .life-process-label {
+            font-size: 11px;
+            color: #6b5e50;
+            font-weight: 600;
+        }
+
+        .life-process-time {
+            margin-top: 2px;
+            font-size: 10px;
+            color: #94836f;
+            line-height: 1.35;
+            min-height: 26px;
+            word-break: break-word;
+        }
+
+        #tab-lifecycle .sheet-view {
+            background: #fffdfa;
+            border: 1px solid #e2d8c9;
+            border-radius: 18px;
+            overflow: hidden;
+        }
+
+        #tab-lifecycle .sheet-table {
+            min-width: 1180px;
+            font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+        }
+
+        #tab-lifecycle .sheet-table th {
+            background: #f4eee4;
+            color: #8a7761;
+            border-bottom: 1px solid #e4dacd;
+        }
+
+        #tab-lifecycle .sheet-table td {
+            color: #2d241d;
+            border-bottom: 1px solid #f0e8dc;
+        }
+
+        #tab-lifecycle .sheet-table tr:hover td {
+            background: #faf4ea;
+        }
+
+        .life-stage-chip,
+        .life-flag-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .life-stage-chip {
+            color: #2d241d;
+            background: #f3ebdf;
+            border: 1px solid #e1d4c2;
+        }
+
+        .life-flag-chip {
+            background: rgba(70, 126, 236, 0.1);
+            color: #355699;
+            border: 1px solid rgba(70, 126, 236, 0.2);
+            margin-right: 6px;
+            margin-bottom: 6px;
+        }
+
+        .life-flag-chip.risk {
+            background: rgba(204, 110, 62, 0.12);
+            border-color: rgba(204, 110, 62, 0.2);
+            color: #a05127;
+        }
+
+        .life-empty-note {
+            padding: 36px;
+            color: #8b7761;
+            text-align: center;
+        }
+
+        .life-muted {
+            color: #8b7761;
+        }
+
+        .life-pagination {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 14px;
+            padding: 10px 2px 0;
+        }
+
+        .life-pagination-info {
+            font-size: 12px;
+            color: #8a7761;
+        }
+
+        .life-pagination-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .life-page-btn {
+            border: 1px solid #ddcfbc;
+            background: #fffdfa;
+            color: #695b4d;
+            border-radius: 10px;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .life-page-btn[disabled] {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .life-page-current {
+            font-size: 12px;
+            color: #6e6154;
+            min-width: 88px;
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            #tab-lifecycle {
+                padding: 0 12px;
+            }
+
+            .lifecycle-shell {
+                grid-template-columns: 1fr;
+                border-radius: 20px;
+            }
+
+            .lifecycle-sidebar {
+                border-right: none;
+                border-bottom: 1px solid #ddd3c5;
+                padding: 18px 14px;
+            }
+
+            .lifecycle-main {
+                padding: 16px;
+            }
+
+            .lifecycle-hero {
+                flex-direction: column;
+            }
+
+            .lifecycle-hero-title {
+                font-size: 38px;
+            }
+
+            .lifecycle-kpis,
+            .lifecycle-mini-grid,
+            .lifecycle-visual-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .lifecycle-data-strip {
+                grid-template-columns: 1fr;
+            }
+
+            .lifecycle-funnel-row {
+                grid-template-columns: 1fr;
+            }
+
+            .lifecycle-table-header {
+                flex-direction: column;
+                padding: 18px 18px 0;
+            }
+
+            .lifecycle-table-wrap {
+                padding: 14px 14px 18px;
+            }
+
+            .life-board-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .life-pagination {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+
+        /* ============ JoinBrands Styles ============ */
+        .jb-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .jb-section-title {
+            font-size: 14px;
+            color: var(--accent-cyan);
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Table */
+        .jb-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .jb-table th {
+            text-align: left;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .jb-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+        }
+
+        .jb-table tr:hover td {
+            background: var(--bg-card-hover);
+        }
+
+        .jb-table .status-badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .jb-table .status-done {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+        }
+
+        .jb-table .status-fail {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+        }
+
+        .jb-table .status-pending {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-yellow);
+        }
+
+        /* Priority & Activity Status Badges */
+        .status-badge.status-urgent { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+        .status-badge.status-high { background: rgba(245, 158, 11, 0.15); color: var(--accent-yellow); }
+        .status-badge.status-medium { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+        .status-badge.status-low { background: rgba(156, 163, 175, 0.15); color: #9ca3af; }
+        .status-badge.status-bound { background: rgba(139, 92, 246, 0.15); color: #8b5cf6; }
+        .status-badge.status-churn { background: rgba(245, 158, 11, 0.15); color: var(--accent-yellow); }
+        .status-badge.status-churned { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+        .status-badge.status-active { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+
+        /* Campaign Stats */
+        .campaign-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+        }
+
+        .campaign-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+        }
+
+        .campaign-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+
+        .campaign-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .campaign-stat {
+            text-align: center;
+            padding: 8px;
+            background: var(--bg-card);
+            border-radius: 6px;
+        }
+
+        .campaign-stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent-cyan);
+        }
+
+        .campaign-stat-label {
+            font-size: 9px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .action-btn {
+            padding: 6px 12px;
+            background: var(--accent-cyan);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .action-btn:hover {
+            background: var(--accent-blue);
+        }
+
+        .deeplink-target {
+            animation: deeplinkPulse 1.8s ease;
+            box-shadow: 0 0 0 3px rgba(63, 122, 224, 0.16), 0 16px 36px rgba(63, 122, 224, 0.12);
+        }
+
+        @keyframes deeplinkPulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(63, 122, 224, 0.32);
+                transform: translateY(0);
+            }
+            35% {
+                box-shadow: 0 0 0 6px rgba(63, 122, 224, 0.14);
+                transform: translateY(-2px);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(63, 122, 224, 0);
+                transform: translateY(0);
+            }
+        }
+
+        /* ============ Chat Modal ============ */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-overlay.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 700px;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-card);
+        }
+
+        .modal-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .modal-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .modal-title .avatar {
+            width: 36px;
+            height: 36px;
+            font-size: 14px;
+        }
+
+        .modal-title-text h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 2px;
+        }
+
+        .modal-title-text span {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+            background: var(--accent-red);
+            border-color: var(--accent-red);
+            color: white;
+        }
+
+        .modal-open-v2 {
+            text-decoration: none;
+        }
+
+        .event-bars {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 10px 24px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .event-bar {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .event-bar-green {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 182, 212, 0.2));
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: var(--accent-green);
+        }
+
+        .event-bar-red {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(249, 115, 22, 0.2));
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: var(--accent-red);
+        }
+
+        .event-bar-purple {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(59, 130, 246, 0.2));
+            border: 1px solid rgba(139, 92, 246, 0.4);
+            color: var(--accent-purple);
+        }
+
+        .event-bar-yellow {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(249, 115, 22, 0.2));
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            color: var(--accent-yellow);
+        }
+
+        .modal-profile-panel {
+            display: none;
+            padding: 16px 24px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(247,243,234,0.92) 100%);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-profile-panel.active {
+            display: block;
+        }
+
+        .profile-panel-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .profile-panel-title {
+            font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+            font-size: 24px;
+            color: #241d17;
+            margin-bottom: 4px;
+        }
+
+        .profile-panel-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .profile-panel-badge {
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: rgba(63, 122, 224, 0.1);
+            border: 1px solid rgba(63, 122, 224, 0.18);
+            color: var(--accent-blue);
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .profile-summary {
+            font-size: 14px;
+            line-height: 1.7;
+            color: #4b4137;
+            margin-bottom: 14px;
+        }
+
+        .profile-portrait-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .profile-pill {
+            background: rgba(255,255,255,0.72);
+            border: 1px solid #e3d8c9;
+            border-radius: 14px;
+            padding: 10px 12px;
+        }
+
+        .profile-pill-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .profile-pill-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: #2c241d;
+            margin-bottom: 4px;
+        }
+
+        .profile-pill-evidence {
+            font-size: 11px;
+            line-height: 1.45;
+            color: #75695d;
+        }
+
+        .profile-empty {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            background: var(--bg-primary);
+        }
+
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .chat-date-divider {
+            text-align: center;
+            margin: 16px 0;
+        }
+
+        .chat-date-divider span {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 4px 16px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* 事件标记 */
+        .chat-event-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 12px 0;
+        }
+
+        .chat-event-marker .event-card {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15));
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 20px;
+            padding: 8px 16px;
+            font-size: 12px;
+            color: var(--accent-cyan);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chat-event-marker .event-card.violation_pending {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(249, 115, 22, 0.15));
+            border-color: rgba(239, 68, 68, 0.3);
+            color: var(--accent-red);
+        }
+
+        .chat-event-marker .event-card.violation_resolved,
+        .chat-event-marker .event-card.agency_bound {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(6, 182, 212, 0.15));
+            border-color: rgba(16, 185, 129, 0.3);
+            color: var(--accent-green);
+        }
+
+        .chat-event-marker .event-card.payment_completed {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(249, 115, 22, 0.15));
+            border-color: rgba(245, 158, 11, 0.3);
+            color: var(--accent-yellow);
+        }
+
+        .chat-event-marker .event-card.gmv_milestone {
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(59, 130, 246, 0.15));
+            border-color: rgba(6, 182, 212, 0.3);
+            color: var(--accent-blue);
+        }
+
+        .chat-event-marker .event-card.beta_joined {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15));
+            border-color: rgba(139, 92, 246, 0.3);
+            color: var(--accent-purple);
+        }
+
+        .chat-event-marker .event-detail {
+            font-size: 10px;
+            opacity: 0.8;
+            margin-left: 4px;
+        }
+
+        .chat-bubble {
+            max-width: 75%;
+            padding: 12px 16px;
+            border-radius: 16px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+
+        .chat-bubble.user {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-bubble.me {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+
+        .chat-bubble .chat-time {
+            font-size: 10px;
+            opacity: 0.7;
+            margin-top: 4px;
+            display: block;
+        }
+
+        .chat-empty {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">💬</div>
+                <div class="logo-text">CRM Dashboard</div>
+            </div>
+            <nav class="tab-nav">
+                <button id="tabBtnLifecycle" class="tab-btn active" onclick="switchTab('lifecycle')">生命周期</button>
+                <button id="tabBtnWa" class="tab-btn" onclick="switchTab('wa')">WhatsApp CRM</button>
+                <button id="tabBtnJb" class="tab-btn" onclick="switchTab('jb')" style="display:none;">JoinBrands</button>
+                <button id="tabBtnKeeper" class="tab-btn" onclick="switchTab('keeper')" style="display:none;">Keeper</button>
+            </nav>
+            <div class="header-time" id="currentTime"></div>
+        </div>
+    </header>
+
+    <!-- WhatsApp CRM Tab -->
+    <div id="tab-wa" class="tab-content">
+        <div class="stats-bar" id="statsBar">
+            <div class="stat-card">
+                <div class="stat-label">总用户数</div>
+                <div class="stat-value cyan" id="statTotal">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">紧急待处理</div>
+                <div class="stat-value red" id="statUrgent">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">高优先级</div>
+                <div class="stat-value orange" id="statHigh">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">🚨违规</div>
+                <div class="stat-value red" id="statViolation">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">🔗未绑定</div>
+                <div class="stat-value orange" id="statUnbound">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">💎已绑定</div>
+                <div class="stat-value green" id="statPartnership">-</div>
+            </div>
+        </div>
+
+        <div class="filter-bar">
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="搜索姓名 / 手机号...">
+            </div>
+            <select class="filter-select" id="filterLifecycleStage">
+                <option value="">主阶段: 全部</option>
+                <option value="acquisition">获取</option>
+                <option value="activation">激活</option>
+                <option value="retention">留存</option>
+                <option value="revenue">变现</option>
+                <option value="terminated">终止池</option>
+            </select>
+            <select class="filter-select" id="filterBetaStatus">
+                <option value="">Beta: 全部</option>
+                <option value="not_introduced">未介绍</option>
+                <option value="introduced">已介绍</option>
+                <option value="active">进行中</option>
+                <option value="completed">已完成</option>
+                <option value="churned">已流失</option>
+            </select>
+            <select class="filter-select" id="filterMonthlyFee">
+                <option value="">月费: 全部</option>
+                <option value="pending">待支付</option>
+                <option value="due">待扣款</option>
+                <option value="paid">已支付</option>
+                <option value="overdue">逾期</option>
+                <option value="waived">免除</option>
+            </select>
+            <select class="filter-select" id="filterPriority">
+                <option value="">优先级: 全部</option>
+                <option value="urgent">紧急</option>
+                <option value="high">高</option>
+                <option value="medium">中</option>
+                <option value="low">低</option>
+            </select>
+            <select class="filter-select" id="filterAgency">
+                <option value="">Agency: 全部</option>
+                <option value="bound">已绑定</option>
+                <option value="unbound">未绑定</option>
+            </select>
+            <select class="filter-select" id="filterLifecycleFlag">
+                <option value="">徽章: 全部</option>
+                <option value="wa_joined">已入WA</option>
+                <option value="referral_active">推荐中</option>
+                <option value="trial_in_progress">Trial进行中</option>
+                <option value="trial_completed">Trial完成</option>
+                <option value="agency_bound">Agency已绑定</option>
+                <option value="gmv_2k">GMV已达标</option>
+                <option value="churn_risk">流失风险</option>
+                <option value="conflict">有冲突</option>
+            </select>
+            <select class="filter-select" id="filterEventKey">
+                <option value="">事件: 全部</option>
+            </select>
+            <select class="filter-select" id="filterOperator">
+                <option value="">负责人: 全部</option>
+            </select>
+            <div class="view-toggle">
+                <button class="view-btn active" id="viewCard" onclick="switchView('card')">📊 看板</button>
+                <button class="view-btn" id="viewSheet" onclick="switchView('sheet')">📋 列表</button>
+            </div>
+        </div>
+
+        <div class="filter-result-bar" id="filterResultBar">
+            当前显示 <span id="filterResultCount">0</span> / <span id="filterResultTotal">0</span> 条
+        </div>
+
+        <main class="main-content">
+            <div class="cards-grid" id="cardsGrid"></div>
+            <div class="sheet-view" id="sheetView" style="display:none;">
+                <table class="sheet-table">
+                    <thead>
+                        <tr>
+                            <th>姓名</th>
+                            <th>电话</th>
+                            <th>负责人</th>
+                            <th>WA最后消息</th>
+                            <th>消息数</th>
+                            <th>生命周期</th>
+                            <th>Beta</th>
+                            <th>月费</th>
+                            <th>Agency</th>
+                            <th>徽章</th>
+                            <th>优先级</th>
+                            <th>最新事件</th>
+                            <th>建议动作</th>
+                            <th>中台</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sheetBody"></tbody>
+                </table>
+            </div>
+            <div class="empty-state" id="emptyState" style="display:none;">
+                <div class="empty-state-icon">📭</div>
+                <div class="empty-state-text">没有匹配的用户</div>
+            </div>
+        </main>
+    </div>
+
+    <!-- JoinBrands Tab -->
+    <div id="tab-jb" class="tab-content">
+        <!-- Stats -->
+        <div class="stats-bar" id="jbStatsBar">
+            <div class="stat-card">
+                <div class="stat-label">总达人</div>
+                <div class="stat-value cyan" id="jbTotal">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">🔴 紧急</div>
+                <div class="stat-value red" id="jbUrgent">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">🟡 高优先级</div>
+                <div class="stat-value orange" id="jbHigh">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">💎 已绑定</div>
+                <div class="stat-value green" id="jbBound">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">⚠️ 流失预警</div>
+                <div class="stat-value yellow" id="jbChurnRisk">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">❌ 已流失</div>
+                <div class="stat-value red" id="jbChurned">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">💰 总GMV</div>
+                <div class="stat-value green" id="jbTotalGMV">-</div>
+            </div>
+        </div>
+
+        <!-- Creator Cards Grid -->
+        <div class="main-content">
+            <!-- Filters -->
+            <div class="filter-bar">
+                <div class="search-box">
+                    <input type="text" id="jbSearchInput" placeholder="搜索达人姓名...">
+                </div>
+                <select class="filter-select" id="jbFilterPriority">
+                    <option value="">优先级: 全部</option>
+                    <option value="urgent">🔴 紧急</option>
+                    <option value="high">🟡 高</option>
+                    <option value="medium">🟢 中</option>
+                    <option value="low">⚪ 低</option>
+                </select>
+                <select class="filter-select" id="jbFilterGMV">
+                    <option value="">GMV区间: 全部</option>
+                    <option value="0">$0</option>
+                    <option value="1-999">$1-$999</option>
+                    <option value="1k-2k">$1k-$1.9k</option>
+                    <option value="2k-5k">$2k-$4.9k 🔥</option>
+                    <option value="5k+">$5k+</option>
+                </select>
+                <select class="filter-select" id="jbFilterStatus">
+                    <option value="">状态: 全部</option>
+                    <option value="active">✅ 活跃</option>
+                    <option value="churn_risk">⚠️ 流失预警</option>
+                    <option value="churned">❌ 已流失</option>
+                    <option value="bound">💎 已绑定</option>
+                </select>
+                <select class="filter-select" id="jbFilterJbStatus">
+                    <option value="">JB状态: 全部</option>
+                </select>
+            </div>
+
+            <!-- Creator Cards -->
+            <div class="cards-grid" id="jbCardsGrid"></div>
+            <div class="empty-state" id="jbEmptyState" style="display:none;">
+                <div class="empty-state-icon">📭</div>
+                <div class="empty-state-text">没有匹配的达人</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Keeper Tab -->
+    <div id="tab-keeper" class="tab-content">
+        <div class="stats-bar" id="keeperStatsBar">
+            <div class="stat-card">
+                <div class="stat-label">已匹配用户</div>
+                <div class="stat-value cyan" id="keeperTotal">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">总视频</div>
+                <div class="stat-value yellow" id="keeperTotalVideos">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">总GMV</div>
+                <div class="stat-value green" id="keeperTotalGMV">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">30日GMV</div>
+                <div class="stat-value blue" id="keeperGMV30">-</div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="filter-bar">
+                <div class="search-box">
+                    <input type="text" id="keeperSearchInput" placeholder="搜索Keeper姓名...">
+                </div>
+            </div>
+
+            <div class="sheet-view">
+                <table class="sheet-table">
+                    <thead>
+                        <tr>
+                            <th>Keeper用户名</th>
+                            <th>匹配WA用户</th>
+                            <th>电话</th>
+                            <th>总视频</th>
+                            <th>已发视频</th>
+                            <th>已售视频</th>
+                            <th>总GMV</th>
+                            <th>30日GMV</th>
+                            <th>订单数</th>
+                            <th>中台</th>
+                        </tr>
+                    </thead>
+                    <tbody id="keeperBody"></tbody>
+                </table>
+            </div>
+            <div class="empty-state" id="keeperEmptyState" style="display:none;">
+                <div class="empty-state-icon">📭</div>
+                <div class="empty-state-text">没有匹配的Keeper数据</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lifecycle Tab -->
+    <div id="tab-lifecycle" class="tab-content active">
+        <div class="main-content">
+            <div class="lifecycle-shell">
+                <aside class="lifecycle-sidebar">
+                    <div class="lifecycle-sidebar-card">
+                        <div class="lifecycle-sidebar-eyebrow">Lifecycle Workspace</div>
+                        <div class="lifecycle-sidebar-title">客户生命周期</div>
+                        <div class="lifecycle-sidebar-copy">
+                            把主阶段、子流程和并行徽章拆开看。这个页面的结构已经按 PRD 预留好，后面接入 v2 的正式快照和迁移表时可以直接替换数据层。
+                        </div>
+                    </div>
+
+                    <div class="lifecycle-sidebar-card">
+                        <div class="lifecycle-sidebar-eyebrow">Filters</div>
+                        <div class="lifecycle-filters">
+                            <div>
+                                <div class="lifecycle-filter-label">搜索</div>
+                                <div class="search-box">
+                                    <input type="text" id="lifeSearchInput" placeholder="搜索姓名 / 手机号...">
+                                </div>
+                            </div>
+                            <div>
+                                <div class="lifecycle-filter-label">主阶段</div>
+                                <select class="filter-select" id="lifeStageFilter">
+                                    <option value="">阶段: 全部</option>
+                                    <option value="acquisition">获取</option>
+                                    <option value="activation">激活</option>
+                                    <option value="retention">留存</option>
+                                    <option value="revenue">变现</option>
+                                    <option value="referral">传播</option>
+                                    <option value="terminated">终止池</option>
+                                </select>
+                            </div>
+                            <div>
+                                <div class="lifecycle-filter-label">负责人</div>
+                                <select class="filter-select" id="lifeOwnerFilter">
+                                    <option value="">负责人: 全部</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="lifecycle-sidebar-card">
+                        <div class="lifecycle-sidebar-eyebrow">Stage Index</div>
+                        <div class="lifecycle-stage-list" id="lifeStageList"></div>
+                    </div>
+                </aside>
+
+                <section class="lifecycle-main">
+                    <div class="lifecycle-hero">
+                        <div>
+                            <div class="lifecycle-panel-eyebrow">Lifecycle Overview</div>
+                            <div class="lifecycle-hero-title">Funnel & Trend</div>
+                            <div class="lifecycle-hero-copy" id="lifeSummaryPrimary">
+                                生命周期正在加载中。
+                            </div>
+                        </div>
+                        <div class="lifecycle-hero-note">
+                            <div class="lifecycle-panel-eyebrow">Visible Creators</div>
+                            <div class="lifecycle-hero-note-value" id="lifeVisibleCount">-</div>
+                            <div class="lifecycle-mini-note" id="lifeSummarySecondary">正在汇总当前筛选结果。</div>
+                        </div>
+                    </div>
+
+                    <div class="lifecycle-callout">
+                        <div class="lifecycle-callout-icon">i</div>
+                        <div>
+                            <strong>当前页面优先使用官方 lifecycle snapshot / transition</strong>
+                            漏斗和趋势统一按 AARRR 口径展示（获取/激活/留存/变现/传播），不再把终止池放进主漏斗。
+                        </div>
+                    </div>
+
+                    <div class="lifecycle-data-strip">
+                        <div class="lifecycle-data-chip"><strong>官方累计漏斗（v2）</strong><span id="lifeOfficialTag">获取 - / 激活 - / 留存 - / 变现 - / 传播 -</span></div>
+                        <div class="lifecycle-data-chip"><strong>当前阶段桶（筛选视图）</strong><span id="lifeCurrentTag">获取 - / 激活 - / 留存 - / 变现 - / 终止池 -</span></div>
+                    </div>
+
+                    <div class="lifecycle-kpis" id="lifeStatsBar">
+                        <div class="lifecycle-kpi">
+                            <div class="stat-label">获取</div>
+                            <div class="stat-value" id="lifeAcquisition">-</div>
+                        </div>
+                        <div class="lifecycle-kpi">
+                            <div class="stat-label">激活</div>
+                            <div class="stat-value" id="lifeActivation">-</div>
+                        </div>
+                        <div class="lifecycle-kpi">
+                            <div class="stat-label">留存</div>
+                            <div class="stat-value" id="lifeRetention">-</div>
+                        </div>
+                        <div class="lifecycle-kpi">
+                            <div class="stat-label">变现</div>
+                            <div class="stat-value" id="lifeRevenue">-</div>
+                        </div>
+                        <div class="lifecycle-kpi">
+                            <div class="stat-label">传播</div>
+                            <div class="stat-value" id="lifeReferral">-</div>
+                        </div>
+                    </div>
+
+                    <div class="lifecycle-view-switch" role="tablist" aria-label="可视化切换">
+                        <button class="lifecycle-view-btn active" id="lifeViewFunnelBtn" onclick="switchLifecycleView('funnel')">漏斗视图</button>
+                        <button class="lifecycle-view-btn" id="lifeViewLineBtn" onclick="switchLifecycleView('line')">折线视图</button>
+                    </div>
+
+                    <div class="lifecycle-visual-grid">
+                        <div class="lifecycle-panel" id="lifeFunnelPanel">
+                            <div class="lifecycle-panel-header">
+                                <div>
+                                    <div class="lifecycle-panel-eyebrow">Funnel Model</div>
+                                    <div class="lifecycle-panel-title">阶段漏斗</div>
+                                    <div class="lifecycle-panel-copy">
+                                        按 v2 官方累计漏斗显示 AARRR 进展（传播为并行层），帮助你看哪里最宽、哪里掉得最快。
+                                    </div>
+                                </div>
+                                <div class="lifecycle-panel-meta" id="lifeFunnelMeta">官方累计漏斗</div>
+                            </div>
+                            <div class="lifecycle-funnel-list" id="lifeFunnel"></div>
+                        </div>
+
+                        <div class="lifecycle-panel lifecycle-panel-hidden" id="lifeLinePanel">
+                            <div class="lifecycle-panel-header">
+                                <div>
+                                    <div class="lifecycle-panel-eyebrow">Line Model</div>
+                                    <div class="lifecycle-panel-title">近 6 周阶段趋势</div>
+                                    <div class="lifecycle-panel-copy">
+                                        折线也按 AARRR 口径展示累计到达变化，便于对比阶段推进速度。
+                                    </div>
+                                </div>
+                                <div class="lifecycle-panel-meta" id="lifeTrendMeta">AARRR 累计口径</div>
+                            </div>
+                            <div class="lifecycle-chart-wrap">
+                                <canvas class="lifecycle-chart-canvas" id="lifeTrendCanvas"></canvas>
+                                <div class="lifecycle-chart-legend" id="lifeTrendLegend"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="lifecycle-mini-grid">
+                        <div class="lifecycle-mini-card">
+                            <div class="lifecycle-panel-eyebrow">Key Readout</div>
+                            <div class="lifecycle-mini-value" id="lifeConversionRate">-</div>
+                            <div class="lifecycle-mini-note">从获取进入变现阶段的当前可见转化率。</div>
+                        </div>
+                        <div class="lifecycle-mini-card">
+                            <div class="lifecycle-panel-eyebrow">Risk Pool</div>
+                            <div class="lifecycle-mini-value" id="lifeRiskCount">-</div>
+                            <div class="lifecycle-mini-note">带有流失风险、冲突或终止信号的达人数量。</div>
+                        </div>
+                        <div class="lifecycle-mini-card">
+                            <div class="lifecycle-panel-eyebrow">Recommendation Layer</div>
+                            <div class="lifecycle-mini-value" id="lifeReferralCount">-</div>
+                            <div class="lifecycle-mini-note">当前筛选内仍带推荐活跃 flag 的达人数量。</div>
+                        </div>
+                    </div>
+
+                    <div class="lifecycle-table-panel">
+                        <div class="lifecycle-table-header">
+                            <div>
+                                <div class="lifecycle-panel-eyebrow">Lifecycle Rows</div>
+                                <div class="lifecycle-panel-title">阶段明细表</div>
+                                <div class="lifecycle-panel-copy">
+                                    主阶段、Beta 子流程、并行 flags 和建议动作放在同一张表里，方便后面平滑换到 v2 正式生命周期服务。
+                                </div>
+                            </div>
+                            <div class="lifecycle-table-header-actions">
+                                <div class="lifecycle-view-switch" role="tablist" aria-label="明细视图切换" style="margin:0;">
+                                    <button class="lifecycle-view-btn active" id="lifeRowsTableBtn" onclick="switchLifecycleRowsView('table')">表格视图</button>
+                                    <button class="lifecycle-view-btn" id="lifeRowsBoardBtn" onclick="switchLifecycleRowsView('board')">看板视图</button>
+                                </div>
+                                <div class="lifecycle-table-count">当前命中 <span id="lifeTableCount">0</span> / <span id="lifeTableTotal">0</span></div>
+                            </div>
+                        </div>
+
+                        <div class="lifecycle-table-wrap">
+                            <div class="sheet-view" id="lifeTableWrap">
+                                <table class="sheet-table">
+                                    <thead>
+                                        <tr>
+                                            <th>姓名</th>
+                                            <th>电话</th>
+                                            <th>负责人</th>
+                                            <th>生命周期</th>
+                                            <th>Beta状态</th>
+                                            <th>并行徽章</th>
+                                            <th>月费状态</th>
+                                            <th>Agency</th>
+                                            <th>推荐</th>
+                                            <th>冲突</th>
+                                            <th>进入原因</th>
+                                            <th>建议动作</th>
+                                            <th>最后消息</th>
+                                            <th>消息数</th>
+                                            <th>中台</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="lifeBody"></tbody>
+                                </table>
+                            </div>
+                            <div class="life-board-grid life-view-hidden" id="lifeBoardGrid"></div>
+                            <div class="empty-state" id="lifeEmptyState" style="display:none;">
+                                <div class="empty-state-icon">📭</div>
+                                <div class="empty-state-text">没有匹配的生命周期数据</div>
+                            </div>
+                            <div class="life-pagination" id="lifePagination" style="display:none;"></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Modal -->
+    <div class="modal-overlay" id="chatModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <div class="avatar cyan" id="modalAvatar">??</div>
+                    <div class="modal-title-text">
+                        <h3 id="modalName">-</h3>
+                        <span id="modalPhone">-</span>
+                    </div>
+                </div>
+                <div class="modal-header-actions">
+                    <button type="button" id="modalOpenV2Btn" class="action-btn js-open-v2 modal-open-v2" style="display:none;">在中台打开</button>
+                    <button class="modal-close" onclick="closeChatModal()">×</button>
+                </div>
+            </div>
+            <div id="modalProfilePanel" class="modal-profile-panel"></div>
+            <div id="eventBars" class="event-bars">
+                <div id="agencyBoundBar" class="event-bar event-bar-green" style="display:none;">🎉 Agency绑定成功</div>
+                <div id="violationBar" class="event-bar event-bar-red" style="display:none;"></div>
+                <div id="betaBar" class="event-bar event-bar-purple" style="display:none;">📋 加入20天Beta计划</div>
+                <div id="paymentBar" class="event-bar event-bar-yellow" style="display:none;">💰 付款完成</div>
+            </div>
+            <div class="modal-body">
+                <div class="chat-container" id="chatContainer"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/v1/assets/js/state/store.js"></script>
+    <script src="/v1/assets/js/api/client.js"></script>
+    <script src="/v1/assets/js/domain/lifecycle.js"></script>
+    <script src="/v1/assets/js/renderers/lifecycleDashboardRenderer.js"></script>
+    <script src="/v1/assets/js/renderers/lifecycleRowsRenderer.js"></script>
+    <script>
+        const API_BASE = '/v1/api';
+        window.ApiClient.configure({ baseUrl: API_BASE });
+        const appStore = window.AppStore;
+        const apiClient = window.ApiClient;
+        const LOCAL_V2_PORT = '3000';
+        const CROSS_APP_LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
+        const DEEPLINK_QUERY = (() => {
+            const params = new URLSearchParams(window.location.search);
+            const normalizeTab = (value) => {
+                const tab = String(value || '').trim().toLowerCase();
+                return ['wa', 'lifecycle', 'jb', 'keeper'].includes(tab) ? tab : 'wa';
+            };
+            const parsePositiveInt = (value) => {
+                const n = parseInt(String(value || '').trim(), 10);
+                return Number.isFinite(n) && n > 0 ? n : null;
+            };
+            return {
+                hasParams: params.has('tab') || params.has('creatorId') || params.has('openChat') || params.has('view') || params.has('phone') || params.has('name'),
+                tab: normalizeTab(params.get('tab')),
+                creatorId: parsePositiveInt(params.get('creatorId')),
+                openChat: params.get('openChat') === '1',
+                view: String(params.get('view') || '').trim().toLowerCase(),
+                phone: String(params.get('phone') || '').trim(),
+                name: String(params.get('name') || '').trim(),
+            };
+        })();
+        let deeplinkResolved = false;
+
+        function getCrossAppBase(configuredBase, fallbackPort) {
+            const explicit = String(configuredBase || '').trim().replace(/\/+$/, '');
+            if (explicit) return explicit;
+            const { protocol, hostname, port, origin } = window.location;
+            if (!hostname) return '';
+            if (!CROSS_APP_LOCAL_HOSTS.has(hostname)) return origin.replace(/\/+$/, '');
+            const targetPort = String(fallbackPort || '').trim();
+            if (!targetPort || port === targetPort) return origin.replace(/\/+$/, '');
+            return `${protocol}//${hostname}:${targetPort}`;
+        }
+
+        function buildV2WorkspaceUrl(options = {}) {
+            const base = getCrossAppBase('', LOCAL_V2_PORT);
+            const params = new URLSearchParams();
+            params.set('tab', String(options.tab || 'creators'));
+            params.set('source', 'v1');
+            if (options.creatorId) params.set('creatorId', String(options.creatorId));
+            if (!options.creatorId && options.waPhone) params.set('waPhone', String(options.waPhone));
+            if (!options.creatorId && options.jbName) params.set('jbName', String(options.jbName));
+            if (!options.creatorId && options.keeperUsername) params.set('keeperUsername', String(options.keeperUsername));
+            if (options.owner) params.set('owner', String(options.owner));
+            if (options.eventId) params.set('eventId', String(options.eventId));
+            return `${base}/?${params.toString()}`;
+        }
+
+        function openV2Workspace(url) {
+            if (!url) return;
+            const popup = window.open(url, '_blank', 'noopener,noreferrer');
+            if (!popup) {
+                window.location.href = url;
+            }
+        }
+
+        function setModalV2Button(url) {
+            const btn = document.getElementById('modalOpenV2Btn');
+            if (!btn) return;
+            if (!url) {
+                btn.style.display = 'none';
+                btn.removeAttribute('data-v2-url');
+                return;
+            }
+            btn.setAttribute('data-v2-url', url);
+            btn.style.display = 'inline-flex';
+        }
+
+        function ensureTabButtonVisible(tab) {
+            if (tab === 'jb') {
+                const jbBtn = document.getElementById('tabBtnJb');
+                if (jbBtn) jbBtn.style.display = '';
+            }
+            if (tab === 'keeper') {
+                const keeperBtn = document.getElementById('tabBtnKeeper');
+                if (keeperBtn) keeperBtn.style.display = '';
+            }
+        }
+
+        function findUserByCreatorId(creatorId) {
+            return (allUsers || []).find((user) => Number(user?.id) === Number(creatorId)) || null;
+        }
+
+        function findJBByCreatorId(creatorId) {
+            return (allJBData || []).find((item) => Number(item?.creatorId) === Number(creatorId)) || null;
+        }
+
+        function findKeeperByCreatorId(creatorId) {
+            return (allKeeperData || []).find((item) => Number(item?.creatorId) === Number(creatorId)) || null;
+        }
+
+        function findLifecycleByCreatorId(creatorId) {
+            return (allLifeData || []).find((item) => Number(item?.id) === Number(creatorId)) || null;
+        }
+
+        function flashTargetElement(target) {
+            if (!target) return;
+            target.classList.remove('deeplink-target');
+            void target.offsetWidth;
+            target.classList.add('deeplink-target');
+            window.setTimeout(() => target.classList.remove('deeplink-target'), 1800);
+        }
+
+        function focusCreatorInTab(tab, creatorId) {
+            const root = document.getElementById('tab-' + tab);
+            if (!root) return false;
+            const target = Array.from(root.querySelectorAll('[data-creator-id]'))
+                .find((node) => String(node.getAttribute('data-creator-id') || '') === String(creatorId));
+            if (!target) return false;
+            target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+            flashTargetElement(target);
+            return true;
+        }
+
+        function tryBootstrapFromQuery(source) {
+            if (deeplinkResolved) return true;
+            const query = DEEPLINK_QUERY;
+            if (!query || !query.hasParams) return false;
+
+            const targetTab = query.tab || 'wa';
+            ensureTabButtonVisible(targetTab);
+            switchTab(targetTab);
+
+            if (targetTab === 'lifecycle' && query.view === 'board') {
+                switchLifecycleRowsView('board');
+            }
+
+            if (!query.creatorId) {
+                if (targetTab === 'wa' && query.openChat && query.phone) {
+                    deeplinkResolved = true;
+                    openChatModal(query.phone, query.name || query.phone);
+                    return true;
+                }
+                deeplinkResolved = true;
+                return true;
+            }
+
+            let matched = null;
+            if (targetTab === 'wa') matched = findUserByCreatorId(query.creatorId);
+            else if (targetTab === 'jb') matched = findJBByCreatorId(query.creatorId);
+            else if (targetTab === 'keeper') matched = findKeeperByCreatorId(query.creatorId);
+            else if (targetTab === 'lifecycle') matched = findLifecycleByCreatorId(query.creatorId);
+
+            if (!matched) return false;
+
+            deeplinkResolved = true;
+            if (targetTab === 'wa' && query.openChat) {
+                openChatModal(matched.phone || query.phone, matched.name || query.name || matched.phone || 'Unknown');
+                return true;
+            }
+
+            window.setTimeout(() => {
+                focusCreatorInTab(targetTab, query.creatorId);
+            }, source === 'bootstrap' ? 120 : 40);
+            return true;
+        }
+
+        // ============ Tab Switching ============
+        function switchTab(tab) {
+            ensureTabButtonVisible(tab);
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-' + tab).classList.add('active');
+            const tabButtonMap = {
+                lifecycle: 'tabBtnLifecycle',
+                wa: 'tabBtnWa',
+                jb: 'tabBtnJb',
+                keeper: 'tabBtnKeeper'
+            };
+            const targetBtn = document.getElementById(tabButtonMap[tab] || 'tabBtnLifecycle');
+            if (targetBtn) targetBtn.classList.add('active');
+            if (tab === 'lifecycle') {
+                window.setTimeout(() => {
+                    drawLifecycleTrendChart(buildLifecycleTrend(currentLifeFilteredData.length ? currentLifeFilteredData : allLifeData));
+                }, 30);
+            }
+            if (tab === 'wa') {
+                refreshWAData({ force: true });
+            }
+        }
+
+        // ============ Time ============
+        function updateTime() {
+            const now = new Date();
+            const options = {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            };
+            document.getElementById('currentTime').textContent = now.toLocaleString('zh-CN', options);
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
+        // ============ WA CRM ============
+        let allUsers = [];
+        let allLifeData = [];
+        let currentView = 'card';
+
+        function switchView(view) {
+            currentView = view;
+            document.getElementById('viewCard').classList.toggle('active', view === 'card');
+            document.getElementById('viewSheet').classList.toggle('active', view === 'sheet');
+            document.getElementById('cardsGrid').style.display = view === 'card' ? '' : 'none';
+            document.getElementById('sheetView').style.display = view === 'sheet' ? '' : 'none';
+            renderCards(allUsers);
+        }
+
+        function getAvatarColor(name) {
+            const colors = ['cyan', 'green', 'yellow', 'red', 'blue', 'orange', 'purple'];
+            let hash = 0;
+            for (let i = 0; i < (name || '').length; i++) {
+                hash = name.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            return colors[Math.abs(hash) % colors.length];
+        }
+
+        function getInitials(name) {
+            if (!name) return '?';
+            const parts = name.split(/[\s|]/);
+            if (parts.length >= 2) {
+                return parts[0][0] + parts[1][0];
+            }
+            return name.substring(0, 2).toUpperCase();
+        }
+
+        function getScoreClass(score) {
+            if (score >= 80) return 'score-high';
+            if (score >= 40) return 'score-mid';
+            return 'score-low';
+        }
+
+        function getSentimentLabel(sentiment) {
+            const labels = { positive: '正向', neutral: '中性', negative: '负向' };
+            return labels[sentiment] || sentiment;
+        }
+
+        function formatRelativeTime(date) {
+            const now = Date.now();
+            const diff = now - date.getTime();
+            const minutes = Math.floor(diff / 60000);
+            const hours = Math.floor(diff / 3600000);
+            const days = Math.floor(diff / 86400000);
+            if (minutes < 1) return '刚刚';
+            if (minutes < 60) return minutes + '分钟前';
+            if (hours < 24) return hours + '小时前';
+            if (days < 30) return days + '天前';
+            return date.toLocaleDateString('zh-CN');
+        }
+
+        function getMonthlyFeeLabel(status, deducted) {
+            if (deducted || status === 'paid') return 'paid';
+            if (!status) return '-';
+            return status;
+        }
+
+        function getMonthlyFeeDisplay(status, deducted) {
+            const key = getMonthlyFeeLabel(status, deducted);
+            const labels = {
+                pending: '待支付',
+                due: '待扣款',
+                paid: '已支付',
+                overdue: '逾期',
+                waived: '免除'
+            };
+            return labels[key] || key || '-';
+        }
+
+        function getIntentLabel(intent) {
+            const labels = {
+                confirmation: '确认',
+                inquiry: '咨询',
+                complaint: '投诉',
+                partnership: '合作',
+                testing: '测试',
+                info_sharing: '信息共享',
+                unknown: '未知'
+            };
+            return labels[intent] || intent;
+        }
+
+        function getPriorityLabel(priority) {
+            const labels = { urgent: '紧急', high: '高', medium: '中', low: '低' };
+            return labels[priority] || priority;
+        }
+
+        const EVENT_TS_KEYS = ['ts', 'timestamp', 'time', 'at', 'created_at', 'updated_at', 'occurred_at', 'joined_at', 'completed_at', 'deducted_at', 'bound_at', 'activated_at'];
+        const EVENT_KEY_LABELS = {
+            violations: '违规事件',
+            monthly_beta: 'Beta进展',
+            monthly_fee: '月费状态',
+            agency_binding: 'Agency状态',
+            weekly_videos: '视频进展',
+            referrals: '推荐状态',
+            trial_7day: 'Trial完成',
+            monthly_challenge: '月度挑战',
+            agency_bound: 'Agency绑定',
+            gmv_milestone: 'GMV达标',
+            gmv_milestone_10k: 'GMV1w+',
+            referral: '推荐中'
+        };
+        const EVENT_KEY_ICON = {
+            trial_7day: '🧪',
+            monthly_challenge: '📅',
+            agency_bound: '🔗',
+            gmv_milestone: '💰',
+            gmv_milestone_10k: '🏆',
+            referral: '🎁',
+            default: '•',
+        };
+
+        function parseEventTimestamp(value) {
+            if (value == null) return 0;
+            if (typeof value === 'number') {
+                if (value > 1e12) return Math.floor(value);
+                if (value > 1e9) return Math.floor(value * 1000);
+                return 0;
+            }
+            const text = String(value).trim();
+            if (!text) return 0;
+            const asNum = Number(text);
+            if (Number.isFinite(asNum) && asNum > 0) {
+                if (asNum > 1e12) return Math.floor(asNum);
+                if (asNum > 1e9) return Math.floor(asNum * 1000);
+            }
+            const parsed = Date.parse(text);
+            return Number.isNaN(parsed) ? 0 : parsed;
+        }
+
+        function getLatestEventInfo(user) {
+            const stream = Array.isArray(user?.events?.event_stream) ? user.events.event_stream : [];
+            if (stream.length) {
+                const sorted = [...stream].sort((a, b) => Number(b.timestamp || b.created_at || 0) - Number(a.timestamp || a.created_at || 0));
+                const head = sorted.find((evt) => ['active', 'completed', 'draft'].includes(String(evt.status || '').toLowerCase())) || sorted[0];
+                const label = EVENT_KEY_LABELS[head?.event_key] || EVENT_KEY_LABELS[head?.event_type] || head?.event_key || head?.event_type || '-';
+                const ts = parseEventTimestamp(head?.timestamp || head?.created_at || head?.end_at || head?.start_at);
+                if (ts) return { ts, label };
+            }
+
+            const events = user?.events || {};
+            let latest = { ts: 0, label: '-' };
+            const updateLatest = (ts, label) => {
+                if (!ts || ts <= latest.ts) return;
+                latest = { ts, label: label || '-' };
+            };
+
+            Object.entries(events).forEach(([eventKey, value]) => {
+                const candidates = Array.isArray(value) ? value : [value];
+                candidates.forEach((item) => {
+                    if (!item || typeof item !== 'object') return;
+                    let ts = 0;
+                    EVENT_TS_KEYS.forEach((key) => {
+                        ts = Math.max(ts, parseEventTimestamp(item[key]));
+                    });
+                    if (!ts) {
+                        Object.entries(item).forEach(([key, val]) => {
+                            if (/(time|date|timestamp|ts|_at)$/i.test(key)) {
+                                ts = Math.max(ts, parseEventTimestamp(val));
+                            }
+                        });
+                    }
+                    updateLatest(ts, EVENT_KEY_LABELS[eventKey] || eventKey);
+                });
+            });
+
+            const lastActiveTs = parseEventTimestamp(user?.last_active);
+            if (lastActiveTs > latest.ts) updateLatest(lastActiveTs, '聊天活跃');
+            const lifecycleTs = getLifecycleLatestEventMs(user) || 0;
+            if (lifecycleTs > latest.ts) updateLatest(lifecycleTs, '生命周期更新');
+            return latest;
+        }
+
+        function getLatestUpdateMs(user) {
+            const scoreTs = parseEventTimestamp(user?.score?.last_updated);
+            const latestEventTs = getLatestEventInfo(user).ts || 0;
+            const lastActiveTs = parseEventTimestamp(user?.last_active);
+            const lifecycleTs = getLifecycleLatestEventMs(user) || 0;
+            return Math.max(scoreTs, latestEventTs, lastActiveTs, lifecycleTs);
+        }
+
+        function getParallelBadgeSummary(user) {
+            const badges = getLifecycleBadges(user);
+            if (!badges.length) return '-';
+            if (badges.length <= 2) return badges.join(' / ');
+            return badges.slice(0, 2).join(' / ') + ' +' + (badges.length - 2);
+        }
+
+        function getParallelBadgeItems(user) {
+            const flags = user?.lifecycle?.flags || {};
+            const out = [];
+            if (flags.wa_joined) out.push({ key: 'wa_joined', icon: '📱', label: '已入WA' });
+            if (flags.trial_completed) out.push({ key: 'trial_7day', icon: '🧪', label: 'Trial完成' });
+            else if (flags.trial_in_progress) out.push({ key: 'trial_7day', icon: '🧪', label: 'Trial进行中' });
+            if (flags.agency_bound) out.push({ key: 'agency_bound', icon: '🔗', label: 'Agency已绑' });
+            if (flags.referral_active) out.push({ key: 'referral', icon: '🎁', label: '推荐中' });
+            if (['gte_10k', 'gte_5k', 'gte_2k', '10k', '5k', '2k'].includes(flags.gmv_tier)) out.push({ key: 'gmv_milestone', icon: '💰', label: 'GMV2k+' });
+            else if (['gt_0', '1k', '0'].includes(flags.gmv_tier) && Number(user?.keeper_gmv || 0) > 0) out.push({ key: 'gmv_milestone', icon: '💰', label: 'GMV活跃' });
+            if (flags.churn_risk) out.push({ key: 'churn_risk', icon: '⚠️', label: '流失风险' });
+            if ((user?.lifecycle?.conflicts || []).length > 0) out.push({ key: 'conflict', icon: '⚡', label: '有冲突' });
+            return out;
+        }
+
+        function renderParallelBadgeLogos(user, maxVisible = 2) {
+            const items = getParallelBadgeItems(user);
+            if (!items.length) return '<span class="metric-badge-logo"><span class="event-logo-dot">•</span>无</span>';
+            const visible = items.slice(0, maxVisible).map((item) =>
+                `<span class="metric-badge-logo"><span class="event-logo-dot">${item.icon}</span>${item.label}</span>`
+            );
+            if (items.length > maxVisible) {
+                visible.push(`<span class="metric-badge-logo"><span class="event-logo-dot">+</span>${items.length - maxVisible}</span>`);
+            }
+            return visible.join('');
+        }
+
+        function getLifecycleLabel(stageKey, rawLabel) {
+            const normalized = String(rawLabel || '').trim();
+            const match = normalized.match(/（([^）]+)）/);
+            if (match && match[1]) return match[1];
+            if (normalized && !/[A-Za-z]/.test(normalized)) return normalized;
+            const labels = {
+                acquisition: '获取',
+                activation: '激活',
+                retention: '留存',
+                revenue: '变现',
+                terminated: '终止池'
+            };
+            return labels[stageKey] || stageKey || '-';
+        }
+
+        const LIFECYCLE_STAGE_META = window.LifecycleDomain.LIFECYCLE_STAGE_META;
+        const LIFECYCLE_AARRR_META = window.LifecycleDomain.LIFECYCLE_AARRR_META;
+
+        let currentLifeBaseData = [];
+        let currentLifeFilteredData = [];
+        let lifecycleViewMode = 'funnel';
+        let lifecycleRowsViewMode = 'table';
+        let lifecycleUseOfficialStageBucket = false;
+        const LIFECYCLE_PAGE_SIZE = 10;
+        let lifecyclePage = 1;
+
+        function getLifecycleStageMeta(stageKey) { return window.LifecycleDomain.getLifecycleStageMeta(stageKey); }
+
+        function getLifecycleBadges(user) {
+            const flags = user.lifecycle?.flags || {};
+            const badges = [];
+            if (flags.wa_joined) badges.push('已入WA');
+            if (flags.referral_active) badges.push('推荐中');
+            if (flags.trial_in_progress) badges.push('Trial进行中');
+            if (flags.trial_completed) badges.push('Trial完成');
+            if (flags.agency_bound) badges.push('Agency已绑定');
+            if (['gte_10k', 'gte_5k', 'gte_2k', '10k', '5k', '2k'].includes(flags.gmv_tier)) badges.push('GMV2k+');
+            else if (['gt_0', '1k', '0'].includes(flags.gmv_tier) && Number(user.keeper_gmv || 0) > 0) badges.push('GMV活跃');
+            if (flags.churn_risk) badges.push('流失风险');
+            if ((user.lifecycle?.conflicts || []).length > 0) badges.push('有冲突');
+            return badges;
+        }
+
+        function switchLifecycleView(mode) {
+            lifecycleViewMode = mode === 'line' ? 'line' : 'funnel';
+            const funnelBtn = document.getElementById('lifeViewFunnelBtn');
+            const lineBtn = document.getElementById('lifeViewLineBtn');
+            const funnelPanel = document.getElementById('lifeFunnelPanel');
+            const linePanel = document.getElementById('lifeLinePanel');
+            const isLine = lifecycleViewMode === 'line';
+
+            if (funnelBtn) funnelBtn.classList.toggle('active', !isLine);
+            if (lineBtn) lineBtn.classList.toggle('active', isLine);
+            if (funnelPanel) funnelPanel.classList.toggle('lifecycle-panel-hidden', isLine);
+            if (linePanel) linePanel.classList.toggle('lifecycle-panel-hidden', !isLine);
+            if (isLine) {
+                drawLifecycleTrendChart(buildLifecycleTrend(currentLifeFilteredData.length ? currentLifeFilteredData : allLifeData));
+            }
+        }
+
+        function switchLifecycleRowsView(mode) {
+            lifecycleRowsViewMode = mode === 'board' ? 'board' : 'table';
+            const tableBtn = document.getElementById('lifeRowsTableBtn');
+            const boardBtn = document.getElementById('lifeRowsBoardBtn');
+            const tableWrap = document.getElementById('lifeTableWrap');
+            const boardGrid = document.getElementById('lifeBoardGrid');
+            window.LifecycleRowsRenderer.switchView({
+                mode: lifecycleRowsViewMode,
+                tableBtn,
+                boardBtn,
+                tableWrap,
+                boardGrid
+            });
+            // 强制走统一刷新，避免切换后出现空白
+            filterLifecycleData(true);
+        }
+
+        function paginateLifecycleData(filtered) {
+            const total = filtered.length;
+            const totalPages = Math.max(1, Math.ceil(total / LIFECYCLE_PAGE_SIZE));
+            lifecyclePage = Math.min(Math.max(1, lifecyclePage), totalPages);
+            const start = (lifecyclePage - 1) * LIFECYCLE_PAGE_SIZE;
+            const end = start + LIFECYCLE_PAGE_SIZE;
+            return {
+                pageItems: filtered.slice(start, end),
+                total,
+                totalPages,
+                start: total === 0 ? 0 : (start + 1),
+                end: Math.min(end, total)
+            };
+        }
+
+        function getLifecycleBoardSortMs(user) {
+            const lastActiveMs = user?.last_active ? new Date(user.last_active).getTime() : 0;
+            const latestLifecycleMs = getLifecycleLatestEventMs(user) || 0;
+            return Math.max(lastActiveMs || 0, latestLifecycleMs || 0);
+        }
+
+        function sortLifecycleBoardData(data) {
+            return [...(data || [])].sort((a, b) => {
+                const aHasMsg = Number(a?.msg_count || 0) > 0 ? 1 : 0;
+                const bHasMsg = Number(b?.msg_count || 0) > 0 ? 1 : 0;
+                if (bHasMsg !== aHasMsg) return bHasMsg - aHasMsg;
+                const timeDiff = getLifecycleBoardSortMs(b) - getLifecycleBoardSortMs(a);
+                if (timeDiff !== 0) return timeDiff;
+                return String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-Hans-CN');
+            });
+        }
+
+        function scrollChatToLatest() {
+            const modalBody = document.querySelector('#chatModal .modal-body');
+            const container = document.getElementById('chatContainer');
+            if (!modalBody || !container) return;
+            const run = () => {
+                modalBody.scrollTop = modalBody.scrollHeight;
+                const lastBubble = container.querySelector('.chat-bubble:last-of-type');
+                if (lastBubble) lastBubble.scrollIntoView({ block: 'end' });
+            };
+            run();
+            requestAnimationFrame(() => {
+                run();
+                requestAnimationFrame(run);
+            });
+            setTimeout(run, 80);
+        }
+
+        function renderLifecyclePagination(meta) {
+            const root = document.getElementById('lifePagination');
+            if (!root) return;
+            if (!meta || meta.total <= LIFECYCLE_PAGE_SIZE) {
+                root.style.display = 'none';
+                root.innerHTML = '';
+                return;
+            }
+            root.style.display = 'flex';
+            const prevDisabled = lifecyclePage <= 1 ? 'disabled' : '';
+            const nextDisabled = lifecyclePage >= meta.totalPages ? 'disabled' : '';
+            root.innerHTML = `
+                <div class="life-pagination-info">显示 ${meta.start}-${meta.end} / 共 ${meta.total} 位达人</div>
+                <div class="life-pagination-actions">
+                    <button class="life-page-btn" ${prevDisabled} onclick="setLifecyclePage(${lifecyclePage - 1})">上一页</button>
+                    <span class="life-page-current">第 ${lifecyclePage} / ${meta.totalPages} 页</span>
+                    <button class="life-page-btn" ${nextDisabled} onclick="setLifecyclePage(${lifecyclePage + 1})">下一页</button>
+                </div>
+            `;
+        }
+
+        function setLifecyclePage(nextPage) {
+            lifecyclePage = Math.max(1, Number(nextPage) || 1);
+            filterLifecycleData(true);
+        }
+
+        function getLifecycleStageBucketCounts(data, useOfficialStageBucket) {
+            if (useOfficialStageBucket && lifecycleDashboard?.stage_counts) {
+                return {
+                    acquisition: Number(lifecycleDashboard.stage_counts.acquisition || 0),
+                    activation: Number(lifecycleDashboard.stage_counts.activation || 0),
+                    retention: Number(lifecycleDashboard.stage_counts.retention || 0),
+                    revenue: Number(lifecycleDashboard.stage_counts.revenue || 0),
+                    terminated: Number(lifecycleDashboard.stage_counts.terminated || 0),
+                    referral: Number(lifecycleDashboard.referral_active_count || 0)
+                };
+            }
+            return getLifecycleCounts(data);
+        }
+
+        function getLifecycleConflictText(user) {
+            const conflicts = user.lifecycle?.conflicts || [];
+            if (!conflicts.length) return '-';
+            return conflicts.map(item => {
+                if (typeof item === 'string') return item;
+                return item.message || item.code || '冲突';
+            }).join(' / ');
+        }
+
+        function getLifecycleTransitionHistory(user) { return window.LifecycleDomain.getLifecycleTransitionHistory(user); }
+
+        function hasOfficialLifecycleSnapshot(user) { return window.LifecycleDomain.hasOfficialLifecycleSnapshot(user); }
+
+        function getLifecycleLatestEventMs(user) { return window.LifecycleDomain.getLifecycleLatestEventMs(user); }
+
+        function getLifecycleMilestones(user) { return window.LifecycleDomain.getLifecycleMilestones(user); }
+
+        function getLifecycleEventMilestones(user) { return window.LifecycleDomain.getLifecycleEventMilestones(user); }
+
+        function getLifecycleBoardEvents(user) { return window.LifecycleDomain.getLifecycleBoardEvents(user); }
+        function renderPersonalLifecycleMiniChart(user) { return window.LifecycleDomain.renderPersonalLifecycleMiniChart(user); }
+        function renderLifecycleProcessTrack(user) { return window.LifecycleDomain.renderLifecycleProcessTrack(user); }
+
+        function getPortraitFieldLabel(field) {
+            const labels = {
+                frequency: '沟通频率',
+                difficulty: '推进难度',
+                intent: '合作意图',
+                emotion: '当前情绪'
+            };
+            return labels[field] || field;
+        }
+
+        function getPortraitValueLabel(field, value) {
+            const labelMaps = {
+                frequency: { high: '高', medium: '中', low: '低' },
+                difficulty: { high: '高', medium: '中', low: '低' },
+                intent: { strong: '强', medium: '中', weak: '弱' },
+                emotion: { positive: '正向', neutral: '中性', negative: '负向' }
+            };
+            return labelMaps[field]?.[value] || value || '-';
+        }
+
+        function renderModalProfile(profile, lifecycle, owner) {
+            const panel = document.getElementById('modalProfilePanel');
+            if (!panel) return;
+            if (!profile && !lifecycle) {
+                panel.classList.remove('active');
+                panel.innerHTML = '';
+                return;
+            }
+
+            const summary = profile?.summary || lifecycle?.entry_reason || '';
+            const portrait = profile?.portrait || null;
+            const portraitSource = profile?.portrait_source === 'manual' ? '人工画像' : profile?.portrait_source === 'system' ? '系统画像' : 'v2画像';
+            const lifecycleLabel = lifecycle ? getLifecycleLabel(lifecycle.stage_key, lifecycle.stage_label) : null;
+            const ownerText = owner ? '负责人 ' + owner : null;
+
+            const portraitFields = ['frequency', 'difficulty', 'intent', 'emotion'];
+            const portraitHtml = portraitFields.map((field) => {
+                const item = portrait?.[field];
+                return `
+                    <div class="profile-pill">
+                        <div class="profile-pill-label">${getPortraitFieldLabel(field)}</div>
+                        <div class="profile-pill-value">${getPortraitValueLabel(field, item?.value)}</div>
+                        <div class="profile-pill-evidence">${item?.evidence ? escapeHtml(item.evidence) : '暂无证据摘要'}</div>
+                    </div>
+                `;
+            }).join('');
+
+            panel.innerHTML = `
+                <div class="profile-panel-top">
+                    <div>
+                        <div class="profile-panel-title">v2 当前画像</div>
+                        <div class="profile-panel-subtitle">${[ownerText, lifecycleLabel ? '生命周期 ' + lifecycleLabel : null].filter(Boolean).join(' · ') || '同步自 v2 画像与生命周期结果'}</div>
+                    </div>
+                    <div class="profile-panel-badge">${portraitSource}</div>
+                </div>
+                <div class="profile-summary">${summary ? escapeHtml(summary) : '暂无画像摘要，先显示当前生命周期进入原因。'}</div>
+                <div class="profile-portrait-grid">
+                    ${portraitHtml || '<div class="profile-empty">暂无结构化画像</div>'}
+                </div>
+            `;
+            panel.classList.add('active');
+        }
+
+        function clearModalProfile() {
+            const panel = document.getElementById('modalProfilePanel');
+            if (!panel) return;
+            panel.classList.remove('active');
+            panel.innerHTML = '';
+        }
+
+        function findMatchedWAUserByCreatorName(creatorName) {
+            if (!allUsers || allUsers.length === 0) return null;
+            const creatorFirstName = (creatorName || '').split(' ')[0].toLowerCase();
+            let waUser = allUsers.find(u => (u.name || '').split(' ')[0].toLowerCase() === creatorFirstName);
+            if (!waUser) waUser = allUsers.find(u => (u.name || '').toLowerCase().includes(creatorFirstName));
+            if (!waUser) waUser = allUsers.find(u => (creatorName || '').toLowerCase().includes((u.name || '').split(' ')[0].toLowerCase()));
+            return waUser || null;
+        }
+
+        function findWAUserForJBCard(creatorName, waPhone) {
+            const normalizedPhone = String(waPhone || '').trim();
+            if (normalizedPhone && normalizedPhone !== '-') {
+                const cached = appStore.getUserByPhone(normalizedPhone);
+                if (cached) return cached;
+                const byPhone = (allUsers || []).find(u => String(u.phone || '') === normalizedPhone);
+                if (byPhone) return byPhone;
+            }
+            return findMatchedWAUserByCreatorName(creatorName);
+        }
+
+        function resetModalEventBars() {
+            ['agencyBoundBar', 'violationBar', 'betaBar', 'paymentBar'].forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+        }
+
+        function fetchLatestUsersData(options = {}) {
+            const force = !!options.force;
+            if (!force && allUsers.length > 0) {
+                return Promise.resolve(allUsers);
+            }
+            return apiClient.getUsers({ force })
+                .then(users => {
+                    allUsers = users;
+                    return users;
+                });
+        }
+
+        let waRefreshPromise = null;
+        function refreshWAData(options = {}) {
+            const force = options.force !== false;
+            if (waRefreshPromise) return waRefreshPromise;
+            waRefreshPromise = fetchLatestUsersData({ force })
+                .then(users => {
+                    renderStats(users);
+                    populateEventKeySelect(users);
+                    populateOwnerSelect('filterOperator', users);
+                    populateOwnerSelect('lifeOwnerFilter', users);
+                    allLifeData = buildLifecycleData(users);
+                    filterUsers();
+                    filterLifecycleData(true);
+                    return users;
+                })
+                .finally(() => { waRefreshPromise = null; });
+            return waRefreshPromise;
+        }
+
+        setInterval(() => {
+            if (document.getElementById('tab-wa')?.classList.contains('active')) {
+                refreshWAData({ force: true });
+            }
+        }, 30000);
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && document.getElementById('tab-wa')?.classList.contains('active')) {
+                refreshWAData({ force: true });
+            }
+        });
+
+        function renderStats(users) {
+            document.getElementById('statTotal').textContent = users.length;
+            document.getElementById('statUrgent').textContent = users.filter(u => u.priority === 'urgent').length;
+            document.getElementById('statHigh').textContent = users.filter(u => u.priority === 'high').length;
+            // 新事件维度统计
+            document.getElementById('statViolation').textContent = users.filter(u => u.events?.violations?.some(v => v.status === 'pending')).length;
+            document.getElementById('statUnbound').textContent = users.filter(u => u.events?.agency_binding?.bound === false).length;
+            document.getElementById('statPartnership').textContent = users.filter(u => u.events?.agency_binding?.bound === true).length;
+        }
+
+        function populateEventKeySelect(users) {
+            const select = document.getElementById('filterEventKey');
+            if (!select) return;
+            const counter = {};
+            (users || []).forEach((u) => {
+                const stream = Array.isArray(u?.events?.event_stream) ? u.events.event_stream : [];
+                stream.forEach((evt) => {
+                    const key = String(evt?.event_key || '').trim();
+                    if (!key) return;
+                    counter[key] = (counter[key] || 0) + 1;
+                });
+            });
+            const keys = Object.keys(counter).sort((a, b) => counter[b] - counter[a] || a.localeCompare(b));
+            select.innerHTML = '<option value=\"\">事件: 全部</option>' + keys.map((key) => {
+                const label = EVENT_KEY_LABELS[key] || key;
+                return `<option value="${escapeHtmlAttr(key)}">${escapeHtml(label)} (${counter[key]})</option>`;
+            }).join('');
+        }
+
+        function renderCards(users) {
+            const grid = document.getElementById('cardsGrid');
+            const empty = document.getElementById('emptyState');
+            const sheetBody = document.getElementById('sheetBody');
+
+            if (users.length === 0) {
+                grid.innerHTML = '';
+                sheetBody.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+
+            // Sheet View
+            if (currentView === 'sheet') {
+                sheetBody.innerHTML = users.map(u => {
+                    const events = u.events || {};
+                    const latestEvent = getLatestEventInfo(u);
+                    const creatorIdAttr = escapeHtmlAttr(u.id || '');
+                    const v2Url = u.id ? buildV2WorkspaceUrl({ creatorId: u.id, tab: 'creators' }) : '';
+
+                    // WA 相关字段
+                    const owner = u.wa_owner || '-';
+                    const ownerClass = owner === 'Beau' ? 'owner-beau' : owner === 'Jiawen' ? 'owner-jiawen' : owner === 'Yiyun' ? 'owner-yiyun' : '';
+                    const lastActive = u.last_active ? formatRelativeTime(new Date(u.last_active)) : '-';
+                    const msgCount = u.msg_count || 0;
+                    const lifecycleLabel = getLifecycleLabel(u.lifecycle?.stage_key, u.lifecycle?.stage_label);
+                    const betaStatus = events.monthly_beta?.status || '-';
+                    const monthlyFeeStatus = getMonthlyFeeDisplay(events.monthly_fee?.status, events.monthly_fee?.deducted);
+                    const lifecycleBadges = getLifecycleBadges(u);
+                    const nextAction = u.next_action || u.lifecycle?.option0?.next_action_template || '-';
+
+                    return `
+                    <tr class="chat-target-row" data-creator-id="${creatorIdAttr}" ${getChatTargetAttrs(u.phone, u.name)}>
+                        <td>${escapeHtml(u.name || 'Unknown')}</td>
+                        <td>${escapeHtml(u.phone || '-')}</td>
+                        <td class="${ownerClass}">${escapeHtml(owner)}</td>
+                        <td class="last-active">${escapeHtml(lastActive)}</td>
+                        <td>${msgCount}</td>
+                        <td class="stage">${escapeHtml(lifecycleLabel)}</td>
+                        <td>${escapeHtml(betaStatus)}</td>
+                        <td>${escapeHtml(monthlyFeeStatus)}</td>
+                        <td class="status-text ${events.agency_binding?.bound ? 'bound' : 'unbound'}">${events.agency_binding?.bound ? '✅已绑定' : '❌未绑定'}</td>
+                        <td>${lifecycleBadges.length ? escapeHtml(lifecycleBadges.join(' / ')) : '-'}</td>
+                        <td><span class="priority-badge ${u.priority || 'low'}">${getPriorityLabel(u.priority)}</span></td>
+                        <td>${escapeHtml(latestEvent.label || '-')}</td>
+                        <td>${escapeHtml(nextAction)}</td>
+                        <td>${v2Url ? `<button type="button" class="action-btn js-open-v2" data-v2-url="${escapeHtmlAttr(v2Url)}">中台</button>` : '-'}</td>
+                    </tr>
+                    `;
+                }).join('');
+                return;
+            }
+
+            // Card View
+            grid.innerHTML = users.map(u => {
+                const events = u.events || {};
+                const score = u.score || {};
+                const urgencyLevel = score.urgency_level ?? 5;
+                const latestEvent = getLatestEventInfo(u);
+                const parallelBadgeLogos = renderParallelBadgeLogos(u, 2);
+                const latestUpdateMs = getLatestUpdateMs(u);
+                const avatarColor = getAvatarColor(u.name);
+                const initials = getInitials(u.name);
+                const lifecycleLabel = getLifecycleLabel(u.lifecycle?.stage_key, u.lifecycle?.stage_label);
+                const lifecycleColor = u.lifecycle?.stage_key === 'revenue'
+                    ? 'green'
+                    : u.lifecycle?.stage_key === 'retention'
+                        ? 'cyan'
+                        : u.lifecycle?.stage_key === 'activation'
+                            ? 'yellow'
+                            : u.lifecycle?.stage_key === 'terminated'
+                                ? 'red'
+                                : 'blue';
+                const nextAction = u.next_action || u.lifecycle?.option0?.next_action_template || '';
+                const lifecycleBadges = getLifecycleBadges(u);
+                const creatorIdAttr = escapeHtmlAttr(u.id || '');
+                const v2Url = u.id ? buildV2WorkspaceUrl({ creatorId: u.id, tab: 'creators' }) : '';
+
+                // 事件状态标签
+                const eventTags = [];
+                const pendingViolations = events.violations?.filter(v => v.status === 'pending') || [];
+                if (pendingViolations.length > 0) {
+                    eventTags.push('<span class="event-tag event-pending"><span class="event-logo-dot">🚨</span>违规' + pendingViolations.length + '</span>');
+                } else if (events.violations?.length > 0) {
+                    eventTags.push('<span class="event-tag event-done"><span class="event-logo-dot">✅</span>违规已处理</span>');
+                }
+
+                if (events.monthly_beta?.status === 'completed') {
+                    eventTags.push('<span class="event-tag event-done"><span class="event-logo-dot">🧪</span>Trial已完成</span>');
+                } else if (events.monthly_beta?.status === 'active') {
+                    eventTags.push('<span class="event-tag event-done"><span class="event-logo-dot">🧪</span>Beta进行中</span>');
+                } else if (events.monthly_beta?.status === 'introduced') {
+                    eventTags.push('<span class="event-tag event-pending"><span class="event-logo-dot">📣</span>Beta已介绍</span>');
+                } else {
+                    eventTags.push('<span class="event-tag event-none"><span class="event-logo-dot">📢</span>Beta待介绍</span>');
+                }
+
+                if (events.agency_binding?.bound) {
+                    eventTags.push('<span class="event-tag event-done"><span class="event-logo-dot">🔗</span>Agency已绑定</span>');
+                } else {
+                    eventTags.push('<span class="event-tag event-pending"><span class="event-logo-dot">🔗</span>Agency未绑定</span>');
+                }
+
+                if (events.monthly_fee?.deducted) {
+                    eventTags.push('<span class="event-tag event-done"><span class="event-logo-dot">💰</span>月费已扣</span>');
+                } else if (events.monthly_fee?.status === 'due') {
+                    eventTags.push('<span class="event-tag event-pending"><span class="event-logo-dot">💰</span>月费待扣</span>');
+                } else {
+                    eventTags.push('<span class="event-tag event-none"><span class="event-logo-dot">💰</span>月费待定</span>');
+                }
+
+                const videoCount = events.weekly_videos?.current_count || 0;
+                const videoTarget = events.weekly_videos?.target_weekly || 35;
+                if (videoCount >= videoTarget) {
+                    eventTags.push('<span class="event-tag event-done"><span class="event-logo-dot">📹</span>视频' + videoCount + '/' + videoTarget + '</span>');
+                } else {
+                    eventTags.push('<span class="event-tag event-pending"><span class="event-logo-dot">📹</span>视频' + videoCount + '/' + videoTarget + '</span>');
+                }
+
+                if (events.referrals?.length > 0) {
+                    eventTags.push('<span class="event-tag event-pending"><span class="event-logo-dot">🎁</span>推荐' + events.referrals.length + '</span>');
+                }
+                lifecycleBadges.forEach(label => {
+                    eventTags.push('<span class="event-tag event-done"><span class="event-logo-dot">🏷️</span>' + label + '</span>');
+                });
+
+                // Urgent level badge
+                const urgencyLabels = ['🚨违规', '📢Beta', '📅周期', '🔗绑定', '💰月费', '📹视频'];
+                const urgencyBadge = urgencyLevel <= 2
+                    ? '<span class="badge priority-urgent">' + urgencyLabels[urgencyLevel] + '</span>'
+                    : urgencyLevel <= 4
+                        ? '<span class="badge priority-high">' + urgencyLabels[urgencyLevel] + '</span>'
+                        : '<span class="badge priority-medium">' + urgencyLabels[urgencyLevel] + '</span>';
+
+                return `
+                <div class="user-card ${u.priority || ''}" data-creator-id="${creatorIdAttr}" ${getChatTargetAttrs(u.phone, u.name)}>
+                    <div class="card-header">
+                        <div class="card-header-left">
+                            <div class="avatar ${avatarColor}">${initials}</div>
+                            <div>
+                                <div class="user-name">${escapeHtml(u.name || 'Unknown')}</div>
+                                <div class="user-phone">${escapeHtml(u.phone || '-')}</div>
+                            </div>
+                        </div>
+                        <div class="card-badges">
+                            <span class="badge priority-${u.priority || 'low'}">${getPriorityLabel(u.priority)}</span>
+                            ${urgencyBadge}
+                        </div>
+                    </div>
+
+                    <div class="card-body">
+                        <div class="metrics-row">
+                            <div class="metric">
+                                <div class="metric-value" style="font-size:20px;color: var(--accent-cyan);">${escapeHtml(latestEvent.label || '-')}</div>
+                                <div class="metric-label">最新事件</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-value badge-logo-wrap">${parallelBadgeLogos}</div>
+                                <div class="metric-label">并行徽章</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-value" style="color: var(--accent-${events.agency_binding?.bound ? 'green' : 'red'});">${events.agency_binding?.bound ? '已绑定' : '未绑定'}</div>
+                                <div class="metric-label">Agency</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-value" style="color: var(--accent-${lifecycleColor});">${lifecycleLabel}</div>
+                                <div class="metric-label">生命周期</div>
+                            </div>
+                        </div>
+
+                        <div class="section-title-old">事件状态</div>
+                        <div class="event-tags">
+                            ${eventTags.length > 0 ? eventTags.join('') : '<span class="event-tag event-none">无事件</span>'}
+                        </div>
+
+                        ${u.lifecycle?.entry_reason ? `
+                        <div class="action-box">
+                            <div class="action-label">进入原因</div>
+                            <div class="action-text">${escapeHtml(u.lifecycle.entry_reason)}</div>
+                        </div>
+                        ` : ''}
+
+                        ${nextAction ? `
+                        <div class="action-box">
+                            <div class="action-label">${u.next_action ? '下一步行动' : '建议动作'}</div>
+                            <div class="action-text">${escapeHtml(nextAction)}</div>
+                        </div>
+                        ` : ''}
+                    </div>
+
+                    <div class="card-footer">
+                        <div class="followup-time">
+                            最后更新: <span>${latestUpdateMs ? new Date(latestUpdateMs).toLocaleDateString('zh-CN') : '-'}</span>
+                        </div>
+                        <div class="card-tags">
+                            ${(u.tags || []).slice(0, 3).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}
+                        </div>
+                        ${v2Url ? `<button type="button" class="action-btn js-open-v2" data-v2-url="${escapeHtmlAttr(v2Url)}">在中台打开</button>` : ''}
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        function filterUsers() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const lifecycleStage = document.getElementById('filterLifecycleStage').value;
+            const betaStatusFilter = document.getElementById('filterBetaStatus').value;
+            const monthlyFeeFilter = document.getElementById('filterMonthlyFee').value;
+            const priority = document.getElementById('filterPriority').value;
+            const agency = document.getElementById('filterAgency').value;
+            const lifecycleFlag = document.getElementById('filterLifecycleFlag').value;
+            const eventKeyFilter = document.getElementById('filterEventKey').value;
+            const operatorFilter = document.getElementById('filterOperator').value;
+
+            let filtered = allUsers.filter(u => {
+                const matchesSearch = !search ||
+                    (u.name || '').toLowerCase().includes(search) ||
+                    (u.phone || '').toLowerCase().includes(search);
+                const matchesPriority = !priority || u.priority === priority;
+                const matchesLifecycleStage = !lifecycleStage || u.lifecycle?.stage_key === lifecycleStage;
+                const matchesBetaStatus = !betaStatusFilter || (u.events?.monthly_beta?.status === betaStatusFilter);
+                const matchesMonthlyFee = !monthlyFeeFilter || (getMonthlyFeeLabel(u.events?.monthly_fee?.status, u.events?.monthly_fee?.deducted) === monthlyFeeFilter);
+                const stream = Array.isArray(u?.events?.event_stream) ? u.events.event_stream : [];
+                const matchesEventKey = !eventKeyFilter || stream.some((evt) => String(evt?.event_key || '') === eventKeyFilter);
+
+                let matchesAgency = true;
+                if (agency) {
+                    if (agency === 'bound') matchesAgency = u.events?.agency_binding?.bound === true;
+                    else if (agency === 'unbound') matchesAgency = u.events?.agency_binding?.bound === false;
+                }
+
+                let matchesLifecycleFlag = true;
+                if (lifecycleFlag) {
+                    const flags = u.lifecycle?.flags || {};
+                    const conflicts = u.lifecycle?.conflicts || [];
+                    if (lifecycleFlag === 'conflict') matchesLifecycleFlag = conflicts.length > 0;
+                    else if (lifecycleFlag === 'gmv_2k') matchesLifecycleFlag = ['gte_2k', 'gte_5k', 'gte_10k', '2k', '5k', '10k'].includes(flags.gmv_tier);
+                    else matchesLifecycleFlag = flags[lifecycleFlag] === true;
+                }
+
+                let matchesOperator = true;
+                if (operatorFilter) {
+                    matchesOperator = (u.wa_owner || '') === operatorFilter;
+                }
+
+                return matchesSearch && matchesLifecycleStage && matchesBetaStatus && matchesMonthlyFee && matchesPriority && matchesAgency && matchesLifecycleFlag && matchesEventKey && matchesOperator;
+            });
+
+            renderCards(filtered);
+            document.getElementById('filterResultCount').textContent = filtered.length;
+            document.getElementById('filterResultTotal').textContent = allUsers.length;
+        }
+
+        document.getElementById('searchInput').addEventListener('input', filterUsers);
+        document.getElementById('filterLifecycleStage').addEventListener('change', filterUsers);
+        document.getElementById('filterBetaStatus').addEventListener('change', filterUsers);
+        document.getElementById('filterMonthlyFee').addEventListener('change', filterUsers);
+        document.getElementById('filterPriority').addEventListener('change', filterUsers);
+        document.getElementById('filterAgency').addEventListener('change', filterUsers);
+        document.getElementById('filterLifecycleFlag').addEventListener('change', filterUsers);
+        document.getElementById('filterEventKey').addEventListener('change', filterUsers);
+        document.getElementById('filterOperator').addEventListener('change', filterUsers);
+
+        function populateOwnerSelect(selectId, users) {
+            const operatorSelect = document.getElementById(selectId);
+            if (!operatorSelect) return;
+            const counts = {};
+            users.forEach(u => {
+                const owner = u.wa_owner || '';
+                if (!owner) return;
+                counts[owner] = (counts[owner] || 0) + 1;
+            });
+            operatorSelect.innerHTML = '<option value="">负责人: 全部</option>' +
+                Object.keys(counts).sort().map(owner => `<option value="${escapeHtmlAttr(owner)}">${escapeHtml(owner)} (${counts[owner]})</option>`).join('');
+        }
+
+        Promise.all([
+            apiClient.getUsers({ force: true }),
+            apiClient.getLifecycleDashboard({ force: true }),
+        ])
+            .then(([users, dashboard]) => {
+                allUsers = users;
+                appStore.setUsers(users);
+                lifecycleDashboard = dashboard && dashboard.ok ? dashboard : null;
+                appStore.setLifecycleDashboard(lifecycleDashboard);
+                renderStats(users);
+                populateEventKeySelect(users);
+                renderCards(users);
+                populateOwnerSelect('filterOperator', users);
+                populateOwnerSelect('lifeOwnerFilter', users);
+                allLifeData = buildLifecycleData(users);
+                filterLifecycleData();
+                if (window.location.hash === '#life-board') {
+                    switchLifecycleRowsView('board');
+                }
+                document.getElementById('filterResultCount').textContent = users.length;
+                document.getElementById('filterResultTotal').textContent = users.length;
+            })
+            .then(() => {
+                makeCardsClickable();
+                tryBootstrapFromQuery('bootstrap');
+            });
+
+        // ============ JoinBrands ============
+        let allJBData = [];
+
+        // Event display names
+        const eventNames = {
+            ready_sent: 'READY',
+            trial_7day_completed: '7日完成',
+            monthly_invited: '月度已邀',
+            monthly_joined: '月度进行',
+            whatsapp_shared: 'WA共享',
+            gmv_1k: 'GMV$1k',
+            gmv_2k: 'GMV$2k',
+            gmv_5k: 'GMV$5k',
+            gmv_10k: 'GMV$10k',
+            agency_bound: 'Agency绑定'
+        };
+
+        function renderJBStats(data) {
+            const total = data.length;
+            const urgent = data.filter(d => d.priority === 'urgent').length;
+            const high = data.filter(d => d.priority === 'high').length;
+            const bound = data.filter(d => d.activityStatus === 'bound').length;
+            const churnRisk = data.filter(d => d.activityStatus === 'churn_risk').length;
+            const churned = data.filter(d => d.activityStatus === 'churned').length;
+            const totalGMV = data.reduce((sum, d) => sum + (d.gmv || 0), 0);
+
+            document.getElementById('jbTotal').textContent = total;
+            document.getElementById('jbUrgent').textContent = urgent;
+            document.getElementById('jbHigh').textContent = high;
+            document.getElementById('jbBound').textContent = bound;
+            document.getElementById('jbChurnRisk').textContent = churnRisk;
+            document.getElementById('jbChurned').textContent = churned;
+            document.getElementById('jbTotalGMV').textContent = '$' + totalGMV.toLocaleString();
+        }
+
+        function formatGMV(gmv) {
+            if (!gmv || gmv === 0) return '-';
+            if (gmv >= 1000) return '$' + (gmv / 1000).toFixed(1) + 'k';
+            return '$' + gmv;
+        }
+
+        function getGMVClass(gmv) {
+            if (!gmv || gmv === 0) return 'gray';
+            if (gmv >= 3000) return 'green';
+            if (gmv >= 1000) return 'yellow';
+            return 'cyan';
+        }
+
+        function getActivityBadge(status) {
+            if (status === 'bound') return '<span class="status-badge status-bound">💎 已绑定</span>';
+            if (status === 'churn_risk') return '<span class="status-badge status-churn">⚠️ 流失预警</span>';
+            if (status === 'churned') return '<span class="status-badge status-churned">❌ 已流失</span>';
+            return '<span class="status-badge status-active">✅ 活跃</span>';
+        }
+
+        function getPriorityBadge(priority) {
+            const badges = {
+                urgent: '<span class="status-badge status-urgent">🔴 紧急</span>',
+                high: '<span class="status-badge status-high">🟡 高</span>',
+                medium: '<span class="status-badge status-medium">🟢 中</span>',
+                low: '<span class="status-badge status-low">⚪ 低</span>'
+            };
+            return badges[priority] || badges.low;
+        }
+
+        function renderJBCards(data) {
+            const grid = document.getElementById('jbCardsGrid');
+            const empty = document.getElementById('jbEmptyState');
+
+            if (data.length === 0) {
+                grid.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+
+            grid.innerHTML = data.map(d => {
+                const events = d.events || {};
+                const avatarColor = getAvatarColor(d.creatorName);
+                const initials = getInitials(d.creatorName);
+                const gmvClass = getGMVClass(d.gmv);
+
+                // Build event tags
+                const eventTags = [];
+                if (events.agency_bound?.completed) eventTags.push('<span class="event-tag event-done">Agency绑定</span>');
+                if (events.gmv_10k?.completed) eventTags.push('<span class="event-tag event-done">GMV$10k</span>');
+                if (events.gmv_5k?.completed) eventTags.push('<span class="event-tag event-done">GMV$5k</span>');
+                else if (events.gmv_2k?.completed) eventTags.push('<span class="event-tag event-done">GMV$2k</span>');
+                else if (events.gmv_1k?.completed) eventTags.push('<span class="event-tag event-done">GMV$1k</span>');
+                if (events.whatsapp_shared?.completed) eventTags.push('<span class="event-tag event-done">WA共享</span>');
+                if (events.monthly_joined?.completed) eventTags.push('<span class="event-tag event-done">月度进行</span>');
+                else if (events.monthly_invited?.completed) eventTags.push('<span class="event-tag event-pending">月度已邀</span>');
+                if (events.trial_7day_completed?.completed) eventTags.push('<span class="event-tag event-done">7日完成</span>');
+                else if (events.ready_sent?.completed) eventTags.push('<span class="event-tag event-pending">READY</span>');
+
+                // Phone
+                const phone = events.whatsapp_shared?.phone || '-';
+                const cardPriorityClass = d.priority === 'urgent' ? 'urgent' : (d.priority === 'high' ? 'high' : '');
+                const encodedMessages = encodeURIComponent(JSON.stringify(d.rawMessages || []));
+                const creatorIdAttr = escapeHtmlAttr(d.creatorId || '');
+                const v2Url = buildV2WorkspaceUrl({
+                    tab: 'creators',
+                    creatorId: d.creatorId,
+                    waPhone: d.waPhone,
+                    jbName: d.creatorName,
+                    owner: d.waOwner,
+                });
+
+                return '<div class="user-card jb-card ' + cardPriorityClass + '" data-creator-id="' + creatorIdAttr + '" data-creator="' + escapeHtmlAttr(d.creatorName || '') + '" data-jb-status="' + escapeHtmlAttr(d.jbStatus || '') + '" data-messages="' + escapeHtmlAttr(encodedMessages) + '" data-wa-phone="' + escapeHtmlAttr(events.whatsapp_shared?.phone || '') + '">' +
+                    '<div class="card-header">' +
+                        '<div class="card-header-left">' +
+                            '<div class="avatar ' + avatarColor + '">' + initials + '</div>' +
+                            '<div>' +
+                                '<div class="user-name">' + escapeHtml(d.creatorName || 'Unknown') + '</div>' +
+                                '<div class="user-phone">' + escapeHtml(phone) + '</div>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="card-badges">' +
+                            getPriorityBadge(d.priority) +
+                            getActivityBadge(d.activityStatus) +
+                        '</div>' +
+                    '</div>' +
+
+                    '<div class="card-body">' +
+                        '<div class="metrics-row">' +
+                            '<div class="metric">' +
+                                '<div class="metric-value" style="color: var(--accent-' + gmvClass + ');">' + formatGMV(d.gmv) + '</div>' +
+                                '<div class="metric-label">GMV</div>' +
+                            '</div>' +
+                            '<div class="metric">' +
+                                '<div class="metric-value" style="color: var(--accent-cyan);">' + escapeHtml(d.jbStatus || 'unknown') + '</div>' +
+                                '<div class="metric-label">JB状态</div>' +
+                            '</div>' +
+                            '<div class="metric">' +
+                                '<div class="metric-value" style="color: var(--accent-' + (d.daysSinceLastMessage > 5 ? 'red' : 'green') + ');">' + (d.daysSinceLastMessage || 0) + 'd</div>' +
+                                '<div class="metric-label">未联系</div>' +
+                            '</div>' +
+                            '<div class="metric">' +
+                                '<div class="metric-value" style="color: var(--accent-purple);">' + (d.rawMessages?.length || 0) + '</div>' +
+                                '<div class="metric-label">消息</div>' +
+                            '</div>' +
+                        '</div>' +
+
+                        '<div class="section-title-old">事件状态</div>' +
+                        '<div class="event-tags">' +
+                            (eventTags.length > 0 ? eventTags.join('') : '<span class="event-tag event-none">新达人</span>') +
+                        '</div>' +
+
+                        (d.nextAction ? '<div class="action-box"><div class="action-label">下一步行动</div><div class="action-text">' + escapeHtml(d.nextAction) + '</div></div>' : '') +
+                    '</div>' +
+
+                    '<div class="card-footer">' +
+                        '<div class="followup-time">' +
+                            (d.lastMessageDate ? '最后消息: <span>' + escapeHtml(d.lastMessageDate) + '</span>' : '无消息') +
+                        '</div>' +
+                        '<div class="card-tags">' +
+                            '<span class="tag">' + escapeHtml(d.jbStatus || 'unknown') + '</span>' +
+                        '</div>' +
+                        '<button type="button" class="action-btn js-open-v2" data-v2-url="' + escapeHtmlAttr(v2Url) + '">在中台打开</button>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        }
+
+        function filterJBData() {
+            const search = document.getElementById('jbSearchInput').value.toLowerCase();
+            const filterPriority = document.getElementById('jbFilterPriority').value;
+            const filterGMV = document.getElementById('jbFilterGMV').value;
+            const filterStatus = document.getElementById('jbFilterStatus').value;
+            const filterJbStatus = document.getElementById('jbFilterJbStatus').value;
+
+            let filtered = allJBData.filter(d => {
+                const matchesSearch = !search || (d.creatorName || '').toLowerCase().includes(search);
+                const matchesPriority = !filterPriority || d.priority === filterPriority;
+                const matchesStatus = !filterStatus || d.activityStatus === filterStatus;
+                const matchesJbStatus = !filterJbStatus || d.jbStatus === filterJbStatus;
+
+                // GMV filter
+                let matchesGMV = true;
+                if (filterGMV) {
+                    const gmv = d.gmv || 0;
+                    if (filterGMV === '0') matchesGMV = gmv === 0;
+                    else if (filterGMV === '1-999') matchesGMV = gmv > 0 && gmv < 1000;
+                    else if (filterGMV === '1k-2k') matchesGMV = gmv >= 1000 && gmv < 2000;
+                    else if (filterGMV === '2k-5k') matchesGMV = gmv >= 2000 && gmv < 5000;
+                    else if (filterGMV === '5k+') matchesGMV = gmv >= 5000;
+                }
+
+                return matchesSearch && matchesPriority && matchesStatus && matchesJbStatus && matchesGMV;
+            });
+
+            // Sort by priority
+            filtered.sort((a, b) => {
+                const order = { urgent: 0, high: 1, medium: 2, low: 3 };
+                return (order[a.priority] || 4) - (order[b.priority] || 4);
+            });
+
+            renderJBCards(filtered);
+
+            // Update JB status filter options
+            const statuses = [...new Set(allJBData.map(d => d.jbStatus).filter(Boolean))];
+            const statusSelect = document.getElementById('jbFilterJbStatus');
+            const currentValue = statusSelect.value;
+            statusSelect.innerHTML = '<option value="">JB状态: 全部</option>' +
+                statuses.map(s => `<option value="${escapeHtmlAttr(s)}">${escapeHtml(s)}</option>`).join('');
+            statusSelect.value = currentValue;
+        }
+
+        document.getElementById('jbSearchInput').addEventListener('input', filterJBData);
+        document.getElementById('jbFilterPriority').addEventListener('change', filterJBData);
+        document.getElementById('jbFilterGMV').addEventListener('change', filterJBData);
+        document.getElementById('jbFilterStatus').addEventListener('change', filterJBData);
+        document.getElementById('jbFilterJbStatus').addEventListener('change', filterJBData);
+
+        function fetchJBData() {
+            apiClient.getJoinbrands({ force: true })
+                .then(data => {
+                    allJBData = data;
+                    renderJBStats(data);
+                    renderJBCards(data);
+                    tryBootstrapFromQuery('jb');
+                });
+        }
+        fetchJBData();
+
+        // ============ Keeper ============
+        let allKeeperData = [];
+
+        function renderKeeperStats(data) {
+            const total = data.length;
+            const totalVideos = data.reduce((sum, k) => sum + (k.videoPosted || 0), 0);
+            const totalGMV = data.reduce((sum, k) => sum + (k.totalGMV || 0), 0);
+            const gmv30 = data.reduce((sum, k) => sum + (k.gmv30Days || 0), 0);
+
+            document.getElementById('keeperTotal').textContent = total;
+            document.getElementById('keeperTotalVideos').textContent = totalVideos.toLocaleString();
+            document.getElementById('keeperTotalGMV').textContent = '$' + Math.round(totalGMV).toLocaleString();
+            document.getElementById('keeperGMV30').textContent = '$' + Math.round(gmv30).toLocaleString();
+        }
+
+        function renderKeeperTable(data) {
+            const tbody = document.getElementById('keeperBody');
+            const empty = document.getElementById('keeperEmptyState');
+
+            if (data.length === 0) {
+                tbody.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+
+            tbody.innerHTML = data.map(k => {
+                const username = escapeHtml(k.username || '-');
+                const waName = escapeHtml(k.waName || '-');
+                const waPhone = k.waPhone || '-';
+                const videoTotal = k.videoTotal || 0;
+                const videoPosted = k.videoPosted || 0;
+                const videoSold = k.videoSold || 0;
+                const totalGMV = k.totalGMV ? '$' + k.totalGMV.toFixed(2) : '-';
+                const gmv30Days = k.gmv30Days ? '$' + k.gmv30Days.toFixed(2) : '-';
+                const orders = k.orders || 0;
+                const creatorIdAttr = escapeHtmlAttr(k.creatorId || '');
+                const v2Url = buildV2WorkspaceUrl({
+                    tab: 'creators',
+                    creatorId: k.creatorId,
+                    waPhone: k.waPhone,
+                    keeperUsername: k.username,
+                    owner: k.waOwner,
+                });
+
+                return `<tr class="chat-target-row" data-creator-id="${creatorIdAttr}" ${getChatTargetAttrs(waPhone, waName)}>
+                    <td>${username}</td>
+                    <td>${waName}</td>
+                    <td>${escapeHtml(waPhone)}</td>
+                    <td>${videoTotal}</td>
+                    <td>${videoPosted}</td>
+                    <td>${videoSold}</td>
+                    <td style="color: var(--accent-green);">${totalGMV}</td>
+                    <td style="color: var(--accent-cyan);">${gmv30Days}</td>
+                    <td style="color: var(--accent-yellow);">${orders}</td>
+                    <td>${v2Url ? `<button type="button" class="action-btn js-open-v2" data-v2-url="${escapeHtmlAttr(v2Url)}">中台</button>` : '-'}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function filterKeeperData() {
+            const search = document.getElementById('keeperSearchInput').value.toLowerCase();
+            const filtered = allKeeperData.filter(k => {
+                const matchesSearch = !search ||
+                    (k.username || '').toLowerCase().includes(search) ||
+                    (k.waName || '').toLowerCase().includes(search);
+                return matchesSearch;
+            });
+            renderKeeperTable(filtered);
+        }
+
+        document.getElementById('keeperSearchInput').addEventListener('input', filterKeeperData);
+
+        apiClient.getKeeper({ force: true })
+            .then(data => {
+                allKeeperData = data;
+                renderKeeperStats(data);
+                renderKeeperTable(data);
+                tryBootstrapFromQuery('keeper');
+            });
+
+        // ============ Lifecycle ============
+        let lifecycleDashboard = null;
+
+        function buildLifecycleData(users) {
+            return users.map(u => ({ ...u, lifecycle_stage: u.lifecycle?.stage_key || 'acquisition' }));
+        }
+
+        function getLifecycleCounts(data) { return window.LifecycleDomain.getLifecycleCounts(data); }
+        function getLifecycleFunnelCounts(data) { return window.LifecycleDomain.getLifecycleFunnelCounts(data, lifecycleDashboard); }
+        function getLifecycleDisplayCounts(data) { return window.LifecycleDomain.getLifecycleDisplayCounts(data, lifecycleDashboard); }
+
+        function renderLifecycleStats(data) {
+            const counts = getLifecycleDisplayCounts(data);
+            document.getElementById('lifeAcquisition').textContent = counts.acquisition;
+            document.getElementById('lifeActivation').textContent = counts.activation;
+            document.getElementById('lifeRetention').textContent = counts.retention;
+            document.getElementById('lifeRevenue').textContent = counts.revenue;
+            document.getElementById('lifeReferral').textContent = counts.referral;
+        }
+
+        function renderLifecycleStageList(baseData, activeStage, useOfficialStageBucket = false) {
+            const container = document.getElementById('lifeStageList');
+            if (!container) return;
+            const counts = getLifecycleStageBucketCounts(baseData, useOfficialStageBucket);
+            const stageRows = [
+                { key: 'acquisition', label: '获取', color: '#6d8fe5', count: counts.acquisition || 0 },
+                { key: 'activation', label: '激活', color: '#e2a55f', count: counts.activation || 0 },
+                { key: 'retention', label: '留存', color: '#58a68b', count: counts.retention || 0 },
+                { key: 'revenue', label: '变现', color: '#2f7d65', count: counts.revenue || 0 },
+                { key: 'referral', label: '传播', color: '#b8734c', count: counts.referral || 0 },
+                { key: 'terminated', label: '终止池', color: '#c36b4b', count: counts.terminated || 0 }
+            ];
+            const rows = [{ key: '', label: '全部阶段', color: '#a88f6c', count: baseData.length }]
+                .concat(stageRows);
+
+            container.innerHTML = rows.map(row => {
+                const isActive = (activeStage || '') === row.key;
+                return `
+                    <button class="lifecycle-stage-item ${isActive ? 'active' : ''}" data-stage="${row.key}">
+                        <span class="lifecycle-stage-item-left">
+                            <span class="lifecycle-stage-dot" style="background:${row.color};"></span>
+                            <span class="lifecycle-stage-name">${row.label}</span>
+                        </span>
+                        <span class="lifecycle-stage-count">${row.count}</span>
+                    </button>
+                `;
+            }).join('');
+
+            container.querySelectorAll('[data-stage]').forEach(el => {
+                el.addEventListener('click', () => {
+                    const stage = el.getAttribute('data-stage') || '';
+                    document.getElementById('lifeStageFilter').value = stage;
+                    filterLifecycleData();
+                });
+            });
+        }
+
+        function getLifecycleAnchorMs(user) { return window.LifecycleDomain.getLifecycleAnchorMs(user); }
+        function getReferralActivatedAt(user) { return window.LifecycleDomain.getReferralActivatedAt(user); }
+        function buildLifecycleTrend(data) { return window.LifecycleDomain.buildLifecycleTrend(data); }
+
+        function renderLifecycleLegend() {
+            const legend = document.getElementById('lifeTrendLegend');
+            if (!legend) return;
+            legend.innerHTML = LIFECYCLE_AARRR_META.map(stage => `
+                <span class="lifecycle-legend-item">
+                    <span class="lifecycle-legend-line" style="background:${stage.color};"></span>
+                    <span>${stage.label}</span>
+                </span>
+            `).join('');
+        }
+
+        function drawLifecycleTrendChart(data) {
+            const canvas = document.getElementById('lifeTrendCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            const width = canvas.clientWidth || 680;
+            const height = canvas.clientHeight || 290;
+            canvas.width = Math.floor(width * dpr);
+            canvas.height = Math.floor(height * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, width, height);
+
+            const padding = { top: 20, right: 18, bottom: 38, left: 36 };
+            const chartWidth = width - padding.left - padding.right;
+            const chartHeight = height - padding.top - padding.bottom;
+            const maxValue = Math.max(
+                2,
+                ...data.flatMap(bucket => LIFECYCLE_AARRR_META.map(stage => bucket.values[stage.key] || 0))
+            );
+
+            ctx.strokeStyle = 'rgba(153, 133, 107, 0.18)';
+            ctx.lineWidth = 1;
+            ctx.font = '12px "SF Pro Display", "PingFang SC", sans-serif';
+            ctx.fillStyle = '#8b7761';
+
+            for (let step = 0; step <= 4; step++) {
+                const y = padding.top + (chartHeight / 4) * step;
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(width - padding.right, y);
+                ctx.stroke();
+
+                const value = Math.round(maxValue - (maxValue / 4) * step);
+                ctx.fillText(String(value), 8, y + 4);
+            }
+
+            data.forEach((bucket, index) => {
+                const x = padding.left + (chartWidth / Math.max(1, data.length - 1)) * index;
+                ctx.fillText(bucket.label, x - 10, height - 12);
+            });
+
+            LIFECYCLE_AARRR_META.forEach(stage => {
+                ctx.beginPath();
+                ctx.lineWidth = 2.5;
+                ctx.strokeStyle = stage.color;
+                data.forEach((bucket, index) => {
+                    const value = bucket.values[stage.key] || 0;
+                    const x = padding.left + (chartWidth / Math.max(1, data.length - 1)) * index;
+                    const y = padding.top + chartHeight - (value / maxValue) * chartHeight;
+                    if (index === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+
+                data.forEach((bucket, index) => {
+                    const value = bucket.values[stage.key] || 0;
+                    const x = padding.left + (chartWidth / Math.max(1, data.length - 1)) * index;
+                    const y = padding.top + chartHeight - (value / maxValue) * chartHeight;
+                    ctx.fillStyle = '#fcfaf6';
+                    ctx.beginPath();
+                    ctx.arc(x, y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = stage.color;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            });
+        }
+
+        function renderLifecycleFunnel(data) {
+            window.LifecycleDashboardRenderer.renderLifecycleFunnel(data, {
+                container: document.getElementById('lifeFunnel'),
+                stageMeta: LIFECYCLE_AARRR_META,
+                getDisplayCounts: getLifecycleDisplayCounts
+            });
+        }
+
+        function renderLifecycleSummary(filtered, baseData, useOfficialStageBucket = false) {
+            window.LifecycleDashboardRenderer.renderLifecycleSummary(filtered, baseData, useOfficialStageBucket, {
+                getStageBucketCounts: getLifecycleStageBucketCounts,
+                getDisplayCounts: getLifecycleDisplayCounts,
+                hasOfficialLifecycleSnapshot,
+                getLifecycleTransitionHistory,
+                getLifecycleDashboard: () => lifecycleDashboard,
+                getAllLifeDataLength: () => allLifeData.length
+            });
+        }
+
+        function renderLifecycleDashboard(filtered, baseData, activeStage, useOfficialStageBucket = false) {
+            window.LifecycleDashboardRenderer.renderLifecycleDashboard(filtered, baseData, activeStage, useOfficialStageBucket, {
+                onStateChange: ({ filtered: nextFiltered, baseData: nextBaseData, useOfficialStageBucket: nextBucket }) => {
+                    currentLifeFilteredData = nextFiltered;
+                    currentLifeBaseData = nextBaseData;
+                    lifecycleUseOfficialStageBucket = nextBucket;
+                },
+                renderLifecycleStats,
+                renderLifecycleStageList,
+                funnelContainer: document.getElementById('lifeFunnel'),
+                stageMeta: LIFECYCLE_AARRR_META,
+                getDisplayCounts: getLifecycleDisplayCounts,
+                getStageBucketCounts: getLifecycleStageBucketCounts,
+                hasOfficialLifecycleSnapshot,
+                getLifecycleTransitionHistory,
+                getLifecycleDashboard: () => lifecycleDashboard,
+                getAllLifeDataLength: () => allLifeData.length,
+                renderLifecycleLegend,
+                drawLifecycleTrendChart,
+                buildLifecycleTrend
+            });
+        }
+
+        function renderLifecycleTable(data) {
+            window.LifecycleRowsRenderer.renderTable(data, {
+                tbody: document.getElementById('lifeBody'),
+                formatRelativeTime,
+                getLifecycleLabel,
+                getMonthlyFeeDisplay,
+                getLifecycleConflictText,
+                getLifecycleStageMeta,
+                getLifecycleBadges,
+                buildV2WorkspaceUrl,
+                escapeHtml,
+                escapeHtmlAttr,
+                getChatTargetAttrs
+            });
+        }
+
+        function renderLifecycleBoard(data) {
+            window.LifecycleRowsRenderer.renderBoard(data, {
+                board: document.getElementById('lifeBoardGrid'),
+                getLifecycleLabel,
+                getLifecycleStageMeta,
+                getMonthlyFeeDisplay,
+                renderPersonalLifecycleMiniChart,
+                renderLifecycleProcessTrack,
+                getLifecycleBoardEvents,
+                buildV2WorkspaceUrl,
+                escapeHtml,
+                escapeHtmlAttr,
+                getChatTargetAttrs
+            });
+        }
+
+        function filterLifecycleData(keepPage = false) {
+            const search = document.getElementById('lifeSearchInput')?.value.toLowerCase() || '';
+            const stage = document.getElementById('lifeStageFilter')?.value || '';
+            const owner = document.getElementById('lifeOwnerFilter')?.value || '';
+            const empty = document.getElementById('lifeEmptyState');
+            if (!keepPage) lifecyclePage = 1;
+            const useOfficialStageBucket = !search && !stage && !owner;
+
+            const baseFiltered = allLifeData.filter(u => {
+                const matchesSearch = !search ||
+                    (u.name || '').toLowerCase().includes(search) ||
+                    (u.phone || '').toLowerCase().includes(search);
+                const matchesOwner = !owner || (u.wa_owner || '') === owner;
+                return matchesSearch && matchesOwner;
+            });
+
+            const filtered = baseFiltered.filter(u => {
+                if (!stage) return true;
+                if (stage === 'referral') return !!u.lifecycle?.flags?.referral_active;
+                return u.lifecycle_stage === stage;
+            });
+
+            const lifecycleRowsData = sortLifecycleBoardData(filtered);
+            const pageMeta = paginateLifecycleData(lifecycleRowsData);
+            renderLifecycleDashboard(filtered, baseFiltered, stage, useOfficialStageBucket);
+            renderLifecycleTable(pageMeta.pageItems);
+            renderLifecycleBoard(pageMeta.pageItems);
+            renderLifecyclePagination(pageMeta);
+            if (empty) empty.style.display = filtered.length ? 'none' : 'block';
+            tryBootstrapFromQuery('lifecycle');
+        }
+
+        document.getElementById('lifeSearchInput')?.addEventListener('input', filterLifecycleData);
+        document.getElementById('lifeStageFilter')?.addEventListener('change', filterLifecycleData);
+        document.getElementById('lifeOwnerFilter')?.addEventListener('change', filterLifecycleData);
+        window.addEventListener('resize', () => {
+            if (currentLifeFilteredData.length || currentLifeBaseData.length) {
+                drawLifecycleTrendChart(buildLifecycleTrend(currentLifeFilteredData));
+            }
+        });
+
+        // ============ Chat Modal ============
+        function openChatModal(phone, name) {
+            const modal = document.getElementById('chatModal');
+            const container = document.getElementById('chatContainer');
+
+            document.getElementById('modalName').textContent = name || 'Unknown';
+            document.getElementById('modalPhone').textContent = phone || '-';
+            setModalV2Button(buildV2WorkspaceUrl({ tab: 'creators', waPhone: phone }));
+            clearModalProfile();
+            resetModalEventBars();
+
+            const avatarColor = getAvatarColor(name);
+            const initials = getInitials(name);
+            document.getElementById('modalAvatar').className = 'avatar ' + avatarColor;
+            document.getElementById('modalAvatar').textContent = initials;
+
+            // 获取用户事件状态（优先读缓存，避免重复全量请求）
+            Promise.resolve(appStore.getUserByPhone(phone))
+                .then(user => user || fetchLatestUsersData().then(users => users.find(u => u.phone === phone)))
+                .then(user => {
+                    const events = user?.events || {};
+                    renderModalProfile(user?.profile || null, user?.lifecycle || null, user?.wa_owner || null);
+                    setModalV2Button(buildV2WorkspaceUrl({
+                        tab: 'creators',
+                        creatorId: user?.id,
+                        waPhone: user?.phone || phone,
+                        owner: user?.wa_owner || null,
+                    }));
+
+                    // Agency绑定
+                    document.getElementById('agencyBoundBar').style.display = events.agency_binding?.bound ? 'block' : 'none';
+
+                    // 违规状态 (pending优先显示红色bar，resolved显示绿色bar)
+                    const hasPending = events.violations?.some(v => v.status === 'pending');
+                    const pendingViolation = events.violations?.find(v => v.status === 'pending');
+                    const resolvedViolation = events.violations?.find(v => v.status === 'resolved');
+                    if (pendingViolation) {
+                        const vb = document.getElementById('violationBar');
+                        vb.textContent = '🚨 违规待处理: ' + (pendingViolation.type || '待处理');
+                        vb.className = 'event-bar event-bar-red';
+                        vb.style.display = 'block';
+                    } else if (resolvedViolation) {
+                        const vb = document.getElementById('violationBar');
+                        vb.textContent = '✅ 违规已解决';
+                        vb.className = 'event-bar event-bar-green';
+                        vb.style.display = 'block';
+                    } else {
+                        document.getElementById('violationBar').style.display = 'none';
+                    }
+
+                    // Beta加入
+                    document.getElementById('betaBar').style.display = events.monthly_beta?.joined_at ? 'block' : 'none';
+
+                    // 付款完成
+                    document.getElementById('paymentBar').style.display = events.monthly_fee?.deducted ? 'block' : 'none';
+                })
+                .catch(() => {
+                    clearModalProfile();
+                });
+
+            container.innerHTML = '<div class="chat-empty">加载中...</div>';
+            modal.classList.add('active');
+
+            apiClient.getUserMessages(phone)
+                .then(messages => {
+                    if (messages.length === 0) {
+                        container.innerHTML = '<div class="chat-empty">暂无聊天记录</div>';
+                        return;
+                    }
+
+                    container.innerHTML = renderChatMessages(messages);
+                    scrollChatToLatest();
+                })
+                .catch(() => {
+                    container.innerHTML = '<div class="chat-empty">加载失败</div>';
+                });
+        }
+
+        function closeChatModal() {
+            clearModalProfile();
+            setModalV2Button('');
+            document.getElementById('chatModal').classList.remove('active');
+        }
+
+        function openJBChatModalFromCard(card) {
+            const creatorName = card.dataset.creator;
+            const jbStatus = card.dataset.jbStatus;
+            const waPhone = card.dataset.waPhone || '';
+            let messagesJson = card.dataset.messages;
+            fetchLatestUsersData()
+                .then(() => {
+                    const waUser = findWAUserForJBCard(creatorName, waPhone);
+                    if (waUser && waUser.messages && waUser.messages.length > 0) {
+                        messagesJson = encodeURIComponent(JSON.stringify(waUser.messages));
+                    }
+                    openJBChatModal(creatorName, messagesJson, jbStatus, waUser);
+                })
+                .catch(() => {
+                    openJBChatModal(creatorName, messagesJson, jbStatus, null);
+                });
+        }
+
+        function openJBChatModal(creatorName, rawMessagesJson, jbStatus, waUser = null) {
+            const modal = document.getElementById('chatModal');
+            const container = document.getElementById('chatContainer');
+            const messages = JSON.parse(decodeURIComponent(rawMessagesJson));
+
+            document.getElementById('modalName').textContent = creatorName || 'Unknown';
+            document.getElementById('modalPhone').textContent = jbStatus || 'JoinBrands';
+            setModalV2Button(buildV2WorkspaceUrl({
+                tab: 'creators',
+                creatorId: waUser?.id,
+                waPhone: waUser?.phone || '',
+                jbName: creatorName,
+                owner: waUser?.wa_owner || null,
+            }));
+            renderModalProfile(waUser?.profile || null, waUser?.lifecycle || null, waUser?.wa_owner || null);
+            resetModalEventBars();
+
+            const avatarColor = getAvatarColor(creatorName);
+            const initials = getInitials(creatorName);
+            document.getElementById('modalAvatar').className = 'avatar ' + avatarColor;
+            document.getElementById('modalAvatar').textContent = initials;
+
+            if (messages.length === 0) {
+                container.innerHTML = '<div class="chat-empty">暂无聊天记录</div>';
+            } else {
+                container.innerHTML = renderJBChatMessages(messages);
+                scrollChatToLatest();
+            }
+
+            modal.classList.add('active');
+        }
+
+        function renderJBChatMessages(messages) {
+            let html = '';
+            let lastDate = '';
+
+            messages.forEach(msg => {
+                const timeStr = msg.time || '';
+                let msgDate = timeStr;
+                let displayTime = '';
+
+                const dateMatch = timeStr.match(/(\d+)月(\d+)日/);
+                if (dateMatch) {
+                    const month = dateMatch[1];
+                    const day = dateMatch[2];
+                    msgDate = `2026年${month}月${day}日`;
+                }
+
+                const timeMatch = timeStr.match(/(上午|下午)(\d+):(\d+)/);
+                if (timeMatch) {
+                    let hours = parseInt(timeMatch[2]);
+                    const period = timeMatch[1];
+                    if (period === '下午' && hours !== 12) hours += 12;
+                    if (period === '上午' && hours === 12) hours = 0;
+                    displayTime = hours.toString().padStart(2, '0') + ':' + timeMatch[3];
+                }
+
+                if (msgDate !== lastDate) {
+                    html += '<div class="chat-date-divider"><span>' + msgDate + '</span></div>';
+                    lastDate = msgDate;
+                }
+
+                const role = (msg.role === 'brand' || msg.role === 'bot') ? 'me' : 'user';
+                const text = escapeHtml(msg.text || '');
+
+                html += '<div class="chat-bubble ' + role + '"><span class="chat-time">' + displayTime + '</span>' + text + '</div>';
+            });
+
+            return html;
+        }
+
+        document.getElementById('chatModal').addEventListener('click', function(e) {
+            if (e.target === this) closeChatModal();
+        });
+
+        function renderChatMessages(messages) {
+            let html = '';
+            let lastDate = '';
+
+            messages.forEach(msg => {
+                const msgDate = new Date(msg.timestamp).toLocaleDateString('zh-CN', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+
+                if (msgDate !== lastDate) {
+                    html += '<div class="chat-date-divider"><span>' + msgDate + '</span></div>';
+                    lastDate = msgDate;
+                }
+
+                const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                const role = msg.role === 'me' ? 'me' : 'user';
+                const text = escapeHtml(msg.text);
+
+                // Check if text looks like image data
+                if (text.startsWith('/9j/') || text.startsWith('iVBOR')) {
+                    html += '<div class="chat-bubble ' + role + '">[图片]</div>';
+                } else {
+                    html += '<div class="chat-bubble ' + role + '"><span class="chat-time">' + time + '</span>' + text + '</div>';
+                }
+            });
+
+            return html;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function escapeHtmlAttr(text) {
+            return escapeHtml(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function getChatTargetAttrs(phone, name) {
+            return `data-chat-phone="${escapeHtmlAttr(phone || '')}" data-chat-name="${escapeHtmlAttr(name || '')}"`;
+        }
+
+        let globalCardDelegatesBound = false;
+
+        function makeCardsClickable() {
+            if (globalCardDelegatesBound) return;
+            globalCardDelegatesBound = true;
+
+            document.addEventListener('click', function(e) {
+                const openV2Target = e.target.closest('.js-open-v2[data-v2-url]');
+                if (openV2Target) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openV2Workspace(openV2Target.getAttribute('data-v2-url') || '');
+                    return;
+                }
+
+                if (e.target.closest('.badge') || e.target.closest('.action-btn')) return;
+
+                const jbCard = e.target.closest('.jb-card');
+                if (jbCard) {
+                    const creator = jbCard.dataset.creator;
+                    const jbStatus = jbCard.dataset.jbStatus;
+                    const waPhone = jbCard.dataset.waPhone || '';
+                    let messagesJson = jbCard.dataset.messages;
+                    fetchLatestUsersData()
+                        .then(() => {
+                            const waUser = findWAUserForJBCard(creator, waPhone);
+                            if (waUser && waUser.messages && waUser.messages.length > 0) {
+                                messagesJson = encodeURIComponent(JSON.stringify(waUser.messages));
+                            }
+                            if (messagesJson) {
+                                openJBChatModal(creator, messagesJson, jbStatus, waUser);
+                            }
+                        })
+                        .catch(() => {
+                            if (messagesJson) {
+                                openJBChatModal(creator, messagesJson, jbStatus, null);
+                            }
+                        });
+                    return;
+                }
+
+                const chatTarget = e.target.closest('[data-chat-phone][data-chat-name]');
+                if (!chatTarget) return;
+                const phone = chatTarget.getAttribute('data-chat-phone') || '';
+                const name = chatTarget.getAttribute('data-chat-name') || '';
+                if (phone && phone !== '-') {
+                    openChatModal(phone, name);
+                }
+            });
+        }
+
+        // Override renderCards to add click handlers
+        const originalRenderCards = renderCards;
+        renderCards = function(users) {
+            originalRenderCards(users);
+            makeCardsClickable();
+        };
+
+        // Re-apply click handlers when filters change
+        const originalFilterUsers = filterUsers;
+        filterUsers = function() {
+            originalFilterUsers();
+            makeCardsClickable();
+        };
+    </script>
+</body>
+</html>

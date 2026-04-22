@@ -88,7 +88,9 @@ export default defineConfig(async () => {
     publicDir: false,
     build: {
       outDir: path.join(__dirname, 'public'),
-      emptyOutDir: true,
+      // 禁用清空：public/ 里还托管 /v1/ 子看板等静态资源，不能被 vite 清理
+      // 真正的 v2 产物清理走 package.json 的 prebuild script
+      emptyOutDir: false,
       minify: false,
       rollupOptions: {
         input: path.join(__dirname, 'src/index.html')
