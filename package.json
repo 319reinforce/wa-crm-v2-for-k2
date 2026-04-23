@@ -37,6 +37,7 @@
     "lifecycle:migrate": "node migrate-lifecycle-state.js",
     "wa:sessions:migrate": "node migrate-wa-sessions.js",
     "wa:driver:migrate": "node migrate-wa-sessions-driver.js",
+    "db:seed:ai-providers": "node scripts/seed-ai-provider-configs.cjs",
     "wa:sessions:bootstrap": "node server/bootstrap/migrateLegacySessions.js",
     "lifecycle:backfill": "node migrate-lifecycle-state.js --backfill",
     "cleanup:creators": "node scripts/cleanup-invalid-creators.cjs",

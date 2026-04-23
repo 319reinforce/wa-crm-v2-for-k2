@@ -816,3 +816,60 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     KEY idx_user_sessions_expires (expires_at),
     CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- AI Provider Configs (Phase 0 Admin LLM Config)
+-- ============================================================
+-- 6 个 purpose 的 LLM 配置中心 + 使用流水 + 日聚合。
+-- 阶段 0 只建表、种默认 env-default 行;openai.js 的改造在阶段 1。
+-- is_active=1 的唯一性由 aiProviderConfigService 层保障(activate 时先置 0 后置 1)。
+
+CREATE TABLE IF NOT EXISTS ai_provider_configs (
+    id               INT AUTO_INCREMENT PRIMARY KEY,
+    purpose          VARCHAR(64)  NOT NULL,
+    name             VARCHAR(128) NOT NULL,
+    model            VARCHAR(128) NOT NULL,
+    base_url         VARCHAR(512) NOT NULL,
+    api_key          TEXT         NOT NULL,
+    extra_params     JSON         NULL,
+    is_active        TINYINT(1)   NOT NULL DEFAULT 0,
+    notes            TEXT         NULL,
+    created_by       VARCHAR(128) NULL,
+    created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_purpose_name (purpose, name),
+    KEY idx_purpose_active (purpose, is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_usage_logs (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    provider_config_id  INT          NULL,
+    purpose             VARCHAR(64)  NOT NULL,
+    model               VARCHAR(128) NOT NULL,
+    tokens_prompt       INT          NOT NULL DEFAULT 0,
+    tokens_completion   INT          NOT NULL DEFAULT 0,
+    tokens_total        INT          NOT NULL DEFAULT 0,
+    latency_ms          INT          NULL,
+    status              VARCHAR(32)  NOT NULL DEFAULT 'ok',
+    error_message       TEXT         NULL,
+    source              VARCHAR(128) NULL,
+    creator_id          INT          NULL,
+    created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_purpose_time (purpose, created_at),
+    KEY idx_config_time (provider_config_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_usage_daily (
+    date                DATE         NOT NULL,
+    purpose             VARCHAR(64)  NOT NULL,
+    provider_config_id  INT          NOT NULL DEFAULT 0,
+    model               VARCHAR(128) NOT NULL DEFAULT '',
+    request_count       INT          NOT NULL DEFAULT 0,
+    tokens_prompt       BIGINT       NOT NULL DEFAULT 0,
+    tokens_completion   BIGINT       NOT NULL DEFAULT 0,
+    tokens_total        BIGINT       NOT NULL DEFAULT 0,
+    error_count         INT          NOT NULL DEFAULT 0,
+    total_latency_ms    BIGINT       NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, purpose, provider_config_id),
+    KEY idx_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

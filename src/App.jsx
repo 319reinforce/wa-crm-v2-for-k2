@@ -14,6 +14,7 @@ import { MobileEventTagsBar } from './components/MobileEventTagsBar'
 import AuthSessionControls from './components/AuthSessionControls'
 import { AccountsPanel } from './components/AccountsPanel'
 import { UsersPanel } from './components/UsersPanel'
+import { AIProvidersAdminPanel } from './components/AIProvidersAdminPanel'
 import { getAppAuthScopeOwner, isAppAuthOwnerLocked, isAppAuthAdmin } from './utils/appAuth'
 import { fetchJsonOrThrow } from './utils/api'
 import { getCreatorMessages, getCreatorStatusMeta } from './utils/creatorMeta'
@@ -81,7 +82,8 @@ const DESKTOP_PRIMARY_TABS = [
   { key: 'strategy', label: '策略', subtitle: '生命周期与策略配置' },
   { key: 'sft', label: 'SFT', subtitle: '训练与审核看板' },
   { key: 'accounts', label: '账号', subtitle: 'WhatsApp 账号管理' },
-  { key: 'users', label: '用户', subtitle: '管理员账号与权限', adminOnly: true },
+{ key: 'users', label: '用户', subtitle: '管理员账号与权限', adminOnly: true },
+  { key: 'ai-providers', label: 'AI Providers', subtitle: 'LLM 配置与用量', adminOnly: true },
 ]
 const WORKSPACE_META = {
   creators: { title: '消息工作台', subtitle: '以聊天为中心推进达人转化、跟进与维护。' },
@@ -1518,6 +1520,8 @@ function App() {
                       <AccountsPanel />
                     ) : activeTab === 'users' ? (
                       <UsersPanel />
+                    ) : activeTab === 'ai-providers' ? (
+                      <AIProvidersAdminPanel />
                     ) : (
                       <SFTDashboard compact />
                     )}
