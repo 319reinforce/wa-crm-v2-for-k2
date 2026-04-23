@@ -18,6 +18,44 @@ const CHAT_PATTERN = [
     'radial-gradient(circle at 1px 1px, rgba(111,106,98,0.05) 1px, transparent 0)',
     'radial-gradient(circle at 12px 12px, rgba(111,106,98,0.03) 1px, transparent 0)',
 ].join(', ');
+
+const MESSAGES_CACHE_TTL_MS = 30_000;
+const POLICY_DOCS_CACHE_TTL_MS = 60_000;
+const messagesCache = new Map();
+let policyDocsCacheEntry = null;
+
+function getCachedMessages(creatorId) {
+    if (!creatorId) return null;
+    const entry = messagesCache.get(creatorId);
+    if (!entry) return null;
+    if (Date.now() - entry.ts > MESSAGES_CACHE_TTL_MS) {
+        messagesCache.delete(creatorId);
+        return null;
+    }
+    return entry;
+}
+
+function setCachedMessages(creatorId, msgs, total) {
+    if (!creatorId) return;
+    messagesCache.set(creatorId, { msgs, total, ts: Date.now() });
+}
+
+function invalidateMessagesCache(creatorId) {
+    if (creatorId) messagesCache.delete(creatorId);
+}
+
+function getCachedPolicyDocs() {
+    if (!policyDocsCacheEntry) return null;
+    if (Date.now() - policyDocsCacheEntry.ts > POLICY_DOCS_CACHE_TTL_MS) {
+        policyDocsCacheEntry = null;
+        return null;
+    }
+    return policyDocsCacheEntry.docs;
+}
+
+function setCachedPolicyDocs(docs) {
+    policyDocsCacheEntry = { docs, ts: Date.now() };
+}
 const LIFECYCLE_AARRR_META = [
     { key: 'acquisition', label: '获取', color: '#6d8fe5' },
     { key: 'activation', label: '激活', color: '#e2a55f' },
@@ -686,10 +724,14 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     }), []);
 
     const fetchPolicyDocs = async () => {
+        const cached = getCachedPolicyDocs();
+        if (cached) return cached;
         try {
-            return await fetchJsonOrThrow(`${API_BASE}/policy-documents?active_only=true`, {
+            const docs = await fetchJsonOrThrow(`${API_BASE}/policy-documents?active_only=true`, {
                 signal: AbortSignal.timeout(15000),
             });
+            if (Array.isArray(docs)) setCachedPolicyDocs(docs);
+            return docs;
         } catch (_) {}
         return [];
     };
@@ -721,11 +763,20 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     // 记录最近一次已生成过候选的 incoming 消息 key —— 防止 5s 轮询反复对同一条消息重新生成
     const lastGeneratedKeyRef = useRef(null);
 
-    // 预加载政策文档和客户记忆，LOAD 完成后触发 AI 生成
+    // messagesRef：同步 messages 状态，供 generateForIncoming 读当前对话而无需重新 fetch
+    const messagesRef = useRef([]);
     useEffect(() => {
-        if (!client?.id || !client?.phone) return;
+        messagesRef.current = messages;
+    }, [messages]);
 
-        // 清除旧状态
+    // sideDataReady：副数据 (policyDocs + clientMemory) 首次加载完成的标记。
+    // 自动 AI 生成 effect 会等这个 flag（保留 "未加载政策不自动生成" 的合规不变量）。
+    const [sideDataReady, setSideDataReady] = useState(false);
+
+    // Effect 1: 切换达人 → 重置所有会话级状态
+    // 只依赖 phone；msg_count 不再作为依赖，避免 SSE/轮询更新总数时触发整屏重载。
+    useEffect(() => {
+        if (!client?.phone) return;
         setActivePicker(null);
         setPendingCandidates([]);
         setMessages([]);
@@ -744,81 +795,122 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         setAutoDetectedTopic(null);
         setAllEvents([]);
         setActiveEvents([]);
+        setSideDataReady(false);
         clearPendingImage();
         jumpContextUntilRef.current = 0;
         pendingCandidatesRef.current = [];
         lastActivityRef.current = null;
         lastGeneratedKeyRef.current = null;
+        // 每次切人 race 递增，让旧的 async 结果进不来
+        generationRaceRef.current += 1;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [client?.phone]);
 
-        // 每个新达人都+1，这样旧达人的异步生成结果会被忽略
-        const currentRace = ++generationRaceRef.current;
+    // Effect 2: 切换达人 → 立刻拉消息（独立于副数据，不被阻塞）
+    // 命中缓存时先渲染缓存再后台 revalidate（stale-while-revalidate）。
+    useEffect(() => {
+        if (!client?.id) return;
+        const creatorId = client.id;
+        const race = generationRaceRef.current;
         let cancelled = false;
 
-        const load = async () => {
-            const creatorId = client?.id;
-            const [docs, mem, evtData, strategyConfig] = await Promise.all([
-                fetchPolicyDocs(),
-                fetchJsonOrThrow(`${API_BASE}/client-memory/${client.phone}`, {
-                    signal: AbortSignal.timeout(15000),
-                })
-                    .catch(() => []),
-                creatorId
-                    ? fetchJsonOrThrow(`${API_BASE}/events/summary/${creatorId}`, {
-                        signal: AbortSignal.timeout(15000),
-                    })
-                        .catch(() => ({ events: [] }))
-                    : Promise.resolve({ events: [] }),
-                fetchUnboundAgencyStrategies(),
-            ]);
-            // 检查：期间是否切换过达人？
-            if (cancelled || currentRace !== generationRaceRef.current) return;
-            setPolicyDocs(docs);
-            setClientMemory(mem || []);
-            setAgencyStrategies(strategyConfig);
-            setAllEvents(evtData.events || []);
-            setActiveEvents((evtData.events || []).filter(e => e.status === 'active'));
+        const cached = getCachedMessages(creatorId);
+        if (cached && cached.msgs.length > 0) {
+            setMessages(cached.msgs);
+            setMessageTotal(cached.total);
+            setLoadedServerCount(cached.msgs.length);
+            const latestTs = getLatestMessageTimestamp(cached.msgs);
+            if (latestTs > 0) lastActivityRef.current = latestTs;
+        }
 
-            // 等 policyDocs 加载后再生成
+        (async () => {
             try {
-                const data = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}/messages`, {
+                const data = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}/messages`, {
                     signal: AbortSignal.timeout(15000),
                 });
+                if (cancelled || race !== generationRaceRef.current) return;
                 const { msgs, total } = unpackMessageResponse(data);
                 setMessages(msgs);
                 setMessageTotal(total);
                 setLoadedServerCount(msgs.length);
+                setCachedMessages(creatorId, msgs, total);
                 const latestTs = getLatestMessageTimestamp(msgs);
                 if (latestTs > 0) lastActivityRef.current = latestTs;
-                if (cancelled || currentRace !== generationRaceRef.current || msgs.length === 0) return;
-                const lastMsg = getLatestIncomingMessage(msgs);
-                if (!lastMsg) return;
-                const result = await generateForIncoming(lastMsg);
-                if (result && currentRace === generationRaceRef.current) {
-                    lastGeneratedKeyRef.current = getMessageKey(lastMsg);
-                    pushPicker(result);
-                }
             } catch (e) {
-                console.error('[generateOnSwitch] error:', e);
+                if (e?.name !== 'AbortError') console.error('[load-messages] error:', e);
             }
-        };
-        load();
+        })();
 
-        return () => {
-            cancelled = true;
-        };
-    }, [client?.phone, client?.msg_count, creator?.msg_count, clearPendingImage, unpackMessageResponse]);
+        return () => { cancelled = true; };
+    }, [client?.id, unpackMessageResponse]);
+
+    // Effect 3: 切换达人 → 并行拉副数据（policyDocs / client-memory / events / strategies）
+    // 不阻塞消息渲染；拉完后 sideDataReady=true，解锁自动 AI 生成。
+    useEffect(() => {
+        if (!client?.phone) return;
+        const creatorId = client?.id;
+        const race = generationRaceRef.current;
+        let cancelled = false;
+
+        Promise.all([
+            fetchPolicyDocs(),
+            fetchJsonOrThrow(`${API_BASE}/client-memory/${client.phone}`, {
+                signal: AbortSignal.timeout(15000),
+            }).catch(() => []),
+            creatorId
+                ? fetchJsonOrThrow(`${API_BASE}/events/summary/${creatorId}`, {
+                    signal: AbortSignal.timeout(15000),
+                }).catch(() => ({ events: [] }))
+                : Promise.resolve({ events: [] }),
+            fetchUnboundAgencyStrategies(),
+        ]).then(([docs, mem, evtData, strategyConfig]) => {
+            if (cancelled || race !== generationRaceRef.current) return;
+            setPolicyDocs(docs);
+            setClientMemory(mem || []);
+            setAgencyStrategies(strategyConfig);
+            const events = evtData?.events || [];
+            setAllEvents(events);
+            setActiveEvents(events.filter(e => e.status === 'active'));
+            setSideDataReady(true);
+        });
+
+        return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [client?.phone, client?.id]);
+
+    // Effect 4: messages + sideDataReady 都到位 → 为最新 incoming 消息自动生成候选（一次）
+    // 合规不变量：仍等 policyDocs / clientMemory 就绪后才触发（CLAUDE.md 禁止事项 #2）。
+    // 使用 lastGeneratedKeyRef 去重：dismiss 候选后不会被同一条消息重新触发。
+    useEffect(() => {
+        if (!client?.id || !sideDataReady || messages.length === 0) return;
+        const lastMsg = getLatestIncomingMessage(messages);
+        if (!lastMsg) return;
+        const key = getMessageKey(lastMsg);
+        if (lastGeneratedKeyRef.current === key) return;
+        // 先占坑：避免 polling hook 的 SSE 路径在本 effect await 时并行触发一次
+        lastGeneratedKeyRef.current = key;
+        const race = generationRaceRef.current;
+        let cancelled = false;
+        (async () => {
+            const result = await generateForIncoming(lastMsg, messages);
+            if (cancelled || race !== generationRaceRef.current) return;
+            if (result) pushPicker(result);
+        })();
+        return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [client?.id, sideDataReady, messages]);
 
     // 为一条 incoming 消息生成候选
-    const generateForIncoming = useCallback(async (incomingMsg) => {
+    // conversationMsgs: 可选,调用方传入已拉到的消息列表(避免重复 fetch)。
+    // 不传时读 messagesRef.current(与 messages state 实时同步)。
+    const generateForIncoming = useCallback(async (incomingMsg, conversationMsgs) => {
         if (!client?.id || !client?.phone) return null;
         setPickerLoading(true);
         setPickerError(null);
         try {
-            // 重新 fetch 最新消息，避免闭包 stale 问题
-            const msgsData = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}/messages`, {
-                signal: AbortSignal.timeout(15000),
-            });
-            const { msgs } = unpackMessageResponse(msgsData);
+            const msgs = Array.isArray(conversationMsgs) && conversationMsgs.length > 0
+                ? conversationMsgs
+                : messagesRef.current;
             const conversation = buildConversation(msgs);
 
             const result = await generateViaExperienceRouter({
@@ -859,7 +951,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         } finally {
             setPickerLoading(false);
         }
-    }, [client, creator, policyDocs, clientMemory, agencyStrategies, currentTopic, autoDetectedTopic, unpackMessageResponse]);
+    }, [client, creator, policyDocs, clientMemory, agencyStrategies, currentTopic, autoDetectedTopic]);
 
     // 弹出候选 picker（处理新候选）
     const pushPicker = useCallback((result) => {
@@ -877,8 +969,14 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         client,
         setMessages: (freshMsgs) => {
             if (Date.now() < jumpContextUntilRef.current) return;
-            setMessages((prev) => mergeChronologicalMessages(prev, freshMsgs));
-            setLoadedServerCount((prev) => Math.max(prev, freshMsgs.length));
+            setMessages((prev) => {
+                const merged = mergeChronologicalMessages(prev, freshMsgs);
+                // 增量 merge 时 loadedServerCount 应跟上已有消息数(用于 load-older 分页 offset)
+                setLoadedServerCount((prevCount) => Math.max(prevCount, merged.length));
+                // 同步缓存,SSE 到达后回切缓存不会丢新消息
+                setCachedMessages(client?.id, merged, Math.max(merged.length, 0));
+                return merged;
+            });
         },
         setMessageTotal,
         generateForIncoming,
@@ -1065,6 +1163,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 previewUrl: pendingImage.previewUrl,
             }]);
             setMessageTotal((prev) => prev + 1);
+            invalidateMessagesCache(client?.id);
             if (caption) {
                 await extractAndSaveMemory(null, caption);
             }
@@ -1081,12 +1180,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
     // 点了 bot 图标 → 强制为最新 incoming 消息重新生成候选
     const handleBotIconClick = async () => {
-        // 重新 fetch 最新消息，避免切换达人后闭包 stale 问题
-        const msgsData = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}/messages`, {
-            signal: AbortSignal.timeout(15000),
-        }).catch(() => []);
-        const freshMsgs = Array.isArray(msgsData) ? msgsData : (msgsData.messages || []);
-
+        // 读最新 messages（SSE/增量拉已同步进 state；messagesRef 与 state 实时对齐）
+        const freshMsgs = messagesRef.current;
         const incomingMsgs = freshMsgs.filter(m => m.role === 'user');
         const latestMsg = incomingMsgs[incomingMsgs.length - 1];
         if (!latestMsg) return;
@@ -1526,6 +1621,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         }
         setMessages(prev => [...prev, { role: 'me', text: sentText, timestamp: sentAt }]);
         setMessageTotal((prev) => prev + 1);
+        invalidateMessagesCache(client?.id);
         onMessageSent?.(client.id);
         return { ok: true, sentAt, crmMessage };
     };
