@@ -5,6 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const aiService = require('../services/aiService');
+const translationService = require('../services/translationService');
 const {
     buildReplySystemPrompt,
     generateCandidatesFromMessages,
@@ -134,12 +135,14 @@ router.post('/ai/system-prompt', async (req, res) => {
     }
 });
 
-// POST /api/translate — 翻译接口（固定 MiniMax；单条/批量都支持 auto/to_zh/to_en）
+// POST /api/translate — 翻译接口
+// provider: 'deepl' | 'minimax'（可选，未传则读 env TRANSLATION_PROVIDER，默认 minimax）
+// DeepL 失败会自动 fallback 到 MiniMax，确保返回结果
 router.post('/translate', async (req, res) => {
     try {
-        const { text, role, timestamp, texts, mode } = req.body;
+        const { text, role, timestamp, texts, mode, provider } = req.body;
         if (text !== undefined) {
-            const result = await aiService.translateText(text, role, timestamp, mode);
+            const result = await translationService.translateText(text, { role, timestamp, mode, provider });
             return res.json(result);
         }
 
@@ -147,7 +150,7 @@ router.post('/translate', async (req, res) => {
             return res.json([]);
         }
 
-        const result = await aiService.translateBatch(texts, mode);
+        const result = await translationService.translateBatch(texts, { mode, provider });
         return res.json(result);
     } catch (err) {
         console.error('POST /api/translate error:', err);

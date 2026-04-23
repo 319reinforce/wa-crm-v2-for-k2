@@ -1,0 +1,29 @@
+{
+    "_comment": "DeepL glossary 术语表 — source/target 必须来自固定语言对。执行首次翻译时自动 createGlossary 并把 id 打印到日志，拿到后写入 DEEPL_GLOSSARY_* env 以避免每次启动重建。",
+    "en_to_zh": [
+        { "source": "DRIFTO", "target": "DRIFTO" },
+        { "source": "Beau", "target": "Beau" },
+        { "source": "Yiyun", "target": "Yiyun" },
+        { "source": "GMV", "target": "GMV" },
+        { "source": "TikTok", "target": "TikTok" },
+        { "source": "TikTok Shop", "target": "TikTok Shop" },
+        { "source": "MCN", "target": "MCN" },
+        { "source": "Beta plan", "target": "Beta 计划" },
+        { "source": "trial plan", "target": "试用计划" },
+        { "source": "monthly plan", "target": "月卡" },
+        { "source": "WhatsApp", "target": "WhatsApp" }
+    ],
+    "zh_to_en": [
+        { "source": "DRIFTO", "target": "DRIFTO" },
+        { "source": "Beau", "target": "Beau" },
+        { "source": "Yiyun", "target": "Yiyun" },
+        { "source": "GMV", "target": "GMV" },
+        { "source": "TikTok", "target": "TikTok" },
+        { "source": "TikTok Shop", "target": "TikTok Shop" },
+        { "source": "MCN", "target": "MCN" },
+        { "source": "Beta 计划", "target": "Beta plan" },
+        { "source": "试用计划", "target": "trial plan" },
+        { "source": "月卡", "target": "monthly plan" },
+        { "source": "WhatsApp", "target": "WhatsApp" }
+    ]
+}

@@ -602,6 +602,12 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const [translateProgress, setTranslateProgress] = useState(null);
     // 翻译 map：key = message_key，value = 中文翻译
     const [translationMap, setTranslationMap] = useState({});
+    // 主输入框翻译：loading 态
+    const [translatingInput, setTranslatingInput] = useState(false);
+    // 主输入框翻译 undo 快照：存原文；置 null 表示当前不在"已翻译"状态
+    const [inputOriginalBeforeTranslate, setInputOriginalBeforeTranslate] = useState(null);
+    // 记录上一次的译文，用于判断用户是否手动编辑过输入框（编辑后再点 🌐 视为重新翻译而不是 undo）
+    const [lastTranslatedInputText, setLastTranslatedInputText] = useState(null);
 
     // 当前活跃的 AI 候选
     const [activePicker, setActivePicker] = useState(null);
@@ -1280,6 +1286,60 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             setTranslateProgress(null);
         } finally {
             setTranslating(false);
+        }
+    };
+
+    // 主输入框独立翻译（走 DeepL，与"生成候选"解耦）
+    //   - 无翻译快照时：把 inputText 翻译后写回 textarea
+    //   - 有翻译快照且 inputText 与上次译文一致：视为 undo，还原原文
+    //   - 用户手动编辑过译文（inputText !== lastTranslatedInputText）：视为一次新的翻译，不做 undo
+    const handleTranslateInput = async () => {
+        if (translatingInput || writeBlocked) return;
+
+        // Undo 分支：当前 inputText 正好是上次的译文 → 还原
+        if (
+            inputOriginalBeforeTranslate !== null &&
+            lastTranslatedInputText !== null &&
+            inputText === lastTranslatedInputText
+        ) {
+            setInputText(inputOriginalBeforeTranslate);
+            setInputOriginalBeforeTranslate(null);
+            setLastTranslatedInputText(null);
+            return;
+        }
+
+        const source = inputText.trim();
+        if (!source) return;
+
+        setTranslatingInput(true);
+        const snapshot = inputText;
+        try {
+            const response = await fetchAppAuth(`${API_BASE}/translate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: source,
+                    mode: 'auto',
+                    provider: 'deepl',
+                }),
+                signal: AbortSignal.timeout(30000),
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data?.error || `HTTP ${response.status}`);
+            }
+            const translation = String(data?.translation || '').trim();
+            if (!translation || translation === snapshot) {
+                // 译文与原文一致（DeepL 认定无需翻译） — 不视为"已翻译"状态，避免下次 undo 触发
+                return;
+            }
+            setInputOriginalBeforeTranslate(snapshot);
+            setLastTranslatedInputText(translation);
+            setInputText(translation);
+        } catch (e) {
+            console.error('[TranslateInput] error:', e);
+        } finally {
+            setTranslatingInput(false);
         }
     };
 
@@ -2657,6 +2717,36 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                             skinTonesDisabled
                         />
                     </div>
+
+                    {/* 🌐 主输入框翻译按钮 — 走 DeepL，与生成候选解耦；再点一次 undo */}
+                    {(() => {
+                        const isUndoState = (
+                            inputOriginalBeforeTranslate !== null &&
+                            lastTranslatedInputText !== null &&
+                            inputText === lastTranslatedInputText
+                        );
+                        const disabled = translatingInput || writeBlocked || (!inputText.trim() && !isUndoState);
+                        const title = writeBlocked
+                            ? (writeBlockedTitle || '只读')
+                            : isUndoState
+                                ? '再点一次还原原文'
+                                : '翻译输入框文本（DeepL，auto 方向）';
+                        return (
+                            <button
+                                onClick={handleTranslateInput}
+                                disabled={disabled}
+                                className="w-9 h-9 md:w-11 md:h-11 rounded-full flex items-center justify-center shrink-0 transition-all disabled:opacity-40"
+                                style={{
+                                    color: isUndoState ? '#ffffff' : WA.textMuted,
+                                    background: isUndoState ? WA.teal : WA.white,
+                                    border: `1px solid ${isUndoState ? WA.teal : WA.borderLight}`,
+                                }}
+                                title={title}
+                            >
+                                {translatingInput ? <SpinnerIcon /> : <GlobeIcon />}
+                            </button>
+                        );
+                    })()}
 
                     <div
                         className="flex-1 flex items-center rounded-3xl px-4 md:px-5 py-3 md:py-3.5 border"
