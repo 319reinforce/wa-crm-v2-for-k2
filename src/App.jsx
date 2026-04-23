@@ -193,6 +193,11 @@ function App() {
   const [manualForm, setManualForm] = useState({ name: '', phone: '', owner: lockedOwner || 'Yiyun' })
   const [manualCheckLoading, setManualCheckLoading] = useState(false)
   const [manualCheck, setManualCheck] = useState(null)
+  const [manualMode, setManualMode] = useState('single') // 'single' | 'bulk'
+  const [bulkText, setBulkText] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkResults, setBulkResults] = useState(null)
+  const [bulkError, setBulkError] = useState('')
   const creatorsCacheRef = useRef(new Map())
   const queryBootstrapDoneRef = useRef(false)
 
@@ -701,15 +706,48 @@ function App() {
     setManualForm({ name: '', phone: '', owner: suggestedOwner })
     setManualCheck(null)
     setManualError('')
+    setManualMode('single')
+    setBulkText('')
+    setBulkResults(null)
+    setBulkError('')
     setManualOpen(true)
   }, [filterOwner, lockedOwner, ownerLocked, selectedCreator?.wa_owner])
 
   const closeManualModal = useCallback(() => {
-    if (manualSaving) return
+    if (manualSaving || bulkSaving) return
     setManualOpen(false)
     setManualError('')
     setManualCheck(null)
-  }, [manualSaving])
+    setBulkError('')
+  }, [manualSaving, bulkSaving])
+
+  const submitBulkImport = useCallback(async (parsedRows) => {
+    if (!Array.isArray(parsedRows) || parsedRows.length === 0) {
+      setBulkError('请先粘贴至少一行数据')
+      return
+    }
+    setBulkSaving(true)
+    setBulkError('')
+    setBulkResults(null)
+    try {
+      const payload = {
+        rows: parsedRows.map(r => ({ name: r.name, phone: r.phone })),
+        owner: manualForm.owner || 'Yiyun',
+        source: 'csv-import',
+      }
+      const result = await fetchJsonOrThrow(`${API_BASE}/creators/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      setBulkResults(result)
+      await loadData()
+    } catch (e) {
+      setBulkError(e.message || '批量导入失败')
+    } finally {
+      setBulkSaving(false)
+    }
+  }, [manualForm.owner, loadData])
 
   useEffect(() => {
     if (!manualOpen) return
@@ -974,6 +1012,15 @@ function App() {
           checkLoading={manualCheckLoading}
           checkResult={manualCheck}
           error={manualError}
+          mode={manualMode}
+          onModeChange={setManualMode}
+          bulkText={bulkText}
+          onBulkTextChange={setBulkText}
+          onBulkSubmit={submitBulkImport}
+          bulkSaving={bulkSaving}
+          bulkResults={bulkResults}
+          bulkError={bulkError}
+          availableOwners={ownerOptions}
         />
       </>
     )
@@ -1647,9 +1694,64 @@ function App() {
         checkLoading={manualCheckLoading}
         checkResult={manualCheck}
         error={manualError}
+        mode={manualMode}
+        onModeChange={setManualMode}
+        bulkText={bulkText}
+        onBulkTextChange={setBulkText}
+        onBulkSubmit={submitBulkImport}
+        bulkSaving={bulkSaving}
+        bulkResults={bulkResults}
+        bulkError={bulkError}
+        availableOwners={ownerOptions}
       />
     </div>
   )
+}
+
+function parseBulkCreatorRows(text) {
+  const lines = String(text || '').split(/\r?\n/)
+  const rows = []
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]
+    const line = raw.trim()
+    if (!line) continue
+    let name = ''
+    let phone = ''
+    if (line.includes('\t')) {
+      const parts = line.split('\t').map(s => s.trim()).filter(Boolean)
+      if (parts.length >= 2) {
+        name = parts[0]
+        phone = parts.slice(1).join(' ')
+      } else {
+        name = parts[0] || ''
+      }
+    } else {
+      const m = line.match(/^(.+?)\s{2,}(.+)$/)
+      if (m) {
+        name = m[1].trim()
+        phone = m[2].trim()
+      } else {
+        const m2 = line.match(/^(.*?)([+\d][\d()\-\s+]{6,})$/)
+        if (m2) {
+          name = m2[1].trim()
+          phone = m2[2].trim()
+        } else {
+          name = line
+        }
+      }
+    }
+    const digits = phone.replace(/\D/g, '')
+    rows.push({
+      lineNo: i + 1,
+      raw: line,
+      name,
+      phone,
+      digits,
+      valid: Boolean(name) && digits.length >= 7,
+      reason: !name ? '缺少姓名' : (digits.length < 7 ? '缺少有效手机号' : ''),
+    })
+  }
+  return rows
 }
 
 function ManualCreatorModal({
@@ -1664,17 +1766,33 @@ function ManualCreatorModal({
   checkLoading,
   checkResult,
   error,
+  mode = 'single',
+  onModeChange,
+  bulkText = '',
+  onBulkTextChange,
+  onBulkSubmit,
+  bulkSaving,
+  bulkResults,
+  bulkError,
+  availableOwners,
 }) {
   const { owners: rosterOwners } = useOperatorRoster()
+
+  const parsedBulkRows = useMemo(() => parseBulkCreatorRows(bulkText), [bulkText])
+  const validBulkRows = useMemo(() => parsedBulkRows.filter(r => r.valid), [parsedBulkRows])
 
   if (!open) return null
 
   const ownerOptions = (() => {
-    const base = rosterOwners && rosterOwners.length > 0 ? rosterOwners : []
-    if (form?.owner && !base.includes(form.owner)) {
-      return [form.owner, ...base]
+    const merged = new Set()
+    for (const o of (availableOwners || [])) {
+      if (o) merged.add(o)
     }
-    return base
+    for (const o of (rosterOwners || [])) {
+      if (o) merged.add(o)
+    }
+    if (form?.owner) merged.add(form.owner)
+    return [...merged]
   })()
 
   const samePhone = checkResult?.conflicts?.same_phone || []
@@ -1682,18 +1800,63 @@ function ManualCreatorModal({
   const hasPhoneConflict = samePhone.length > 0
   const hasNameConflict = sameName.length > 0
 
+  const isBulk = mode === 'bulk'
+
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/45" onClick={onClose} />
-      <div className="relative w-full max-w-xl rounded-2xl border shadow-2xl p-5 space-y-4" style={{ background: WA.white, borderColor: WA.borderLight }}>
+      <div className="relative w-full max-w-2xl rounded-2xl border shadow-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto" style={{ background: WA.white, borderColor: WA.borderLight }}>
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-base font-semibold" style={{ color: WA.textDark }}>手动录入达人</div>
-            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>录入前自动检查同号与重名，防止重复建档</div>
+            <div className="text-base font-semibold" style={{ color: WA.textDark }}>{isBulk ? '批量导入达人' : '手动录入达人'}</div>
+            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>
+              {isBulk ? '粘贴姓名+电话，每行一条；同号自动复用现有达人' : '录入前自动检查同号与重名，防止重复建档'}
+            </div>
           </div>
           <button onClick={onClose} className="text-lg px-2 py-1 rounded-lg" style={{ color: WA.textMuted }}>✕</button>
         </div>
 
+        {onModeChange && (
+          <div className="inline-flex rounded-lg border overflow-hidden" style={{ borderColor: WA.borderLight }}>
+            {[
+              { key: 'single', label: '单个录入' },
+              { key: 'bulk', label: 'CSV 批量导入' },
+            ].map(t => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => !saving && !bulkSaving && onModeChange(t.key)}
+                className="px-3 py-1.5 text-xs font-medium"
+                style={{
+                  background: mode === t.key ? WA.teal : 'transparent',
+                  color: mode === t.key ? 'white' : WA.textMuted,
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {isBulk ? (
+          <BulkImportSection
+            ownerLocked={ownerLocked}
+            lockedOwner={lockedOwner}
+            ownerOptions={ownerOptions}
+            owner={form?.owner || 'Yiyun'}
+            onOwnerChange={(value) => onFormChange(prev => ({ ...prev, owner: value }))}
+            text={bulkText}
+            onTextChange={onBulkTextChange}
+            parsedRows={parsedBulkRows}
+            validRows={validBulkRows}
+            onSubmit={() => onBulkSubmit && onBulkSubmit(validBulkRows)}
+            saving={bulkSaving}
+            results={bulkResults}
+            error={bulkError}
+            onClose={onClose}
+          />
+        ) : (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="md:col-span-2 text-xs space-y-1">
             <span style={{ color: WA.textMuted }}>达人姓名</span>
@@ -1787,6 +1950,156 @@ function ManualCreatorModal({
             {saving ? '保存中...' : '保存并建档'}
           </button>
         </div>
+        </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function BulkImportSection({
+  ownerLocked,
+  lockedOwner,
+  ownerOptions,
+  owner,
+  onOwnerChange,
+  text,
+  onTextChange,
+  parsedRows,
+  validRows,
+  onSubmit,
+  saving,
+  results,
+  error,
+  onClose,
+}) {
+  const total = parsedRows.length
+  const validCount = validRows.length
+  const invalidCount = total - validCount
+  const summary = results?.summary
+  const summaryRows = results?.results || []
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label className="md:col-span-1 text-xs space-y-1">
+          <span style={{ color: WA.textMuted }}>负责人</span>
+          <select
+            value={owner}
+            onChange={e => onOwnerChange(e.target.value)}
+            disabled={ownerLocked || saving}
+            className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+            style={{ borderColor: WA.borderLight, color: WA.textDark, background: ownerLocked ? WA.lightBg : WA.white }}
+          >
+            {ownerLocked ? (
+              <option value={lockedOwner}>{lockedOwner}</option>
+            ) : (
+              ownerOptions.map(o => (
+                <option key={o} value={o}>{o}</option>
+              ))
+            )}
+          </select>
+        </label>
+        <div className="md:col-span-2 text-xs flex items-end" style={{ color: WA.textMuted }}>
+          支持每行一条，姓名和电话之间可用 Tab、逗号或多个空格分隔。
+        </div>
+      </div>
+
+      <label className="text-xs space-y-1 block">
+        <span style={{ color: WA.textMuted }}>粘贴 CSV / 列表（每行 = 姓名 + 电话）</span>
+        <textarea
+          value={text}
+          onChange={e => onTextChange(e.target.value)}
+          rows={8}
+          disabled={saving}
+          placeholder={'TikTok Tay\t(410) 801-0355\nMarie Lee\t(646) 660-3256\nKerrie Cook\t(717) 847-7055'}
+          className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none font-mono"
+          style={{ borderColor: WA.borderLight, color: WA.textDark }}
+        />
+      </label>
+
+      {total > 0 && (
+        <div className="rounded-xl border" style={{ borderColor: WA.borderLight }}>
+          <div className="flex items-center justify-between px-3 py-2 text-xs" style={{ background: WA.lightBg, color: WA.textMuted }}>
+            <span>预览（{validCount} 条有效 / {invalidCount} 条无效）</span>
+            <span>共解析 {total} 行</span>
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr style={{ color: WA.textMuted }}>
+                  <th className="text-left px-3 py-2 font-medium">#</th>
+                  <th className="text-left px-3 py-2 font-medium">姓名</th>
+                  <th className="text-left px-3 py-2 font-medium">电话</th>
+                  <th className="text-left px-3 py-2 font-medium">状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parsedRows.map((row) => (
+                  <tr key={row.lineNo} className="border-t" style={{ borderColor: WA.borderLight }}>
+                    <td className="px-3 py-1.5" style={{ color: WA.textMuted }}>{row.lineNo}</td>
+                    <td className="px-3 py-1.5" style={{ color: WA.textDark }}>{row.name || <span style={{ color: '#ef4444' }}>—</span>}</td>
+                    <td className="px-3 py-1.5 font-mono" style={{ color: WA.textDark }}>{row.phone || <span style={{ color: '#ef4444' }}>—</span>}</td>
+                    <td className="px-3 py-1.5">
+                      {row.valid ? (
+                        <span style={{ color: '#10b981' }}>✓ 待导入</span>
+                      ) : (
+                        <span style={{ color: '#ef4444' }}>✗ {row.reason}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {summary && (
+        <div className="rounded-xl border p-3 text-xs space-y-2" style={{ borderColor: WA.borderLight, background: WA.lightBg }}>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span style={{ color: WA.textDark }}>导入完成：</span>
+            <span style={{ color: '#10b981' }}>新建 {summary.created}</span>
+            <span style={{ color: '#0284c7' }}>复用 {summary.reused}</span>
+            <span style={{ color: '#f59e0b' }}>跳过 {summary.skipped}</span>
+            <span style={{ color: summary.errors > 0 ? '#ef4444' : WA.textMuted }}>失败 {summary.errors}</span>
+          </div>
+          {(summary.skipped > 0 || summary.errors > 0) && (
+            <div className="max-h-40 overflow-y-auto space-y-1 pt-1">
+              {summaryRows.filter(r => r.status === 'error' || r.status === 'skipped').map((r, idx) => (
+                <div key={idx} className="px-2 py-1 rounded" style={{ background: WA.white, color: WA.textDark }}>
+                  <span style={{ color: '#ef4444' }}>{r.status === 'error' ? '错误' : '跳过'}</span>
+                  {' '}· {r.name || '(无名)'} · {r.phone || '(无电话)'} · {r.error}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>
+          {error}
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={onClose}
+          disabled={saving}
+          className="px-3 py-2 rounded-lg text-sm border"
+          style={{ borderColor: WA.borderLight, color: WA.textMuted }}
+        >
+          {summary ? '关闭' : '取消'}
+        </button>
+        <button
+          onClick={onSubmit}
+          disabled={saving || validCount === 0}
+          className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+          style={{ background: WA.teal }}
+        >
+          {saving ? '导入中...' : `导入 ${validCount} 条`}
+        </button>
       </div>
     </div>
   )

@@ -840,6 +840,151 @@ router.post('/manual', async (req, res) => {
     }
 });
 
+// POST /api/creators/import — 批量导入达人（CSV/粘贴），单行失败不影响其他行
+router.post('/import', async (req, res) => {
+    try {
+        const dbConn = db.getDb();
+        const rawRows = Array.isArray(req.body?.rows) ? req.body.rows : null;
+        if (!rawRows) {
+            return res.status(400).json({ ok: false, error: 'rows array required' });
+        }
+        if (rawRows.length === 0) {
+            return res.status(400).json({ ok: false, error: 'rows is empty' });
+        }
+        if (rawRows.length > 500) {
+            return res.status(400).json({ ok: false, error: 'too many rows (max 500 per request)' });
+        }
+
+        const lockedOwner = getLockedOwner(req);
+        const requestedOwner = normalizeOperatorName(req.body?.owner || req.body?.wa_owner, null);
+        if (lockedOwner && requestedOwner && !matchesOwnerScope(req, requestedOwner)) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
+        const operator = resolveScopedOwner(req, requestedOwner, 'Yiyun');
+        const source = String(req.body?.source || 'csv-import').trim() || 'csv-import';
+
+        const results = [];
+        let createdCount = 0;
+        let reusedCount = 0;
+        let errorCount = 0;
+        let skippedCount = 0;
+
+        for (let i = 0; i < rawRows.length; i++) {
+            const row = rawRows[i] || {};
+            const rawName = String(row.name || row.primary_name || '').trim();
+            const rawPhone = String(row.phone || row.wa_phone || '').trim();
+            const normalizedName = rawName.replace(/\s+/g, ' ').trim();
+            const normalizedPhone = normalizeManualPhone(rawPhone);
+
+            if (!normalizedName || !normalizedPhone) {
+                skippedCount += 1;
+                results.push({
+                    index: i,
+                    name: rawName,
+                    phone: rawPhone,
+                    status: 'skipped',
+                    error: !normalizedName ? 'name required' : 'phone required',
+                });
+                continue;
+            }
+
+            try {
+                const samePhoneRows = await findPhoneConflictRows(dbConn, normalizedPhone);
+                if (lockedOwner && samePhoneRows.some((r) => !matchesOwnerScope(req, r.wa_owner))) {
+                    errorCount += 1;
+                    results.push({
+                        index: i,
+                        name: normalizedName,
+                        phone: normalizedPhone,
+                        status: 'error',
+                        error: 'phone already belongs to another owner',
+                    });
+                    continue;
+                }
+                const reused = samePhoneRows.length > 0;
+
+                const rowResult = await dbConn.transaction(async (txDb) => {
+                    const upsertCreator = await txDb.prepare(`
+                        INSERT INTO creators (primary_name, wa_phone, wa_owner, source)
+                        VALUES (?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE
+                            id = LAST_INSERT_ID(id),
+                            primary_name = VALUES(primary_name),
+                            wa_owner = VALUES(wa_owner),
+                            source = VALUES(source),
+                            updated_at = CURRENT_TIMESTAMP
+                    `).run(normalizedName, normalizedPhone, operator, source);
+                    const creatorId = Number(upsertCreator.lastInsertRowid || 0);
+                    const sessionId = getSessionIdForOperator(operator) || String(operator || '').toLowerCase();
+
+                    await txDb.prepare(`
+                        INSERT INTO ${ROSTER_TABLE}
+                            (creator_id, operator, session_id, source_file, raw_name, match_strategy, score, is_primary)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                        ON DUPLICATE KEY UPDATE
+                            operator = VALUES(operator),
+                            session_id = VALUES(session_id),
+                            source_file = VALUES(source_file),
+                            raw_name = VALUES(raw_name),
+                            match_strategy = VALUES(match_strategy),
+                            score = VALUES(score),
+                            is_primary = 1,
+                            updated_at = CURRENT_TIMESTAMP
+                    `).run(creatorId, operator, sessionId, source, normalizedName, 'csv-import', 100);
+
+                    await txDb.prepare('INSERT IGNORE INTO wa_crm_data (creator_id) VALUES (?)').run(creatorId);
+
+                    return { creatorId };
+                });
+
+                if (reused) reusedCount += 1; else createdCount += 1;
+                results.push({
+                    index: i,
+                    name: normalizedName,
+                    phone: normalizedPhone,
+                    status: reused ? 'reused' : 'created',
+                    creator_id: rowResult.creatorId,
+                });
+            } catch (rowErr) {
+                console.error(`POST /api/creators/import row ${i} error:`, rowErr);
+                errorCount += 1;
+                results.push({
+                    index: i,
+                    name: normalizedName,
+                    phone: normalizedPhone,
+                    status: 'error',
+                    error: rowErr.message || 'unknown error',
+                });
+            }
+        }
+
+        await writeAudit('creator_csv_import', 'creators', null, null, {
+            wa_owner: operator,
+            source,
+            total: rawRows.length,
+            created: createdCount,
+            reused: reusedCount,
+            skipped: skippedCount,
+            errors: errorCount,
+        }, req);
+
+        res.json({
+            ok: true,
+            summary: {
+                total: rawRows.length,
+                created: createdCount,
+                reused: reusedCount,
+                skipped: skippedCount,
+                errors: errorCount,
+            },
+            results,
+        });
+    } catch (err) {
+        console.error('POST /api/creators/import error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
 // POST /api/creators/batch-next-action — 批量回填 next_action（支持按生命周期 Option0）
 router.post('/batch-next-action', async (req, res) => {
     try {
