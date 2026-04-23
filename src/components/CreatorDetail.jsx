@@ -10,11 +10,10 @@ import {
   normalizeUnboundAgencyStrategies,
   resolveUnboundAgencyStrategy
 } from '../utils/unboundAgencyStrategies'
+import { buildV1DashboardUrl } from '../utils/crossApp'
 import WA from '../utils/waTheme'
 
 const API_BASE = '/api'
-const V1_APP_BASE = String(import.meta.env.VITE_V1_BASE || '').trim()
-const LOCAL_CROSS_APP_HOSTS = new Set(['localhost', '127.0.0.1'])
 const CONTEXT_TABS = [
   { key: 'overview', label: '概览' },
   { key: 'events', label: '事件' },
@@ -57,30 +56,6 @@ const PORTRAIT_FIELD_CONFIG = [
     hint: '正向=兴奋/好奇/想尝试；中性=理性观察；负向=质疑/抵触/不信',
   },
 ]
-
-function resolveCrossAppBase(configuredBase, fallbackPort) {
-  const explicit = String(configuredBase || '').trim().replace(/\/+$/, '')
-  if (explicit) return explicit
-  if (typeof window === 'undefined') return ''
-  const { protocol, hostname, port, origin } = window.location
-  if (!hostname) return ''
-  if (!LOCAL_CROSS_APP_HOSTS.has(hostname)) return origin.replace(/\/+$/, '')
-  const targetPort = String(fallbackPort || '').trim()
-  if (!targetPort || port === targetPort) return origin.replace(/\/+$/, '')
-  return `${protocol}//${hostname}:${targetPort}`
-}
-
-function buildV1DashboardUrl(options = {}) {
-  const base = resolveCrossAppBase(V1_APP_BASE, 2000)
-  const params = new URLSearchParams()
-  params.set('tab', String(options.tab || 'wa'))
-  params.set('source', 'v2')
-  if (options.creatorId) params.set('creatorId', String(options.creatorId))
-  if (options.openChat) params.set('openChat', '1')
-  if (options.phone) params.set('phone', String(options.phone))
-  if (options.name) params.set('name', String(options.name))
-  return `${base}/?${params.toString()}`
-}
 
 function buildPortraitDraft(source = null) {
   const input = (source && typeof source === 'object') ? source : {}

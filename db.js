@@ -385,6 +385,7 @@ async function getCreatorFull(creatorId) {
 
 module.exports = {
     getDb: () => db,
+    getPool,
     closeDb,
     getOrCreateCreator,
     findCreator,
