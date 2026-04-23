@@ -124,13 +124,18 @@ function buildAuthContext(entry = {}) {
     const sessionId = String(entry.session_id || getSessionIdForOwner(owner) || '').trim() || null;
     const role = entry.role || (owner ? 'owner' : 'admin');
     const source = entry.source || 'env';
+    // operator: owner 锁贯穿读+写;viewer: 只锁写(跨 owner 可读);admin: 不锁
+    const writeOwnerLocked = !!owner && (role === 'operator' || role === 'viewer' || role === 'owner');
+    const readOwnerLocked = !!owner && role !== 'viewer' && role !== 'admin';
     return {
         token: entry.token || '',
         token_key: entry.key || '',
         username: String(entry.username || owner || 'authorized').trim() || 'authorized',
         owner,
         session_id: sessionId,
-        owner_locked: !!owner || role === 'operator',
+        owner_locked: readOwnerLocked || writeOwnerLocked,
+        owner_locked_read: readOwnerLocked,
+        owner_locked_write: writeOwnerLocked,
         role,
         source,                            // 'db' (DB session) | 'env' (env token)
         token_principal: entry.token_principal || entry.username || entry.key || null,
@@ -139,9 +144,11 @@ function buildAuthContext(entry = {}) {
 }
 
 // 从 DB session 构造 req.auth 所需 entry
+// operator / viewer 都绑定 operator_name;admin 不绑。
+// viewer 的读隔离通过 getLockedOwner 的 HTTP 方法感知来解锁(只在写方法时生效)。
 function entryFromDbSession({ sessionRow, token }) {
     const role = sessionRow.user.role;
-    const operatorName = role === 'operator'
+    const operatorName = (role === 'operator' || role === 'viewer')
         ? normalizeOperatorName(sessionRow.user.operator_name, null)
         : null;
     return {
@@ -155,6 +162,13 @@ function entryFromDbSession({ sessionRow, token }) {
         token_principal: sessionRow.user.username,
         user_id: sessionRow.user.id,
     };
+}
+
+// HTTP 安全方法(读取类)
+const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+function isSafeMethod(req) {
+    return SAFE_HTTP_METHODS.has(String(req?.method || '').toUpperCase());
 }
 
 function parseCookies(headerValue) {
@@ -216,12 +230,28 @@ function clearAppAuthCookie(res) {
     );
 }
 
+// 返回当前请求应受限于的 owner;null 表示跨 owner 放行。
+// - admin:始终 null(不受限)
+// - operator:始终返回 operator_name
+// - viewer:GET/HEAD/OPTIONS 返回 null(可跨 owner 读),其他方法返回 operator_name(只能写自己的)
 function getLockedOwner(req) {
+    const owner = normalizeOperatorName(req?.auth?.owner, null);
+    if (!owner) return null;
+    const role = String(req?.auth?.role || '').toLowerCase();
+    if (role === 'viewer' && isSafeMethod(req)) return null;
+    return owner;
+}
+
+// 只关心"写层面"的 owner 约束:viewer 即使是读,也要知道他的归属以便前端判断
+function getWriteLockedOwner(req) {
     return normalizeOperatorName(req?.auth?.owner, null);
 }
 
+// session_id 用于决定"通过哪个 WA session 发送",对写操作有意义。
+// viewer 即使在读路径也可能需要拿到自己的 session_id(理论上读不依赖,但保持语义稳定):
+// 始终用 write-locked owner 查询,避免 viewer 读时返回 null 引发下游意外。
 function getLockedSessionId(req) {
-    const owner = getLockedOwner(req);
+    const owner = getWriteLockedOwner(req);
     return String(req?.auth?.session_id || getSessionIdForOwner(owner) || '').trim() || null;
 }
 
@@ -345,7 +375,9 @@ module.exports = {
     getAllowedTokens,
     getPrimaryLoginTokenEntry,
     getLockedOwner,
+    getWriteLockedOwner,
     getLockedSessionId,
+    isSafeMethod,
     matchesOwnerScope,
     resolveScopedOwner,
     sendOwnerScopeForbidden,

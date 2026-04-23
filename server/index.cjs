@@ -285,12 +285,15 @@ app.post('/api/auth/login', async (req, res) => {
             userAgent: String(req.get('User-Agent') || '').slice(0, 512),
         });
         setAppAuthCookie(res, token);
+        // operator / viewer 都绑 owner;但只有 operator 的 UI 被锁死(filter/switcher 禁用)
+        // viewer 允许跨 owner 浏览,所以 owner_locked=false(前端不锁 filter)
+        const hasOwnerBinding = user.role === 'operator' || user.role === 'viewer';
         return res.json({
             ok: true,
             authenticated: true,
             username: user.username,
             role: user.role,
-            owner: user.role === 'operator' ? user.operator_name : null,
+            owner: hasOwnerBinding ? user.operator_name : null,
             owner_locked: user.role === 'operator',
             user_id: user.id,
             token,
@@ -302,15 +305,20 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // 轻量认证探针：前端用它判断当前 token 是否有效
+// 前端用 owner_locked 决定 UI 是否禁用 owner 筛选器;
+// viewer 是 read-unlocked + write-locked,所以这里只暴露 read 锁状态。
 app.get('/api/auth/session', requireAppAuth, (req, res) => {
     setAppAuthCookie(res, req.auth?.token || '');
+    const readLocked = req.auth?.owner_locked_read != null
+        ? !!req.auth.owner_locked_read
+        : !!req.auth?.owner_locked;
     res.json({
         ok: true,
         authenticated: true,
         username: req.auth?.username || 'authorized',
         role: req.auth?.role || 'admin',
         owner: req.auth?.owner || null,
-        owner_locked: !!req.auth?.owner_locked,
+        owner_locked: readLocked,
         session_id: req.auth?.session_id || null,
         user_id: req.auth?.user_id || null,
         source: req.auth?.source || null,

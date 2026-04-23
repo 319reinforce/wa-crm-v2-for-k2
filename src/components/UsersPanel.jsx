@@ -27,7 +27,9 @@ const WA = {
 function RoleBadge({ role }) {
   const cfg = role === 'admin'
     ? { color: WA.info, label: '管理员' }
-    : { color: WA.teal, label: '运营' }
+    : role === 'viewer'
+      ? { color: WA.warning, label: '并发查看者' }
+      : { color: WA.teal, label: '运营' }
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', padding: '2px 8px',
@@ -50,7 +52,8 @@ function CreateUserModal({ roster, onClose, onCreated }) {
     setError(null)
     try {
       const body = { username: username.trim(), password, role }
-      if (role === 'operator') body.operator_name = operatorName
+      // operator 和 viewer 都需要绑定 owner
+      if (role === 'operator' || role === 'viewer') body.operator_name = operatorName
       const res = await fetchJsonOrThrow(`${API_BASE}/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -92,12 +95,13 @@ function CreateUserModal({ roster, onClose, onCreated }) {
           <span style={{ fontSize: 12, color: WA.textMuted }}>角色</span>
           <select value={role} onChange={e => setRole(e.target.value)}
             style={{ padding: 8, border: `1px solid ${WA.border}`, borderRadius: 6 }}>
-            <option value="operator">运营</option>
+            <option value="operator">运营（读写仅限自己 owner）</option>
+            <option value="viewer">并发查看者（跨 owner 读，仅可写自己 owner）</option>
             <option value="admin">管理员</option>
           </select>
         </label>
 
-        {role === 'operator' && (
+        {(role === 'operator' || role === 'viewer') && (
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ fontSize: 12, color: WA.textMuted }}>绑定 owner</span>
             <select value={operatorName} onChange={e => setOperatorName(e.target.value)} required
@@ -270,7 +274,7 @@ export function UsersPanel() {
                 <td style={{ padding: '10px 12px', color: WA.text, fontWeight: 500 }}>{u.username}</td>
                 <td style={{ padding: '10px 12px' }}><RoleBadge role={u.role} /></td>
                 <td style={{ padding: '10px 12px' }}>
-                  {u.role === 'operator' ? (
+                  {(u.role === 'operator' || u.role === 'viewer') ? (
                     <select
                       value={u.operator_name || ''}
                       onChange={e => handleChangeOperator(u, e.target.value)}
