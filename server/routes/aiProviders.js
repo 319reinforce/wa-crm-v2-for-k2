@@ -321,7 +321,7 @@ router.get('/ai-usage', async (req, res) => {
                     date,
                     purpose,
                     COALESCE(provider_config_id, 0) AS provider_config_id,
-                    COALESCE(MAX(model), '') AS model,
+                    COALESCE(model, '') AS model,
                     request_count,
                     tokens_prompt,
                     tokens_completion,
