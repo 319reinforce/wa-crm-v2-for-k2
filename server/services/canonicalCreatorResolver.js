@@ -358,6 +358,39 @@ async function resolveCanonicalCreator({ phone, name, operator }) {
             };
         }
 
+        // LID/PN 关联场景（修 baileys LID 路由产生的双 record 问题）：
+        // 入站 baileys 消息按 chat remoteJid 解出来的 chatId 可能是 LID（例如
+        // +102659063283848，长 15 位、非真实手机号）。WA 服务端按 LID 路由消息，
+        // 旧逻辑会自动建一个 source='wa' 的"幽灵 creator"（exactPhoneCreator
+        // 命中），跟用户手动/CSV 录入的 PN-keyed creator（best 命中，name 高分匹配）
+        // 形成两条 record，UI 看 PN creator 永远空。
+        //
+        // 修：当 exactPhoneCreator 是自动建档（source='wa'）而 best 是用户手动
+        // 操作的 PN creator（manual/csv-import/keeper）且名字高分匹配时，把 LID
+        // record 合并到 PN record（messages / aliases / 关联表全部搬移），LID
+        // 自动写入 PN creator 的 wa_phone alias，下次同 LID 消息直接命中 PN。
+        const isAutoLidLike = exactPhoneCreator.source === 'wa';
+        const isManualBest = ['manual', 'csv-import', 'keeper'].includes(String(best.row.source || ''));
+        if (isAutoLidLike && isManualBest && best.score >= 700) {
+            const merged = await mergeDuplicateCreatorIntoCanonical({
+                targetCreatorId: best.creatorId,
+                sourceCreatorId: exactPhoneCreator.id,
+                operator,
+                reason: `lid_pn_merge:${best.reasons.join(',')}`,
+                allowDistinctPhones: true,
+            });
+            cacheByOperator.delete(normalizeOperatorName(operator, operator || null));
+            return {
+                creatorId: best.creatorId,
+                created: false,
+                mergedDuplicate: merged.merged,
+                sourceCreatorId: exactPhoneCreator.id,
+                resolution: 'merged_lid_into_pn',
+                score: best.score,
+                reasons: best.reasons,
+            };
+        }
+
         await attachPhoneToCreator({ creatorId: exactPhoneCreator.id, phone, name, operator });
         return {
             creatorId: exactPhoneCreator.id,
