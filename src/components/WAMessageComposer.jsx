@@ -1343,7 +1343,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 body: JSON.stringify({
                     texts: last20.map(m => ({ text: m.text, role: m.role })),
                     mode: 'auto',
-                    provider: 'minimax',
+                    provider: 'deepl',
                 }),
                 signal: AbortSignal.timeout(60000),
             });
