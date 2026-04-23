@@ -546,7 +546,12 @@ class BaileysDriver extends EventEmitter {
      */
     async fetchMessageHistory(count, oldestKey, oldestTsMs) {
         if (!this._sock || !this._ready) return null;
-        if (LEGACY_MODE) return null;  // 旧模式没历史同步能力
+        // 注：不再根据 LEGACY_MODE 短路。syncFullHistory（初始全量推送）受
+        // LEGACY_MODE 控制属于协议层差异（需要 macOS Desktop browser identity），
+        // 但 sock.fetchMessageHistory 是独立的 on-demand RPC，不依赖初始同步能力，
+        // Ubuntu/Chrome 身份也能发起（前端 sync 按钮 / worker gap-fill 等场景需要）。
+        // 真无效时 WA 服务端要么不回 messaging-history.set、要么直接报错，本方法
+        // 已有 30s 超时兜底。
         if (typeof this._sock.fetchMessageHistory !== 'function') {
             console.warn(`[BaileysDriver:${this.sessionId}] sock.fetchMessageHistory 不存在（Baileys Issue #2083），跳过`);
             return null;
