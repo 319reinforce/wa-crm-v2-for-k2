@@ -96,6 +96,24 @@ export function isAppAuthAdmin() {
   return getAppAuthRole() === 'admin'
 }
 
+export function isAppAuthViewer() {
+  return getAppAuthRole() === 'viewer'
+}
+
+// 判断当前用户对某 owner 的 creator 是否可以写(发消息、触发 AI 等)
+// - admin:任意都行
+// - operator:被后端锁在 getAppAuthScopeOwner(),同 owner 才行
+// - viewer:虽然能跨 owner 读,但写必须等于自己的 operator_name
+// 调用点若拿不到 targetOwner(如没选中 creator),传 null 视作"写自己的"
+export function canAppAuthWriteToOwner(targetOwner = null) {
+  const role = getAppAuthRole()
+  if (role === 'admin') return true
+  const myOwner = String(getAppAuthScopeOwner() || '').trim()
+  if (!myOwner) return role === 'admin'
+  if (!targetOwner) return true
+  return String(targetOwner).trim() === myOwner
+}
+
 export function clearAppAuthSession() {
   clearAppAuthToken()
   setAppAuthUsername('')

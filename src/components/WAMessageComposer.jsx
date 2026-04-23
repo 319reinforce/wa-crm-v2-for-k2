@@ -8,7 +8,7 @@ import { useMessagePolling } from './WAMessageComposer/hooks/useMessagePolling';
 import { TOPIC_LABELS } from './WAMessageComposer/constants/topicLabels';
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api';
 import { fetchWaAdmin } from '../utils/waAdmin';
-import { fetchAppAuth } from '../utils/appAuth';
+import { fetchAppAuth, isAppAuthViewer, canAppAuthWriteToOwner, getAppAuthScopeOwner } from '../utils/appAuth';
 import { DEFAULT_UNBOUND_AGENCY_STRATEGIES, normalizeUnboundAgencyStrategies } from '../utils/unboundAgencyStrategies';
 import WA from '../utils/waTheme';
 
@@ -547,6 +547,15 @@ function LifecycleJourneyStrip({ creator, events = [] }) {
 }
 
 export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwipeLeft, onMessageSent, onCreatorUpdated, asPanel }) {
+    // 当前用户是否 viewer,以及对当前目标 creator 的 owner 是否有写权限
+    const isViewer = isAppAuthViewer();
+    const viewerOwnOwner = isViewer ? String(getAppAuthScopeOwner() || '').trim() : '';
+    const targetOwner = creator?.wa_owner || client?.wa_owner || null;
+    const canSendToTarget = canAppAuthWriteToOwner(targetOwner);
+    const writeBlocked = isViewer && !canSendToTarget;
+    const writeBlockedTitle = writeBlocked
+        ? `只读模式：当前达人归属 ${targetOwner || '其他 owner'}，你只能给自己 owner (${viewerOwnOwner}) 下的达人发送消息`
+        : null;
     const [inputText, setInputText] = useState('');
     const [generating, setGenerating] = useState(false);
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -2353,6 +2362,19 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                     />
                 )}
 
+                {writeBlocked && (
+                    <div
+                        className="px-4 py-2 text-xs"
+                        style={{
+                            background: 'rgba(245,158,11,0.12)',
+                            color: '#92400e',
+                            borderTop: `1px solid ${WA.borderLight}`,
+                            textAlign: 'center',
+                        }}
+                    >
+                        跨 owner 只读：该达人归属 {targetOwner || '其他 owner'}，你只能给 {viewerOwnOwner} 下的达人发消息
+                    </div>
+                )}
                 {/* Input area */}
                 <div
                     className="px-4 md:px-5 py-3 md:py-4 flex items-end gap-2 md:gap-3 border-t"
@@ -2422,14 +2444,14 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                     </button>
                     <button
                         onClick={handlePickImage}
-                        disabled={sendingMedia}
+                        disabled={sendingMedia || writeBlocked}
                         className="w-9 h-9 md:w-11 md:h-11 rounded-full flex items-center justify-center shrink-0 transition-all disabled:opacity-50"
                         style={{
                             color: pendingImage ? '#2563eb' : WA.textMuted,
                             background: WA.white,
                             border: `1px solid ${WA.borderLight}`,
                         }}
-                        title="上传图片"
+                        title={writeBlockedTitle || '上传图片'}
                     >
                         {sendingMedia ? <SpinnerIcon /> : <ImageIcon />}
                     </button>
@@ -2567,10 +2589,10 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                             {!pendingImage && inputText.trim() && (
                                 <button
                                     onClick={handleManualGenerate}
-                                    disabled={generating}
+                                    disabled={generating || writeBlocked}
                                     className="w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50"
                                     style={{ background: WA.teal }}
-                                    title="AI 生成候选回复"
+                                    title={writeBlockedTitle || 'AI 生成候选回复'}
                                 >
                                     {generating ? <SpinnerIcon color="#ffffff" /> : <SparkIcon color="#ffffff" />}
                                 </button>
@@ -2584,10 +2606,13 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                     }
                                     handleDirectSend(inputText);
                                 }}
-                                disabled={sendingMedia}
-                                className="w-11 h-11 rounded-full flex items-center justify-center"
+                                disabled={sendingMedia || writeBlocked}
+                                className="w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50"
                                 style={{ background: '#3b82f6' }}
-                                title={pendingImage ? '发送图片（可附带 caption）' : '直接发送'}
+                                title={
+                                    writeBlockedTitle
+                                    || (pendingImage ? '发送图片（可附带 caption）' : '直接发送')
+                                }
                             >
                                 {sendingMedia ? <SpinnerIcon color="#ffffff" /> : <SendIcon color="#ffffff" />}
                             </button>
@@ -2595,8 +2620,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                     ) : (
                         <button
                             onClick={handleBotIconClick}
-                            disabled={pickerLoading}
-                            className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 transition-all"
+                            disabled={pickerLoading || writeBlocked}
+                            className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 transition-all disabled:opacity-50"
                             style={{
                                 background: activePicker
                                     ? '#3b82f6'
@@ -2607,11 +2632,12 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                 opacity: pickerLoading ? 0.7 : 1,
                             }}
                             title={
-                                activePicker
+                                writeBlockedTitle
+                                || (activePicker
                                     ? '🔄 重新生成回复'
                                     : pickerLoading
                                         ? '生成中...'
-                                        : '🤖 为最新消息生成回复'
+                                        : '🤖 为最新消息生成回复')
                             }
                         >
                             {pickerLoading ? (

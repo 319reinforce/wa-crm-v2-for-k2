@@ -784,13 +784,14 @@ CREATE TABLE IF NOT EXISTS wa_sessions (
 -- Users + Sessions (admin/operator 双角色)
 -- ==========================================
 -- admin 看全部 owner,operator 只看自己绑定的 operator_name(复用 operatorRoster canonical 名)
+-- viewer 跨 owner 只读 + 仅能给自己 operator_name 下的用户发消息(读全部,写限定自己)
 -- operator_name 枚举校验放在应用层(参考 server/config/operatorRoster.js),不依赖 MySQL CHECK 约束
 
 CREATE TABLE IF NOT EXISTS users (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
     username            VARCHAR(64) NOT NULL,
     password_hash       VARCHAR(255) NOT NULL,
-    role                ENUM('admin','operator') NOT NULL,
+    role                ENUM('admin','operator','viewer') NOT NULL,
     operator_name       VARCHAR(32) NULL,
     disabled            TINYINT(1) NOT NULL DEFAULT 0,
     failed_login_count  INT NOT NULL DEFAULT 0,

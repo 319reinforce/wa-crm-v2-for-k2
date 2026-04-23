@@ -77,10 +77,13 @@ router.post('/', async (req, res) => {
         const operatorNameRaw = req.body?.operator_name;
 
         if (!username) return res.status(400).json({ error: 'username required' });
-        if (!['admin', 'operator'].includes(role)) return res.status(400).json({ error: 'role must be admin or operator' });
+        if (!['admin', 'operator', 'viewer'].includes(role)) {
+            return res.status(400).json({ error: 'role must be admin, operator or viewer' });
+        }
 
+        // operator / viewer 均须绑定 operator_name(viewer 用它做写作用域);admin 不绑
         let operatorName = null;
-        if (role === 'operator') {
+        if (role === 'operator' || role === 'viewer') {
             operatorName = validateOperatorName(operatorNameRaw);
             if (!operatorName) {
                 return res.status(400).json({
@@ -128,8 +131,8 @@ router.patch('/:id', async (req, res) => {
 
         const changes = {};
         if ('role' in req.body) {
-            if (!['admin', 'operator'].includes(req.body.role)) {
-                return res.status(400).json({ error: 'role must be admin or operator' });
+            if (!['admin', 'operator', 'viewer'].includes(req.body.role)) {
+                return res.status(400).json({ error: 'role must be admin, operator or viewer' });
             }
             changes.role = req.body.role;
         }
@@ -152,8 +155,8 @@ router.patch('/:id', async (req, res) => {
 
         const nextRole = changes.role || before.role;
         const nextOperatorName = ('operator_name' in changes) ? changes.operator_name : before.operator_name;
-        if (nextRole === 'operator' && !nextOperatorName) {
-            return res.status(400).json({ error: 'operator role requires operator_name' });
+        if ((nextRole === 'operator' || nextRole === 'viewer') && !nextOperatorName) {
+            return res.status(400).json({ error: `${nextRole} role requires operator_name` });
         }
         if (nextRole === 'admin' && nextOperatorName) {
             changes.operator_name = null;
