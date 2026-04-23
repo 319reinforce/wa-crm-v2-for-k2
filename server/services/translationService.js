@@ -15,6 +15,7 @@
 const aiService = require('./aiService');
 const aiProviderCfg = require('./aiProviderConfigService');
 const { getGlossaryId } = require('./translationGlossary');
+const db = require('../../db');
 
 let deeplModule = null;
 try {
@@ -25,6 +26,47 @@ try {
 
 const DEEPL_API_KEY = (process.env.DEEPL_API_KEY || '').trim();
 const DEEPL_API_BASE = (process.env.DEEPL_API_BASE || '').trim();
+
+// 每日 DeepL 字符配额：0 或未设置表示关闭限额。只作用于 provider='deepl' 分支。
+const DAILY_CHAR_LIMIT = Math.max(0, Number(process.env.TRANSLATION_MAX_CHARS_PER_DAY || 0)) || 0;
+
+class TranslationQuotaExceededError extends Error {
+    constructor(used, limit, incoming) {
+        super(`Daily DeepL quota exceeded: used=${used} incoming=${incoming} limit=${limit} chars`);
+        this.code = 'TRANSLATION_QUOTA_EXCEEDED';
+        this.used = used;
+        this.incoming = incoming;
+        this.limit = limit;
+    }
+}
+
+async function getTodayTranslationChars() {
+    if (DAILY_CHAR_LIMIT <= 0) return 0;
+    try {
+        // 只统计成功 + DeepL 的用量：失败请求不计配额；MiniMax 不受配额约束
+        const rows = await db.prepare(`
+            SELECT COALESCE(SUM(tokens_total), 0) AS used
+              FROM ai_usage_logs
+             WHERE purpose = 'translation'
+               AND model = 'deepl'
+               AND status = 'ok'
+               AND DATE(created_at) = CURDATE()
+        `).all();
+        return Number(rows?.[0]?.used || 0);
+    } catch (err) {
+        // 查询失败时 fail-open：避免因 DB 问题误阻塞业务
+        console.error('[translationService] quota query failed, fail-open:', err.message);
+        return 0;
+    }
+}
+
+async function assertDeepLQuota(incomingChars) {
+    if (DAILY_CHAR_LIMIT <= 0) return;
+    const used = await getTodayTranslationChars();
+    if (used + incomingChars > DAILY_CHAR_LIMIT) {
+        throw new TranslationQuotaExceededError(used, DAILY_CHAR_LIMIT, incomingChars);
+    }
+}
 
 let _deeplClient = null;
 
@@ -173,6 +215,8 @@ async function translateText(text, { role, timestamp, mode, provider } = {}) {
     const chars = String(text || '').length;
 
     if (finalProvider === 'deepl') {
+        // 配额校验放在 try 外面，让 429 穿透到 route 层，不被 fallback 捕获
+        await assertDeepLQuota(chars);
         try {
             const out = await translateTextViaDeepL(text, { direction, timestamp });
             logUsage({ provider: 'deepl', status: 'ok', chars, latencyMs: Date.now() - started, mode });
@@ -202,6 +246,7 @@ async function translateBatch(texts, { mode, provider } = {}) {
     const totalChars = texts.reduce((sum, t) => sum + String(t?.text || '').length, 0);
 
     if (finalProvider === 'deepl') {
+        await assertDeepLQuota(totalChars);
         try {
             const out = await translateBatchViaDeepL(texts, mode);
             logUsage({
@@ -244,11 +289,14 @@ async function translateBatch(texts, { mode, provider } = {}) {
 module.exports = {
     translateText,
     translateBatch,
+    TranslationQuotaExceededError,
     // 暴露给测试/admin
     _internal: {
         pickProvider,
         resolveTranslationMode,
         detectTranslationDirection,
         getDeepLClient,
+        getTodayTranslationChars,
+        DAILY_CHAR_LIMIT,
     },
 };
