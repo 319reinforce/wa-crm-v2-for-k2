@@ -9,7 +9,7 @@
  *
  * 样式与 AccountsPanel 对齐:复用 waTheme + ModalShell/FormField 风格,避免各页面视觉割裂。
  */
-import React, { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchJsonOrThrow } from '../utils/api'
 import WA from '../utils/waTheme'
 import { clearRosterCache } from '../utils/operators'
@@ -146,27 +146,110 @@ function FormField({ label, hint, children }) {
   )
 }
 
-function OwnerInput({ value, onChange, roster, listId, disabled, placeholder = '选择已有或输入新 owner' }) {
+function ModeSegmented({ mode, onChange, options }) {
   return (
-    <>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        list={listId}
-        disabled={disabled}
-        placeholder={placeholder}
-        autoComplete="off"
-        style={{ ...inputStyle, background: disabled ? WA.shellPanelMuted : WA.white }}
+    <div
+      className="inline-flex rounded-full p-[3px]"
+      style={{ background: WA.shellPanelMuted, border: `1px solid ${WA.borderLight}` }}
+      role="tablist"
+    >
+      {options.map((opt) => {
+        const active = mode === opt.key
+        return (
+          <button
+            key={opt.key}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(opt.key)}
+            className="rounded-full px-3 py-1 text-[12px] font-medium transition-colors"
+            style={{
+              background: active ? WA.white : 'transparent',
+              color: active ? WA.textDark : WA.textMuted,
+              boxShadow: active ? WA.shellShadow : 'none',
+            }}
+          >
+            {opt.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * OwnerPicker — 显式的"选择已有 / 新建"切换,避免 datalist UX
+ * 让用户误以为下拉只有固定几个选项。
+ *
+ * 行为:
+ * - mode=existing  : 下拉列 roster,空选项 disabled
+ * - mode=new       : 纯文本输入,提示格式约束
+ * - value 始终是最终 operator_name 字符串,父组件只关心它
+ */
+function OwnerPicker({ value, onChange, roster, disabled }) {
+  const hasRoster = (roster || []).length > 0
+  const matchesExisting = useMemo(
+    () => (roster || []).some((r) => r.operator === value),
+    [roster, value],
+  )
+  const [mode, setMode] = useState(() => (!value || matchesExisting ? 'existing' : 'new'))
+
+  useEffect(() => {
+    if (!value) return
+    if (matchesExisting && mode === 'new') setMode('existing')
+    if (!matchesExisting && mode === 'existing') setMode('new')
+  }, [matchesExisting]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleModeChange(nextMode) {
+    if (nextMode === mode) return
+    setMode(nextMode)
+    // 切换模式时清空,避免把已有名字带进"新建"态造成误导
+    onChange('')
+  }
+
+  return (
+    <div className="space-y-2">
+      <ModeSegmented
+        mode={mode}
+        onChange={handleModeChange}
+        options={[
+          { key: 'existing', label: hasRoster ? `选择已有(${roster.length})` : '选择已有' },
+          { key: 'new', label: '＋ 新建 owner' },
+        ]}
       />
-      <datalist id={listId}>
-        {(roster || []).map((r) => (
-          <option key={r.operator} value={r.operator}>
-            {r.real_name || r.wa_note ? `${r.real_name || r.wa_note}` : r.source === 'dynamic' ? '(自定义)' : ''}
-          </option>
-        ))}
-      </datalist>
-    </>
+      {mode === 'existing' ? (
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled || !hasRoster}
+          required
+          style={{ ...selectStyle, background: disabled ? WA.shellPanelMuted : WA.white }}
+        >
+          <option value="" disabled>—— 请选择 ——</option>
+          {(roster || []).map((r) => {
+            const label = r.real_name || r.wa_note
+            const suffix = r.source === 'dynamic' ? ' · 自定义' : ''
+            return (
+              <option key={r.operator} value={r.operator}>
+                {r.operator}{label ? ` (${label})` : ''}{suffix}
+              </option>
+            )
+          })}
+        </select>
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          placeholder="输入新 owner 名称,如:Marco"
+          autoFocus
+          autoComplete="off"
+          maxLength={32}
+          style={{ ...inputStyle, background: disabled ? WA.shellPanelMuted : WA.white }}
+        />
+      )}
+    </div>
   )
 }
 
@@ -177,7 +260,6 @@ function CreateUserModal({ roster, onClose, onCreated }) {
   const [operatorName, setOperatorName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
-  const ownerListId = useId()
   const needsOwner = role === 'operator' || role === 'viewer'
 
   const ownerIsNew = useMemo(() => {
@@ -253,13 +335,16 @@ function CreateUserModal({ roster, onClose, onCreated }) {
         {needsOwner && (
           <FormField
             label="绑定 owner"
-            hint={ownerIsNew ? '将创建新的 owner 名称,并立即出现在全站下拉中' : '选择已有 owner,或直接输入新名称'}
+            hint={
+              ownerIsNew
+                ? '将创建新的 owner 名称,并立即出现在全站下拉中'
+                : '从已有 owner 选择,或切换到"新建"直接输入新名称'
+            }
           >
-            <OwnerInput
+            <OwnerPicker
               value={operatorName}
               onChange={setOperatorName}
               roster={roster}
-              listId={ownerListId}
             />
           </FormField>
         )}
@@ -316,7 +401,6 @@ function TempPasswordToast({ tempPassword, onClose }) {
 function OwnerCell({ user, roster, onCommit }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(user.operator_name || '')
-  const listId = useId()
 
   useEffect(() => {
     if (!editing) setDraft(user.operator_name || '')
@@ -345,15 +429,9 @@ function OwnerCell({ user, roster, onCommit }) {
   }
 
   async function commit() {
-    const trimmed = draft.trim()
-    if (!trimmed) {
-      setEditing(false)
-      return
-    }
-    if (trimmed === user.operator_name) {
-      setEditing(false)
-      return
-    }
+    const trimmed = (draft || '').trim()
+    if (!trimmed) { setEditing(false); return }
+    if (trimmed === user.operator_name) { setEditing(false); return }
     if (!OPERATOR_NAME_PATTERN.test(trimmed)) {
       alert('owner 需以字母/数字开头,长度 ≤32,仅允许字母、数字、空格、下划线和连字符')
       return
@@ -366,30 +444,24 @@ function OwnerCell({ user, roster, onCommit }) {
   }
 
   return (
-    <div className="flex items-center gap-1" style={{ minWidth: 180 }}>
-      <input
-        type="text"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        list={listId}
-        autoFocus
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') { e.preventDefault(); commit() }
-          if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
-        }}
-        style={{ ...inputStyle, minHeight: 32, padding: '0 10px', fontSize: 12 }}
-      />
-      <datalist id={listId}>
-        {(roster || []).map((r) => (
-          <option key={r.operator} value={r.operator}>{r.real_name || r.wa_note || ''}</option>
-        ))}
-      </datalist>
-      <button type="button" onClick={commit} style={{ ...rowBtnStyle, padding: '0 10px', color: WA.teal }}>
-        保存
-      </button>
-      <button type="button" onClick={() => setEditing(false)} style={{ ...rowBtnStyle, padding: '0 10px' }}>
-        取消
-      </button>
+    <div className="space-y-2" style={{ minWidth: 260 }}>
+      <OwnerPicker value={draft} onChange={setDraft} roster={roster} />
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={commit}
+          style={{ ...rowBtnStyle, padding: '0 12px', color: WA.teal, borderColor: `${WA.teal}66` }}
+        >
+          保存
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          style={{ ...rowBtnStyle, padding: '0 12px' }}
+        >
+          取消
+        </button>
+      </div>
     </div>
   )
 }
