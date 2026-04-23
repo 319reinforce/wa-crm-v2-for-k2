@@ -203,6 +203,11 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
   const [portraitDraft, setPortraitDraft] = useState(buildPortraitDraft(null))
   const [portraitSaving, setPortraitSaving] = useState(false)
   const [portraitError, setPortraitError] = useState('')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [showUnbindConfirm, setShowUnbindConfirm] = useState(false)
+  const [unbindMode, setUnbindMode] = useState('unbind') // 'unbind' | 'rebind'
+  const [unbindSubmitting, setUnbindSubmitting] = useState(false)
+  const [unbindError, setUnbindError] = useState('')
 
   const ownerOptions = useMemo(() => {
     const base = rosterOwners && rosterOwners.length > 0 ? rosterOwners : [...OWNER_ORDER]
@@ -501,6 +506,37 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
       console.error('保存失败:', e)
     } finally {
       setEditSaving(false)
+    }
+  }
+
+  const openUnbindConfirm = () => {
+    const isActive = Number(creator?.is_active ?? 1) === 1
+    setUnbindMode(isActive ? 'unbind' : 'rebind')
+    setUnbindError('')
+    setShowUnbindConfirm(true)
+    setMenuOpen(false)
+  }
+
+  const handleConfirmUnbind = async () => {
+    setUnbindSubmitting(true)
+    setUnbindError('')
+    try {
+      if (unbindMode === 'unbind') {
+        await fetchOkOrThrow(`${API_BASE}/creators/${creatorId}`, { method: 'DELETE' })
+        onCreatorUpdated?.({ id: creatorId, removed: true, is_active: 0 })
+        setShowUnbindConfirm(false)
+        onClose?.()
+      } else {
+        await fetchOkOrThrow(`${API_BASE}/creators/${creatorId}/rebind`, { method: 'POST' })
+        const refreshed = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}`)
+        setCreator(refreshed)
+        onCreatorUpdated?.(refreshed)
+        setShowUnbindConfirm(false)
+      }
+    } catch (e) {
+      setUnbindError(e?.message || '操作失败，请重试')
+    } finally {
+      setUnbindSubmitting(false)
     }
   }
 
@@ -1321,6 +1357,47 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
           : overviewPanel
   )
 
+  const isCreatorActive = Number(creator?.is_active ?? 1) === 1
+  const renderHeaderMenu = (variant) => {
+    const isDark = variant === 'dark'
+    const btnBg = isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.55)'
+    const btnColor = isDark ? '#fff' : WA.textMuted
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
+          className="rounded-full w-8 h-8 flex items-center justify-center text-lg font-semibold transition-all hover:opacity-85"
+          style={{ background: btnBg, color: btnColor }}
+          title="更多操作"
+          aria-label="更多操作"
+        >
+          ⋯
+        </button>
+        {menuOpen && (
+          <>
+            <div className="fixed inset-0 z-[55]" onClick={() => setMenuOpen(false)} />
+            <div
+              className="absolute right-0 mt-2 w-40 rounded-xl shadow-lg z-[56] overflow-hidden"
+              style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}
+            >
+              <button
+                type="button"
+                onClick={openUnbindConfirm}
+                className="w-full text-left px-4 py-2.5 text-sm font-medium transition-colors"
+                style={{ color: isCreatorActive ? '#dc2626' : WA.teal, background: 'transparent' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = isCreatorActive ? 'rgba(220,38,38,0.08)' : 'rgba(0,168,132,0.08)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+              >
+                {isCreatorActive ? '解绑该达人' : '恢复绑定'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   return (
     <>
       {/* Desktop: as a resizable panel — no overlay */}
@@ -1377,6 +1454,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
             >
               {pinned ? '已固定' : '固定'}
             </button>
+            {renderHeaderMenu('light')}
           </div>
 
           {/* Content */}
@@ -1425,6 +1503,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
                     V1看板
                   </a>
                 )}
+                {renderHeaderMenu('dark')}
               </div>
 
               <div className="flex-1 overflow-y-auto p-5 space-y-5">
@@ -1454,6 +1533,51 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
             <WAMessageComposer client={clientInfo} creator={creator} onClose={onClose} onMessageSent={onMessageSent} />
           </div>
         </>
+      )}
+
+      {/* 解绑 / 恢复绑定 确认弹窗 */}
+      {showUnbindConfirm && (
+        <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl overflow-hidden" style={{ background: WA.white }}>
+            <div className="px-6 py-5 border-b" style={{ borderColor: WA.borderLight }}>
+              <div className="text-lg font-semibold" style={{ color: WA.textDark }}>
+                {unbindMode === 'unbind' ? `解绑 ${displayName}？` : `恢复绑定 ${displayName}？`}
+              </div>
+              <div className="mt-2 text-sm leading-relaxed" style={{ color: WA.textMuted }}>
+                {unbindMode === 'unbind'
+                  ? '解绑后该达人从列表移除，对话历史、事件和生命周期数据全部保留。可在"显示已解绑"筛选中找回并恢复。'
+                  : '恢复后该达人重新出现在绑定列表中，所有历史数据保持不变。'}
+              </div>
+            </div>
+            {unbindError && (
+              <div className="px-6 py-3 text-sm" style={{ color: '#dc2626', background: 'rgba(220,38,38,0.06)' }}>
+                {unbindError}
+              </div>
+            )}
+            <div className="px-6 py-4 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => { if (!unbindSubmitting) setShowUnbindConfirm(false) }}
+                disabled={unbindSubmitting}
+                className="rounded-xl px-4 py-2 text-sm font-semibold transition-all hover:opacity-85 disabled:opacity-50"
+                style={{ background: WA.lightBg, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
+              >
+                再想想
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmUnbind}
+                disabled={unbindSubmitting}
+                className="rounded-xl px-4 py-2 text-sm font-semibold text-white transition-all hover:opacity-85 disabled:opacity-50"
+                style={{ background: unbindMode === 'unbind' ? '#dc2626' : WA.teal }}
+              >
+                {unbindSubmitting
+                  ? '处理中…'
+                  : unbindMode === 'unbind' ? '确认解绑' : '确认恢复'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 编辑达人弹窗 */}

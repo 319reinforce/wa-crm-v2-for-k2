@@ -1238,4 +1238,76 @@ router.put('/:id/wacrm', async (req, res) => {
     }
 });
 
+// DELETE /api/creators/:id — 软删除（解绑）：仅置 is_active=0，保留全部历史数据
+router.delete('/:id', async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        if (!Number.isFinite(id) || id <= 0) {
+            return res.status(400).json({ ok: false, error: 'invalid id' });
+        }
+        const creator = await ensureCreatorAccess(req, res, id, 'id, primary_name, wa_phone, wa_owner, is_active');
+        if (!creator) return;
+
+        if (Number(creator.is_active) === 0) {
+            return res.json({ ok: true, already_inactive: true });
+        }
+
+        const db2 = db.getDb();
+        await db2.prepare(
+            'UPDATE creators SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        ).run(id);
+
+        await writeAudit(
+            'creator_unbind',
+            'creators',
+            id,
+            { is_active: 1 },
+            { is_active: 0 },
+            req
+        );
+
+        await creatorCache.invalidateCreator(id, creator.wa_phone);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('DELETE /api/creators/:id error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// POST /api/creators/:id/rebind — 恢复绑定：is_active=0 -> 1
+router.post('/:id/rebind', async (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        if (!Number.isFinite(id) || id <= 0) {
+            return res.status(400).json({ ok: false, error: 'invalid id' });
+        }
+        const creator = await ensureCreatorAccess(req, res, id, 'id, primary_name, wa_phone, wa_owner, is_active');
+        if (!creator) return;
+
+        if (Number(creator.is_active) === 1) {
+            return res.json({ ok: true, already_active: true });
+        }
+
+        const db2 = db.getDb();
+        await db2.prepare(
+            'UPDATE creators SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        ).run(id);
+
+        await writeAudit(
+            'creator_rebind',
+            'creators',
+            id,
+            { is_active: 0 },
+            { is_active: 1 },
+            req
+        );
+
+        await creatorCache.invalidateCreator(id, creator.wa_phone);
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('POST /api/creators/:id/rebind error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
 module.exports = router;
