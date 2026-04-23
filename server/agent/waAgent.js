@@ -38,6 +38,7 @@ const {
 } = require('../waWorker');
 const { assertNoGroupSend } = require('../services/groupSendGuard');
 const { normalizeOperatorName } = require('../utils/operator');
+const { normalizeJid: toBaileysJid } = require('../services/wa/driver/jidUtils');
 const {
     CMD_SEND_MESSAGE,
     CMD_SEND_MEDIA,
@@ -201,13 +202,13 @@ async function handleSendMedia(payload = {}) {
     };
 }
 
-async function fetchAuditMessagesViaBaileys(phone, limit) {
-    // Baileys 没有 wwebjs 风格的 client.getChatById / chat.fetchMessages。
-    // 这里读 driver 进程内 ring buffer（_msgBuffer，每 JID ≤200 条 live 消息）。
-    // 真正的历史 backfill 由 driver 在连接时 messaging-history.set + auto gap-fill
-    // 直接落 wa_messages（见 PR #47）。前端 sync-contact / reconcile-contact 按钮
-    // 走到这里时，对完全没收过消息的新 import creator 会得到空数组（不再 alert
-    // 'WA client not ready'）。
+async function fetchAuditMessagesViaBaileys(phone, limit, creatorId) {
+    // Baileys 同步两条路：
+    //   1. ring buffer（_msgBuffer，driver 启动后看到的 ≤200 条/JID live 消息）→ 立即返回
+    //   2. driver.fetchMessageHistory（PR #47 引入）→ 异步从 WA 服务端拉历史，
+    //      结果通过 messaging-history.set 事件流入 handleBaileysHistoryBatch → wa_messages。
+    //      前端用户需要 ~5-30s 后刷新才能看到新增历史。
+    // 没有 baileys-keyed anchor 消息（creator 完全没收过 baileys 消息）则跳过 #2。
     let driver;
     try {
         driver = getDriver();
@@ -224,11 +225,60 @@ async function fetchAuditMessagesViaBaileys(phone, limit) {
     const phoneE164 = `+${normalizedTarget}`;
     const safeLimit = Math.max(20, Math.min(parseInt(limit, 10) || 120, 2000));
 
+    // 1. ring buffer（同步）
     let buffered = [];
     try {
         buffered = await driver.fetchRecentMessages(phoneE164, safeLimit);
     } catch (error) {
         return { ok: false, error: error.message || String(error) };
+    }
+
+    // 2. fetchMessageHistory（异步触发）— 需 anchor key
+    let historyFetchAsync = null;
+    if (creatorId && typeof driver.fetchMessageHistory === 'function') {
+        try {
+            // 用最旧的 baileys 消息作 anchor（向更早历史回溯）。
+            // 没有 baileys 行就用最旧的任何 wa_messages 行 fallback。
+            let anchor = await db.getDb().prepare(
+                "SELECT timestamp, wa_message_id, role FROM wa_messages " +
+                "WHERE creator_id = ? AND proto_driver = 'baileys' AND wa_message_id IS NOT NULL " +
+                "ORDER BY timestamp ASC LIMIT 1"
+            ).get(creatorId);
+            if (!anchor) {
+                anchor = await db.getDb().prepare(
+                    "SELECT timestamp, wa_message_id, role FROM wa_messages " +
+                    "WHERE creator_id = ? AND wa_message_id IS NOT NULL " +
+                    "ORDER BY timestamp ASC LIMIT 1"
+                ).get(creatorId);
+            }
+            if (anchor?.wa_message_id) {
+                const jid = toBaileysJid(phoneE164, 'baileys');
+                const oldestKey = {
+                    remoteJid: jid,
+                    id: String(anchor.wa_message_id),
+                    fromMe: anchor.role === 'me',
+                };
+                const tsMs = Number(anchor.timestamp) || Date.now();
+                // 不 await — 让 audit handler 立刻回前端，结果异步从 history_set 落库
+                driver.fetchMessageHistory(safeLimit, oldestKey, tsMs).catch((err) => {
+                    console.warn(`[waAgent:${AGENT_TAG}] fetchMessageHistory(creator=${creatorId}): ${err.message}`);
+                });
+                historyFetchAsync = {
+                    requested: true,
+                    anchor_message_id: anchor.wa_message_id,
+                    anchor_timestamp: tsMs,
+                    count: safeLimit,
+                };
+            } else {
+                historyFetchAsync = {
+                    requested: false,
+                    reason: 'no anchor message in DB (need at least one received message first)',
+                };
+            }
+        } catch (anchorErr) {
+            console.warn(`[waAgent:${AGENT_TAG}] anchor lookup failed: ${anchorErr.message}`);
+            historyFetchAsync = { requested: false, reason: anchorErr.message };
+        }
     }
 
     return {
@@ -241,14 +291,15 @@ async function fetchAuditMessagesViaBaileys(phone, limit) {
             timestamp: typeof m.timestamp === 'number' ? m.timestamp : Date.now(),
             message_id: m.id || null,
         })),
-        baileys_buffer_only: true,
+        baileys_buffer_only: !historyFetchAsync?.requested,
+        baileys_history_fetch: historyFetchAsync,
     };
 }
 
-async function fetchAuditMessagesByPhone(phone, limit = 120) {
+async function fetchAuditMessagesByPhone(phone, limit = 120, creatorId = null) {
     // baileys 走独立路径 — 没有 wwebjs 的 client API
     if (getDriverName() === 'baileys') {
-        return await fetchAuditMessagesViaBaileys(phone, limit);
+        return await fetchAuditMessagesViaBaileys(phone, limit, creatorId);
     }
 
     const client = getClient();
@@ -294,8 +345,9 @@ async function fetchAuditMessagesByPhone(phone, limit = 120) {
 async function handleAuditRecentMessages(payload = {}) {
     const phone = payload.phone;
     const limit = Number(payload.limit || 120);
+    const creatorId = payload.creator_id ? Number(payload.creator_id) : null;
     const result = await withTimeout(
-        fetchAuditMessagesByPhone(phone, limit),
+        fetchAuditMessagesByPhone(phone, limit, creatorId),
         45000,
         'audit_recent_messages timeout'
     ).catch((error) => ({ ok: false, error: error.message || String(error) }));
