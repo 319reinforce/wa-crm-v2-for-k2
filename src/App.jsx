@@ -169,6 +169,7 @@ function App() {
   const [filterEvent, setFilterEvent] = useState('')
   const [filterLifecycle, setFilterLifecycle] = useState('')
   const [filtersExpanded, setFiltersExpanded] = useState(false)
+  const [showInactive, setShowInactive] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedCreator, setSelectedCreator] = useState(null)
   const [groupChats, setGroupChats] = useState([])
@@ -283,7 +284,8 @@ function App() {
   }, [dragging])
 
   const loadData = useCallback(async (signal) => {
-    const cached = creatorsCacheRef.current.get(filterOwner)
+    const cacheKey = `${filterOwner}|inactive=${showInactive ? '1' : '0'}`
+    const cached = creatorsCacheRef.current.get(cacheKey)
     const isFresh = cached && (Date.now() - cached.ts < 15000)
 
     if (isFresh) {
@@ -297,6 +299,7 @@ function App() {
       const params = new URLSearchParams()
       if (filterOwner) params.set('owner', filterOwner)
       params.set('fields', 'wa_phone')
+      if (showInactive) params.set('is_active', '0')
 
       const [creatorsData, statsData] = await Promise.all([
         fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`, { signal }),
@@ -311,7 +314,7 @@ function App() {
       }
 
       enriched.sort((a, b) => getCreatorLastConversationTs(b) - getCreatorLastConversationTs(a))
-      creatorsCacheRef.current.set(filterOwner, { data: enriched, unread: newUnread, ts: Date.now() })
+      creatorsCacheRef.current.set(cacheKey, { data: enriched, unread: newUnread, ts: Date.now() })
       setCreators(enriched)
       setUnreadCounts(newUnread)
       setStats(statsData)
@@ -321,7 +324,7 @@ function App() {
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [filterOwner])
+  }, [filterOwner, showInactive])
 
   const loadGroupChats = useCallback(async (signal) => {
     setGroupsLoading(true)
@@ -528,6 +531,11 @@ function App() {
 
   const handleCreatorUpdated = useCallback((updatedDetail) => {
     if (!updatedDetail?.id) return
+    if (updatedDetail.removed) {
+      setCreators(prev => prev.filter(c => c.id !== updatedDetail.id))
+      setSelectedCreator(prev => (prev && prev.id === updatedDetail.id ? null : prev))
+      return
+    }
     setCreators(prev => {
       const next = prev.map(c => c.id === updatedDetail.id ? buildCreatorViewModel(updatedDetail, c) : c)
       next.sort((a, b) => getCreatorLastConversationTs(b) - getCreatorLastConversationTs(a))
@@ -1278,10 +1286,18 @@ function App() {
                         <option key={option.key || 'all'} value={option.key}>{option.label}</option>
                       ))}
                     </FilterSelect>
+                    <label className="flex items-center gap-2 text-[12px] cursor-pointer select-none" style={{ color: WA.textMuted }}>
+                      <input
+                        type="checkbox"
+                        checked={showInactive}
+                        onChange={(e) => setShowInactive(e.target.checked)}
+                      />
+                      <span>显示已解绑达人</span>
+                    </label>
                   </>
                 ) : (
                   <div className="text-[12px] flex items-center justify-between gap-3 leading-5" style={{ color: WA.textMuted }}>
-                    <span>过滤条件已收起</span>
+                    <span>{showInactive ? '当前：已解绑列表' : '过滤条件已收起'}</span>
                     <span>{activeFilterCount > 0 ? `当前生效 ${activeFilterCount} 项` : '未启用筛选'}</span>
                   </div>
                 )}
@@ -2146,7 +2162,17 @@ function ChatListItem({ creator, onClick, unread, active = false, selectable = f
       <div className="flex-1 min-w-0">
         {/* Name + Time row */}
         <div className="flex items-center justify-between">
-          <span className="font-medium text-sm truncate" style={{ color: WA.textDark }}>{creator.primary_name || 'Unknown'}</span>
+          <span className="font-medium text-sm truncate flex items-center gap-1.5" style={{ color: WA.textDark }}>
+            <span className="truncate">{creator.primary_name || 'Unknown'}</span>
+            {Number(creator.is_active ?? 1) === 0 && (
+              <span
+                className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                style={{ background: 'rgba(148,163,184,0.18)', color: WA.textMuted }}
+              >
+                已解绑
+              </span>
+            )}
+          </span>
           {lastActiveLabel && (
             <span
               className="shrink-0 ml-2 text-xs"
