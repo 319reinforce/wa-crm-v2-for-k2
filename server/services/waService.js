@@ -294,6 +294,11 @@ class WhatsAppService extends EventEmitter {
         this._driver.on('message', (msg) => this.emit('message', msg));
         this._driver.on('group_message', (msg) => this.emit('group_message', msg));
         this._driver.on('disconnect', (info) => this.emit('disconnect', info));
+        // Baileys history sync 事件透传（wwebjs driver 不发这些事件）。
+        // history_set: { messages, syncType, progress, isLatest }
+        // history_latest_seen: 无 payload，表示本轮全量同步完成（可开始 gap-fill）
+        this._driver.on('history_set', (payload) => this.emit('history_set', payload));
+        this._driver.on('history_latest_seen', () => this.emit('history_latest_seen'));
 
         await this._driver.start();
 
@@ -494,6 +499,17 @@ module.exports = {
     },
     onDriverEvent: (event, handler) => requireSingleService().on(event, handler),
     offDriverEvent: (event, handler) => requireSingleService().off(event, handler),
+    // 直接暴露 driver 实例：waWorker 的 gap-fill 逻辑需要调 driver.fetchMessageHistory /
+    // driver.normalizeRawMessage 这些 driver 特有方法（facade 不包装）。
+    // 只暴露单 session 路径；多 session 按 sessionId 查找。
+    getDriver: (sessionId) => {
+        if (sessionId) {
+            const svc = services.get(String(sessionId));
+            if (!svc) throw new Error(`[WA Service] unknown session: ${sessionId}`);
+            return svc._driver;
+        }
+        return requireSingleService()._driver;
+    },
     waitForReady: (timeoutMs, sessionId) => {
         if (sessionId) {
             const svc = services.get(String(sessionId));

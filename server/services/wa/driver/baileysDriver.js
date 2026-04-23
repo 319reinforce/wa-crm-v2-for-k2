@@ -18,9 +18,16 @@ const http = require('http');
 const { URL } = require('url');
 
 const { normalizeJid, isGroupJid, jidToPhoneE164 } = require('./jidUtils');
+const protoStore = require('../../messageProtoStore');
 
 const RECONNECT_DELAY_MS = 5000;
 const BUFFER_SIZE = 200; // per-jid ring buffer for fetchRecentMessages
+const FETCH_HISTORY_TIMEOUT_MS = 30_000;
+
+// LEGACY_MODE kill switch：遇到 Baileys 兼容性问题时设 WA_BAILEYS_LEGACY_MODE=true
+// 强制回退到 Web(Ubuntu/Chrome) browser + syncFullHistory:false 的旧行为，
+// 相当于改造前的 Baileys 驱动（纯事件驱动、无历史同步）。仅作为紧急回退，不长期维护。
+const LEGACY_MODE = String(process.env.WA_BAILEYS_LEGACY_MODE || '').toLowerCase() === 'true';
 
 /**
  * @param {string} url
@@ -117,6 +124,10 @@ class BaileysDriver extends EventEmitter {
         this._lastOutgoingAt = 0;
         this._LID_TIMING_WINDOW_MS = 2 * 60 * 1000;
 
+        // 历史同步：标记 isLatest=true 是否已见。每次连接建立后重置，用于
+        // 避免同一 socket 生命周期内重复 emit 'history_latest_seen'。
+        this._historySyncLatestSeen = false;
+
         // Proxyquire target for tests
         this._baileysModule = null;
     }
@@ -171,12 +182,21 @@ class BaileysDriver extends EventEmitter {
         const pino = require('pino');
         const baileysLogger = pino({ level: 'silent' });
 
-        // WhatsApp 握手对 browser 三元组有要求；自制的 ['K2Lab-Bot','Chrome','1.0']
-        // 在 6.17.x 会被拒 DisconnectReason 405。用 Baileys 自带 Browsers 工厂生成
-        // 合规格式（含真实 OS + 合理 agent/version）。
-        const browserTuple = (Browsers && typeof Browsers.ubuntu === 'function')
-            ? Browsers.ubuntu('Chrome')
-            : ['Ubuntu', 'Chrome', '22.04.4'];
+        // Browser 三元组决定 WA 服务端行为：
+        //   - Web 变体 (Ubuntu/Chrome)：轻量，但服务端不推完整历史
+        //   - Desktop 变体 (macOS/Desktop)：WA 当 companion desktop 设备处理，推全量历史
+        // 历史同步需要 Desktop + syncFullHistory:true 组合（官方文档要求）。
+        // LEGACY_MODE=true 时回退到 Web 变体（无历史同步能力）。
+        let browserTuple;
+        if (LEGACY_MODE) {
+            browserTuple = (Browsers && typeof Browsers.ubuntu === 'function')
+                ? Browsers.ubuntu('Chrome')
+                : ['Ubuntu', 'Chrome', '22.04.4'];
+        } else {
+            browserTuple = (Browsers && typeof Browsers.macOS === 'function')
+                ? Browsers.macOS('Desktop')
+                : ['Mac OS', 'Desktop', '10.15.7'];
+        }
 
         // 动态拉最新版本号，避免协议过时导致 405。失败就用编译期常量。
         let version;
@@ -187,19 +207,31 @@ class BaileysDriver extends EventEmitter {
             }
         } catch (_) { /* 忽略，用 baileys 默认 */ }
 
+        // getMessage 回调：Baileys 在消息重传/引用解密/编辑时调用此回调还原原消息 proto。
+        // 热消息命中 protoStore LRU，冷消息查 DB（wa_messages.proto_bytes）。返回 undefined
+        // 时 Baileys 会跳过该操作（而非抛错）。见 messageProtoStore.js。
+        const sessionId = this.sessionId;
+        const getMessage = async (key) => {
+            const msg = await protoStore.get(sessionId, key);
+            return msg || undefined;  // 必须 undefined 不是 null
+        };
+
         this._sock = makeWASocket({
             auth: state,
             printQRInTerminal: false,
             logger: baileysLogger,
             browser: browserTuple,
             ...(version ? { version } : {}),
-            syncFullHistory: false,
+            // Desktop 模式 + syncFullHistory:true → 服务端推全量 messaging-history.set 事件。
+            // LEGACY_MODE 下保留旧行为（无历史同步）。
+            syncFullHistory: !LEGACY_MODE,
             markOnlineOnConnect: false,
             connectTimeoutMs: 60_000,
             keepAliveIntervalMs: 30_000,
+            getMessage,
         });
 
-        console.log(`[BaileysDriver:${this.sessionId}] socket 已创建 browser=${JSON.stringify(browserTuple)} version=${JSON.stringify(version || 'default')}`);
+        console.log(`[BaileysDriver:${this.sessionId}] socket 已创建 browser=${JSON.stringify(browserTuple)} version=${JSON.stringify(version || 'default')} syncFullHistory=${!LEGACY_MODE} legacy=${LEGACY_MODE}`);
 
         this._sock.ev.on('creds.update', saveCreds);
 
@@ -217,6 +249,9 @@ class BaileysDriver extends EventEmitter {
                 this._ready = true;
                 this._qr = null;
                 this._lastError = null;
+                // 重置 history sync 观测位：新连接会重新推 messaging-history.set，
+                // worker 的 gap-fill 逻辑应该基于新连接的 isLatest 信号再跑一次。
+                this._historySyncLatestSeen = false;
                 const rawId = this._sock.user?.id || '';
                 // Baileys user.id format: "85255550001@s.whatsapp.net"
                 this._accountPhone = rawId ? jidToPhoneE164(rawId) : null;
@@ -295,6 +330,43 @@ class BaileysDriver extends EventEmitter {
                 console.log(`[BaileysDriver:${this.sessionId}] new group: ${group.id}`);
             }
         });
+
+        // messaging-history.set：Baileys 官方历史同步事件。
+        // 触发时机：
+        //   1) 首次连接 + syncFullHistory:true → 服务端推全量历史（分批多次触发，isLatest 最后一次为 true）
+        //   2) fetchMessageHistory() 按需调用返回 → 通过同一事件异步回传（syncType=ON_DEMAND）
+        // payload 字段：{ chats, contacts, messages, syncType, progress, isLatest }
+        //
+        // 设计：driver 只做透传 + LID 映射补充，业务过滤（roster/eligibility）留给 waWorker 层，
+        // 保持与 wwebjs syncHistory 的语义一致。
+        if (!LEGACY_MODE) {
+            this._sock.ev.on('messaging-history.set', (payload) => {
+                try {
+                    const { chats = [], contacts = [], messages = [], syncType, progress, isLatest } = payload || {};
+                    // LID ↔ PN 映射：messaging-history.set 里的 contacts 可能带 lid 字段（Issue #2077 有时为空）
+                    for (const c of contacts) {
+                        if (c?.id && c?.lid) {
+                            this._lidToPnMap.set(String(c.lid), String(c.id));
+                        }
+                    }
+                    console.log(`[BaileysDriver:${this.sessionId}] messaging-history.set chats=${chats.length} contacts=${contacts.length} messages=${messages.length} syncType=${syncType} progress=${progress} isLatest=${!!isLatest}`);
+                    // 原始 payload 透传给 waService → waWorker。Worker 用 driver.normalizeRawMessage
+                    // 把每条 proto 消息 normalize 成 IncomingMessage 后走 insertMessages。
+                    this.emit('history_set', {
+                        messages,
+                        syncType,
+                        progress,
+                        isLatest: !!isLatest,
+                    });
+                    if (isLatest === true && !this._historySyncLatestSeen) {
+                        this._historySyncLatestSeen = true;
+                        this.emit('history_latest_seen');
+                    }
+                } catch (err) {
+                    console.error(`[BaileysDriver:${this.sessionId}] messaging-history.set handler error:`, err.message);
+                }
+            });
+        }
 
         // Store reference for tests
         this._DisconnectReason = DisconnectReason;
@@ -458,6 +530,65 @@ class BaileysDriver extends EventEmitter {
         return buf.slice(-limit);
     }
 
+    /**
+     * 按需向 WA 服务端请求一段历史消息（对标 wwebjs 的 syncHistory gap-fill）。
+     * 结果**不**通过 Promise 返回，而是通过 `messaging-history.set` 事件异步回传
+     * （syncType=ON_DEMAND）。waWorker 的 history_set 处理器会把结果落库。
+     *
+     * 已知 bug（Baileys Issue #1934）：某些版本下 `sock.fetchMessageHistory()` 返回
+     * 成功但 `messaging-history.set` 回调不触发。30s 超时 + 调用方（worker）的
+     * 每个 roster 达人循环重试是对这个 bug 的兜底。
+     *
+     * @param {number} count 请求消息数（建议 50-200）
+     * @param {{ remoteJid: string, id: string, fromMe: boolean }} oldestKey  DB 里最旧消息的 key
+     * @param {number} oldestTsMs  DB 里最旧消息的时间戳（毫秒）
+     * @returns {Promise<string|null>} sessionId 或 null
+     */
+    async fetchMessageHistory(count, oldestKey, oldestTsMs) {
+        if (!this._sock || !this._ready) return null;
+        if (LEGACY_MODE) return null;  // 旧模式没历史同步能力
+        if (typeof this._sock.fetchMessageHistory !== 'function') {
+            console.warn(`[BaileysDriver:${this.sessionId}] sock.fetchMessageHistory 不存在（Baileys Issue #2083），跳过`);
+            return null;
+        }
+        // Baileys API 期望秒级时间戳（Long 或 number）
+        const tsSec = Math.floor(Number(oldestTsMs || 0) / 1000);
+        let timeoutId = null;
+        try {
+            const result = await Promise.race([
+                this._sock.fetchMessageHistory(count, oldestKey, tsSec),
+                new Promise((_, reject) => {
+                    timeoutId = setTimeout(
+                        () => reject(new Error(`fetchMessageHistory ${FETCH_HISTORY_TIMEOUT_MS / 1000}s timeout`)),
+                        FETCH_HISTORY_TIMEOUT_MS
+                    );
+                }),
+            ]);
+            return typeof result === 'string' ? result : null;
+        } catch (err) {
+            console.error(`[BaileysDriver:${this.sessionId}] fetchMessageHistory failed:`, err?.message || err);
+            return null;
+        } finally {
+            // 必须清 timer，否则 Promise.race 先 resolve 时 setTimeout 仍在事件循环中
+            // 持有 30s，生产每调用一次泄漏一个 timer，测试进程退出卡 30s。
+            if (timeoutId) clearTimeout(timeoutId);
+        }
+    }
+
+    /**
+     * Public wrapper：把 Baileys 原生 WebMessageInfo 转成内部 IncomingMessage 格式。
+     * 供 waWorker 处理 messaging-history.set 事件时复用（避免在 worker 里重写 LID 映射、
+     * 媒体下载、text 抽取等逻辑）。
+     *
+     * 副作用：同步把 proto.IMessage 写入 protoStore LRU（getMessage 回调路径需要）。
+     *
+     * @param {any} rawMsg  Baileys 原生消息（proto.IWebMessageInfo）
+     * @returns {Promise<import('./types').IncomingMessage|null>}
+     */
+    async normalizeRawMessage(rawMsg) {
+        return this._normalizeMessage(rawMsg);
+    }
+
     // ---- private ----
 
     async _reconnect() {
@@ -515,6 +646,23 @@ class BaileysDriver extends EventEmitter {
         const chatId = jidToPhoneE164(chatJidForPhone);
         const from = jidToPhoneE164(fromMe ? chatJidForPhone : (key.participant || chatJidForPhone));
 
+        // Proto 持久化：把 msg.message（proto.IMessage）同步写 LRU 并编码为 Buffer。
+        // - LRU 让 getMessage 回调热路径命中微秒级（进程内常驻）
+        // - 编码后的 proto_bytes 通过 normalized 向上传给 insertMessages → wa_messages.proto_bytes 冷存储
+        //   （跨进程重启后仍可从 DB 读回）
+        const protoIMessage = msg?.message || null;
+        let protoBytes = null;
+        if (protoIMessage) {
+            try {
+                protoStore.put(this.sessionId, String(key.id), protoIMessage);
+                protoBytes = protoStore.encodeProto(protoIMessage);
+            } catch (err) {
+                // 不阻塞主链路：proto 持久化失败 getMessage 回调会 miss，
+                // WA 会降级处理（要么放弃重传要么让用户重发）。
+                console.warn(`[BaileysDriver:${this.sessionId}] proto encode failed (msgId=${key.id}): ${err.message}`);
+            }
+        }
+
         /** @type {import('./types').IncomingMessage} */
         const normalized = {
             id: String(key.id || ''),
@@ -533,6 +681,9 @@ class BaileysDriver extends EventEmitter {
             authorName: !fromMe ? (msg?.pushName || msg?.verifiedBizName || null) : null,
             media: null,
             raw: msg,
+            // 交给 insertMessages 做 DB 冷存储。仅 baileys driver 设置。
+            protoBytes,
+            protoDriver: protoBytes ? 'baileys' : null,
         };
 
         // Normalize media

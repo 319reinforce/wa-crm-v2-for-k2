@@ -7,7 +7,9 @@
 
 require('dotenv').config();
 const { getDb } = require('../db');
-const { getClient, waitForReady, stop: stopWaService, getResolvedOwner, getDriverName, onDriverEvent } = require('./services/waService');
+const { getClient, waitForReady, stop: stopWaService, getResolvedOwner, getDriverName, onDriverEvent, getDriver } = require('./services/waService');
+const protoStore = require('./services/messageProtoStore');
+const { normalizeJid: toBaileysJid } = require('./services/wa/driver/jidUtils');
 const { sha256 } = require('./utils/crypto');
 const { normalizeOperatorName } = require('./utils/operator');
 const {
@@ -507,6 +509,10 @@ async function insertMessages(creatorId, messages) {
             media_caption:          m.mediaInfo?.caption || null,
             media_thumbnail:        m.mediaInfo?.thumbnail || null,
             media_download_status:  m.mediaInfo?.mediaAssetId ? 'success' : (m.mediaInfo?.media_download_status || null),
+            // Baileys proto 持久化（由 baileysDriver._normalizeMessage 设置）。
+            // 其它 driver（wwebjs）不设这两个字段，NULL 写入。
+            proto_bytes:            m.protoBytes || null,
+            proto_driver:           m.protoDriver || null,
         };
     });
 
@@ -543,6 +549,9 @@ async function insertMessages(creatorId, messages) {
             m.media_asset_id, m.media_type, m.media_mime, m.media_size,
             m.media_width, m.media_height, m.media_caption, m.media_thumbnail,
             m.media_download_status,
+            // proto 字段（仅 baileys driver 有；其它 driver 传 null）
+            m.proto_bytes || null,
+            m.proto_driver || null,
         ];
     }).filter(([, , , text, timestampMs, , , mediaAssetId]) =>
         (text && timestampMs > 0) || mediaAssetId
@@ -555,8 +564,9 @@ async function insertMessages(creatorId, messages) {
               wa_message_id,
               media_asset_id, media_type, media_mime, media_size,
               media_width, media_height, media_caption, media_thumbnail,
-              media_download_status)
-             VALUES ${ops.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}`
+              media_download_status,
+              proto_bytes, proto_driver)
+             VALUES ${ops.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}`
         ).run(...ops.flat());
         // INSERT IGNORE 在 UNIQUE 冲突时 changes=0（与 ops.length 不同），
         // 必须返回实际入库条数，否则调用方会误判 "📩 已保存" 并触发下游 pipeline。
@@ -1236,6 +1246,9 @@ async function handleBaileysIncomingMessage(incoming) {
             text,
             timestamp: timestampMs,
             wa_message_id: incoming.id || null,
+            // baileysDriver._normalizeMessage 已经 encode 好 proto 并挂到 incoming 上
+            protoBytes: incoming.protoBytes || null,
+            protoDriver: incoming.protoDriver || null,
         }]);
 
         if (inserted > 0) {
@@ -1266,6 +1279,156 @@ async function handleBaileysIncomingMessage(incoming) {
             durationMs: Date.now() - handleStartedAt,
         });
     }
+}
+
+// ================== Baileys 历史同步 + 缺口补齐 ==================
+// 对标 wwebjs 的 syncHistory/pollOnce 语义，但事件驱动（非主动 fetch）。
+// 触发链路：
+//   1) driver 启动 + syncFullHistory:true → WA 服务端分批推 messaging-history.set
+//      → driver.emit('history_set') → 本 handler 批量 normalize + insertMessages
+//   2) 最后一批 isLatest:true → driver.emit('history_latest_seen')
+//      → triggerGapFillIfNeeded：按 roster 白名单逐个 driver.fetchMessageHistory 补齐
+
+const HISTORY_BATCH_SIZE = 100;                      // 分批落库，让出事件循环
+const GAP_FILL_THRESHOLD_MS = 5 * 60 * 1000;         // DB 最新消息超 5min 才触发 gap-fill
+const GAP_FILL_FETCH_COUNT = 200;                    // 每次 fetchMessageHistory 请求条数
+const GAP_FILL_PER_CREATOR_DELAY_MS = 500;           // roster 内每个达人间隔，防 WA 限流
+
+async function handleBaileysHistoryBatch(rawMessages) {
+    if (!Array.isArray(rawMessages) || rawMessages.length === 0) return;
+    const driver = typeof getDriver === 'function' ? getDriver() : null;
+    if (!driver || typeof driver.normalizeRawMessage !== 'function') {
+        console.warn(`${LOG_PREFIX} history batch: driver.normalizeRawMessage 不可用，跳过 ${rawMessages.length} 条`);
+        return;
+    }
+
+    const startedAt = Date.now();
+    let processed = 0, kept = 0, dropped = 0, inserted = 0;
+
+    // 分批处理，每批 100 条 + setImmediate 让出事件循环，避免阻塞实时消息
+    for (let i = 0; i < rawMessages.length; i += HISTORY_BATCH_SIZE) {
+        const batch = rawMessages.slice(i, i + HISTORY_BATCH_SIZE);
+
+        for (const rawMsg of batch) {
+            processed++;
+            let normalized = null;
+            try {
+                normalized = await driver.normalizeRawMessage(rawMsg);
+            } catch (err) {
+                console.warn(`${LOG_PREFIX} history normalize error:`, err.message);
+                dropped++;
+                continue;
+            }
+            if (!normalized || normalized.isGroup) {
+                // 群消息暂不经此链路（对齐 wwebjs syncHistory 1:1 语义；群由 syncGroupHistory 另外处理）
+                dropped++;
+                continue;
+            }
+            const phoneRaw = normalized.chatId || '';
+            const text = normalized.text || '';
+            if (!text && !normalized.media) { dropped++; continue; }
+
+            try {
+                const phoneDigits = phoneRaw.replace(/^\+/, '');
+                const name = normalized.authorName || 'Unknown';
+                const db2 = getDb();
+                const existing = await db2.prepare(
+                    'SELECT id, wa_phone FROM creators WHERE wa_phone IN (?, ?) LIMIT 1'
+                ).get(phoneRaw, phoneDigits);
+                const canonicalPhone = existing ? existing.wa_phone : phoneDigits;
+
+                let creatorId;
+                if (existing) {
+                    creatorId = await getOrCreateCreator(canonicalPhone, name);
+                } else {
+                    // 新 creator 必须通过 eligibility 闸门（对齐 wwebjs syncHistory 的 history 模式）
+                    const eligibility = analyzeCreatorEligibility(
+                        canonicalPhone, name, [], { mode: 'history' }
+                    );
+                    if (!eligibility.eligible) { dropped++; continue; }
+                    creatorId = await getOrCreateCreator(canonicalPhone, name);
+                }
+
+                const role = normalized.fromMe ? 'me' : 'user';
+                const timestampMs = typeof normalized.timestamp === 'number' ? normalized.timestamp : Date.now();
+                const got = await insertMessages(creatorId, [{
+                    role,
+                    text,
+                    timestamp: timestampMs,
+                    wa_message_id: normalized.id || null,
+                    protoBytes: normalized.protoBytes || null,
+                    protoDriver: normalized.protoDriver || null,
+                }]);
+                kept++;
+                inserted += got;
+                if (got > 0) await touchCreator(creatorId);
+            } catch (err) {
+                console.warn(`${LOG_PREFIX} history persist error:`, err.message);
+                dropped++;
+            }
+        }
+
+        // 每批之间让事件循环走一圈，让实时消息 / QR 扫码 / 心跳等事件有机会处理
+        await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    perfLog('wa_history_batch_persisted', {
+        processed, kept, dropped, inserted,
+        durationMs: Date.now() - startedAt,
+    });
+    console.log(`${LOG_PREFIX} 📚 history batch: processed=${processed} kept=${kept} inserted=${inserted} dropped=${dropped} ${Date.now() - startedAt}ms`);
+}
+
+async function triggerGapFillIfNeeded() {
+    const driver = typeof getDriver === 'function' ? getDriver() : null;
+    if (!driver || typeof driver.fetchMessageHistory !== 'function') {
+        console.log(`${LOG_PREFIX} gap-fill 跳过：driver.fetchMessageHistory 不可用`);
+        return;
+    }
+
+    const rosterIndex = await loadRosterIndex();
+    const db2 = getDb();
+    const now = Date.now();
+    let triggered = 0, skipped = 0, failed = 0;
+
+    for (const [phone, assignment] of rosterIndex.byPhone) {
+        // 只查有 baileys proto 的最新行，才有可用的 key 给 fetchMessageHistory
+        const lastRow = await db2.prepare(
+            'SELECT timestamp, wa_message_id FROM wa_messages ' +
+            'WHERE creator_id = ? AND proto_driver = ? ' +
+            'ORDER BY timestamp DESC LIMIT 1'
+        ).get(assignment.creator_id, 'baileys');
+
+        if (!lastRow?.wa_message_id) { skipped++; continue; }
+        const gapMs = now - Number(lastRow.timestamp);
+        if (gapMs < GAP_FILL_THRESHOLD_MS) { skipped++; continue; }
+
+        const jid = toBaileysJid(phone, 'baileys');
+        const oldestKey = { remoteJid: jid, id: lastRow.wa_message_id, fromMe: false };
+
+        perfLog('wa_gap_fill_requested', {
+            creatorId: assignment.creator_id,
+            phone,
+            gapMs,
+            oldestMsgId: lastRow.wa_message_id,
+        });
+
+        try {
+            const sessionId = await driver.fetchMessageHistory(
+                GAP_FILL_FETCH_COUNT, oldestKey, Number(lastRow.timestamp)
+            );
+            if (sessionId) triggered++;
+            else failed++;
+        } catch (err) {
+            console.warn(`${LOG_PREFIX} gap-fill error for creator=${assignment.creator_id}: ${err.message}`);
+            failed++;
+        }
+
+        // Rate limit：避免短时间大量 fetchMessageHistory 被 WA 限流
+        await new Promise((resolve) => setTimeout(resolve, GAP_FILL_PER_CREATOR_DELAY_MS));
+    }
+
+    console.log(`${LOG_PREFIX} 🔁 gap-fill: triggered=${triggered} skipped=${skipped} failed=${failed}`);
 }
 
 // ================== 增量轮询 ==================
@@ -1599,9 +1762,31 @@ async function start(options = {}) {
         // 群持久化暂未接；事件仍然穿过 handler 以走 perfLog 和未来扩展
         handleBaileysIncomingMessage(incoming).catch(() => {});
     });
+
+    // 历史同步事件：driver 收到 messaging-history.set 后 emit。
+    // 多次触发（分批），每次只处理当前批，isLatest 标记最后一批。
+    onDriverEvent('history_set', (payload) => {
+        const { messages = [], syncType, progress: pct, isLatest } = payload || {};
+        perfLog('wa_history_set_received', {
+            count: messages.length, syncType, progress: pct, isLatest,
+        });
+        handleBaileysHistoryBatch(messages).catch((err) => {
+            console.error(`${LOG_PREFIX} history batch 异常:`, err.message);
+        });
+    });
+
+    // 首轮全量同步完成：按 roster 白名单触发 gap-fill（补齐 WA 服务端未主动推的窗口）。
+    onDriverEvent('history_latest_seen', () => {
+        perfLog('wa_history_latest_seen', {});
+        console.log(`${LOG_PREFIX} ✅ history sync latest seen，启动 gap-fill`);
+        triggerGapFillIfNeeded().catch((err) => {
+            console.error(`${LOG_PREFIX} gap-fill 异常:`, err.message);
+        });
+    });
+
     progress.phase = 'live';
     console.log('═'.repeat(60));
-    console.log(`  WA Worker 已就绪 (driver=${driverName}, 事件驱动持久化 1:1 消息) (${WORKER_TAG})`);
+    console.log(`  WA Worker 已就绪 (driver=${driverName}, 事件驱动 + 历史同步 + gap-fill) (${WORKER_TAG})`);
     console.log('═'.repeat(60));
 }
 
