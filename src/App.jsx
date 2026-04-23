@@ -185,7 +185,6 @@ function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [tagsVisible, setTagsVisible] = useState(true)
   const [waQrData, setWaQrData] = useState(null)  // WA QR code data URL
-  const [detailPanelExpanded, setDetailPanelExpanded] = useState(false)
   const [detailPanelPinned, setDetailPanelPinned] = useState(false)
   const [manualOpen, setManualOpen] = useState(false)
   const [manualSaving, setManualSaving] = useState(false)
@@ -487,7 +486,6 @@ function App() {
     setActiveTab('creators')
     setConversationScope('creators')
     setSelectedGroupChat(null)
-    setDetailPanelExpanded(detailPanelPinned)
     setSelectedCreator(null)
     await selectCreatorById(creator.id, {
       activeTab: 'creators',
@@ -501,7 +499,6 @@ function App() {
     setActiveTab('creators')
     setConversationScope('groups')
     setSelectedCreator(null)
-    setDetailPanelExpanded(false)
     setSelectedGroupChat(groupChat)
   }, [])
 
@@ -585,7 +582,6 @@ function App() {
       setSelectedGroupChat(null)
       setConversationScope('creators')
       setSelectedCreator(vm)
-      setDetailPanelExpanded(options.expandDetail ? detailPanelPinned : false)
       if (options.activeTab) setActiveTab(options.activeTab)
       if (Object.prototype.hasOwnProperty.call(options, 'selectedEventId')) {
         setSelectedEventId(options.selectedEventId || null)
@@ -672,7 +668,6 @@ function App() {
     setChatJumpTarget(null)
     setSelectedGroupChat(null)
     setSelectedCreator(null)
-    setDetailPanelExpanded(false)
 
     if (eventReturnContext?.source === 'events' && eventReturnContext?.eventId) {
       setConversationScope('creators')
@@ -875,7 +870,8 @@ function App() {
   const selectedCreatorStatusMeta = getCreatorStatusMeta(selectedCreator)
   const isCreatorWorkspace = activeTab === 'creators'
   const showDetailPanel = isCreatorWorkspace && conversationScope === 'creators' && !!selectedCreator
-  const isDetailPanelOpen = showDetailPanel && (detailPanelExpanded || detailPanelPinned)
+  // 右栏完全由 pin 控制：点击折叠条 = pin 展开；点 pin 按钮 = unpin 折叠
+  const isDetailPanelOpen = showDetailPanel && detailPanelPinned
   const detailPanelWidth = showDetailPanel
     ? (isDetailPanelOpen ? clamp(panelWidths.detail, DETAIL_PANEL_MIN_WIDTH, DETAIL_PANEL_MAX_WIDTH) : DETAIL_COLLAPSED_WIDTH)
     : clamp(panelWidths.detail, DETAIL_PANEL_MIN_WIDTH, DETAIL_PANEL_MAX_WIDTH)
@@ -1540,10 +1536,6 @@ function App() {
                   transition: 'width 220ms ease',
                   background: WA.shellPanel,
                 }}
-                onMouseEnter={() => setDetailPanelExpanded(true)}
-                onMouseLeave={() => {
-                  if (!detailPanelPinned) setDetailPanelExpanded(false)
-                }}
               >
                 <CreatorDetail
                   creatorId={selectedCreator.id}
@@ -1554,11 +1546,7 @@ function App() {
                   asPanel
                   collapsed={!isDetailPanelOpen}
                   pinned={detailPanelPinned}
-                  onTogglePin={() => {
-                    setDetailPanelPinned(prev => !prev)
-                    setDetailPanelExpanded(true)
-                  }}
-                  onExpand={() => setDetailPanelExpanded(true)}
+                  onTogglePin={() => setDetailPanelPinned(prev => !prev)}
                 />
               </div>
             )}
