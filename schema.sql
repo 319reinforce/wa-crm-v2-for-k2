@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS wa_messages (
     media_caption          TEXT NULL COMMENT 'caption text (for media with caption)',
     media_thumbnail        TEXT NULL COMMENT 'base64 thumbnail for quick preview',
     media_download_status  VARCHAR(16) NULL COMMENT 'pending|success|failed',
+    -- Baileys proto 持久化（getMessage 回调需要跨重启读回原消息 proto）
+    proto_bytes            LONGBLOB NULL COMMENT 'Baileys proto.IMessage 原始字节（仅 baileys driver）',
+    proto_driver           VARCHAR(16) NULL COMMENT 'proto 来源 driver: baileys | NULL',
     updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -83,6 +86,8 @@ CREATE INDEX idx_messages_creator_role_ts ON wa_messages(creator_id, role, times
 CREATE INDEX idx_messages_media_asset  ON wa_messages(media_asset_id);
 CREATE INDEX idx_messages_media_status ON wa_messages(media_download_status);
 CREATE INDEX idx_messages_media_type   ON wa_messages(media_type);
+-- proto 索引（getMessage 回调读取时按 proto_driver 过滤）
+CREATE INDEX idx_messages_proto_driver ON wa_messages(proto_driver);
 
 -- ============================================================
 -- WA CRM 扩展数据
