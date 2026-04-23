@@ -45,6 +45,7 @@ const waMessageIdMigration = require('../migrate-wa-message-id');
 const waMessagesMediaMigration = require('../migrate-wa-messages-media');
 const mediaLifecycleMigration = require('../migrate-media-lifecycle');
 const waDriverMigration = require('../migrate-wa-sessions-driver');
+const aiProviderConfigMigration = require('../migrate-ai-provider-config');
 const sessionCleaner = require('./services/sessionCleaner');
 const legacySessionsBootstrap = require('./bootstrap/migrateLegacySessions');
 const sessionRepository = require('./services/sessionRepository');
@@ -466,7 +467,16 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
             throw err;
         }
 
-        // 1.4) 启动 session 清理器
+        // 1.4) AI provider 配置中心 (Phase 0 地基: 建 ai_provider_configs / ai_usage_logs / ai_usage_daily)
+        try {
+            await aiProviderConfigMigration.run({ silent: true });
+            console.log('[Startup] ai-provider-config migration done');
+        } catch (err) {
+            console.error('[Startup] ai-provider-config migration failed:', err.message);
+            throw err;
+        }
+
+        // 1.5) 启动 session 清理器
         sessionCleaner.start();
 
         // 2) 一次性迁移旧 session 配置(ecosystem / env / auth dirs)
