@@ -40,12 +40,7 @@ export function useMessagePolling({
     client,
     setMessages,
     setMessageTotal,
-    generateForIncoming,
-    pushPicker,
     lastActivityRef,
-    pendingCandidatesRef,
-    activePickerRef,
-    lastGeneratedKeyRef,
     onTopicTimeout,
     sseHealthyRef, // optional ref<boolean>: 指示 SSE 是否健康,影响兜底频率
 }) {
@@ -96,24 +91,7 @@ export function useMessagePolling({
                 const latest = freshMsgs[freshMsgs.length - 1];
                 const latestTs = toTimestampMs(latest?.timestamp);
                 if (latestTs > 0 && lastActivityRef) lastActivityRef.current = latestTs;
-
-                // 只有对方发来的最后一条才触发自动生成
-                if (latest && latest.role === 'user') {
-                    const latestKey = getMessageKey(latest);
-                    const activeKey = getMessageKey(activePickerRef?.current?.incomingMsg);
-                    const pendingList = pendingCandidatesRef?.current || [];
-                    const alreadyQueued = activeKey === latestKey
-                        || pendingList.some((item) => getMessageKey(item?.incomingMsg) === latestKey);
-                    if (!alreadyQueued && lastGeneratedKeyRef?.current !== latestKey) {
-                        // 先占坑 key：防止 composer 的 messages effect 同时触发一次
-                        if (lastGeneratedKeyRef) lastGeneratedKeyRef.current = latestKey;
-                        const result = await generateForIncoming(latest, freshMsgs);
-                        if (activeClientIdRef.current !== clientId || requestVersionRef.current !== requestVersion) return;
-                        if (result) {
-                            pushPicker(result);
-                        }
-                    }
-                }
+                // AI 生成改为手动触发（四槽位方案 op3/op4 由 🤖 按钮驱动）：polling 只同步消息
             } else if (mode === 'align' && Number.isFinite(total)) {
                 setMessageTotal?.(total);
             }
@@ -121,7 +99,7 @@ export function useMessagePolling({
             if (e?.name === 'AbortError') return;
             console.error('[checkNewMessages] error:', e);
         }
-    }, [client?.id, setMessages, setMessageTotal, generateForIncoming, pushPicker, lastActivityRef, pendingCandidatesRef, activePickerRef, lastGeneratedKeyRef]);
+    }, [client?.id, setMessages, setMessageTotal, lastActivityRef]);
 
     // SSE 推送 + visibilitychange 补拉 + 低频兜底 poll
     useEffect(() => {

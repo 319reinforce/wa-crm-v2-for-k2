@@ -2,7 +2,7 @@
  * systemPromptBuilder.js — System Prompt 构建（纯函数）
  */
 import { buildEventPushSection } from './eventPushBuilder.js';
-import { TOPIC_LABELS } from '../constants/topicLabels.js';
+import { getTopicLabel } from '../constants/topicLabels.js';
 import { isAgencyBoundStatus, resolveUnboundAgencyStrategy } from '../../../utils/unboundAgencyStrategies.js';
 
 // 构建 System Prompt（双模式：响应模式 vs 推进模式）
@@ -78,7 +78,7 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
         ? resolveUnboundAgencyStrategy({ clientMemory, nextAction: wacrm?.next_action || '', strategies: agencyStrategies })
         : null;
 
-    const topicLabel = TOPIC_LABELS[topic?.topic_key] || TOPIC_LABELS.general;
+    const topicLabel = getTopicLabel(topic?.topic_group || topic?.topic_key, '一般咨询');
     const triggerLabel = { manual: '运营手动标记', time: '48小时无互动', keyword: '关键词变化', auto: '自动检测', new: '新对话' }[topic?.trigger] || '新对话';
 
     const eventLines = (activeEvents || []).map(evt => {
@@ -91,7 +91,7 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
             : daysLeft <= 0 ? '已结束'
             : daysLeft <= 3 ? '即将结束'
             : '进行中';
-        return `${TOPIC_LABELS[evt.event_key] || evt.event_key}·${phase}${daysLeft !== null && daysLeft > 0 ? `·剩${daysLeft}天` : ''}`;
+        return `${getTopicLabel(evt.event_key, evt.event_key)}·${phase}${daysLeft !== null && daysLeft > 0 ? `·剩${daysLeft}天` : ''}`;
     });
 
     // === 同一话题模式（manual/auto）：简短版 ===
@@ -121,7 +121,7 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
                 : daysLeft <= 0 ? '已结束'
                 : daysLeft <= 3 ? '即将结束'
                 : '进行中';
-            return `[${TOPIC_LABELS[evt.event_key] || evt.event_key}]`
+            return `[${getTopicLabel(evt.event_key, evt.event_key)}]`
                 + `（${evt.owner}负责）`
                 + `目标${meta.weekly_target || 35}条/周`
                 + `·${phase}`

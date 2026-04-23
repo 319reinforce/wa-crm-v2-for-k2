@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import EmojiPicker from 'emoji-picker-react';
 import AIReplyPicker from './AIReplyPicker';
 import { buildConversation, buildRichContext, computeSimilarity } from './WAMessageComposer/ai/extractors';
-import { inferAutoTopic, startNewTopic } from './WAMessageComposer/ai/topicDetector';
+import { inferAutoTopic, startNewTopic, resolveTopicContext } from './WAMessageComposer/ai/topicDetector';
 import { generateViaExperienceRouter } from './WAMessageComposer/ai/experienceRouter';
 import { useMessagePolling, getMessageKey } from './WAMessageComposer/hooks/useMessagePolling';
-import { TOPIC_LABELS } from './WAMessageComposer/constants/topicLabels';
+import { TOPIC_GROUP_LABELS, TOPIC_GROUP_ORDER, getIntentLabel, getTopicLabel } from './WAMessageComposer/constants/topicLabels';
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api';
 import { fetchWaAdmin } from '../utils/waAdmin';
 import { fetchAppAuth, isAppAuthViewer, canAppAuthWriteToOwner, getAppAuthScopeOwner } from '../utils/appAuth';
@@ -609,7 +609,13 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     // 记录上一次的译文，用于判断用户是否手动编辑过输入框（编辑后再点 🌐 视为重新翻译而不是 undo）
     const [lastTranslatedInputText, setLastTranslatedInputText] = useState(null);
 
-    // 当前活跃的 AI 候选
+    // 当前回复上下文（模板/AI 共用，四槽位方案）
+    const [activeReplyContext, setActiveReplyContext] = useState(null);
+    const [templateDeck, setTemplateDeck] = useState(null);
+    const [templateLoading, setTemplateLoading] = useState(false);
+    const [templateError, setTemplateError] = useState(null);
+
+    // 当前活跃的 AI 候选（op3/op4，通过 🤖 按钮手动触发）
     const [activePicker, setActivePicker] = useState(null);
     const [pickerCustom, setPickerCustom] = useState('');
     const [customToolLoading, setCustomToolLoading] = useState({ translate: false, emoji: false });
@@ -884,27 +890,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [client?.phone, client?.id]);
 
-    // Effect 4: messages + sideDataReady 都到位 → 为最新 incoming 消息自动生成候选（一次）
-    // 合规不变量：仍等 policyDocs / clientMemory 就绪后才触发（CLAUDE.md 禁止事项 #2）。
-    // 使用 lastGeneratedKeyRef 去重：dismiss 候选后不会被同一条消息重新触发。
-    useEffect(() => {
-        if (!client?.id || !sideDataReady || messages.length === 0) return;
-        const lastMsg = getLatestIncomingMessage(messages);
-        if (!lastMsg) return;
-        const key = getMessageKey(lastMsg);
-        if (lastGeneratedKeyRef.current === key) return;
-        // 先占坑：避免 polling hook 的 SSE 路径在本 effect await 时并行触发一次
-        lastGeneratedKeyRef.current = key;
-        const race = generationRaceRef.current;
-        let cancelled = false;
-        (async () => {
-            const result = await generateForIncoming(lastMsg, messages);
-            if (cancelled || race !== generationRaceRef.current) return;
-            if (result) pushPicker(result);
-        })();
-        return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [client?.id, sideDataReady, messages]);
+    // 四槽位方案：不再对新 incoming 消息自动生成 AI 候选。op3/op4 由 🤖 按钮手动触发。
 
     // 为一条 incoming 消息生成候选
     // conversationMsgs: 可选,调用方传入已拉到的消息列表(避免重复 fetch)。
@@ -985,12 +971,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             });
         },
         setMessageTotal,
-        generateForIncoming,
-        pushPicker,
         lastActivityRef,
-        pendingCandidatesRef,
-        activePickerRef,
-        lastGeneratedKeyRef,
         onTopicTimeout: () => {
             const newTopic = startNewTopic({ trigger: 'time', newText: '', messages: [] });
             setCurrentTopic(newTopic);
@@ -1003,6 +984,109 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         const detected = inferAutoTopic({ messages, activeEvents });
         setAutoDetectedTopic(detected);
     }, [messages, activeEvents]);
+
+    // ==================== 四槽位方案：回复上下文 + 模板槽位 ====================
+    // 根据消息、当前话题、事件推导出 reply 上下文（driving templateDeck + op3/op4 生成）
+    const resolveReplyContext = useCallback(() => {
+        const lastIncoming = getLatestIncomingMessage(messages);
+        if (!lastIncoming && !currentTopic) return null;
+        const text = lastIncoming?.text || '';
+        const topicSeed = currentTopic || autoDetectedTopic;
+        const topicMeta = resolveTopicContext({
+            topic_group: topicSeed?.topic_group || topicSeed?.topic_key || null,
+            text,
+            trigger: topicSeed?.trigger || 'auto',
+            detected_at: topicSeed?.detected_at || Date.now(),
+        });
+        return {
+            incomingMsg: lastIncoming || null,
+            topic_group: topicMeta.topic_group,
+            intent_key: topicMeta.intent_key,
+            scene_key: topicMeta.scene_key,
+            operator: creator?.wa_owner || client?.wa_owner || null,
+            messages,
+            activeEvents,
+            lifecycle: creator?._full?.lifecycle || creator?.lifecycle || null,
+            topicMeta,
+        };
+    }, [activeEvents, autoDetectedTopic, client?.wa_owner, creator, currentTopic, messages]);
+
+    const loadTemplateDeck = useCallback(async (replyContext) => {
+        if (!client?.phone || !replyContext) {
+            setTemplateDeck(null);
+            setTemplateError(null);
+            return;
+        }
+        setTemplateLoading(true);
+        setTemplateError(null);
+        try {
+            const data = await fetchJsonOrThrow(`${API_BASE}/experience/retrieve-template`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    client_id: client.phone,
+                    operator: replyContext.operator,
+                    scene: replyContext.scene_key,
+                    topic_group: replyContext.topic_group,
+                    intent_key: replyContext.intent_key,
+                    user_message: replyContext.incomingMsg?.text || '',
+                    recent_messages: (messages || []).slice(-8).map((m) => ({
+                        role: m?.role === 'me' ? 'assistant' : 'user',
+                        text: String(m?.text || '').trim(),
+                        timestamp: m?.timestamp || null,
+                    })).filter((m) => m.text),
+                    current_topic: currentTopic ? {
+                        topic_key: currentTopic.topic_key,
+                        topic_group: currentTopic.topic_group,
+                        intent_key: currentTopic.intent_key,
+                        scene_key: currentTopic.scene_key,
+                        trigger: currentTopic.trigger,
+                    } : null,
+                    auto_detected_topic: autoDetectedTopic ? {
+                        topic_key: autoDetectedTopic.topic_key,
+                        topic_group: autoDetectedTopic.topic_group,
+                        intent_key: autoDetectedTopic.intent_key,
+                        scene_key: autoDetectedTopic.scene_key,
+                        confidence: autoDetectedTopic.confidence,
+                    } : null,
+                    active_events: activeEvents,
+                    lifecycle: creator?._full?.lifecycle || creator?.lifecycle || null,
+                    force_template_sources: true,
+                }),
+                signal: AbortSignal.timeout(10000),
+            });
+            setTemplateDeck(data || null);
+        } catch (e) {
+            console.error('[templateDeck] error:', e);
+            setTemplateDeck(null);
+            setTemplateError(e.message || '模板加载失败');
+        } finally {
+            setTemplateLoading(false);
+        }
+    }, [activeEvents, autoDetectedTopic, client?.phone, creator, currentTopic, messages]);
+
+    const replyContextSignature = useMemo(() => JSON.stringify({
+        clientPhone: client?.phone || null,
+        latestIncomingKey: getMessageKey(getLatestIncomingMessage(messages)) || null,
+        currentTopic: currentTopic ? [currentTopic.topic_key, currentTopic.intent_key, currentTopic.scene_key, currentTopic.trigger] : null,
+        autoTopic: autoDetectedTopic ? [autoDetectedTopic.topic_key, autoDetectedTopic.intent_key, autoDetectedTopic.scene_key, autoDetectedTopic.confidence] : null,
+        activeEventKeys: (activeEvents || []).filter((e) => e?.status === 'active').map((e) => String(e?.event_key || '')),
+    }), [activeEvents, autoDetectedTopic, client?.phone, currentTopic, messages]);
+
+    useEffect(() => {
+        const nextContext = resolveReplyContext();
+        setActiveReplyContext(nextContext);
+        // 切话题 / 新 incoming → 清 AI 槽位并刷新模板槽位（op3/op4 仍需手动点 🤖 才生成）
+        setActivePicker(null);
+        setPickerError(null);
+        if (nextContext) {
+            loadTemplateDeck(nextContext);
+        } else {
+            setTemplateDeck(null);
+            setTemplateError(null);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [replyContextSignature]);
 
     // 从对话中提取并保存客户偏好
     const extractAndSaveMemory = async (incomingMsg, sentText) => {
@@ -1220,6 +1304,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 operatorDisplayName: result.operatorDisplayName,
                 operatorConfigured: result.operatorConfigured,
                 scene: result.scene,
+                topicGroup: result.topicGroup || null,
+                intentKey: result.intentKey || null,
                 sceneSource: result.sceneSource || null,
                 retrievalSnapshotId: result.retrievalSnapshotId || null,
                 generationLogId: result.generationLogId || null,
@@ -1694,6 +1780,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         modelCandidates,
         humanSelected,
         diffAnalysis,
+        extraContext = null,
         promptUsed = null,
         promptVersion = 'v2',
         retrievalSnapshotId = null,
@@ -1724,6 +1811,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                     diff_analysis: diffAnalysis,
                     context: {
                         ...richContext,
+                        ...(extraContext || {}),
                         retrieval_snapshot_id: retrievalSnapshotId,
                         generation_log_id: generationLogId,
                         provider,
@@ -1748,15 +1836,21 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         }
     };
 
-    // 选择了候选 → 发送
-    const handleSelectCandidate = async (selectedOpt) => {
-        if (!activePicker) return;
-
-        const sentText = selectedOpt === 'opt1'
-            ? activePicker.candidates.opt1
+    // 选择了候选 → 发送（支持模板槽位 op1/op2 + AI 槽位 op3/op4 + 自定义）
+    const handleSelectCandidate = async (selectedOpt, payload = null) => {
+        const selectedTemplate = selectedOpt === 'template_op1'
+            ? templateDeck?.slots?.op1
+            : selectedOpt === 'template_op2'
+                ? templateDeck?.slots?.op2
+                : null;
+        const selectedAi = selectedOpt === 'opt1'
+            ? activePicker?.candidates?.opt1
             : selectedOpt === 'opt2'
-                ? activePicker.candidates.opt2
-                : pickerCustom.trim();
+                ? activePicker?.candidates?.opt2
+                : null;
+        const sentText = selectedTemplate?.text
+            || selectedAi
+            || pickerCustom.trim();
 
         if (!sentText) return;
 
@@ -1767,45 +1861,58 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         });
         if (!sendResult?.ok) return;
 
-        const sim1 = computeSimilarity(activePicker.candidates.opt1, sentText);
-        const sim2 = computeSimilarity(activePicker.candidates.opt2, sentText);
+        const sim1 = computeSimilarity(activePicker?.candidates?.opt1 || '', sentText);
+        const sim2 = computeSimilarity(activePicker?.candidates?.opt2 || '', sentText);
         const bestSim = Math.max(sim1, sim2);
         const bestOpt = sim1 >= sim2 ? 'opt1' : 'opt2';
-        const resolvedHumanSelected = selectedOpt === 'custom' ? 'custom' : selectedOpt;
-        const isCustomSelection = selectedOpt === 'custom' || bestSim < 85;
+        const isTemplateSelection = selectedOpt === 'template_op1' || selectedOpt === 'template_op2';
+        const resolvedHumanSelected = isTemplateSelection || selectedOpt === 'custom' ? 'custom' : selectedOpt;
+        const isCustomSelection = isTemplateSelection || selectedOpt === 'custom' || bestSim < 85;
 
         const diffAnalysis = {
-            model_predicted: bestSim >= 85 ? activePicker.candidates[bestOpt] : null,
-            model_rejected: bestSim >= 85 ? activePicker.candidates[bestOpt === 'opt1' ? 'opt2' : 'opt1'] : null,
+            model_predicted: bestSim >= 85 ? activePicker?.candidates?.[bestOpt] || null : null,
+            model_rejected: bestSim >= 85 ? activePicker?.candidates?.[bestOpt === 'opt1' ? 'opt2' : 'opt1'] || null : null,
             is_custom: isCustomSelection,
             human_reason: isCustomSelection
-                ? `人工编辑发送（与AI候选最高相似度${bestSim}%）`
+                ? isTemplateSelection
+                    ? `模板槽位${selectedOpt === 'template_op1' ? 'op1' : 'op2'}发送`
+                    : `人工编辑发送（与AI候选最高相似度${bestSim}%）`
                 : `直接采用方案${selectedOpt === 'opt1' ? 'A' : 'B'}（相似度${bestSim}%）`,
             similarity: bestSim
         };
 
         await persistSftRecord({
             sentText,
-            incomingMsg: activePicker.incomingMsg,
-            modelCandidates: { opt1: activePicker.candidates.opt1, opt2: activePicker.candidates.opt2 },
+            incomingMsg: activeReplyContext?.incomingMsg || activePicker?.incomingMsg || null,
+            modelCandidates: { opt1: activePicker?.candidates?.opt1 || null, opt2: activePicker?.candidates?.opt2 || null },
             humanSelected: resolvedHumanSelected,
             diffAnalysis,
-            promptUsed: activePicker.systemPrompt || null,
-            promptVersion: activePicker.systemPromptVersion || 'v2',
-            retrievalSnapshotId: activePicker.retrievalSnapshotId || null,
-            generationLogId: activePicker.generationLogId || null,
-            provider: activePicker.provider || null,
-            model: activePicker.model || null,
-            sceneSource: activePicker.sceneSource || null,
-            pipelineVersion: activePicker.pipelineVersion || 'reply_generation_v2',
+            extraContext: {
+                topic_group: activeReplyContext?.topic_group || activePicker?.topicGroup || null,
+                intent_key: activeReplyContext?.intent_key || activePicker?.intentKey || null,
+                scene_key: activeReplyContext?.scene_key || activePicker?.scene || null,
+                template_slot_used: isTemplateSelection ? selectedOpt.replace('template_', '') : null,
+                template_section_id: selectedTemplate?.section_id || payload?.slot?.section_id || null,
+                template_source: selectedTemplate?.source || payload?.slot?.source || null,
+                template_section_ids: [
+                    templateDeck?.slots?.op1?.section_id || null,
+                    templateDeck?.slots?.op2?.section_id || null,
+                ].filter(Boolean),
+            },
+            promptUsed: activePicker?.systemPrompt || null,
+            promptVersion: activePicker?.systemPromptVersion || 'v2',
+            retrievalSnapshotId: activePicker?.retrievalSnapshotId || null,
+            generationLogId: activePicker?.generationLogId || null,
+            provider: activePicker?.provider || null,
+            model: activePicker?.model || null,
+            sceneSource: activePicker?.sceneSource || null,
+            pipelineVersion: activePicker?.pipelineVersion || 'reply_generation_v2',
         });
 
-        await extractAndSaveMemory(activePicker.incomingMsg, sentText);
+        await extractAndSaveMemory(activeReplyContext?.incomingMsg || activePicker?.incomingMsg || null, sentText);
 
         setPickerCustom('');
-        const [next, ...rest] = pendingCandidates;
-        setPendingCandidates(rest);
-        setActivePicker(next || null);
+        setActivePicker(null);
         setInputText('');
     };
 
@@ -1876,6 +1983,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 operatorDisplayName: result.operatorDisplayName,
                 operatorConfigured: result.operatorConfigured,
                 scene: result.scene,
+                topicGroup: result.topicGroup || null,
+                intentKey: result.intentKey || null,
                 sceneSource: result.sceneSource || null,
                 retrievalSnapshotId: result.retrievalSnapshotId || null,
                 generationLogId: result.generationLogId || null,
@@ -2156,7 +2265,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                     }}
                                     title={`手动标记 · ${currentTopic.detected_at ? new Date(currentTopic.detected_at).toLocaleString('zh-CN') : ''}`}
                                 >
-                                    📌 {TOPIC_LABELS[currentTopic.topic_key] || '新话题'}
+                                    📌 {getTopicLabel(currentTopic.topic_group || currentTopic.topic_key)}
                                 </span>
                             )}
                         </div>
@@ -2231,7 +2340,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                 {currentTopic && (
                                     <div className="flex items-center gap-1 mt-0.5">
                                         <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.12)', color: '#2563eb' }}>
-                                            📌 {TOPIC_LABELS[currentTopic.topic_key] || '新话题'}
+                                            📌 {getTopicLabel(currentTopic.topic_group || currentTopic.topic_key)}
                                         </span>
                                     </div>
                                 )}
@@ -2490,13 +2599,17 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 </div>
 
                 {/* 3 选 1 Picker — 位于输入框上方 */}
-                {activePicker && (
+                {activeReplyContext && (
                     <AIReplyPicker
-                        incomingMsg={activePicker.incomingMsg}
-                        candidates={activePicker.candidates}
-                        operatorLabel={activePicker.operatorDisplayName || activePicker.operator || 'Base'}
-                        operatorConfigured={activePicker.operatorConfigured}
-                        promptVersion={activePicker.systemPromptVersion}
+                        incomingMsg={activeReplyContext.incomingMsg}
+                        templateDeck={templateDeck}
+                        aiDeck={activePicker?.candidates ? {
+                            opt1: activePicker.candidates.opt1,
+                            opt2: activePicker.candidates.opt2,
+                        } : null}
+                        operatorLabel={activePicker?.operatorDisplayName || activePicker?.operator || activeReplyContext.operator || 'Base'}
+                        operatorConfigured={activePicker?.operatorConfigured}
+                        promptVersion={activePicker?.systemPromptVersion}
                         customText={pickerCustom}
                         onCustomChange={setPickerCustom}
                         onTranslateCustom={handleTranslateCustom}
@@ -2505,26 +2618,16 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         onSelect={handleSelectCandidate}
                         onSkip={handleSkip}
                         onEditCandidate={handleEditCandidate}
+                        onGenerateAi={handleBotIconClick}
                         onRegenerate={handleRegenerate}
+                        onRetryTemplates={() => activeReplyContext && loadTemplateDeck(activeReplyContext)}
+                        templateLoading={templateLoading}
+                        templateError={templateError}
                         loading={pickerLoading}
                         error={pickerError}
                         compactMobile={isMobileViewport}
                         collapsed={isMobileViewport ? pickerCollapsed : false}
                         onToggleCollapse={() => setPickerCollapsed(v => !v)}
-                        // 标准话术相关 props
-                        onSelectStandard={(text) => {
-                            setPickerCustom(text);
-                            handleSelectCandidate('custom');
-                        }}
-                        scene={activePicker.scene}
-                        operator={activePicker.operator}
-                        clientId={client?.phone}
-                        messages={messages}
-                        currentTopic={currentTopic}
-                        autoDetectedTopic={autoDetectedTopic}
-                        activeEvents={activeEvents}
-                        lifecycle={creator?._full?.lifecycle || creator?.lifecycle || null}
-                        refreshToken={activePicker.generated_at || activePicker.incomingMsg?.timestamp || null}
                     />
                 )}
 
@@ -2660,33 +2763,38 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                 }}
                             >
                                 <div className="px-3 py-1.5 text-xs font-semibold border-b mb-1" style={{ color: WA.textMuted, borderColor: WA.borderLight }}>
-                                    选择话题类型
+                                    选择业务话题组
                                 </div>
-                                {Object.entries(TOPIC_LABELS).map(([key, label]) => (
-                                    <button
-                                        key={key}
-                                        onClick={() => {
-                                            const newTopic = startNewTopic({
-                                                trigger: 'manual',
-                                                newText: inputText || label,
-                                                messages,
-                                            });
-                                            newTopic.topic_key = key;
-                                            setCurrentTopic(newTopic);
-                                            setTopicDropdownOpen(false);
-                                        }}
-                                        className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2"
-                                        style={{
-                                            color: currentTopic?.topic_key === key ? '#2563eb' : WA.textDark,
-                                            background: currentTopic?.topic_key === key ? 'rgba(37,99,235,0.08)' : 'transparent',
-                                        }}
-                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(37,99,235,0.06)'}
-                                        onMouseLeave={e => e.currentTarget.style.background = currentTopic?.topic_key === key ? 'rgba(37,99,235,0.08)' : 'transparent'}
-                                    >
-                                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: currentTopic?.topic_key === key ? '#2563eb' : WA.borderLight }} />
-                                        {label}
-                                    </button>
-                                ))}
+                                {TOPIC_GROUP_ORDER.map((key) => {
+                                    const active = (currentTopic?.topic_group || currentTopic?.topic_key) === key;
+                                    return (
+                                        <button
+                                            key={key}
+                                            onClick={() => {
+                                                const label = TOPIC_GROUP_LABELS[key];
+                                                const lastIncoming = getLatestIncomingMessage(messages);
+                                                const newTopic = resolveTopicContext({
+                                                    topic_group: key,
+                                                    text: (inputText || '').trim() || lastIncoming?.text || label,
+                                                    trigger: 'manual',
+                                                    detected_at: Date.now(),
+                                                });
+                                                setCurrentTopic(newTopic);
+                                                setTopicDropdownOpen(false);
+                                            }}
+                                            className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2"
+                                            style={{
+                                                color: active ? '#2563eb' : WA.textDark,
+                                                background: active ? 'rgba(37,99,235,0.08)' : 'transparent',
+                                            }}
+                                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(37,99,235,0.06)'}
+                                            onMouseLeave={e => e.currentTarget.style.background = active ? 'rgba(37,99,235,0.08)' : 'transparent'}
+                                        >
+                                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: active ? '#2563eb' : WA.borderLight }} />
+                                            {TOPIC_GROUP_LABELS[key]}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
