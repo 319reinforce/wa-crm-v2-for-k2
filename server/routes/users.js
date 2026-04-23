@@ -12,21 +12,24 @@ const db = require('../../db');
 const { requireHumanAdmin } = require('../middleware/appAuth');
 const { writeAudit } = require('../middleware/audit');
 const { normalizeOperatorName } = require('../utils/operator');
-const { getOperatorRoster } = require('../config/operatorRoster');
 const userSessionRepo = require('../services/userSessionRepo');
 
 const router = express.Router();
 const BCRYPT_COST = 12;
+const OPERATOR_NAME_MAX_LEN = 32; // 对齐 schema.sql users.operator_name VARCHAR(32)
+const OPERATOR_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_\- ]{0,31}$/;
 
-function rosterOperatorNames() {
-    return getOperatorRoster().map((item) => item.operator);
-}
-
+// 接受任意合法 operator_name(字母/数字开头,长度 ≤32,允许空格/下划线/连字符);
+// 经 normalizeOperatorName 规范化,已有 alias 会自动映射到 canonical 名。
+// 不再限制必须在静态 roster 4 人范围内,以支持管理员动态扩充。
 function validateOperatorName(raw) {
     const canonical = normalizeOperatorName(raw, null);
     if (!canonical) return null;
-    const allowed = rosterOperatorNames();
-    return allowed.includes(canonical) ? canonical : null;
+    const trimmed = String(canonical).trim();
+    if (!trimmed) return null;
+    if (trimmed.length > OPERATOR_NAME_MAX_LEN) return null;
+    if (!OPERATOR_NAME_PATTERN.test(trimmed)) return null;
+    return trimmed;
 }
 
 function validatePassword(pw) {
@@ -87,7 +90,7 @@ router.post('/', async (req, res) => {
             operatorName = validateOperatorName(operatorNameRaw);
             if (!operatorName) {
                 return res.status(400).json({
-                    error: `operator_name must be one of: ${rosterOperatorNames().join(', ')}`,
+                    error: 'operator_name 无效：需以字母/数字开头，长度 ≤32，仅允许字母、数字、空格、下划线和连字符',
                 });
             }
         }
@@ -143,7 +146,7 @@ router.patch('/:id', async (req, res) => {
                 const canonical = validateOperatorName(req.body.operator_name);
                 if (!canonical) {
                     return res.status(400).json({
-                        error: `operator_name must be one of: ${rosterOperatorNames().join(', ')}`,
+                        error: 'operator_name 无效：需以字母/数字开头，长度 ≤32，仅允许字母、数字、空格、下划线和连字符',
                     });
                 }
                 changes.operator_name = canonical;

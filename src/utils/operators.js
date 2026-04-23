@@ -56,15 +56,37 @@ function loadRosterCached() {
   return _rosterPromise
 }
 
+export const OPERATOR_ROSTER_REFRESH_EVENT = 'operator-roster-refresh'
+
+/**
+ * 主动清空 roster 模块级缓存并广播 `operator-roster-refresh` 事件,
+ * 让所有已挂载的 useOperatorRoster 使用方重新拉取最新名单。
+ * 在 UsersPanel 增/改 operator_name 成功后调用。
+ */
+export function clearRosterCache() {
+  _rosterPromise = null
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    try {
+      window.dispatchEvent(new CustomEvent(OPERATOR_ROSTER_REFRESH_EVENT))
+    } catch (_) {
+      // noop: CustomEvent polyfill missing in stale browsers; cache is still cleared
+    }
+  }
+}
+
 /**
  * React hook that fetches `/api/operator-roster` once per session and returns
  * a dynamic owner list. Falls back to `OWNER_ORDER` until the fetch resolves
  * (or if it fails), so callers can render a selector immediately.
+ *
+ * 额外监听 `operator-roster-refresh` 事件,收到后重新拉取(用于 admin
+ * 在 UsersPanel 新增 owner 后让其它页面的下拉实时跟上)。
  */
 export function useOperatorRoster() {
   const [roster, setRoster] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [tick, setTick] = useState(0)
 
   useEffect(() => {
     let mounted = true
@@ -80,6 +102,13 @@ export function useOperatorRoster() {
         setLoading(false)
       })
     return () => { mounted = false }
+  }, [tick])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const handler = () => setTick((n) => n + 1)
+    window.addEventListener(OPERATOR_ROSTER_REFRESH_EVENT, handler)
+    return () => window.removeEventListener(OPERATOR_ROSTER_REFRESH_EVENT, handler)
   }, [])
 
   const owners = useMemo(() => {
