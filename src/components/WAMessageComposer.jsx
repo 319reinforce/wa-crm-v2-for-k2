@@ -1257,6 +1257,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 body: JSON.stringify({
                     texts: last20.map(m => ({ text: m.text, role: m.role })),
                     mode: 'auto',
+                    provider: 'minimax',
                 }),
                 signal: AbortSignal.timeout(60000),
             });
@@ -1409,6 +1410,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                     body: JSON.stringify({
                         text: sourceText,
                         mode: 'auto',
+                        provider: 'deepl',
                     }),
                     signal: AbortSignal.timeout(30000),
                 });
