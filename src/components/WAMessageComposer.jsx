@@ -4,7 +4,7 @@ import AIReplyPicker from './AIReplyPicker';
 import { buildConversation, buildRichContext, computeSimilarity } from './WAMessageComposer/ai/extractors';
 import { inferAutoTopic, startNewTopic } from './WAMessageComposer/ai/topicDetector';
 import { generateViaExperienceRouter } from './WAMessageComposer/ai/experienceRouter';
-import { useMessagePolling } from './WAMessageComposer/hooks/useMessagePolling';
+import { useMessagePolling, getMessageKey } from './WAMessageComposer/hooks/useMessagePolling';
 import { TOPIC_LABELS } from './WAMessageComposer/constants/topicLabels';
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api';
 import { fetchWaAdmin } from '../utils/waAdmin';
@@ -709,6 +709,9 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     // generationRaceRef：防止切换达人后旧的生成结果覆盖新的
     const generationRaceRef = useRef(0);
 
+    // 记录最近一次已生成过候选的 incoming 消息 key —— 防止 5s 轮询反复对同一条消息重新生成
+    const lastGeneratedKeyRef = useRef(null);
+
     // 预加载政策文档和客户记忆，LOAD 完成后触发 AI 生成
     useEffect(() => {
         if (!client?.id || !client?.phone) return;
@@ -736,6 +739,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         jumpContextUntilRef.current = 0;
         pendingCandidatesRef.current = [];
         lastActivityRef.current = null;
+        lastGeneratedKeyRef.current = null;
 
         // 每个新达人都+1，这样旧达人的异步生成结果会被忽略
         const currentRace = ++generationRaceRef.current;
@@ -781,6 +785,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 if (!lastMsg) return;
                 const result = await generateForIncoming(lastMsg);
                 if (result && currentRace === generationRaceRef.current) {
+                    lastGeneratedKeyRef.current = getMessageKey(lastMsg);
                     pushPicker(result);
                 }
             } catch (e) {
@@ -872,6 +877,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         lastActivityRef,
         pendingCandidatesRef,
         activePickerRef,
+        lastGeneratedKeyRef,
         onTopicTimeout: () => {
             const newTopic = startNewTopic({ trigger: 'time', newText: '', messages: [] });
             setCurrentTopic(newTopic);
@@ -1113,6 +1119,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 generated_at: Date.now(),
                 policyDocs,
             });
+            // 标记：这条 incoming 已手动生成过，后续 5s 轮询不再自动重复生成
+            lastGeneratedKeyRef.current = getMessageKey(latestMsg);
         } catch (e) {
             console.error('[Regenerate] error:', e);
         } finally {

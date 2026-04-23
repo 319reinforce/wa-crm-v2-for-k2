@@ -13,7 +13,7 @@ function toTimestampMs(value) {
     return n > 1e12 ? Math.floor(n) : Math.floor(n * 1000);
 }
 
-function getMessageKey(message) {
+export function getMessageKey(message) {
     if (!message) return '';
     return String(
         message.message_key
@@ -33,6 +33,7 @@ export function useMessagePolling({
     lastActivityRef,
     pendingCandidatesRef,
     activePickerRef,
+    lastGeneratedKeyRef,
     onTopicTimeout,
 }) {
     const pollingRef = useRef(null);
@@ -78,14 +79,20 @@ export function useMessagePolling({
                 || pendingRef.some((item) => getMessageKey(item?.incomingMsg) === latestKey);
             if (alreadyQueued) return;
 
+            // 已经对这条消息生成过候选（即使用户已 dismiss），不要在轮询里反复生成
+            if (lastGeneratedKeyRef?.current === latestKey) return;
+
             const result = await generateForIncoming(latest);
             if (activeClientIdRef.current !== clientId || requestVersionRef.current !== requestVersion) return;
-            if (result) pushPicker(result);
+            if (result) {
+                if (lastGeneratedKeyRef) lastGeneratedKeyRef.current = latestKey;
+                pushPicker(result);
+            }
         } catch (e) {
             if (e?.name === 'AbortError') return;
             console.error('[checkNewMessages] error:', e);
         }
-    }, [client?.id, setMessages, generateForIncoming, pushPicker, lastActivityRef, pendingCandidatesRef, activePickerRef]);
+    }, [client?.id, setMessages, generateForIncoming, pushPicker, lastActivityRef, pendingCandidatesRef, activePickerRef, lastGeneratedKeyRef]);
 
     // 5秒轮询 + Step 7 SSE 推送即时触发
     useEffect(() => {
