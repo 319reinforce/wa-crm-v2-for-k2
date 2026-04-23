@@ -62,10 +62,53 @@
       ],
       "priority": 2,
       "sensitivity": "internal",
-      "status": "approved",
+      "status": "deprecated",
       "updated_at": "2026-04-11",
       "effective_from": "2026-04-15",
       "rule_version": "2026-04-15"
+    },
+    {
+      "id": "sop-creator-outreach-apr-2026-v2",
+      "title": "Moras Creator Outreach SOP (April 2026)",
+      "type": "sop",
+      "format": "md",
+      "path": "docs/rag/sources/sop-creator-outreach-apr-2026-v2.md",
+      "scene": [
+        "trial_intro",
+        "trial_followup",
+        "payment_intro",
+        "monthly_inquiry",
+        "payment_issue",
+        "first_contact",
+        "follow_up",
+        "mcn_binding",
+        "content_request",
+        "general"
+      ],
+      "topic": [
+        "trial",
+        "payment",
+        "onboarding",
+        "mcn_binding",
+        "whatsapp",
+        "outreach"
+      ],
+      "keywords": [
+        "invite code",
+        "username",
+        "monthly fee",
+        "mcn",
+        "qualified video",
+        "whatsapp",
+        "product logic",
+        "safety"
+      ],
+      "priority": 1,
+      "sensitivity": "internal",
+      "status": "approved",
+      "updated_at": "2026-04-23",
+      "effective_from": "2026-04-23",
+      "rule_version": "2026-04-23"
     },
     {
       "id": "sop-violation-appeal-and-risk-control-v1",

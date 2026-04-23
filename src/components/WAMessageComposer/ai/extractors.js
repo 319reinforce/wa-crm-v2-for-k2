@@ -2,6 +2,7 @@
  * extractors.js — 文本/上下文提取工具函数（纯函数，无 React 依赖）
  */
 import { isAgencyBoundStatus, resolveUnboundAgencyStrategy } from '../../../utils/unboundAgencyStrategies.js';
+import { inferSceneKeyFromTopicGroup, resolveTopicContext } from './topicDetector.js';
 
 // 推断消息语言（简单关键词检测）
 export function detectLanguage(text) {
@@ -54,7 +55,17 @@ export function computeSimilarity(text1, text2) {
 }
 
 // 构建丰富的 context 对象
-export function buildRichContext({ incomingMsg, client, creator, policyDocs, clientMemory, agencyStrategies, messages }) {
+export function buildRichContext({
+    incomingMsg,
+    client,
+    creator,
+    policyDocs,
+    clientMemory,
+    agencyStrategies,
+    messages,
+    currentTopic = null,
+    autoDetectedTopic = null,
+}) {
     const msgs = messages || [];
     const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
     const lastTimestampMs = lastMsg?.timestamp
@@ -74,7 +85,15 @@ export function buildRichContext({ incomingMsg, client, creator, policyDocs, cli
     const agencyStrategy = !isAgencyBound
         ? resolveUnboundAgencyStrategy({ clientMemory, nextAction: wacrm?.next_action || '', strategies: agencyStrategies })
         : null;
-    const scene = inferScene(incomingMsg?.text || '', wacrm, msgs.length);
+    const topicContext = currentTopic?.topic_group
+        ? currentTopic
+        : autoDetectedTopic?.topic_group
+            ? autoDetectedTopic
+            : resolveTopicContext({
+                text: incomingMsg?.text || '',
+                trigger: currentTopic?.trigger || autoDetectedTopic?.trigger || 'auto',
+            });
+    const scene = topicContext?.scene_key || inferSceneKeyFromTopicGroup(topicContext?.topic_group, incomingMsg?.text || '') || inferScene(incomingMsg?.text || '', wacrm, msgs.length);
 
     const policyTags = (policyDocs || [])
         .filter(p => (p.applicable_scenarios || []).includes(scene))
@@ -95,6 +114,9 @@ export function buildRichContext({ incomingMsg, client, creator, policyDocs, cli
         priority: wacrm?.priority || 'normal',
         agency_bound: isAgencyBound,
         next_action: wacrm?.next_action || null,
+        topic_group: topicContext?.topic_group || null,
+        intent_key: topicContext?.intent_key || null,
+        scene_key: topicContext?.scene_key || scene,
         lifecycle: lifecycle ? {
             stage_key: lifecycle.stage_key,
             stage_label: lifecycle.stage_label,

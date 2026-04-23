@@ -28,11 +28,7 @@ export function useMessagePolling({
     client,
     setMessages,
     setMessageTotal,
-    generateForIncoming,
-    pushPicker,
     lastActivityRef,
-    pendingCandidatesRef,
-    activePickerRef,
     onTopicTimeout,
 }) {
     const pollingRef = useRef(null);
@@ -68,24 +64,13 @@ export function useMessagePolling({
                 lastActivityRef.current = latestTs;
             }
 
-            // 仅当最后一条消息来自达人时才自动生成，避免对运营刚发出的消息重复触发
+            // 仅追踪最后一条达人消息；AI 生成改为手动触发
             if (!latest || latest.role !== 'user') return;
-
-            const latestKey = getMessageKey(latest);
-            const activeKey = getMessageKey(activePickerRef?.current?.incomingMsg);
-            const pendingRef = pendingCandidatesRef?.current || [];
-            const alreadyQueued = activeKey === latestKey
-                || pendingRef.some((item) => getMessageKey(item?.incomingMsg) === latestKey);
-            if (alreadyQueued) return;
-
-            const result = await generateForIncoming(latest);
-            if (activeClientIdRef.current !== clientId || requestVersionRef.current !== requestVersion) return;
-            if (result) pushPicker(result);
         } catch (e) {
             if (e?.name === 'AbortError') return;
             console.error('[checkNewMessages] error:', e);
         }
-    }, [client?.id, setMessages, generateForIncoming, pushPicker, lastActivityRef, pendingCandidatesRef, activePickerRef]);
+    }, [client?.id, setMessages, lastActivityRef]);
 
     // 5秒轮询 + Step 7 SSE 推送即时触发
     useEffect(() => {

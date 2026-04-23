@@ -296,6 +296,8 @@ async function buildReplySystemPrompt({
     clientId,
     operator,
     scene,
+    topicGroup = '',
+    intentKey = '',
     topicContext = '',
     richContext = '',
     conversationSummary = '',
@@ -317,6 +319,8 @@ async function buildReplySystemPrompt({
     const scopedClientId = resolvedScope.clientScope.clientId || null;
     const resolvedOperator = resolvedScope.owner || null;
     const retrievalQueryText = [
+        topicGroup ? `topic_group:${topicGroup}` : '',
+        intentKey ? `intent_key:${intentKey}` : '',
         queryText,
         latestUserMessage,
         topicContext,
@@ -685,6 +689,8 @@ async function generateReplyCandidates({
     clientId,
     operator,
     scene,
+    topicGroup = '',
+    intentKey = '',
     topicContext = '',
     richContext = '',
     conversationSummary = '',
@@ -710,6 +716,8 @@ async function generateReplyCandidates({
         clientId,
         operator,
         scene,
+        topicGroup,
+        intentKey,
         topicContext,
         richContext,
         conversationSummary,

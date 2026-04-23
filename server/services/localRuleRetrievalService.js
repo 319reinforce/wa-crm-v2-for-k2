@@ -227,6 +227,109 @@ function extractKeywords(message) {
     return keywords;
 }
 
+const TOPIC_GROUP_DEFAULT_SCENE = {
+    outreach_contact: 'first_contact',
+    followup_progress: 'follow_up',
+    signup_onboarding: 'trial_intro',
+    product_mechanics: 'content_request',
+    mcn_partnership: 'mcn_binding',
+    settlement_pricing: 'payment_issue',
+    content_strategy: 'content_request',
+    violation_risk_control: 'violation_appeal',
+};
+
+const TOPIC_GROUP_DEFAULT_INTENT = {
+    outreach_contact: 'first_outreach_value_pitch',
+    followup_progress: 'followup_soft_reminder',
+    signup_onboarding: 'invite_code_reply',
+    product_mechanics: 'how_moras_works',
+    mcn_partnership: 'mcn_explain',
+    settlement_pricing: 'monthly_fee_explain',
+    content_strategy: 'posting_cadence',
+    violation_risk_control: 'violation_reassurance',
+};
+
+function resolveTopicGroupFromText(text = '', currentTopic = null, autoDetectedTopic = null) {
+    const explicit = currentTopic?.topic_group || currentTopic?.topic_key || autoDetectedTopic?.topic_group || autoDetectedTopic?.topic_key;
+    if (explicit) return explicit;
+
+    const lower = String(text || '').toLowerCase();
+    if (/\b(violation|appeal|flagged|strike|banned|risk|safe)\b/.test(lower) || /(违规|申诉|封号|风控|风险|安全)/.test(lower)) return 'violation_risk_control';
+    if (/\b(monthly|membership|fee|pricing|\$20|payment|paypal|payout|settlement|commission|subsidy)\b/.test(lower) || /(月费|包月|会员|收费|价格|支付|付款|结算|佣金|补贴|paypal)/.test(lower)) return 'settlement_pricing';
+    if (/\b(mcn|agency|contract|binding|bind|self run|full service)\b/.test(lower) || /(mcn|agency|机构|签约|绑定|自营|全托)/.test(lower)) return 'mcn_partnership';
+    if (/\b(invite code|register|registration|signup|username|log in|login|email only|communicate by email|right here on email|not posted|haven't posted|have not posted|first video|generated my first video|generated your first video)\b/.test(lower) || /(邀请码|注册码|注册|登录|用户名|username|只用邮箱沟通|邮件沟通|只想用邮件|还没发|未发布|首条视频|第一条视频|生成了第一条视频)/.test(lower)) return 'signup_onboarding';
+    if (/\b(posting|cadence|how many videos|selection|audience fit|content strategy|product link)\b/.test(lower) || /(发帖|发布频率|发几个视频|选品|受众|转化建议|product link|商品链接)/.test(lower)) return 'content_strategy';
+    if (/\b(how does moras work|what is moras|product logic|manual script|edit scripts|qualified video)\b/.test(lower) || /(怎么工作|产品机制|推荐逻辑|手动改脚本|编辑脚本|qualified video)/.test(lower)) return 'product_mechanics';
+    if (/\b(follow up|follow-up|reminder|checking in|still interested)\b/.test(lower) || /(跟进|提醒|有兴趣吗|还在考虑吗)/.test(lower)) return 'followup_progress';
+    return 'outreach_contact';
+}
+
+function resolveSceneKey(topicGroup, text = '', explicitScene = null) {
+    if (explicitScene) return explicitScene;
+    const lower = String(text || '').toLowerCase();
+    if (topicGroup === 'settlement_pricing') {
+        if (/\b(monthly|membership|fee|pricing|\$20)\b/.test(lower) || /(月费|包月|会员|收费|价格)/.test(lower)) return 'monthly_inquiry';
+        if (/\b(commission|earnings|revenue|subsidy)\b/.test(lower) || /(佣金|分成|收入|补贴)/.test(lower)) return 'commission_query';
+        return 'payment_issue';
+    }
+    if (topicGroup === 'content_strategy' && (/\b(gmv|sales|performance)\b/.test(lower) || /(gmv|销量|表现|收入)/.test(lower))) {
+        return 'gmv_inquiry';
+    }
+    return TOPIC_GROUP_DEFAULT_SCENE[topicGroup] || 'follow_up';
+}
+
+function resolveIntentKey(topicGroup, text = '') {
+    const lower = String(text || '').toLowerCase();
+    if (topicGroup === 'signup_onboarding') {
+        if (/\b(email only|communicate by email|right here on email)\b/.test(lower) || /(只用邮箱沟通|邮件沟通|只想用邮件)/.test(lower)) return 'username_followup';
+        if (/\b(not posted|haven't posted|have not posted|first video|generated my first video|generated your first video)\b/.test(lower) || /(还没发|未发布|首条视频|第一条视频|生成了第一条视频)/.test(lower)) return 'registered_not_posted';
+        if (/\b(username)\b/.test(lower) || /(用户名|username)/.test(lower)) return 'username_followup';
+        if (/\b(not posted|first sale|first post)\b/.test(lower) || /(还没发|未发布|首条视频)/.test(lower)) return 'registered_not_posted';
+        return 'invite_code_reply';
+    }
+    if (topicGroup === 'settlement_pricing') {
+        if (/\b(monthly|membership|fee|pricing|\$20)\b/.test(lower) || /(月费|包月|会员|收费|价格)/.test(lower)) return 'monthly_fee_explain';
+        if (/\b(payment method|paypal|bank|payout)\b/.test(lower) || /(支付方式|paypal|银行卡|收款)/.test(lower)) return 'payment_method';
+        if (/\b(subsidy|qualified video|weekly settlement|settlement)\b/.test(lower) || /(补贴|qualified video|周结|结算)/.test(lower)) return 'weekly_settlement';
+        return 'subsidy_explain';
+    }
+    if (topicGroup === 'mcn_partnership') {
+        if (/\b(hesitat|concern|not sure|required)\b/.test(lower) || /(犹豫|顾虑|必须绑定|一定要绑定)/.test(lower)) return 'mcn_hesitation';
+        if (/\b(self run|full service)\b/.test(lower) || /(自营|全托)/.test(lower)) return 'self_run_vs_full_service';
+        return 'mcn_explain';
+    }
+    if (topicGroup === 'product_mechanics') {
+        if (/\b(product logic|recommend|why this product)\b/.test(lower) || /(推荐逻辑|为什么推荐|产品逻辑)/.test(lower)) return 'product_logic';
+        if (/\b(manual script|edit scripts|edit)\b/.test(lower) || /(手动改脚本|编辑脚本)/.test(lower)) return 'manual_editing_request';
+        if (/\b(qualified video)\b/.test(lower) || /(qualified video|合格视频)/.test(lower)) return 'qualified_video_rule';
+        return 'how_moras_works';
+    }
+    if (topicGroup === 'content_strategy') {
+        if (/\b(product selection|selection|audience)\b/.test(lower) || /(选品|受众|类目)/.test(lower)) return 'product_selection';
+        if (/\b(version|update|new version)\b/.test(lower) || /(版本|更新|新版本)/.test(lower)) return 'version_update_notice';
+        if (/\b(audience fit|fit)\b/.test(lower) || /(受众匹配|契合)/.test(lower)) return 'audience_fit';
+        if (/\b(product link|missing link)\b/.test(lower) || /(商品链接|链接消失|链接不见)/.test(lower)) return 'product_selection';
+        return 'posting_cadence';
+    }
+    if (topicGroup === 'violation_risk_control') {
+        if (/\b(appeal template|review team)\b/.test(lower) || /(申诉模板|review team)/.test(lower)) return 'appeal_template';
+        if (/\b(compensat)\b/.test(lower) || /(赔偿)/.test(lower)) return 'post_compensation_warning';
+        if (/\b(pre-check|risk checklist|safe)\b/.test(lower) || /(风控检查|风险清单|安全)/.test(lower)) return 'risk_precheck';
+        return 'violation_reassurance';
+    }
+    if (topicGroup === 'followup_progress') {
+        if (/\b(final call|last follow)\b/.test(lower) || /(最后一次跟进|最终提醒)/.test(lower)) return 'followup_final_call';
+        if (/\b(thank you for your interest|interested)\b/.test(lower) || /(感谢你的兴趣|感兴趣)/.test(lower)) return 'followup_interested_reply';
+        return 'followup_soft_reminder';
+    }
+    if (topicGroup === 'outreach_contact') {
+        if (/\b(mcn)\b/.test(lower) || /(mcn|机构)/.test(lower)) return 'first_outreach_soft_mcn';
+        if (/\b(self run|full service)\b/.test(lower) || /(自营|全托)/.test(lower)) return 'first_outreach_self_run';
+        return 'first_outreach_value_pitch';
+    }
+    return TOPIC_GROUP_DEFAULT_INTENT[topicGroup] || 'followup_soft_reminder';
+}
+
 /**
  * 加载知识源内容
  * @param {Object} source - 知识源元数据
@@ -239,6 +342,421 @@ function loadSourceContent(source) {
     } catch (e) {
         return null;
     }
+}
+
+function slugifySectionId(value) {
+    return String(value || '')
+        .toLowerCase()
+        .replace(/[`*_]/g, '')
+        .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 80);
+}
+
+function normalizeSectionTitle(title) {
+    return String(title || '')
+        .replace(/\s+/g, ' ')
+        .replace(/^[#\-\d.\s]+/, '')
+        .trim();
+}
+
+function pickSectionText(section) {
+    const codeBlocks = Array.from(section.raw.matchAll(/```(?:text)?\s*([\s\S]*?)```/gi))
+        .map((match) => sanitizeTemplateText(match[1]))
+        .filter(isUsableTemplate);
+    if (codeBlocks.length > 0) {
+        return codeBlocks[0];
+    }
+
+    const paragraphLines = section.raw
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#') && !line.startsWith('- ') && !line.startsWith('|'));
+
+    const paragraph = paragraphLines.join('\n').trim();
+    return isUsableTemplate(paragraph) ? paragraph : null;
+}
+
+function inferSectionMetadata(source, section) {
+    const sourceId = String(source?.id || '').toLowerCase();
+    const pathText = section.path.join(' | ').toLowerCase();
+    const titleText = String(section.title || '').toLowerCase();
+
+    const meta = {
+        topic_group: null,
+        intent_key: null,
+        scene_keys: [],
+        operator_scope: sourceId.includes('yiyun') ? ['Yiyun'] : ['all'],
+        template_kind: 'reference',
+        sendable: true,
+        priority: Number.isFinite(source?.priority) ? source.priority : 99,
+        is_reference: false,
+    };
+
+    if (sourceId.includes('creator-outreach')) {
+        if (titleText.includes('script a')) {
+            Object.assign(meta, { topic_group: 'outreach_contact', intent_key: 'first_outreach_soft_mcn', scene_keys: ['first_contact'], template_kind: 'outreach', priority: 1 });
+        } else if (titleText.includes('script b')) {
+            Object.assign(meta, { topic_group: 'outreach_contact', intent_key: 'first_outreach_self_run', scene_keys: ['first_contact'], template_kind: 'outreach', priority: 2 });
+        } else if (titleText.includes('referred creator')) {
+            Object.assign(meta, { topic_group: 'outreach_contact', intent_key: 'first_outreach_value_pitch', scene_keys: ['first_contact'], template_kind: 'outreach', priority: 3 });
+        } else if (titleText.includes('version a')) {
+            Object.assign(meta, { topic_group: 'mcn_partnership', intent_key: 'mcn_explain', scene_keys: ['mcn_binding', 'general'], template_kind: 'faq', priority: 2, is_reference: true });
+        } else if (titleText.includes('version b')) {
+            Object.assign(meta, { topic_group: 'settlement_pricing', intent_key: 'subsidy_explain', scene_keys: ['payment_issue', 'monthly_inquiry'], template_kind: 'faq', priority: 2, is_reference: true });
+        } else if (titleText.includes('interested reply')) {
+            Object.assign(meta, { topic_group: 'followup_progress', intent_key: 'followup_interested_reply', scene_keys: ['follow_up'], template_kind: 'follow_up', priority: 1 });
+        } else if (titleText.includes('soft follow-up')) {
+            Object.assign(meta, { topic_group: 'followup_progress', intent_key: 'followup_soft_reminder', scene_keys: ['follow_up'], template_kind: 'follow_up', priority: 2 });
+        } else if (titleText.includes('final call')) {
+            Object.assign(meta, { topic_group: 'followup_progress', intent_key: 'followup_final_call', scene_keys: ['follow_up'], template_kind: 'follow_up', priority: 3 });
+        } else if (titleText.includes('invite code reply')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'invite_code_reply', scene_keys: ['trial_intro'], template_kind: 'onboarding', priority: 1 });
+        } else if (titleText.includes('invite code sent but not registered')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'invite_code_reply', scene_keys: ['trial_intro', 'follow_up'], template_kind: 'onboarding', priority: 2 });
+        } else if (titleText.includes('username received')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'username_followup', scene_keys: ['trial_intro'], template_kind: 'onboarding', priority: 2 });
+        } else if (titleText.includes('registered but not posted')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'registered_not_posted', scene_keys: ['trial_intro'], template_kind: 'onboarding', priority: 3 });
+        } else if (titleText.includes('email-only communication')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'username_followup', scene_keys: ['trial_intro', 'follow_up'], template_kind: 'onboarding', priority: 3, is_reference: true });
+        } else if (titleText.includes('ios-only support')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'username_followup', scene_keys: ['trial_intro'], template_kind: 'onboarding', priority: 3 });
+        } else if (titleText.includes('how does moras generate')) {
+            Object.assign(meta, { topic_group: 'product_mechanics', intent_key: 'how_moras_works', scene_keys: ['content_request'], template_kind: 'faq', priority: 2 });
+        } else if (titleText.includes('moras detailed introduction')) {
+            Object.assign(meta, { topic_group: 'product_mechanics', intent_key: 'how_moras_works', scene_keys: ['content_request', 'general'], template_kind: 'faq', priority: 2, is_reference: true });
+        } else if (titleText.includes('product recommendation logic')) {
+            Object.assign(meta, { topic_group: 'product_mechanics', intent_key: 'product_logic', scene_keys: ['content_request'], template_kind: 'faq', priority: 2 });
+        } else if (titleText.includes('posting limits')) {
+            Object.assign(meta, { topic_group: 'content_strategy', intent_key: 'posting_cadence', scene_keys: ['content_request'], template_kind: 'faq', priority: 2 });
+        } else if (titleText.includes('missing product link')) {
+            Object.assign(meta, { topic_group: 'content_strategy', intent_key: 'product_selection', scene_keys: ['content_request'], template_kind: 'faq', priority: 3 });
+        } else if (titleText.includes('edit scripts manually')) {
+            Object.assign(meta, { topic_group: 'product_mechanics', intent_key: 'manual_editing_request', scene_keys: ['content_request'], template_kind: 'faq', priority: 2 });
+        } else if (titleText.includes('qualified')) {
+            Object.assign(meta, { topic_group: 'product_mechanics', intent_key: 'qualified_video_rule', scene_keys: ['payment_issue', 'content_request'], template_kind: 'faq', priority: 2 });
+        } else if (titleText.includes('binding cost') || titleText.includes('commitment concern')) {
+            Object.assign(meta, { topic_group: 'mcn_partnership', intent_key: 'mcn_hesitation', scene_keys: ['mcn_binding'], template_kind: 'faq', priority: 1 });
+        } else if (titleText.includes('company info') || titleText.includes('legitimacy') || titleText.includes('privacy') || titleText.includes('terms')) {
+            Object.assign(meta, { topic_group: 'mcn_partnership', intent_key: 'mcn_explain', scene_keys: ['mcn_binding', 'general'], template_kind: 'faq', priority: 2, is_reference: true });
+        } else if (titleText.includes('delay / hesitation')) {
+            Object.assign(meta, { topic_group: 'mcn_partnership', intent_key: 'mcn_hesitation', scene_keys: ['mcn_binding', 'follow_up'], template_kind: 'faq', priority: 2 });
+        } else if (titleText.includes('whatsapp greeting')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'username_followup', scene_keys: ['trial_intro', 'follow_up'], template_kind: 'onboarding', priority: 2 });
+        } else if (titleText.includes('whatsapp first check-in')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'invite_code_reply', scene_keys: ['trial_intro', 'follow_up'], template_kind: 'onboarding', priority: 1 });
+        } else if (titleText.includes('whatsapp time difference')) {
+            Object.assign(meta, { topic_group: 'followup_progress', intent_key: 'followup_soft_reminder', scene_keys: ['follow_up'], template_kind: 'follow_up', priority: 3, is_reference: true });
+        } else if (titleText.includes('whatsapp product intro')) {
+            Object.assign(meta, { topic_group: 'product_mechanics', intent_key: 'how_moras_works', scene_keys: ['content_request', 'general'], template_kind: 'faq', priority: 2 });
+        } else if (titleText.includes('whatsapp new creator guide')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'registered_not_posted', scene_keys: ['trial_intro'], template_kind: 'onboarding', priority: 1 });
+        } else if (titleText.includes('whatsapp posting time')) {
+            Object.assign(meta, { topic_group: 'content_strategy', intent_key: 'posting_cadence', scene_keys: ['content_request', 'follow_up'], template_kind: 'strategy', priority: 2 });
+        } else if (titleText.includes('whatsapp registration trouble')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'username_followup', scene_keys: ['trial_intro'], template_kind: 'onboarding', priority: 2 });
+        } else if (titleText.includes('whatsapp first video generated')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'registered_not_posted', scene_keys: ['trial_intro', 'follow_up'], template_kind: 'onboarding', priority: 2 });
+        } else if (titleText.includes('whatsapp community invite')) {
+            Object.assign(meta, { topic_group: 'followup_progress', intent_key: 'followup_interested_reply', scene_keys: ['follow_up'], template_kind: 'follow_up', priority: 3, is_reference: true });
+        } else if (titleText.includes('whatsapp community welcome')) {
+            Object.assign(meta, { topic_group: 'followup_progress', intent_key: 'followup_interested_reply', scene_keys: ['follow_up'], template_kind: 'follow_up', priority: 3, is_reference: true });
+        } else if (titleText.includes('whatsapp referral expansion')) {
+            Object.assign(meta, { topic_group: 'outreach_contact', intent_key: 'first_outreach_value_pitch', scene_keys: ['follow_up', 'first_contact'], template_kind: 'reference', priority: 4, is_reference: true });
+        } else if (titleText.includes('whatsapp safety concern') || titleText.includes('ai safety concern')) {
+            Object.assign(meta, { topic_group: 'violation_risk_control', intent_key: 'violation_reassurance', scene_keys: ['violation_appeal', 'general'], template_kind: 'appeal', priority: 1 });
+        } else if (titleText.includes('violation response')) {
+            Object.assign(meta, { topic_group: 'violation_risk_control', intent_key: 'violation_reassurance', scene_keys: ['violation_appeal'], template_kind: 'appeal', priority: 1 });
+        } else if (titleText.includes('appeal template')) {
+            Object.assign(meta, { topic_group: 'violation_risk_control', intent_key: 'appeal_template', scene_keys: ['violation_appeal'], template_kind: 'appeal', priority: 1, is_reference: true });
+        }
+    } else if (sourceId.includes('playbook-yiyun')) {
+        meta.operator_scope = ['Yiyun'];
+        if (titleText.includes('suggested reply template')) {
+            Object.assign(meta, { topic_group: 'settlement_pricing', intent_key: 'monthly_fee_explain', scene_keys: ['monthly_inquiry'], template_kind: 'payment', priority: 1 });
+        } else if (titleText.includes('monthly fee')) {
+            Object.assign(meta, { topic_group: 'settlement_pricing', intent_key: 'monthly_fee_explain', scene_keys: ['monthly_inquiry'], template_kind: 'payment', priority: 2, is_reference: true });
+        } else if (titleText.includes('payment support')) {
+            Object.assign(meta, { topic_group: 'settlement_pricing', intent_key: 'payment_method', scene_keys: ['payment_issue'], template_kind: 'payment', priority: 2 });
+        } else if (titleText.includes('mcn binding')) {
+            Object.assign(meta, { topic_group: 'mcn_partnership', intent_key: 'mcn_explain', scene_keys: ['mcn_binding'], template_kind: 'mcn', priority: 2 });
+        } else if (titleText.includes('setup trouble')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'username_followup', scene_keys: ['video_not_loading', 'trial_intro'], template_kind: 'onboarding', priority: 2 });
+        }
+    } else if (sourceId.includes('faq-moras')) {
+        if (titleText.includes('short explanation')) {
+            Object.assign(meta, { topic_group: 'product_mechanics', intent_key: 'how_moras_works', scene_keys: ['content_request'], template_kind: 'faq', priority: 1 });
+        } else if (titleText.includes('suggested reply template')) {
+            Object.assign(meta, { topic_group: 'product_mechanics', intent_key: 'product_logic', scene_keys: ['content_request'], template_kind: 'faq', priority: 2 });
+        } else if (titleText.includes('product recommendation logic')) {
+            Object.assign(meta, { topic_group: 'product_mechanics', intent_key: 'product_logic', scene_keys: ['content_request'], template_kind: 'faq', priority: 2, is_reference: true });
+        } else if (titleText.includes('creator control')) {
+            Object.assign(meta, { topic_group: 'product_mechanics', intent_key: 'how_moras_works', scene_keys: ['content_request'], template_kind: 'faq', priority: 3, is_reference: true });
+        }
+    } else if (sourceId.includes('product-selection')) {
+        if (titleText.includes('product selection logic')) {
+            Object.assign(meta, { topic_group: 'content_strategy', intent_key: 'product_selection', scene_keys: ['content_request', 'gmv_inquiry'], template_kind: 'strategy', priority: 1 });
+        } else if (titleText.includes('posting cadence')) {
+            Object.assign(meta, { topic_group: 'content_strategy', intent_key: 'posting_cadence', scene_keys: ['content_request'], template_kind: 'strategy', priority: 1 });
+        } else if (titleText.includes('standard response')) {
+            Object.assign(meta, { topic_group: 'content_strategy', intent_key: 'posting_cadence', scene_keys: ['content_request'], template_kind: 'strategy', priority: 1 });
+        }
+    } else if (sourceId.includes('violation-appeal')) {
+        if (titleText.includes('creator asks')) {
+            Object.assign(meta, { topic_group: 'violation_risk_control', intent_key: 'violation_reassurance', scene_keys: ['violation_appeal'], template_kind: 'appeal', priority: 1 });
+        } else if (titleText.includes('creator reports a violation')) {
+            Object.assign(meta, { topic_group: 'violation_risk_control', intent_key: 'violation_reassurance', scene_keys: ['violation_appeal'], template_kind: 'appeal', priority: 1 });
+        } else if (titleText.includes('appeal template')) {
+            Object.assign(meta, { topic_group: 'violation_risk_control', intent_key: 'appeal_template', scene_keys: ['violation_appeal'], template_kind: 'appeal', priority: 2, is_reference: true });
+        } else if (titleText.includes('compensation reminder')) {
+            Object.assign(meta, { topic_group: 'violation_risk_control', intent_key: 'post_compensation_warning', scene_keys: ['violation_appeal'], template_kind: 'risk_reminder', priority: 2 });
+        }
+    }
+
+    if (!meta.topic_group) {
+        if (pathText.includes('appeal') || pathText.includes('violation')) {
+            Object.assign(meta, { topic_group: 'violation_risk_control', intent_key: 'violation_reassurance', scene_keys: ['violation_appeal'] });
+        } else if (pathText.includes('payment') || pathText.includes('monthly')) {
+            Object.assign(meta, { topic_group: 'settlement_pricing', intent_key: 'monthly_fee_explain', scene_keys: ['payment_issue'] });
+        } else if (pathText.includes('mcn') || pathText.includes('agency')) {
+            Object.assign(meta, { topic_group: 'mcn_partnership', intent_key: 'mcn_explain', scene_keys: ['mcn_binding'] });
+        } else if (pathText.includes('signup') || pathText.includes('invite') || pathText.includes('username')) {
+            Object.assign(meta, { topic_group: 'signup_onboarding', intent_key: 'invite_code_reply', scene_keys: ['trial_intro'] });
+        } else if (pathText.includes('post') || pathText.includes('selection') || pathText.includes('cadence')) {
+            Object.assign(meta, { topic_group: 'content_strategy', intent_key: 'posting_cadence', scene_keys: ['content_request'] });
+        } else if (pathText.includes('moras') || pathText.includes('product')) {
+            Object.assign(meta, { topic_group: 'product_mechanics', intent_key: 'how_moras_works', scene_keys: ['content_request'] });
+        } else {
+            Object.assign(meta, { topic_group: 'outreach_contact', intent_key: 'first_outreach_value_pitch', scene_keys: ['first_contact'] });
+        }
+    }
+
+    return meta;
+}
+
+function parseTemplateSections(content, source) {
+    if (!content) return [];
+
+    const lines = String(content).split('\n');
+    const sections = [];
+    const headingStack = [];
+    let current = null;
+
+    function flushCurrent() {
+        if (!current) return;
+        const text = pickSectionText(current);
+        if (!text) {
+            current = null;
+            return;
+        }
+        const metadata = inferSectionMetadata(source, current);
+        sections.push({
+            source_id: source.id,
+            source_type: source.type,
+            title: current.title,
+            path: current.path,
+            text,
+            section_id: `${source.id}::${slugifySectionId(current.path.join('-') || current.title)}`,
+            ...metadata,
+        });
+        current = null;
+    }
+
+    for (const line of lines) {
+        const headingMatch = line.match(/^(#{2,4})\s+(.+?)\s*$/);
+        if (headingMatch) {
+            flushCurrent();
+            const level = headingMatch[1].length;
+            const title = normalizeSectionTitle(headingMatch[2]);
+            headingStack[level - 2] = title;
+            headingStack.length = level - 1;
+            current = {
+                title,
+                raw: '',
+                path: headingStack.filter(Boolean),
+            };
+            continue;
+        }
+        if (current) {
+            current.raw += `${line}\n`;
+        }
+    }
+    flushCurrent();
+
+    return sections;
+}
+
+function buildTemplateSectionsForSource(source) {
+    const content = loadSourceContent(source);
+    if (!content) return [];
+    return parseTemplateSections(content, source);
+}
+
+function scoreTemplateSection(section, context) {
+    const {
+        topic_group,
+        intent_key,
+        scene_key,
+        operator,
+        lifecycleStage,
+        combinedText,
+        activeEventKeys,
+    } = context;
+    let score = 0;
+    const matched_by = [];
+    const haystack = [section.title, section.text, section.path.join(' '), section.source_id].join(' ').toLowerCase();
+
+    if (section.topic_group === topic_group) {
+        score += 30;
+        matched_by.push('topic_group');
+    }
+    if (section.intent_key === intent_key) {
+        score += 24;
+        matched_by.push('intent');
+    }
+    if (scene_key && section.scene_keys.includes(scene_key)) {
+        score += 14;
+        matched_by.push('scene');
+    }
+    if (operator && (section.operator_scope.includes('all') || section.operator_scope.some((item) => item.toLowerCase() === String(operator).toLowerCase()))) {
+        score += section.operator_scope.includes('all') ? 3 : 10;
+        matched_by.push('operator');
+    }
+    if (lifecycleStage && haystack.includes(String(lifecycleStage).toLowerCase())) {
+        score += 4;
+        matched_by.push('lifecycle');
+    }
+    if (activeEventKeys.some((eventKey) => haystack.includes(eventKey))) {
+        score += 4;
+        matched_by.push('active_event');
+    }
+
+    for (const keyword of extractKeywords(combinedText)) {
+        if (haystack.includes(keyword)) {
+            score += 2;
+            matched_by.push(`keyword:${keyword}`);
+        }
+    }
+
+    if (section.source_type === 'playbook') score += 2;
+    if (section.source_type === 'faq') score += 1;
+    if (section.is_reference) score += 1;
+
+    return { score, matched_by: Array.from(new Set(matched_by)) };
+}
+
+function retrieveTemplateSlots(context) {
+    const {
+        scene = null,
+        operator = null,
+        userMessage = '',
+        recentMessages = [],
+        currentTopic = null,
+        autoDetectedTopic = null,
+        activeEvents = [],
+        lifecycle = null,
+        maxSources = 5,
+    } = context;
+    const manifestData = loadManifest();
+    const recentText = (Array.isArray(recentMessages) ? recentMessages : [])
+        .map((message) => String(message?.text || '').trim())
+        .filter(Boolean)
+        .join(' \n ');
+    const combinedText = [userMessage, recentText].filter(Boolean).join(' \n ');
+    const topic_group = resolveTopicGroupFromText(combinedText, currentTopic, autoDetectedTopic);
+    const intent_key = currentTopic?.intent_key || autoDetectedTopic?.intent_key || resolveIntentKey(topic_group, combinedText);
+    const scene_key = currentTopic?.scene_key || autoDetectedTopic?.scene_key || resolveSceneKey(topic_group, combinedText, scene);
+    const lifecycleStage = lifecycle?.stage_key || null;
+    const activeEventKeys = (Array.isArray(activeEvents) ? activeEvents : [])
+        .filter((event) => event?.status === 'active')
+        .map((event) => String(event?.event_key || '').toLowerCase())
+        .filter(Boolean);
+
+    const sections = [];
+    for (const source of manifestData.sources || []) {
+        if (source.status !== 'approved') continue;
+        sections.push(...buildTemplateSectionsForSource(source));
+    }
+
+    const ranked = sections
+        .map((section) => {
+            const { score, matched_by } = scoreTemplateSection(section, {
+                topic_group,
+                intent_key,
+                scene_key,
+                operator,
+                lifecycleStage,
+                combinedText,
+                activeEventKeys,
+            });
+            return {
+                ...section,
+                score,
+                matched_by,
+            };
+        })
+        .filter((section) => section.score > 0)
+        .sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            if (a.priority !== b.priority) return a.priority - b.priority;
+            return String(a.section_id).localeCompare(String(b.section_id));
+        });
+
+    const relevantRanked = ranked.filter((item) => {
+        if (item.topic_group === topic_group) return true;
+        if (item.intent_key === intent_key) return true;
+        if (scene_key && item.scene_keys.includes(scene_key)) return true;
+        return item.score >= 8;
+    });
+    const rankedPool = relevantRanked.length > 0 ? relevantRanked : ranked;
+    const sendable = rankedPool.filter((item) => item.sendable);
+    const op1 = sendable[0] || rankedPool[0] || null;
+    const op2 = sendable.find((item) => item.section_id !== op1?.section_id && item.topic_group === topic_group && item.intent_key === intent_key)
+        || sendable.find((item) => item.section_id !== op1?.section_id && item.topic_group === topic_group && item.is_reference)
+        || sendable.find((item) => item.section_id !== op1?.section_id && item.topic_group === topic_group && (!scene_key || item.scene_keys.includes(scene_key)))
+        || sendable.find((item) => item.section_id !== op1?.section_id && item.topic_group === topic_group)
+        || sendable.find((item) => item.section_id !== op1?.section_id && item.intent_key === intent_key)
+        || rankedPool.find((item) => item.section_id !== op1?.section_id)
+        || null;
+
+    const alternatives = rankedPool
+        .filter((item) => item.section_id !== op1?.section_id && item.section_id !== op2?.section_id)
+        .slice(0, Math.max(0, maxSources - 2))
+        .map((item) => formatTemplateSlot(item, 'alternative'));
+
+    return {
+        context: {
+            topic_group,
+            intent_key,
+            scene_key,
+            resolved_operator: operator || null,
+        },
+        slots: {
+            op1: formatTemplateSlot(op1, 'recommended'),
+            op2: formatTemplateSlot(op2, 'reference'),
+        },
+        alternatives,
+        template: op1 ? { text: op1.text, source: op1.source_id } : null,
+    };
+}
+
+function formatTemplateSlot(section, slotRole = 'recommended') {
+    if (!section) return null;
+    return {
+        kind: 'template',
+        slot_role: slotRole,
+        text: section.text,
+        section_id: section.section_id,
+        title: section.title,
+        source: section.source_id,
+        matched_by: section.matched_by || [],
+        sendable: !!section.sendable,
+        topic_group: section.topic_group,
+        intent_key: section.intent_key,
+        scene_keys: section.scene_keys,
+        matchScore: section.score || 0,
+    };
 }
 
 /**
@@ -295,32 +813,13 @@ function retrieveAndBuildLocalRules(context) {
  */
 function extractTemplateFromSource(content, sourceId, sourceType = '') {
     if (!content) return null;
-
-    const explicitTemplatePatterns = [
-        /##\s+Suggested Reply Template[\s\S]*?```(?:text)?\s*([\s\S]*?)```/i,
-        /##\s+Creator Reply Templates?[\s\S]*?```(?:text)?\s*([\s\S]*?)```/i,
-        /##\s+Standard response[\s\S]*?```(?:text)?\s*([\s\S]*?)```/i,
-        /##\s+Short explanation[\s\S]*?```(?:text)?\s*([\s\S]*?)```/i,
-    ];
-
-    for (const pattern of explicitTemplatePatterns) {
-        const match = content.match(pattern);
-        if (match && match[1]) {
-            const text = sanitizeTemplateText(match[1]);
-            if (isUsableTemplate(text)) {
-                return text;
-            }
-        }
-    }
-
-    if (String(sourceType).toLowerCase() === 'playbook') {
-        const playbookTemplate = extractPlaybookParagraph(content);
-        if (isUsableTemplate(playbookTemplate)) {
-            return playbookTemplate;
-        }
-    }
-
-    return null;
+    const source = {
+        id: sourceId,
+        type: sourceType,
+        priority: 99,
+    };
+    const sections = parseTemplateSections(content, source);
+    return sections[0]?.text || null;
 }
 
 function sanitizeTemplateText(text) {
@@ -332,7 +831,7 @@ function sanitizeTemplateText(text) {
 function isUsableTemplate(text) {
     if (!text) return false;
     const trimmed = text.trim();
-    if (trimmed.length < 20 || trimmed.length > 600) return false;
+    if (trimmed.length < 20 || trimmed.length > 2400) return false;
     if (trimmed.startsWith('#') || trimmed.startsWith('|')) return false;
     return /[.!?。！？]/.test(trimmed) || trimmed.split('\n').length >= 2;
 }
@@ -368,8 +867,10 @@ function extractPlaybookParagraph(content) {
 module.exports = {
     loadManifest,
     retrieveLocalRules,
+    retrieveTemplateSlots,
     loadSourceContent,
     buildLocalRulesText,
     retrieveAndBuildLocalRules,
     extractTemplateFromSource,
+    parseTemplateSections,
 };
