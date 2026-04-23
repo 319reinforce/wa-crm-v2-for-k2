@@ -28,6 +28,8 @@ const {
     sendMessage,
     sendMedia,
     getClient,
+    getDriver,
+    getDriverName,
 } = require('../services/waService');
 const {
     start: startWaWorker,
@@ -199,7 +201,56 @@ async function handleSendMedia(payload = {}) {
     };
 }
 
+async function fetchAuditMessagesViaBaileys(phone, limit) {
+    // Baileys 没有 wwebjs 风格的 client.getChatById / chat.fetchMessages。
+    // 这里读 driver 进程内 ring buffer（_msgBuffer，每 JID ≤200 条 live 消息）。
+    // 真正的历史 backfill 由 driver 在连接时 messaging-history.set + auto gap-fill
+    // 直接落 wa_messages（见 PR #47）。前端 sync-contact / reconcile-contact 按钮
+    // 走到这里时，对完全没收过消息的新 import creator 会得到空数组（不再 alert
+    // 'WA client not ready'）。
+    let driver;
+    try {
+        driver = getDriver();
+    } catch (_) {
+        driver = null;
+    }
+    if (!driver) return { ok: false, error: 'baileys driver not initialized' };
+    const status = typeof driver.getStatus === 'function' ? driver.getStatus() : { ready: false };
+    if (!status.ready) return { ok: false, error: 'baileys driver not ready' };
+
+    const normalizedTarget = normalizePhoneDigits(phone);
+    if (!normalizedTarget) return { ok: false, error: 'invalid phone' };
+
+    const phoneE164 = `+${normalizedTarget}`;
+    const safeLimit = Math.max(20, Math.min(parseInt(limit, 10) || 120, 2000));
+
+    let buffered = [];
+    try {
+        buffered = await driver.fetchRecentMessages(phoneE164, safeLimit);
+    } catch (error) {
+        return { ok: false, error: error.message || String(error) };
+    }
+
+    return {
+        ok: true,
+        phone: normalizedTarget,
+        name: 'Unknown',
+        messages: (buffered || []).map((m) => ({
+            role: m.fromMe ? 'me' : 'user',
+            text: m.text || '',
+            timestamp: typeof m.timestamp === 'number' ? m.timestamp : Date.now(),
+            message_id: m.id || null,
+        })),
+        baileys_buffer_only: true,
+    };
+}
+
 async function fetchAuditMessagesByPhone(phone, limit = 120) {
+    // baileys 走独立路径 — 没有 wwebjs 的 client API
+    if (getDriverName() === 'baileys') {
+        return await fetchAuditMessagesViaBaileys(phone, limit);
+    }
+
     const client = getClient();
     if (!client) return { ok: false, error: 'WA client not ready' };
 
