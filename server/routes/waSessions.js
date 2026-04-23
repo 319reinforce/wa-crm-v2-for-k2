@@ -255,6 +255,79 @@ router.post('/:id/restart', async (req, res) => {
     }
 });
 
+// POST /api/wa/sessions/:id/reauth — 清 auth 目录 + 重启 agent，强制重扫 QR
+// DB session 记录保留、driver / owner 配置不变。相比"删除(purge_auth) + 重新创建"
+// 流程更安全：不丢 wa_sessions 行，不丢消息归属，只是 WA 那侧需要重新 pair。
+router.post('/:id/reauth', async (req, res) => {
+    try {
+        const sessionId = sanitizeSessionId(req.params.id);
+        if (!sessionId) return res.status(400).json({ ok: false, error: 'invalid session id' });
+
+        const existing = await sessionRepository.getSessionBySessionId(sessionId);
+        if (!existing) return res.status(404).json({ ok: false, error: 'session not found' });
+        if (!ensureSessionInScope(req, res, existing)) return;
+
+        const registry = getRegistry();
+        if (!registry?.isEnabled()) {
+            return res.status(503).json({ ok: false, error: 'SessionRegistry disabled' });
+        }
+
+        // 1. 停 agent（planned=true 避免被 reconciler 立即重拉）
+        try {
+            await registry.stopAgent(sessionId, { planned: true });
+        } catch (err) {
+            console.warn(`[waSessions] reauth ${sessionId} stopAgent failed: ${err.message}`);
+        }
+
+        // 2. 清两种 auth 目录（不知道 driver 可能切换过，两边都清最稳；
+        //    下次 agent 启动时只会用当前 driver 的目录，多余的空目录也无害）
+        const wwebjsAuthRoot = process.env.WA_AUTH_ROOT
+            || process.env.WWEBJS_AUTH_ROOT
+            || path.join(__dirname, '../../.wwebjs_auth');
+        const baileysAuthRoot = process.env.WA_BAILEYS_AUTH_ROOT
+            || path.join(__dirname, '../../.baileys_auth');
+
+        const purgeResults = {};
+        for (const [driverName, root] of [['wwebjs', wwebjsAuthRoot], ['baileys', baileysAuthRoot]]) {
+            const dir = path.join(root, `session-${sessionId}`);
+            try {
+                if (fs.existsSync(dir)) {
+                    fs.rmSync(dir, { recursive: true, force: true });
+                    purgeResults[driverName] = 'purged';
+                } else {
+                    purgeResults[driverName] = 'not_present';
+                }
+            } catch (err) {
+                console.warn(`[waSessions] reauth ${sessionId} purge ${driverName} dir failed: ${err.message}`);
+                purgeResults[driverName] = `error: ${err.message}`;
+            }
+        }
+
+        // 3. 重新 spawn — desired_state 保持 running，agent 会走新 QR 流程
+        try {
+            await registry.spawnAgent(sessionId);
+        } catch (err) {
+            console.error(`[waSessions] reauth ${sessionId} spawn failed: ${err.message}`);
+            return res.status(500).json({
+                ok: false,
+                error: `spawn failed: ${err.message}`,
+                purged: purgeResults,
+            });
+        }
+
+        res.json({
+            ok: true,
+            session_id: sessionId,
+            reauth: true,
+            purged: purgeResults,
+            note: 'auth cleared, agent restarted — scan QR to re-pair',
+        });
+    } catch (err) {
+        console.error('[waSessions] reauth failed:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
 // POST /api/wa/sessions/:id/desired-state
 router.post('/:id/desired-state', async (req, res) => {
     try {
