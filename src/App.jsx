@@ -1020,6 +1020,7 @@ function App() {
           bulkSaving={bulkSaving}
           bulkResults={bulkResults}
           bulkError={bulkError}
+          availableOwners={ownerOptions}
         />
       </>
     )
@@ -1701,6 +1702,7 @@ function App() {
         bulkSaving={bulkSaving}
         bulkResults={bulkResults}
         bulkError={bulkError}
+        availableOwners={ownerOptions}
       />
     </div>
   )
@@ -1772,6 +1774,7 @@ function ManualCreatorModal({
   bulkSaving,
   bulkResults,
   bulkError,
+  availableOwners,
 }) {
   const { owners: rosterOwners } = useOperatorRoster()
 
@@ -1781,11 +1784,15 @@ function ManualCreatorModal({
   if (!open) return null
 
   const ownerOptions = (() => {
-    const base = rosterOwners && rosterOwners.length > 0 ? rosterOwners : []
-    if (form?.owner && !base.includes(form.owner)) {
-      return [form.owner, ...base]
+    const merged = new Set()
+    for (const o of (availableOwners || [])) {
+      if (o) merged.add(o)
     }
-    return base
+    for (const o of (rosterOwners || [])) {
+      if (o) merged.add(o)
+    }
+    if (form?.owner) merged.add(form.owner)
+    return [...merged]
   })()
 
   const samePhone = checkResult?.conflicts?.same_phone || []
