@@ -351,7 +351,12 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
     }
   }, [creator?.wa_phone, fetchClientProfile, fetchStrategyInsight])
 
+  // 面板折叠时不拉副数据、不开 8s 轮询(减少切达人时的网络/CPU 抢占)
+  // VITE_CREATOR_DETAIL_EAGER=1 可回退到旧行为(折叠时也拉),用于灰度对比或回滚
+  const creatorDetailEager = String(import.meta.env.VITE_CREATOR_DETAIL_EAGER || '').trim() === '1'
+  const panelActive = creatorDetailEager || !collapsed
   useEffect(() => {
+    if (!panelActive) return
     fetchCreator(true)
     fetchClientProfile()
     fetchAgencyStrategies()
@@ -359,7 +364,7 @@ function CreatorDetail({ creatorId, creatorName, onClose, onMessageSent, onCreat
     fetchLifecycleHistory()
     const i = setInterval(() => fetchCreator(true), 8000)
     return () => clearInterval(i)
-  }, [fetchCreator, fetchClientProfile, fetchAgencyStrategies, fetchStrategyInsight, fetchLifecycleHistory])
+  }, [panelActive, fetchCreator, fetchClientProfile, fetchAgencyStrategies, fetchStrategyInsight, fetchLifecycleHistory])
 
   useEffect(() => {
     setActiveContextTab('overview')

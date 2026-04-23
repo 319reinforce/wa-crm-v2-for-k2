@@ -98,6 +98,11 @@ async function ensureCreatorAccess(req, res, creatorId) {
 }
 
 // GET /api/creators/:id/messages
+// Query params:
+//   limit, offset                       — 分页(默认 100,最大 1000)
+//   around_message_id / around_timestamp— 锚点定位(跳转)
+//   after_timestamp                     — 增量拉:只返 wm.timestamp > after_timestamp 的消息
+//                                         用于 SSE 推送后的增量同步,避免全量拉
 router.get('/', async (req, res) => {
     try {
         const creatorId = parseInt(req.params.id);
@@ -105,6 +110,7 @@ router.get('/', async (req, res) => {
         const offset = parseInt(req.query.offset) || 0;
         const aroundMessageId = parseInt(req.query.around_message_id) || 0;
         const aroundTimestamp = toTimestampMs(req.query.around_timestamp);
+        const afterTimestamp = toTimestampMs(req.query.after_timestamp);
         const windowBefore = Math.min(Math.max(parseInt(req.query.window_before) || 5, 0), 50);
         const windowAfter = Math.min(Math.max(parseInt(req.query.window_after) || 4, 0), 50);
         const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 100;
@@ -116,6 +122,29 @@ router.get('/', async (req, res) => {
         const { total } = await dbConn.prepare(
             'SELECT COUNT(*) as total FROM wa_messages WHERE creator_id = ?'
         ).get(creatorId);
+
+        // after_timestamp 增量模式:走 (creator_id, timestamp) 索引范围扫描,
+        // 不走 around / latest 分支。用 ASC 排序方便前端按时序 append。
+        if (afterTimestamp > 0) {
+            const incrementalRows = await dbConn.prepare(
+                `SELECT ${WA_MESSAGES_SELECT}
+                 WHERE wm.creator_id = ? AND wm.timestamp > ?
+                 ORDER BY wm.timestamp ASC, wm.id ASC
+                 LIMIT ${safeLimit}`
+            ).all(creatorId, afterTimestamp);
+            const normalizedIncremental = normalizeMessagesForTimeline(incrementalRows);
+            return res.json({
+                messages: normalizedIncremental,
+                total,
+                returned: normalizedIncremental.length,
+                deduped_dropped: incrementalRows.length - normalizedIncremental.length,
+                limit: safeLimit,
+                offset: 0,
+                mode: 'incremental',
+                after_timestamp: afterTimestamp,
+                anchor_message_id: null,
+            });
+        }
 
         // Return the latest window by default so the chat pane matches the left list's
         // "last conversation" ordering while still rendering messages chronologically.
