@@ -107,7 +107,7 @@ export async function generateViaExperienceRouter({
         agencyStrategies,
         messages: allMsgs
     });
-    const effectiveScene = scene || richCtx.scene || 'unknown';
+    const effectiveScene = scene || effectiveTopic?.scene_key || richCtx.scene || 'unknown';
     const sceneSource = scene
         ? 'provided'
         : richCtx.scene
@@ -141,6 +141,8 @@ export async function generateViaExperienceRouter({
         body: JSON.stringify({
             client_id: resolvedClientId,
             scene: effectiveScene,
+            topic_group: effectiveTopic?.topic_group || null,
+            intent_key: effectiveTopic?.intent_key || null,
             topicContext,
             richContext: richContextParagraph,
             conversationSummary: convSummary ? convSummary.summary : '',
@@ -166,6 +168,8 @@ export async function generateViaExperienceRouter({
         operatorDisplayName: data.operatorDisplayName || data.operator || null,
         operatorConfigured: !!data.operatorConfigured,
         scene: effectiveScene,
+        topicGroup: effectiveTopic?.topic_group || null,
+        intentKey: effectiveTopic?.intent_key || null,
         sceneSource,
         retrievalSnapshotId: data.retrievalSnapshotId || data.retrieval_snapshot_id || null,
         generationLogId: data.generationLogId || data.generation_log_id || null,

@@ -352,9 +352,9 @@ router.post('/retrieve-template', async (req, res) => {
             return;
         }
 
-        const { retrieveLocalRules, loadSourceContent, extractTemplateFromSource } = require('../services/localRuleRetrievalService');
+        const { retrieveTemplateSlots } = require('../services/localRuleRetrievalService');
 
-        const sources = retrieveLocalRules({
+        const templateResult = retrieveTemplateSlots({
             clientId: client_id || null,
             scene,
             operator: scope.owner,
@@ -365,36 +365,15 @@ router.post('/retrieve-template', async (req, res) => {
             activeEvents: Array.isArray(active_events) ? active_events : [],
             lifecycle: lifecycle || null,
             forceTemplateSources: force_template_sources === true,
-            maxSources: 1,
+            maxSources: 5,
         });
-
-        if (!sources || sources.length === 0) {
-            return res.json({ success: true, template: null });
-        }
-
-        const topSource = sources[0];
-        const content = loadSourceContent(topSource);
-
-        if (!content) {
-            return res.json({ success: true, template: null });
-        }
-
-        const templateText = extractTemplateFromSource(content, topSource.id, topSource.type);
-
-        if (!templateText) {
-            return res.json({ success: true, template: null });
-        }
 
         res.json({
             success: true,
-            template: {
-                text: templateText,
-                source: topSource.id,
-                matchScore: topSource.score || 0,
-                matchedBy: topSource.matchedBy || [],
-                resolvedTopic: topSource.resolvedTopic || null,
-                resolvedStage: topSource.resolvedStage || null,
-            }
+            context: templateResult.context,
+            slots: templateResult.slots,
+            alternatives: templateResult.alternatives,
+            template: templateResult.template,
         });
 
     } catch (err) {
