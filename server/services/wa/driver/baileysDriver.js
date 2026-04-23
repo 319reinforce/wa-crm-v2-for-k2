@@ -339,34 +339,36 @@ class BaileysDriver extends EventEmitter {
         //
         // 设计：driver 只做透传 + LID 映射补充，业务过滤（roster/eligibility）留给 waWorker 层，
         // 保持与 wwebjs syncHistory 的语义一致。
-        if (!LEGACY_MODE) {
-            this._sock.ev.on('messaging-history.set', (payload) => {
-                try {
-                    const { chats = [], contacts = [], messages = [], syncType, progress, isLatest } = payload || {};
-                    // LID ↔ PN 映射：messaging-history.set 里的 contacts 可能带 lid 字段（Issue #2077 有时为空）
-                    for (const c of contacts) {
-                        if (c?.id && c?.lid) {
-                            this._lidToPnMap.set(String(c.lid), String(c.id));
-                        }
+        // 注：监听器**始终**注册，不再受 LEGACY_MODE 控制。LEGACY_MODE 只关闭
+        // syncFullHistory 初始全量推送（受 browser identity 影响），但 on-demand
+        // fetchMessageHistory 的响应也走 messaging-history.set 通道（syncType=ON_DEMAND），
+        // 必须有监听器才能接住。Legacy 模式下若 WA 不主动推则监听器永不触发，无副作用。
+        this._sock.ev.on('messaging-history.set', (payload) => {
+            try {
+                const { chats = [], contacts = [], messages = [], syncType, progress, isLatest } = payload || {};
+                // LID ↔ PN 映射：messaging-history.set 里的 contacts 可能带 lid 字段（Issue #2077 有时为空）
+                for (const c of contacts) {
+                    if (c?.id && c?.lid) {
+                        this._lidToPnMap.set(String(c.lid), String(c.id));
                     }
-                    console.log(`[BaileysDriver:${this.sessionId}] messaging-history.set chats=${chats.length} contacts=${contacts.length} messages=${messages.length} syncType=${syncType} progress=${progress} isLatest=${!!isLatest}`);
-                    // 原始 payload 透传给 waService → waWorker。Worker 用 driver.normalizeRawMessage
-                    // 把每条 proto 消息 normalize 成 IncomingMessage 后走 insertMessages。
-                    this.emit('history_set', {
-                        messages,
-                        syncType,
-                        progress,
-                        isLatest: !!isLatest,
-                    });
-                    if (isLatest === true && !this._historySyncLatestSeen) {
-                        this._historySyncLatestSeen = true;
-                        this.emit('history_latest_seen');
-                    }
-                } catch (err) {
-                    console.error(`[BaileysDriver:${this.sessionId}] messaging-history.set handler error:`, err.message);
                 }
-            });
-        }
+                console.log(`[BaileysDriver:${this.sessionId}] messaging-history.set chats=${chats.length} contacts=${contacts.length} messages=${messages.length} syncType=${syncType} progress=${progress} isLatest=${!!isLatest}`);
+                // 原始 payload 透传给 waService → waWorker。Worker 用 driver.normalizeRawMessage
+                // 把每条 proto 消息 normalize 成 IncomingMessage 后走 insertMessages。
+                this.emit('history_set', {
+                    messages,
+                    syncType,
+                    progress,
+                    isLatest: !!isLatest,
+                });
+                if (isLatest === true && !this._historySyncLatestSeen) {
+                    this._historySyncLatestSeen = true;
+                    this.emit('history_latest_seen');
+                }
+            } catch (err) {
+                console.error(`[BaileysDriver:${this.sessionId}] messaging-history.set handler error:`, err.message);
+            }
+        });
 
         // Store reference for tests
         this._DisconnectReason = DisconnectReason;
