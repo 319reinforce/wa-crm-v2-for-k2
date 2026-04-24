@@ -1210,13 +1210,76 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         });
     };
 
+    /**
+     * 发送图片(可选 caption)。支持乐观 UI:
+     *   1. 发送前立刻插入带 previewUrl 的"发送中"气泡,输入框/附件区同步清空。
+     *   2. 成功:把 pending 气泡原地替换为 server 确认的 media_url + mime/file_name,
+     *      保留 clientId,避免 polling 重复插入;随后 revoke 本地 blob URL。
+     *   3. 失败:把 pending 气泡翻成 failed 态(保留 previewUrl + File 原件),用户
+     *      可点"重试"重新走一遍上传/发送流程。
+     *
+     * __mediaFile 是只存在于内存中的字段(非 DB 持久化),供 retry 使用。
+     */
     const handleDirectSendMedia = async () => {
         if (!pendingImage?.file || !client?.phone) return;
         if (sendLockRef.current) return;
+
+        // 快照 + 同步清空 pendingImage 状态,但不 revoke blob URL — 所有权交给 optimistic 气泡。
+        const snapshot = {
+            file: pendingImage.file,
+            previewUrl: pendingImage.previewUrl,
+            fileName: pendingImage.fileName,
+            mimeType: pendingImage.mimeType,
+        };
+        const caption = (inputText || '').trim();
+        setPendingImage(null);
+        setInputText('');
+
+        await sendMediaOptimistic(snapshot, caption);
+    };
+
+    /**
+     * 乐观发送实现。retry 场景也复用:会收到一个已有 clientId 的 failed 气泡
+     * 被上层删掉之后再次调用,所以每次都重新生成 clientId + 插入新气泡。
+     */
+    const sendMediaOptimistic = async (snapshot, caption) => {
+        const { file, previewUrl, fileName, mimeType } = snapshot;
+        if (!file || !client?.phone) return;
+
         sendLockRef.current = true;
         setSendingMedia(true);
+
+        const clientId = `pending_media_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const pendingAt = Date.now();
+        const placeholderText = caption ? `🖼️ [Image] ${caption}` : '🖼️ [Image]';
+
+        setMessages(prev => [...prev, {
+            role: 'me',
+            text: placeholderText,
+            caption,
+            timestamp: pendingAt,
+            clientId,
+            message_key: clientId,
+            previewUrl,
+            file_name: fileName || null,
+            mime_type: mimeType || 'image/*',
+            pending: true,
+            // 仅内存中保留,供失败后"重试"重新走完整上传/发送
+            __mediaFile: file,
+            __mediaMime: mimeType,
+            __mediaFileName: fileName,
+            __caption: caption,
+        }]);
+        setMessageTotal(prev => prev + 1);
+
+        const markFailed = (errorMsg) => {
+            setMessages(prev => prev.map(m => m.clientId === clientId
+                ? { ...m, pending: false, failed: true, failedReason: errorMsg }
+                : m));
+        };
+
         try {
-            const dataBase64 = await fileToDataUrl(pendingImage.file);
+            const dataBase64 = await fileToDataUrl(file);
             const uploadRes = await fetchWaAdmin(`${API_BASE}/wa/media-assets`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1224,8 +1287,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                     creator_id: client.id,
                     operator: creator?.wa_owner || client.wa_owner || null,
                     uploaded_by: creator?.wa_owner || client.wa_owner || 'api_user',
-                    file_name: pendingImage.fileName,
-                    mime_type: pendingImage.mimeType,
+                    file_name: fileName,
+                    mime_type: mimeType,
                     data_base64: dataBase64,
                     meta: { source: 'manual_upload', scene: currentTopic?.topic_key || null },
                 }),
@@ -1235,7 +1298,6 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 throw new Error(uploadData?.error || `upload failed: HTTP ${uploadRes.status}`);
             }
 
-            const caption = inputText.trim();
             const sendRes = await fetchWaAdmin(`${API_BASE}/wa/send-media`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1254,35 +1316,51 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 throw new Error(sendData?.error || `send media failed: HTTP ${sendRes.status}`);
             }
 
-            const timelineText = sendData?.crm_message?.text
+            const crmMessage = sendData?.crm_message || null;
+            const timelineText = crmMessage?.text
                 || (caption ? `🖼️ [Image] ${caption}` : '🖼️ [Image]');
-            const sentAt = Number(sendData?.crm_message?.timestamp) > 0
-                ? Number(sendData.crm_message.timestamp)
+            const sentAt = Number(crmMessage?.timestamp) > 0
+                ? Number(crmMessage.timestamp)
                 : Date.now();
-            if (!sendData?.crm_message) {
+            if (!crmMessage) {
                 await persistCrmSentMessage(timelineText, sentAt);
             }
-            setMessages((prev) => [...prev, {
-                role: 'me',
-                text: timelineText,
-                caption,
-                timestamp: sentAt,
-                media_url: uploadData?.media_asset?.file_url || null,
-                mime_type: uploadData?.media_asset?.mime_type || pendingImage.mimeType || null,
-                file_name: uploadData?.media_asset?.file_name || pendingImage.fileName || null,
-                previewUrl: pendingImage.previewUrl,
-            }]);
-            setMessageTotal((prev) => prev + 1);
+
+            // 原地替换 pending 气泡:server 字段覆盖 + 清掉 optimistic 专用 __* 字段。
+            // clientId 保留用于 dedup;message_key 取 server(若有)覆盖掉 clientId,
+            // 让下次 polling 走同一个 key 合并。
+            setMessages(prev => prev.map(m => m.clientId === clientId
+                ? {
+                    ...(crmMessage || {}),
+                    role: 'me',
+                    text: timelineText,
+                    caption,
+                    timestamp: sentAt,
+                    clientId,
+                    pending: false,
+                    failed: false,
+                    media_url: uploadData?.media_asset?.file_url || crmMessage?.media_url || null,
+                    mime_type: uploadData?.media_asset?.mime_type || mimeType || null,
+                    file_name: uploadData?.media_asset?.file_name || fileName || null,
+                    // previewUrl 保留一会儿,让替换不闪;revoke 放到下面 setTimeout
+                    previewUrl,
+                }
+                : m));
+            // server 确认后再 revoke blob URL,避免短暂的白屏
+            setTimeout(() => {
+                try { URL.revokeObjectURL(previewUrl); } catch (_) {}
+            }, 1500);
+
             invalidateMessagesCache(client?.id);
             if (caption) {
                 await extractAndSaveMemory(null, caption);
             }
             onMessageSent?.(client.id);
-            setInputText('');
-            clearPendingImage();
         } catch (e) {
             console.error('[WA Send Media] failed:', e);
-            toast.error(`发送图片失败: ${e.message || '未知错误'}`);
+            const msg = e?.message || '未知错误';
+            markFailed(msg);
+            toast.error(`发送图片失败: ${msg}`);
         } finally {
             sendLockRef.current = false;
             setSendingMedia(false);
@@ -2080,11 +2158,30 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
     // 失败气泡的"重试"：先从列表中删掉这条 failed 消息，再走一遍发送流程
     const handleRetryFailedMessage = async (failedItem) => {
-        if (!failedItem || !failedItem.text) return;
+        if (!failedItem) return;
         if (sendLockRef.current) return;
+
+        const isMediaRetry = !!failedItem.__mediaFile;
+        if (!isMediaRetry && !failedItem.text) return;
+
         setMessages(prev => prev.filter(m => m.clientId !== failedItem.clientId));
-        // 总条数在乐观插入时已 +1，这里先 -1，避免 sendOutboundMessage 的乐观插入重复计数
+        // 总条数在乐观插入时已 +1，这里先 -1，避免乐观重插时重复计数
         setMessageTotal(prev => Math.max(0, prev - 1));
+
+        if (isMediaRetry) {
+            // 媒体重试:复用 sendMediaOptimistic,自己已经管 lock/setSendingMedia
+            await sendMediaOptimistic(
+                {
+                    file: failedItem.__mediaFile,
+                    previewUrl: failedItem.previewUrl,
+                    fileName: failedItem.__mediaFileName || failedItem.file_name,
+                    mimeType: failedItem.__mediaMime || failedItem.mime_type,
+                },
+                failedItem.__caption || failedItem.caption || ''
+            );
+            return;
+        }
+
         sendLockRef.current = true;
         setSendingText(true);
         try {
