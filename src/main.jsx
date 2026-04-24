@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import AppAuthGate from './components/AppAuthGate'
+import { ToastProvider } from './components/Toast'
 import './index.css'
 
 try {
@@ -23,8 +24,10 @@ if (pathname.startsWith('/m')) {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <AppAuthGate>
-      <App />
-    </AppAuthGate>
+    <ToastProvider>
+      <AppAuthGate>
+        <App />
+      </AppAuthGate>
+    </ToastProvider>
   </React.StrictMode>
 )
