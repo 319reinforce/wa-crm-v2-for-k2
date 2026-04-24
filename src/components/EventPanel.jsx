@@ -3,6 +3,7 @@ import JudgeQuickForm from './JudgeQuickForm'
 import { OWNER_ORDER, getOwnerColor, useOperatorRoster } from '../utils/operators'
 import { getAppAuthScopeOwner, isAppAuthOwnerLocked } from '../utils/appAuth'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
+import { useToast } from './Toast'
 import sharedWA from '../utils/waTheme'
 
 const API_BASE = '/api';
@@ -90,6 +91,7 @@ const VERIFICATION_LABELS = {
 }
 
 export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEventChange, restoreState }) {
+  const toast = useToast()
   const lockedOwner = getAppAuthScopeOwner()
   const ownerLocked = isAppAuthOwnerLocked() && !!lockedOwner
   const { owners: rosterOwners } = useOperatorRoster()
@@ -286,7 +288,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
       })
       fetchEvents()
     } catch (e) {
-      alert('创建失败: ' + e.message)
+      toast.error('创建失败: ' + e.message)
     }
   }
 
@@ -365,7 +367,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
       }
       await fetchEvents(true)
     } catch (e) {
-      alert(`二次核对失败: ${e.message}`)
+      toast.error(`二次核对失败: ${e.message}`)
     } finally {
       setVerifyingEventId(null)
     }
@@ -378,7 +380,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
       })
       setVerificationPreview(data)
     } catch (e) {
-      alert(`加载核对上下文失败: ${e.message}`)
+      toast.error(`加载核对上下文失败: ${e.message}`)
     }
   }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 import WA from '../utils/waTheme'
 
@@ -80,10 +80,20 @@ export function SFTDashboard() {
     }
   }
 
+  const refreshLockRef = useRef(false)
+  const [refreshing, setRefreshing] = useState(false)
   const handleRefresh = async () => {
-    await loadData()
-    if (activeTab === 'review') {
-      await loadPendingRecords()
+    if (refreshLockRef.current) return
+    refreshLockRef.current = true
+    setRefreshing(true)
+    try {
+      await loadData()
+      if (activeTab === 'review') {
+        await loadPendingRecords()
+      }
+    } finally {
+      refreshLockRef.current = false
+      setRefreshing(false)
     }
   }
 
@@ -129,7 +139,8 @@ export function SFTDashboard() {
         {(activeTab === 'records' || activeTab === 'review') && (
           <button
             onClick={handleRefresh}
-            className="rounded-full font-semibold whitespace-nowrap shrink-0"
+            disabled={refreshing || loading}
+            className="rounded-full font-semibold whitespace-nowrap shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               minHeight: 40,
               padding: '0 16px',
@@ -139,7 +150,7 @@ export function SFTDashboard() {
               border: `1px solid ${WA.borderLight}`,
             }}
           >
-            刷新
+            {refreshing ? '刷新中…' : '刷新'}
           </button>
         )}
       </div>

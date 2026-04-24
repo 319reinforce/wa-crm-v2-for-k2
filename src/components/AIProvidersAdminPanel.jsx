@@ -125,9 +125,27 @@ function UsagePanel({ purpose }) {
 }
 
 function DeleteConfirmModal({ provider, onConfirm, onClose }) {
+  useEffect(() => {
+    if (!onClose) return undefined
+    const handler = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  const handleBackdrop = (e) => {
+    if (!onClose) return
+    if (e.target === e.currentTarget) onClose()
+  }
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center"
-      style={{ background: 'rgba(31,29,26,0.5)', padding: 16 }}>
+      style={{ background: 'rgba(31,29,26,0.5)', padding: 16 }}
+      onClick={handleBackdrop}>
       <div style={{
         background: WA.white, border: `1px solid ${WA.borderLight}`, borderRadius: 16,
         padding: 24, maxWidth: 360, boxShadow: WA.shellShadow,
