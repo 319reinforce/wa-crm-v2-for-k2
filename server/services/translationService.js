@@ -60,12 +60,57 @@ async function getTodayTranslationChars() {
     }
 }
 
-async function assertDeepLQuota(incomingChars) {
-    if (DAILY_CHAR_LIMIT <= 0) return;
-    const used = await getTodayTranslationChars();
-    if (used + incomingChars > DAILY_CHAR_LIMIT) {
-        throw new TranslationQuotaExceededError(used, DAILY_CHAR_LIMIT, incomingChars);
+// 进程内配额状态: 解决 TOCTOU 竞态。
+// baselineUsed 是当日冷启从 DB 拉的历史成功用量; reserved 是进程内已预留但未落库的量。
+// 多进程部署仍可能微量超额 (各自 reserve), 但单进程并发一致。
+// reserve() 返回 release 函数: DeepL 调用失败时归还预留, 避免浪费配额。
+let _quotaState = { date: null, baselineUsed: 0, reserved: 0, initPromise: null };
+
+function todayLocalDateKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function ensureQuotaBaseline() {
+    const today = todayLocalDateKey();
+    if (_quotaState.date === today) return;
+    if (_quotaState.initPromise) return _quotaState.initPromise;
+    _quotaState.initPromise = (async () => {
+        const baseline = await getTodayTranslationChars();
+        _quotaState.date = today;
+        _quotaState.baselineUsed = baseline;
+        _quotaState.reserved = 0;
+    })();
+    try {
+        await _quotaState.initPromise;
+    } finally {
+        _quotaState.initPromise = null;
     }
+}
+
+async function reserveDeepLQuota(incomingChars) {
+    if (DAILY_CHAR_LIMIT <= 0) return () => {};
+    await ensureQuotaBaseline();
+    const projected = _quotaState.baselineUsed + _quotaState.reserved + incomingChars;
+    if (projected > DAILY_CHAR_LIMIT) {
+        throw new TranslationQuotaExceededError(
+            _quotaState.baselineUsed + _quotaState.reserved,
+            DAILY_CHAR_LIMIT,
+            incomingChars,
+        );
+    }
+    _quotaState.reserved += incomingChars;
+    let released = false;
+    return function release() {
+        if (released) return;
+        released = true;
+        _quotaState.reserved = Math.max(0, _quotaState.reserved - incomingChars);
+    };
+}
+
+async function assertDeepLQuota(incomingChars) {
+    // Legacy 名称保留; 新代码用 reserveDeepLQuota + release 模式。
+    await reserveDeepLQuota(incomingChars);
 }
 
 let _deeplClient = null;
@@ -216,12 +261,13 @@ async function translateText(text, { role, timestamp, mode, provider } = {}) {
 
     if (finalProvider === 'deepl') {
         // 配额校验放在 try 外面，让 429 穿透到 route 层，不被 fallback 捕获
-        await assertDeepLQuota(chars);
+        const release = await reserveDeepLQuota(chars);
         try {
             const out = await translateTextViaDeepL(text, { direction, timestamp });
             logUsage({ provider: 'deepl', status: 'ok', chars, latencyMs: Date.now() - started, mode });
             return out;
         } catch (err) {
+            release();
             console.error('[translationService] DeepL translateText failed, fallback MiniMax:', err.message);
             logUsage({ provider: 'deepl', status: 'error', chars, latencyMs: Date.now() - started, error: err.message, mode });
             // fall-through to MiniMax
@@ -246,7 +292,7 @@ async function translateBatch(texts, { mode, provider } = {}) {
     const totalChars = texts.reduce((sum, t) => sum + String(t?.text || '').length, 0);
 
     if (finalProvider === 'deepl') {
-        await assertDeepLQuota(totalChars);
+        const release = await reserveDeepLQuota(totalChars);
         try {
             const out = await translateBatchViaDeepL(texts, mode);
             logUsage({
@@ -259,6 +305,7 @@ async function translateBatch(texts, { mode, provider } = {}) {
             });
             return out;
         } catch (err) {
+            release();
             console.error('[translationService] DeepL translateBatch failed, fallback MiniMax:', err.message);
             logUsage({
                 provider: 'deepl',
@@ -297,6 +344,15 @@ module.exports = {
         detectTranslationDirection,
         getDeepLClient,
         getTodayTranslationChars,
+        reserveDeepLQuota,
+        getQuotaState: () => ({
+            date: _quotaState.date,
+            baselineUsed: _quotaState.baselineUsed,
+            reserved: _quotaState.reserved,
+        }),
+        resetQuotaState: () => {
+            _quotaState = { date: null, baselineUsed: 0, reserved: 0, initPromise: null };
+        },
         DAILY_CHAR_LIMIT,
     },
 };
