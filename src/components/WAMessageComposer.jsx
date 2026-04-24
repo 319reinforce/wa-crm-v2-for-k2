@@ -2959,7 +2959,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         );
                     })()}
 
-                    {/* ✨ 主输入框 Emoji 润色按钮 — AI 在不改变原意的前提下加 1-3 个 emoji */}
+                    {/* 🪄 主输入框 Emoji 润色按钮 — AI 在不改变原意的前提下加 1-3 个 emoji
+                        注意:用 WandIcon 而不是 SparkIcon,避免与右侧圆绿色"AI 生成候选"按钮视觉重复 */}
                     {(() => {
                         const disabled = emojiEnhancingInput || translatingInput || writeBlocked || !inputText.trim();
                         const title = writeBlocked
@@ -2977,7 +2978,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                 }}
                                 title={title}
                             >
-                                {emojiEnhancingInput ? <SpinnerIcon /> : <SparkIcon />}
+                                {emojiEnhancingInput ? <SpinnerIcon /> : <WandIcon />}
                             </button>
                         );
                     })()}
@@ -3208,6 +3209,20 @@ function SendIcon({ color = 'currentColor' }) {
         <StrokeIcon color={color}>
             <path d="M21 3L10 14" />
             <path d="M21 3l-7 18-4-7-7-4 18-7Z" />
+        </StrokeIcon>
+    );
+}
+
+// 魔杖图标：主输入框 Emoji 润色按钮专用，和 SparkIcon(AI 生成)区分开
+function WandIcon({ color = 'currentColor' }) {
+    return (
+        <StrokeIcon color={color}>
+            <path d="M15 4V2" />
+            <path d="M15 10V8" />
+            <path d="M12 7h2" />
+            <path d="M16 7h2" />
+            <path d="M20 12l-9 9-3-3 9-9 3 3Z" />
+            <path d="M13 14l3 3" />
         </StrokeIcon>
     );
 }
