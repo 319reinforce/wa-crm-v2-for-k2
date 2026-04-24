@@ -617,6 +617,9 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
     // 当前回复上下文（模板/AI 共用，四槽位方案）
     const [activeReplyContext, setActiveReplyContext] = useState(null);
+    // 用户主动关闭 Reply Deck 时记下当时的 context signature；
+    // 只要 signature 没变（没有新来信 / 没切 topic），就不再自动把 deck 弹回来。
+    const [dismissedReplySignature, setDismissedReplySignature] = useState(null);
     const [templateDeck, setTemplateDeck] = useState(null);
     const [templateLoading, setTemplateLoading] = useState(false);
     const [templateError, setTemplateError] = useState(null);
@@ -797,6 +800,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         if (!client?.phone) return;
         setActivePicker(null);
         setPendingCandidates([]);
+        setDismissedReplySignature(null);
         setMessages([]);
         setMessageTotal(
             Number.isFinite(Number(client?.msg_count))
@@ -1080,6 +1084,14 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     }), [activeEvents, autoDetectedTopic, client?.phone, currentTopic, messages]);
 
     useEffect(() => {
+        // signature 发生变化（新来信 / 切 topic / 切 creator）→ 恢复 deck；
+        // 只要 signature 没变化，就尊重用户按过的关闭按钮。
+        if (dismissedReplySignature && dismissedReplySignature !== replyContextSignature) {
+            setDismissedReplySignature(null);
+        }
+        if (dismissedReplySignature === replyContextSignature) {
+            return;
+        }
         const nextContext = resolveReplyContext();
         setActiveReplyContext(nextContext);
         // 切话题 / 新 incoming → 清 AI 槽位并刷新模板槽位（op3/op4 仍需手动点 🤖 才生成）
@@ -1285,6 +1297,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         const latestMsg = incomingMsgs[incomingMsgs.length - 1];
         if (!latestMsg) return;
 
+        // 用户主动点 🤖 → 解除"已关闭"状态，让 activeReplyContext useEffect 重新挂 deck
+        setDismissedReplySignature(null);
         setActivePicker(null);
         setPendingCandidates([]);
         setPickerCustom('');
@@ -1966,30 +1980,38 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
     // 跳过 — 记录 feedback
     const handleSkip = async () => {
-        // 记录 skip feedback
+        // 记录 skip feedback（不阻塞 UI，失败静默忽略）
         if (activePicker?.incomingMsg) {
-            try {
-                await fetchOkOrThrow(`${API_BASE}/sft-feedback`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        client_id: client.phone,
-                        feedback_type: 'skip',
-                        input_text: activePicker.incomingMsg.text,
-                        opt1: activePicker.candidates?.opt1,
-                        opt2: activePicker.candidates?.opt2,
-                        scene: activePicker.scene || 'unknown',
-                        reject_reason: '运营跳过 AI 候选，未提供原因',
-                    }),
-                    signal: AbortSignal.timeout(15000),
-                });
-            } catch (_) {}
+            fetchOkOrThrow(`${API_BASE}/sft-feedback`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    client_id: client.phone,
+                    feedback_type: 'skip',
+                    input_text: activePicker.incomingMsg.text,
+                    opt1: activePicker.candidates?.opt1,
+                    opt2: activePicker.candidates?.opt2,
+                    scene: activePicker.scene || 'unknown',
+                    reject_reason: '运营跳过 AI 候选，未提供原因',
+                }),
+                signal: AbortSignal.timeout(15000),
+            }).catch(() => {});
         }
         setPickerCustom('');
         setPickerError(null);
+
+        // 如果还有排队候选就切到下一条；否则真正关闭整个 Reply Deck
         const [next, ...rest] = pendingCandidates;
         setPendingCandidates(rest);
-        setActivePicker(next || null);
+        if (next) {
+            setActivePicker(next);
+            return;
+        }
+        setActivePicker(null);
+        setActiveReplyContext(null);
+        setTemplateDeck(null);
+        setTemplateError(null);
+        setDismissedReplySignature(replyContextSignature);
     };
 
     // 编辑候选 — 填充到输入框，关闭 picker
@@ -2006,6 +2028,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const handleManualGenerate = async () => {
         if (!inputText.trim()) return;
         if (sendLockRef.current) return;
+        // 用户主动触发生成 → 解除"已关闭"状态
+        setDismissedReplySignature(null);
         sendLockRef.current = true;
         setGenerating(true);
         try {
