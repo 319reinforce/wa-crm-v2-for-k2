@@ -241,14 +241,17 @@
         "recommend",
         "control",
         "works",
-        "publish"
+        "publish",
+        "login",
+        "ads only",
+        "usage tips"
       ],
       "priority": 2,
       "sensitivity": "internal",
       "status": "approved",
-      "updated_at": "2026-04-20",
+      "updated_at": "2026-04-24",
       "effective_from": "2026-04-20",
-      "rule_version": "2026-04-20"
+      "rule_version": "2026-04-24"
     }
   ]
 }

@@ -262,6 +262,9 @@ const FIXED_TOPIC_TEMPLATES = {
         scene_keys: ['first_contact'],
         title: '初次建联固定方案',
         source: 'fixed-initial-outreach',
+        media_items: [
+            sopAprilMediaItem('image1.png', 'App Store 下载 Moras'),
+        ],
         text: `Hi [Creator Name]! I'm Alice, the marketing manager of the Moras team. Welcome to joining Moras - excited to have you with us!
 
 Nice to meet you! You can call me Alice. Next, I'll help you better use Moras, and you can contact me if you have any questions or product feedback.
@@ -274,6 +277,10 @@ May I ask if you encountered any issues while registering for Moras? You can rea
         scene_keys: ['mcn_binding', 'follow_up'],
         title: '二次触达agency绑定',
         source: 'fixed-agency-second-touch',
+        media_items: [
+            sopAprilMediaItem('image4.png', 'MCN 邀请与绑定入口'),
+            sopAprilMediaItem('image5.png', 'Agency 权限勾选'),
+        ],
         text: `Hi [Creator Name], just checking in quickly. I know the agency binding step can feel like one more thing to figure out, so no pressure.
 
 Are you still open to learning how it works? If yes, I can send the exact next step and you can decide from there.`,
@@ -284,11 +291,76 @@ Are you still open to learning how it works? If yes, I can send the exact next s
         scene_keys: ['mcn_binding', 'follow_up'],
         title: '待召回绑定落地',
         source: 'fixed-agency-recall-pending',
+        media_items: [
+            sopAprilMediaItem('image4.png', 'MCN 邀请与绑定入口'),
+            sopAprilMediaItem('image6.png', '解绑旧 MCN 参考'),
+        ],
         text: `Hi [Creator Name], following up on the agency binding we discussed earlier.
 
 If you're still ready to move forward, I can help you complete just the next step today. What time works best for you to finish the binding?`,
     },
 };
+
+function sopAprilMediaItem(fileName, label, note = '') {
+    return {
+        url: `/sop-assets/apr-2026/${fileName}`,
+        label,
+        note,
+        media_asset_id: null,
+    };
+}
+
+function inferSopMediaItems(section = {}) {
+    const sourceId = String(section.source_id || section.source || '').toLowerCase();
+    const text = [
+        section.title,
+        section.intent_key,
+        section.topic_group,
+        Array.isArray(section.path) ? section.path.join(' ') : '',
+    ].join(' ').toLowerCase();
+    if (!sourceId.includes('sop-creator-outreach-apr') && !sourceId.includes('faq-moras-product-mechanics')) {
+        return [];
+    }
+
+    if (/invite|registration|registered|username|onboarding|signup|邀请码|注册/.test(text)) {
+        return [
+            sopAprilMediaItem('image1.png', 'App Store 下载 Moras'),
+            sopAprilMediaItem('image3.png', '注册 / 邀请码步骤'),
+        ];
+    }
+    if (/mcn|agency|binding|bind|绑定|解绑/.test(text)) {
+        return [
+            sopAprilMediaItem('image4.png', 'MCN 邀请与绑定入口'),
+            sopAprilMediaItem('image5.png', 'Agency 权限勾选'),
+            sopAprilMediaItem('image6.png', '解绑旧 MCN 参考'),
+        ];
+    }
+    if (/login|log in|registration trouble|video_not_loading|setup|登陆|登录|trouble/.test(text)) {
+        return [
+            sopAprilMediaItem('image11.png', '登录返回上一步'),
+            sopAprilMediaItem('image12.png', '使用原邮箱登录'),
+        ];
+    }
+    if (/ads|private|delete|hide|violation|risk|safety|tips|违规|风控|安全|投广告/.test(text)) {
+        return [
+            sopAprilMediaItem('image13.png', '公开视频 / 广告状态参考'),
+            sopAprilMediaItem('image14.jpeg', 'Ads only 设置参考'),
+            sopAprilMediaItem('image15.png', '发布前检查 Tips'),
+        ];
+    }
+    if (/trial|reward|qualified|subsidy|payout|规则|奖励|月费|补贴/.test(text)) {
+        return [
+            sopAprilMediaItem('image2.png', '7 天试用 / MCN 后额度说明'),
+            sopAprilMediaItem('image9.png', '规则与奖励说明'),
+        ];
+    }
+    if (/how moras works|product logic|posting|guide|mechanics|产品|发布|机制/.test(text)) {
+        return [
+            sopAprilMediaItem('image3.png', 'Moras 使用步骤参考'),
+        ];
+    }
+    return [];
+}
 
 function resolveTopicGroupFromText(text = '', currentTopic = null, autoDetectedTopic = null) {
     const explicit = currentTopic?.topic_group || currentTopic?.topic_key || autoDetectedTopic?.topic_group || autoDetectedTopic?.topic_key;
@@ -764,6 +836,7 @@ function retrieveTemplateSlots(context) {
             topic_group: fixedTemplate.topic_group,
             intent_key: fixedTemplate.intent_key,
             scene_keys: fixedTemplate.scene_keys,
+            media_items: fixedTemplate.media_items || [],
             matched_by: ['fixed_topic_template'],
             sendable: true,
             score: 100,
@@ -863,7 +936,9 @@ function formatTemplateSlot(section, slotRole = 'recommended') {
         source: section.source_id,
         custom_template_id: section.custom_template_id || null,
         custom_template_label: section.custom_template_label || null,
-        media_items: section.media_items || [],
+        media_items: Array.isArray(section.media_items) && section.media_items.length > 0
+            ? section.media_items
+            : inferSopMediaItems(section),
         matched_by: section.matched_by || [],
         sendable: !!section.sendable,
         topic_group: section.topic_group,

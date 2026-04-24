@@ -24,6 +24,11 @@ export default function StandardReplyCard({
 }) {
     const [expanded, setExpanded] = useState(false);
     const showAlternatives = expanded && Array.isArray(alternatives) && alternatives.length > 0;
+    const canUpdateTemplate = Boolean(
+        slot?.custom_template_id
+        || /^operator-custom-topic::\d+$/.test(String(slot?.section_id || ''))
+    );
+    const templateActionHandler = canUpdateTemplate ? onUpdateTemplate : onSaveTemplate;
 
     const cardStyle = {
         width: compactMobile ? '88%' : '72%',
@@ -177,25 +182,12 @@ export default function StandardReplyCard({
                             border: `1px solid ${WA.borderLight}`,
                         }}
                     >
-                        编辑模板
+                        在输入框编辑
                     </button>
                 )}
-                {slot?.text && onSaveTemplate && (
+                {slot?.text && templateActionHandler && (
                     <button
-                        onClick={() => onSaveTemplate(slot)}
-                        className="px-3 py-2 rounded-full text-[12px] font-semibold"
-                        style={{
-                            background: 'rgba(255,255,255,0.68)',
-                            color: WA.textDark,
-                            border: `1px solid ${WA.borderLight}`,
-                        }}
-                    >
-                        保存模板
-                    </button>
-                )}
-                {slot?.text && onUpdateTemplate && (
-                    <button
-                        onClick={() => onUpdateTemplate(slot)}
+                        onClick={() => templateActionHandler(slot)}
                         className="px-3 py-2 rounded-full text-[12px] font-semibold"
                         style={{
                             background: 'rgba(255,255,255,0.68)',
@@ -212,7 +204,7 @@ export default function StandardReplyCard({
                         className="px-3 py-2 rounded-full text-[12px] font-semibold text-white"
                         style={{ background: accent }}
                     >
-                        使用
+                        直接发送
                     </button>
                 )}
             </div>
