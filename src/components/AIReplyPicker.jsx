@@ -1,6 +1,9 @@
 /**
  * AIReplyPicker — 统一四槽位回复面板
  * op1/op2 = 模板，op3/op4 = AI
+ *
+ * 自定义文本输入/翻译/Emoji/发送的入口一律回到主输入框(下方 textarea),
+ * 本面板不再维护独立 Custom textarea,避免上下各一个输入框造成的重复。
  */
 import React from 'react';
 import WA from '../utils/waTheme';
@@ -13,11 +16,6 @@ export default function AIReplyPicker({
     operatorLabel,
     operatorConfigured,
     promptVersion,
-    customText,
-    onCustomChange,
-    onTranslateCustom,
-    onEmojiCustom,
-    customToolLoading,
     onSelect,
     onSkip,
     onEditCandidate,
@@ -36,9 +34,6 @@ export default function AIReplyPicker({
 }) {
     const aiBusy = loading || generating;
     const sendBusy = !!sending;
-    const translatingCustom = !!customToolLoading?.translate;
-    const emojiCustomizing = !!customToolLoading?.emoji;
-    const customDisabled = !customText?.trim();
     const templateSlots = templateDeck?.slots || {};
     const alternatives = Array.isArray(templateDeck?.alternatives) ? templateDeck.alternatives : [];
     const aiReady = !!(aiDeck?.opt1 || aiDeck?.opt2);
@@ -122,57 +117,11 @@ export default function AIReplyPicker({
             </div>
 
             <div
-                className="rounded-[18px] px-3 py-3"
-                style={{ background: WA.white, border: `1px dashed ${WA.borderLight}` }}
+                className="text-[11px] leading-relaxed rounded-[12px] px-3 py-2"
+                style={{ background: WA.shellPanelMuted, color: WA.textMuted }}
             >
-                <div className="flex items-center gap-2 mb-2.5">
-                    <span
-                        className="text-[11px] font-bold px-2 py-0.5 rounded-full"
-                        style={{ background: 'rgba(245,158,11,0.16)', color: '#b45309' }}
-                    >
-                        Custom
-                    </span>
-                    <span className="text-[11px] font-medium" style={{ color: WA.textMuted }}>
-                        可直接翻译、加 Emoji 或人工改写后发送
-                    </span>
-                </div>
-
-                <textarea
-                    value={customText}
-                    onChange={(e) => onCustomChange(e.target.value)}
-                    placeholder="在这里输入要翻译或发送的文本..."
-                    rows={compactMobile ? 3 : 2}
-                    className="w-full text-sm rounded-[16px] px-3 py-2.5 focus:outline-none resize-y"
-                    style={{
-                        background: WA.shellPanelMuted,
-                        color: WA.textDark,
-                        border: `1px solid ${WA.borderLight}`,
-                        minHeight: compactMobile ? '92px' : '84px',
-                    }}
-                />
-
-                <div className="mt-2.5 flex flex-wrap gap-2">
-                    <ToolButton
-                        onClick={onTranslateCustom}
-                        disabled={customDisabled || translatingCustom || emojiCustomizing}
-                        icon={translatingCustom ? <SpinnerIcon /> : <GlobeIcon />}
-                        label="翻译"
-                    />
-                    <ToolButton
-                        onClick={onEmojiCustom}
-                        disabled={customDisabled || translatingCustom || emojiCustomizing}
-                        icon={emojiCustomizing ? <SpinnerIcon /> : <SmileIcon />}
-                        label="Emoji"
-                    />
-                    <button
-                        onClick={() => onSelect('custom')}
-                        disabled={customDisabled || sendBusy}
-                        className="px-3.5 py-2 rounded-full text-xs font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                        style={{ background: WA.teal }}
-                    >
-                        {sendBusy ? '发送中…' : '发送自定义'}
-                    </button>
-                </div>
+                需要人工改写 / 翻译 / 加 Emoji 或从零输入文案? 直接在下方消息框操作即可。
+                消息框旁的 🌐 翻译 和 😀 Emoji 润色按钮会作用在消息框里的文本。
             </div>
         </div>
     );
