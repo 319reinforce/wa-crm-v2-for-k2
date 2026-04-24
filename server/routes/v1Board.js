@@ -4,9 +4,37 @@
 const express = require('express');
 const router = express.Router();
 const { getPool } = require('../../db');
+const {
+    getLockedOwner,
+    matchesOwnerScope,
+    sendOwnerScopeForbidden,
+} = require('../middleware/appAuth');
 
 const DEFAULT_CUTOFF = '2026-01-21T00:00:00Z';
 const CUTOFF_TS_MS = Date.parse(process.env.V1_CUTOFF_DATE || DEFAULT_CUTOFF);
+
+// V1_OWNER_ALLOWLIST: 逗号分隔的 wa_owner 原始值白名单（默认保持老行为 Beau,Yiyun）。
+// 过去硬编码 IN ('Beau','Yiyun'), 新增 operator 时需改代码; 现在走 env。
+const V1_OWNER_ALLOWLIST = (() => {
+    const raw = String(process.env.V1_OWNER_ALLOWLIST || 'Beau,Yiyun').trim();
+    const list = raw.split(',').map(s => s.trim()).filter(Boolean);
+    return list.length ? list : ['Beau', 'Yiyun'];
+})();
+
+function buildOwnerAllowlistClause(alias = 'c') {
+    const placeholders = V1_OWNER_ALLOWLIST.map(() => '?').join(',');
+    return {
+        clause: `${alias}.wa_owner IN (${placeholders})`,
+        params: V1_OWNER_ALLOWLIST.slice(),
+    };
+}
+
+// operator token 只能看到自己 owner 的数据;admin / viewer GET 放行全部
+function isOwnerVisible(req, rawOwner) {
+    const lockedOwner = getLockedOwner(req);
+    if (!lockedOwner) return true;
+    return matchesOwnerScope(req, rawOwner);
+}
 
 const LIFECYCLE_META = {
   acquisition: {
@@ -552,10 +580,11 @@ let cache = { ts: 0, creators: [], byCreatorId: {}, byPhone: {}, joinbrands: [],
 const CACHE_TTL = 15 * 1000;
 
 async function getFilteredCreatorIds(conn) {
+  const ownerFilter = buildOwnerAllowlistClause('c');
   const baseFilter = `
     c.wa_phone REGEXP '^1[0-9]{10}$'
     AND (c.primary_name IS NULL OR LOWER(c.primary_name) NOT LIKE '%moras%')
-    AND c.wa_owner IN ('Beau','Yiyun')
+    AND ${ownerFilter.clause}
   `;
   const sql = `
     SELECT c.id
@@ -566,7 +595,7 @@ async function getFilteredCreatorIds(conn) {
     GROUP BY c.id
     HAVING COUNT(wm.id) >= 3 AND MAX(wm.timestamp) >= ?
   `;
-  const [rows] = await conn.query(sql, [CUTOFF_TS_MS]);
+  const [rows] = await conn.query(sql, [...ownerFilter.params, CUTOFF_TS_MS]);
   return rows.map(r => r.id);
 }
 
@@ -1071,16 +1100,17 @@ router.get('/health', (_req, res) => {
   res.json({ ok: true, timestamp: new Date().toISOString() });
 });
 
-router.get('/users', async (_req, res) => {
+router.get('/users', async (req, res) => {
   try {
     const data = await loadBaseData();
-    res.json(data.creators);
+    const creators = data.creators.filter(c => isOwnerVisible(req, c.wa_owner_raw || c.wa_owner));
+    res.json(creators);
   } catch (e) {
     res.status(500).json({ error: 'Failed to load users', detail: e.message });
   }
 });
 
-router.get('/lifecycle/dashboard', async (_req, res) => {
+router.get('/lifecycle/dashboard', async (req, res) => {
   try {
     const conn = await getPool().getConnection();
     try {
@@ -1103,7 +1133,7 @@ router.get('/lifecycle/dashboard', async (_req, res) => {
       }
 
       const placeholders = ids.map(() => '?').join(', ');
-      const [rows] = await conn.query(
+      const [allRows] = await conn.query(
         `
           SELECT
             c.id,
@@ -1122,6 +1152,9 @@ router.get('/lifecycle/dashboard', async (_req, res) => {
         `,
         ids
       );
+
+      // owner-scope: operator token 只看自己的; admin/viewer 放行全部
+      const rows = allRows.filter(r => isOwnerVisible(req, r.wa_owner));
 
       const stage_counts = {};
       const funnel_counts = { acquisition: 0, activation: 0, retention: 0, revenue: 0 };
@@ -1192,6 +1225,9 @@ router.get('/users/:phone/messages', async (req, res) => {
     const data = await loadBaseData();
     const user = data.byPhone.get(phone);
     if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!isOwnerVisible(req, user.wa_owner_raw || user.wa_owner)) {
+      return sendOwnerScopeForbidden(res, getLockedOwner(req));
+    }
 
     const messages = user.messages || [];
     const events = user.events || {};
@@ -1245,19 +1281,25 @@ router.get('/users/:phone/messages', async (req, res) => {
   }
 });
 
-router.get('/joinbrands', async (_req, res) => {
+router.get('/joinbrands', async (req, res) => {
   try {
     const data = await loadBaseData();
-    res.json(data.joinbrands);
+    const joinbrands = data.joinbrands.filter(j =>
+        isOwnerVisible(req, j.identity?.owner || j.waOwner || null),
+    );
+    res.json(joinbrands);
   } catch (e) {
     res.status(500).json({ error: 'Failed to load joinbrands', detail: e.message });
   }
 });
 
-router.get('/keeper', async (_req, res) => {
+router.get('/keeper', async (req, res) => {
   try {
     const data = await loadBaseData();
-    res.json(data.keeper);
+    const keeper = data.keeper.filter(k =>
+        isOwnerVisible(req, k.identity?.owner || k.waOwner || null),
+    );
+    res.json(keeper);
   } catch (e) {
     res.status(500).json({ error: 'Failed to load keeper', detail: e.message });
   }
