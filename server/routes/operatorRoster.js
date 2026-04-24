@@ -61,28 +61,36 @@ router.get('/', async (req, res) => {
             ),
         ]);
 
-        const staticNames = new Set(staticRoster.map((item) => item.operator));
-        const dynamicMap = new Map(); // name -> sources[]
+        // case-insensitive 去重，避免 DB 里混进 'jiawei' / 'Jiawei' 时前端
+        // 看到两个 operator 选项。key 用 lowercase，value 保留首次见到的原始
+        // 大小写（display_name），merge 所有 sources。静态 roster 的 key 也
+        // 参与 case-insensitive 对比，防止 DB 中 'beau' 小写跟静态 'Beau' 重复。
+        const staticKeys = new Set(staticRoster.map((item) => String(item.operator).toLowerCase()));
+        const dynamicMap = new Map(); // lowercase key -> { display, sources:Set }
         for (const [list, src] of [
             [userNames, 'users'],
             [creatorOwners, 'creators'],
             [sessionOwners, 'sessions'],
         ]) {
             for (const name of list) {
-                if (staticNames.has(name)) continue;
-                const existing = dynamicMap.get(name);
-                if (existing) existing.push(src);
-                else dynamicMap.set(name, [src]);
+                const key = String(name).toLowerCase();
+                if (staticKeys.has(key)) continue;
+                const existing = dynamicMap.get(key);
+                if (existing) {
+                    existing.sources.add(src);
+                } else {
+                    dynamicMap.set(key, { display: name, sources: new Set([src]) });
+                }
             }
         }
 
-        const dynamicItems = [...dynamicMap.entries()]
-            .map(([operator, sources]) => ({
-                operator,
+        const dynamicItems = [...dynamicMap.values()]
+            .map(({ display, sources }) => ({
+                operator: display,
                 real_name: null,
                 wa_note: null,
                 source: 'dynamic',
-                seen_in: sources,
+                seen_in: [...sources],
             }))
             .sort((a, b) => String(a.operator).localeCompare(String(b.operator), 'zh-CN'));
 
