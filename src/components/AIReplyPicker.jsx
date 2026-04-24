@@ -27,11 +27,15 @@ export default function AIReplyPicker({
     templateLoading = false,
     templateError = null,
     loading = false,
+    generating = false,
+    sending = false,
     error = null,
     compactMobile = false,
     collapsed = false,
     onToggleCollapse,
 }) {
+    const aiBusy = loading || generating;
+    const sendBusy = !!sending;
     const translatingCustom = !!customToolLoading?.translate;
     const emojiCustomizing = !!customToolLoading?.emoji;
     const customDisabled = !customText?.trim();
@@ -92,7 +96,8 @@ export default function AIReplyPicker({
                     label="op3 AI 方案一"
                     text={aiDeck?.opt1 || '点击 AI 生成'}
                     accent="#2563eb"
-                    loading={loading}
+                    loading={aiBusy}
+                    sending={sendBusy}
                     error={error}
                     ready={!!aiDeck?.opt1}
                     onGenerate={onGenerateAi}
@@ -105,7 +110,8 @@ export default function AIReplyPicker({
                     label="op4 AI 方案二"
                     text={aiDeck?.opt2 || '点击 AI 生成'}
                     accent="#0f766e"
-                    loading={loading}
+                    loading={aiBusy}
+                    sending={sendBusy}
                     error={error}
                     ready={!!aiDeck?.opt2}
                     onGenerate={onGenerateAi}
@@ -160,11 +166,11 @@ export default function AIReplyPicker({
                     />
                     <button
                         onClick={() => onSelect('custom')}
-                        disabled={customDisabled}
-                        className="px-3.5 py-2 rounded-full text-xs font-semibold text-white disabled:opacity-50"
+                        disabled={customDisabled || sendBusy}
+                        className="px-3.5 py-2 rounded-full text-xs font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{ background: WA.teal }}
                     >
-                        发送自定义
+                        {sendBusy ? '发送中…' : '发送自定义'}
                     </button>
                 </div>
             </div>
@@ -216,8 +222,8 @@ export default function AIReplyPicker({
                 <div className="flex items-center gap-2 shrink-0">
                     <ToolButton
                         onClick={aiReady ? onRegenerate : onGenerateAi}
-                        disabled={loading}
-                        icon={loading ? <SpinnerIcon /> : aiReady ? <RefreshIcon /> : <SparkIcon />}
+                        disabled={aiBusy || sendBusy}
+                        icon={aiBusy ? <SpinnerIcon /> : aiReady ? <RefreshIcon /> : <SparkIcon />}
                         label={compactMobile ? '' : aiReady ? '重生成' : 'AI生成'}
                     />
                     <ToolButton
@@ -244,8 +250,10 @@ export default function AIReplyPicker({
     );
 }
 
-function CandidateCard({ badge, label, text, accent, ready, loading, error, onGenerate, onEdit, onSend, compactMobile }) {
+function CandidateCard({ badge, label, text, accent, ready, loading, sending, error, onGenerate, onEdit, onSend, compactMobile }) {
     const waiting = !ready && !loading && !error;
+    const showError = !ready && !!error && !loading;
+    const canInteract = ready && !sending;
     return (
         <div
             className="shrink-0 snap-start rounded-[18px] px-3 py-3"
@@ -272,24 +280,38 @@ function CandidateCard({ badge, label, text, accent, ready, loading, error, onGe
             </div>
 
             <div className={`${compactMobile ? 'text-[13px]' : 'text-sm'} leading-relaxed whitespace-pre-wrap break-words`} style={{ minHeight: compactMobile ? '108px' : '96px' }}>
-                {loading ? 'AI 正在生成候选回复...' : error ? `生成失败：${error}` : text}
+                {loading ? (
+                    <span style={{ color: WA.textMuted }}>AI 正在生成候选回复...</span>
+                ) : showError ? (
+                    <span style={{ color: '#b91c1c' }}>生成失败：{error}</span>
+                ) : text}
             </div>
 
             <div className="mt-3 flex gap-2">
                 {waiting ? (
                     <button
                         onClick={onGenerate}
-                        className="flex-1 px-3 py-2 rounded-full text-[12px] font-semibold text-white"
+                        disabled={loading}
+                        className="flex-1 px-3 py-2 rounded-full text-[12px] font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{ background: accent }}
                     >
-                        点击 AI 生成
+                        {loading ? '生成中…' : '点击 AI 生成'}
+                    </button>
+                ) : showError ? (
+                    <button
+                        onClick={onGenerate}
+                        disabled={loading}
+                        className="flex-1 px-3 py-2 rounded-full text-[12px] font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        style={{ background: accent }}
+                    >
+                        {loading ? '生成中…' : '重试生成'}
                     </button>
                 ) : (
                     <>
                         <button
                             onClick={onEdit}
-                            disabled={!ready}
-                            className="flex-1 px-3 py-2 rounded-full text-[12px] font-semibold disabled:opacity-40"
+                            disabled={!canInteract}
+                            className="flex-1 px-3 py-2 rounded-full text-[12px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
                             style={{
                                 background: 'rgba(255,255,255,0.68)',
                                 color: WA.textDark,
@@ -300,11 +322,11 @@ function CandidateCard({ badge, label, text, accent, ready, loading, error, onGe
                         </button>
                         <button
                             onClick={onSend}
-                            disabled={!ready}
-                            className="flex-1 px-3 py-2 rounded-full text-[12px] font-semibold text-white disabled:opacity-40"
+                            disabled={!canInteract}
+                            className="flex-1 px-3 py-2 rounded-full text-[12px] font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
                             style={{ background: accent }}
                         >
-                            使用
+                            {sending ? '发送中…' : '使用'}
                         </button>
                     </>
                 )}

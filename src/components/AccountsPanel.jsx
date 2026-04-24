@@ -9,6 +9,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchJsonOrThrow } from '../utils/api'
 import WA from '../utils/waTheme'
+import { useToast } from './Toast'
 
 const API_BASE = '/api'
 const REFRESH_INTERVAL_MS = 5000
@@ -83,11 +84,29 @@ function IntentBadge({ desiredState }) {
   )
 }
 
-function ModalShell({ title, onClose, children, maxWidth = 460 }) {
+function ModalShell({ title, onClose, children, maxWidth = 460, dismissOnBackdrop = true, dismissOnEsc = true }) {
+  useEffect(() => {
+    if (!dismissOnEsc || !onClose) return undefined
+    const handler = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [dismissOnEsc, onClose])
+
+  const handleBackdrop = (e) => {
+    if (!dismissOnBackdrop || !onClose) return
+    if (e.target === e.currentTarget) onClose()
+  }
+
   return (
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center"
       style={{ background: 'rgba(31,29,26,0.45)', padding: 16 }}
+      onClick={handleBackdrop}
     >
       <div
         className="w-full rounded-[24px] overflow-hidden flex flex-col"
@@ -106,7 +125,8 @@ function ModalShell({ title, onClose, children, maxWidth = 460 }) {
           <div className="docs-title truncate" style={{ fontSize: 16 }}>{title}</div>
           <button
             onClick={onClose}
-            className="inline-flex items-center justify-center rounded-full shrink-0"
+            disabled={!onClose}
+            className="inline-flex items-center justify-center rounded-full shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               width: 36,
               height: 36,
@@ -841,6 +861,7 @@ function MetaRow({ label, value }) {
 }
 
 export function AccountsPanel() {
+  const toast = useToast()
   const [sessions, setSessions] = useState([])
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -882,7 +903,7 @@ export function AccountsPanel() {
       await fn()
       await loadSessions()
     } catch (err) {
-      alert(`操作失败: ${err.message || err}`)
+      toast.error(`操作失败: ${err.message || err}`)
     } finally {
       setActionPending((prev) => {
         const next = { ...prev }

@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchJsonOrThrow } from '../utils/api'
 import WA from '../utils/waTheme'
 import { clearRosterCache } from '../utils/operators'
+import { useToast } from './Toast'
 
 const API_BASE = '/api'
 const ACCENT = {
@@ -92,11 +93,29 @@ const rowBtnStyle = {
   cursor: 'pointer',
 }
 
-function ModalShell({ title, onClose, children, maxWidth = 440 }) {
+function ModalShell({ title, onClose, children, maxWidth = 440, dismissOnBackdrop = true, dismissOnEsc = true }) {
+  useEffect(() => {
+    if (!dismissOnEsc || !onClose) return undefined
+    const handler = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [dismissOnEsc, onClose])
+
+  const handleBackdrop = (e) => {
+    if (!dismissOnBackdrop || !onClose) return
+    if (e.target === e.currentTarget) onClose()
+  }
+
   return (
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center"
       style={{ background: 'rgba(31,29,26,0.45)', padding: 16 }}
+      onClick={handleBackdrop}
     >
       <div
         className="w-full rounded-[24px] overflow-hidden flex flex-col"
@@ -116,7 +135,8 @@ function ModalShell({ title, onClose, children, maxWidth = 440 }) {
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center justify-center rounded-full shrink-0"
+            disabled={!onClose}
+            className="inline-flex items-center justify-center rounded-full shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               width: 36,
               height: 36,
@@ -399,6 +419,7 @@ function TempPasswordToast({ tempPassword, onClose }) {
 }
 
 function OwnerCell({ user, roster, onCommit }) {
+  const toast = useToast()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(user.operator_name || '')
 
@@ -433,7 +454,7 @@ function OwnerCell({ user, roster, onCommit }) {
     if (!trimmed) { setEditing(false); return }
     if (trimmed === user.operator_name) { setEditing(false); return }
     if (!OPERATOR_NAME_PATTERN.test(trimmed)) {
-      alert('owner 需以字母/数字开头,长度 ≤32,仅允许字母、数字、空格、下划线和连字符')
+      toast.warning('owner 需以字母/数字开头，长度 ≤32，仅允许字母、数字、空格、下划线和连字符')
       return
     }
     try {
@@ -467,6 +488,7 @@ function OwnerCell({ user, roster, onCommit }) {
 }
 
 export function UsersPanel() {
+  const toast = useToast()
   const [users, setUsers] = useState([])
   const [roster, setRoster] = useState([])
   const [loading, setLoading] = useState(true)
@@ -503,7 +525,7 @@ export function UsersPanel() {
       clearRosterCache()
       await loadAll()
     } catch (err) {
-      alert(err?.message || '修改失败')
+      toast.error(err?.message || '修改失败')
     }
   }
 
@@ -517,7 +539,7 @@ export function UsersPanel() {
       })
       await loadAll()
     } catch (err) {
-      alert(err?.message || '操作失败')
+      toast.error(err?.message || '操作失败')
     }
   }
 
@@ -531,7 +553,7 @@ export function UsersPanel() {
       })
       if (res?.data?.temporary_password) setTempPassword(res.data.temporary_password)
     } catch (err) {
-      alert(err?.message || '重置失败')
+      toast.error(err?.message || '重置失败')
     }
   }
 

@@ -21,11 +21,29 @@ function parseJsonSafe(raw) {
   try { return JSON.parse(raw) } catch (_) { return null }
 }
 
-function ModalShell({ title, onClose, children }) {
+function ModalShell({ title, onClose, children, dismissOnBackdrop = true, dismissOnEsc = true }) {
+  useEffect(() => {
+    if (!dismissOnEsc || !onClose) return undefined
+    const handler = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [dismissOnEsc, onClose])
+
+  const handleBackdrop = (e) => {
+    if (!dismissOnBackdrop || !onClose) return
+    if (e.target === e.currentTarget) onClose()
+  }
+
   return (
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center"
       style={{ background: 'rgba(31,29,26,0.45)', padding: 16 }}
+      onClick={handleBackdrop}
     >
       <div
         className="w-full rounded-3xl overflow-hidden flex flex-col"
@@ -44,7 +62,8 @@ function ModalShell({ title, onClose, children }) {
           <div style={{ fontSize: 16, fontWeight: 600, color: WA.textDark }}>{title}</div>
           <button
             onClick={onClose}
-            className="inline-flex items-center justify-center rounded-full shrink-0"
+            disabled={!onClose}
+            className="inline-flex items-center justify-center rounded-full shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               width: 36, height: 36, background: WA.white, color: WA.textMuted,
               border: `1px solid ${WA.borderLight}`, fontSize: 16,

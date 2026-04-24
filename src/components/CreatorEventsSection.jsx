@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 import WA from '../utils/waTheme'
+import { useToast } from './Toast'
 
 const API_BASE = '/api'
 const DISPLAY_TIME_ZONE = 'Asia/Shanghai'
@@ -123,6 +124,7 @@ function MiniAction({ label, color, onClick, disabled = false }) {
 }
 
 export function CreatorEventsSection({ creatorId }) {
+  const toast = useToast()
   const [summary, setSummary] = useState(null)
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
@@ -174,7 +176,7 @@ export function CreatorEventsSection({ creatorId }) {
       })
       await loadSummary(true)
     } catch (e) {
-      alert(`二次核对失败: ${e.message}`)
+      toast.error(`二次核对失败: ${e.message}`)
     } finally {
       setVerifyingEventId(null)
     }
@@ -191,7 +193,7 @@ export function CreatorEventsSection({ creatorId }) {
       })
       await loadSummary(true)
     } catch (e) {
-      alert(`人工确认流转失败: ${e.message}`)
+      toast.error(`人工确认流转失败: ${e.message}`)
     } finally {
       setApplyingEventId(null)
     }
