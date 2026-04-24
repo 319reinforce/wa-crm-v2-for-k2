@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import EmojiPicker from 'emoji-picker-react';
 import AIReplyPicker from './AIReplyPicker';
+import { useToast } from './Toast';
 import { buildConversation, buildRichContext, computeSimilarity } from './WAMessageComposer/ai/extractors';
 import { inferAutoTopic, startNewTopic, resolveTopicContext } from './WAMessageComposer/ai/topicDetector';
 import { generateViaExperienceRouter } from './WAMessageComposer/ai/experienceRouter';
@@ -594,8 +595,13 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const writeBlockedTitle = writeBlocked
         ? `只读模式：当前达人归属 ${targetOwner || '其他 owner'}，你只能给自己 owner (${viewerOwnOwner}) 下的达人发送消息`
         : null;
+    const toast = useToast();
     const [inputText, setInputText] = useState('');
     const [generating, setGenerating] = useState(false);
+    const [sendingText, setSendingText] = useState(false);
+    const [isComposing, setIsComposing] = useState(false);
+    // 共享锁：发送/生成/选择 任意操作在飞行中时，阻止其他入口重复触发
+    const sendLockRef = useRef(false);
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const [translating, setTranslating] = useState(false);
     // 翻译进度：null = 未翻译, 'n/t' = 翻译中
@@ -1167,12 +1173,12 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         if (!file) return;
         const mimeType = String(file.type || '').toLowerCase();
         if (!mimeType.startsWith('image/')) {
-            alert('仅支持图片文件（jpg/png/webp/gif）');
+            toast.warning('仅支持图片文件（jpg/png/webp/gif）');
             if (mediaInputRef.current) mediaInputRef.current.value = '';
             return;
         }
         if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
-            alert(`图片过大：${formatBytes(file.size)}，上限 ${formatBytes(MAX_IMAGE_UPLOAD_BYTES)}`);
+            toast.warning(`图片过大：${formatBytes(file.size)}，上限 ${formatBytes(MAX_IMAGE_UPLOAD_BYTES)}`);
             if (mediaInputRef.current) mediaInputRef.current.value = '';
             return;
         }
@@ -1194,6 +1200,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
     const handleDirectSendMedia = async () => {
         if (!pendingImage?.file || !client?.phone) return;
+        if (sendLockRef.current) return;
+        sendLockRef.current = true;
         setSendingMedia(true);
         try {
             const dataBase64 = await fileToDataUrl(pendingImage.file);
@@ -1262,8 +1270,9 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             clearPendingImage();
         } catch (e) {
             console.error('[WA Send Media] failed:', e);
-            alert(`发送图片失败: ${e.message || '未知错误'}`);
+            toast.error(`发送图片失败: ${e.message || '未知错误'}`);
         } finally {
+            sendLockRef.current = false;
             setSendingMedia(false);
         }
     };
@@ -1685,7 +1694,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             });
         } catch (e) {
             console.error('[repairMessages] error:', e);
-            alert(`修复消息失败: ${e.message || '未知错误'}`);
+            toast.error(`修复消息失败: ${e.message || '未知错误'}`);
         } finally {
             setRepairingMessages(false);
         }
@@ -1727,14 +1736,14 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             });
         } catch (e) {
             console.error('[incrementalSync] error:', e);
-            alert(`增量更新失败: ${e.message || '未知错误'}`);
+            toast.error(`增量更新失败: ${e.message || '未知错误'}`);
         } finally {
             setSyncingMessages(false);
         }
     };
 
     const sendOutboundMessage = async (sentText, { onError } = {}) => {
-        const reportError = onError || ((message) => alert(`发送失败: ${message}`));
+        const reportError = onError || ((message) => toast.error(`发送失败: ${message}`));
 
         let data;
         try {
@@ -1752,12 +1761,12 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             data = await res.json();
             if (!data.ok) {
                 reportError(data.error || '未知错误');
-                return { ok: false };
+                return { ok: false, error: data.error || '未知错误' };
             }
         } catch (e) {
             console.error('[WA Send] 发送失败:', e);
             reportError(e.message || '请求失败');
-            return { ok: false };
+            return { ok: false, error: e.message || '请求失败' };
         }
 
         const crmMessage = data?.crm_message || null;
@@ -1838,6 +1847,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
     // 选择了候选 → 发送（支持模板槽位 op1/op2 + AI 槽位 op3/op4 + 自定义）
     const handleSelectCandidate = async (selectedOpt, payload = null) => {
+        if (sendLockRef.current) return;
         const selectedTemplate = selectedOpt === 'template_op1'
             ? templateDeck?.slots?.op1
             : selectedOpt === 'template_op2'
@@ -1855,7 +1865,9 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         if (!sentText) return;
 
         setPickerError(null);
-
+        sendLockRef.current = true;
+        setSendingText(true);
+        try {
         const sendResult = await sendOutboundMessage(sentText, {
             onError: (message) => setPickerError(message),
         });
@@ -1914,6 +1926,10 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         setPickerCustom('');
         setActivePicker(null);
         setInputText('');
+        } finally {
+            sendLockRef.current = false;
+            setSendingText(false);
+        }
     };
 
     // 跳过 — 记录 feedback
@@ -1957,6 +1973,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     // 手动 AI 生成（输入框有文字时按 Enter 触发）
     const handleManualGenerate = async () => {
         if (!inputText.trim()) return;
+        if (sendLockRef.current) return;
+        sendLockRef.current = true;
         setGenerating(true);
         try {
             const conversation = buildConversation(messages);
@@ -1997,8 +2015,9 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             setPickerCustom('');
         } catch (e) {
             console.error('生成失败:', e);
-            alert(`生成失败: ${e.message}`);
+            toast.error(`生成失败: ${e.message || '未知错误'}`);
         } finally {
+            sendLockRef.current = false;
             setGenerating(false);
         }
     };
@@ -2006,22 +2025,34 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     // 直接发送人工输入（不经过 AI 候选）
     const handleDirectSend = async (text) => {
         if (!text?.trim() || !client?.id) return;
+        if (sendLockRef.current) return;
         const sentText = text.trim();
 
-        const sendResult = await sendOutboundMessage(sentText);
-        if (!sendResult?.ok) return;
+        sendLockRef.current = true;
+        setSendingText(true);
+        try {
+            const sendResult = await sendOutboundMessage(sentText);
+            if (!sendResult?.ok) {
+                // 失败保留输入框原文，供用户重试；错误已通过 toast 反馈
+                return;
+            }
 
-        await persistSftRecord({
-            sentText,
-            incomingMsg: null,
-            modelCandidates: { opt1: sentText, opt2: '' },
-            humanSelected: 'custom',
-            diffAnalysis: { is_custom: true, human_reason: '人工直接发送', similarity: 100 },
-        });
+            // 成功后立即清空输入框，避免用户误以为没发出去再点一次
+            setInputText('');
 
-        await extractAndSaveMemory(null, sentText);
+            await persistSftRecord({
+                sentText,
+                incomingMsg: null,
+                modelCandidates: { opt1: sentText, opt2: '' },
+                humanSelected: 'custom',
+                diffAnalysis: { is_custom: true, human_reason: '人工直接发送', similarity: 100 },
+            });
 
-        setInputText('');
+            await extractAndSaveMemory(null, sentText);
+        } finally {
+            sendLockRef.current = false;
+            setSendingText(false);
+        }
     };
 
     // messages from state (updated by checkNewMessages polling)
@@ -2624,6 +2655,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         templateLoading={templateLoading}
                         templateError={templateError}
                         loading={pickerLoading}
+                        generating={generating}
+                        sending={sendingText}
                         error={pickerError}
                         compactMobile={isMobileViewport}
                         collapsed={isMobileViewport ? pickerCollapsed : false}
@@ -2870,8 +2903,13 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                             rows={2}
                             className="flex-1 bg-transparent text-sm focus:outline-none resize-none"
                             style={{ maxHeight: '240px', color: WA.textDark }}
+                            onCompositionStart={() => setIsComposing(true)}
+                            onCompositionEnd={() => setIsComposing(false)}
                             onKeyDown={e => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
+                                    // IME 拼音组合未上屏 / 操作飞行中 / e.repeat 长按：不触发发送
+                                    if (isComposing || e.nativeEvent?.isComposing || e.repeat) return;
+                                    if (sendLockRef.current || generating || sendingMedia || sendingText || writeBlocked) return;
                                     e.preventDefault();
                                     if (pendingImage) {
                                         handleDirectSendMedia();
@@ -2893,8 +2931,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                             {!pendingImage && inputText.trim() && (
                                 <button
                                     onClick={handleManualGenerate}
-                                    disabled={generating || writeBlocked}
-                                    className="w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50"
+                                    disabled={generating || sendingText || sendingMedia || writeBlocked}
+                                    className="w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                                     style={{ background: WA.teal }}
                                     title={writeBlockedTitle || 'AI 生成候选回复'}
                                 >
@@ -2910,15 +2948,15 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                     }
                                     handleDirectSend(inputText);
                                 }}
-                                disabled={sendingMedia || writeBlocked}
-                                className="w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50"
+                                disabled={sendingMedia || sendingText || generating || writeBlocked || (!pendingImage && !inputText.trim())}
+                                className="w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                                 style={{ background: '#3b82f6' }}
                                 title={
                                     writeBlockedTitle
                                     || (pendingImage ? '发送图片（可附带 caption）' : '直接发送')
                                 }
                             >
-                                {sendingMedia ? <SpinnerIcon color="#ffffff" /> : <SendIcon color="#ffffff" />}
+                                {(sendingMedia || sendingText) ? <SpinnerIcon color="#ffffff" /> : <SendIcon color="#ffffff" />}
                             </button>
                         </div>
                     ) : (
