@@ -78,7 +78,8 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
         ? resolveUnboundAgencyStrategy({ clientMemory, nextAction: wacrm?.next_action || '', strategies: agencyStrategies })
         : null;
 
-    const topicLabel = getTopicLabel(topic?.topic_group || topic?.topic_key, '一般咨询');
+    const topicLabel = topic?.custom_topic_label || topic?.label || getTopicLabel(topic?.topic_group || topic?.topic_key, '一般咨询');
+    const customTemplate = String(topic?.custom_template_text || '').trim();
     const triggerLabel = { manual: '运营手动标记', time: '48小时无互动', keyword: '关键词变化', auto: '自动检测', new: '新对话' }[topic?.trigger] || '新对话';
 
     const eventLines = (activeEvents || []).map(evt => {
@@ -101,7 +102,8 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
         const strategyLabel = (!isAgencyBound && strategy)
             ? ` | 未绑定策略:${strategy.name}/${strategy.nameEn}`
             : '';
-        return `【当前话题】${topicLabel}（${triggerLabel}）| ${eventSummary}${lifecycleLabel}${strategyLabel}`;
+        const customTemplateLabel = customTemplate ? ' | 使用运营自定义模板' : '';
+        return `【当前话题】${topicLabel}（${triggerLabel}）| ${eventSummary}${lifecycleLabel}${strategyLabel}${customTemplateLabel}`;
     }
 
     // === 新话题模式（keyword/time）：完整版 ===
@@ -165,7 +167,10 @@ ${lifecycleBlock}
 - 有进行中事件 → 优先推进事件进展，末尾加推进语句
 - 首次接触新客户 → 友好问候+介绍支持
 - 问题咨询 → 直接清晰回答
-- 严禁在回复中提及具体GMV数字和其他达人信息${strategyBlock}`;
+- 严禁在回复中提及具体GMV数字和其他达人信息${customTemplate ? `
+
+【运营自定义话题模板】
+${customTemplate}` : ''}${strategyBlock}`;
 }
 
 // 早期消息摘要（用于同一话题 > 10 条时）

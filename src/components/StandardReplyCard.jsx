@@ -17,11 +17,18 @@ export default function StandardReplyCard({
     placeholder = '暂无匹配模板',
     onRetry = null,
     onEdit = null,
+    onSaveTemplate = null,
+    onUpdateTemplate = null,
     onSend = null,
     compactMobile = false,
 }) {
     const [expanded, setExpanded] = useState(false);
     const showAlternatives = expanded && Array.isArray(alternatives) && alternatives.length > 0;
+    const canUpdateTemplate = Boolean(
+        slot?.custom_template_id
+        || /^operator-custom-topic::\d+$/.test(String(slot?.section_id || ''))
+    );
+    const templateActionHandler = canUpdateTemplate ? onUpdateTemplate : onSaveTemplate;
 
     const cardStyle = {
         width: compactMobile ? '88%' : '72%',
@@ -93,6 +100,37 @@ export default function StandardReplyCard({
                                 ))}
                             </div>
                         )}
+                        {Array.isArray(slot?.media_items) && slot.media_items.length > 0 && (
+                            <div className="grid grid-cols-2 gap-2">
+                                {slot.media_items.slice(0, 4).map((item, index) => (
+                                    <a
+                                        key={`${item.url || item.media_asset_id || index}`}
+                                        href={item.url || '#'}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="block rounded-lg overflow-hidden"
+                                        style={{ border: `1px solid ${WA.borderLight}`, background: WA.white }}
+                                    >
+                                        {item.url ? (
+                                            <img
+                                                src={item.url}
+                                                alt={item.label || 'template image'}
+                                                className="w-full h-20 object-cover"
+                                            />
+                                        ) : (
+                                            <div className="h-20 flex items-center justify-center text-[11px]" style={{ color: WA.textMuted }}>
+                                                {item.label || '对应图片'}
+                                            </div>
+                                        )}
+                                        {(item.label || item.note) && (
+                                            <div className="px-2 py-1 text-[10px] truncate" style={{ color: WA.textMuted }}>
+                                                {item.label || item.note}
+                                            </div>
+                                        )}
+                                    </a>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -144,7 +182,20 @@ export default function StandardReplyCard({
                             border: `1px solid ${WA.borderLight}`,
                         }}
                     >
-                        编辑
+                        在输入框编辑
+                    </button>
+                )}
+                {slot?.text && templateActionHandler && (
+                    <button
+                        onClick={() => templateActionHandler(slot)}
+                        className="px-3 py-2 rounded-full text-[12px] font-semibold"
+                        style={{
+                            background: 'rgba(255,255,255,0.68)',
+                            color: WA.textDark,
+                            border: `1px solid ${WA.borderLight}`,
+                        }}
+                    >
+                        更新模板
                     </button>
                 )}
                 {slot?.text && onSend && (
@@ -153,7 +204,7 @@ export default function StandardReplyCard({
                         className="px-3 py-2 rounded-full text-[12px] font-semibold text-white"
                         style={{ background: accent }}
                     >
-                        使用
+                        直接发送
                     </button>
                 )}
             </div>

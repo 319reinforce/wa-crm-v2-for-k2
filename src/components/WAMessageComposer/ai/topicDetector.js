@@ -36,6 +36,24 @@ const TOPIC_GROUP_RULES = [
         ],
     },
     {
+        topic_group: 'agency_recall_pending',
+        intent_key: 'agency_recall_pending',
+        scene_key: 'mcn_binding',
+        patterns: [
+            /\b(pending recall|recall pending|bring back|re-anchor|lock the execution)\b/i,
+            /(待召回|召回|已同意绑定|可以绑定|锁定完成时间|绑定落地)/,
+        ],
+    },
+    {
+        topic_group: 'agency_second_touch',
+        intent_key: 'agency_second_touch_binding',
+        scene_key: 'mcn_binding',
+        patterns: [
+            /\b(second touch|secondary reach|reach back|check in again|agency follow)\b/i,
+            /(二次触达|二次建联|再次触达|再次跟进|agency绑定跟进|绑定意愿不明)/,
+        ],
+    },
+    {
         topic_group: 'mcn_partnership',
         intent_key: 'mcn_explain',
         scene_key: 'mcn_binding',
@@ -126,6 +144,10 @@ export function inferSceneKeyFromTopicGroup(topic_group, text = '') {
     const lowerText = normalizeText(text);
     const defaultScene = TOPIC_GROUP_DEFAULT_SCENE[topic_group] || 'follow_up';
 
+    if (topic_group === 'agency_second_touch' || topic_group === 'agency_recall_pending') {
+        return 'mcn_binding';
+    }
+
     if (topic_group === 'settlement_pricing') {
         if (/\b(monthly|month|membership|fee|pricing|\$20)\b/i.test(lowerText) || /(月费|包月|会员|收费|价格)/.test(lowerText)) {
             return 'monthly_inquiry';
@@ -145,6 +167,10 @@ export function inferSceneKeyFromTopicGroup(topic_group, text = '') {
 
 export function inferIntentKey({ topic_group, text = '' }) {
     const lowerText = normalizeText(text);
+
+    if (topic_group === 'outreach_contact') return 'first_outreach_fixed';
+    if (topic_group === 'agency_second_touch') return 'agency_second_touch_binding';
+    if (topic_group === 'agency_recall_pending') return 'agency_recall_pending';
 
     if (topic_group === 'signup_onboarding') {
         if (/\b(email only|communicate by email|right here on email)\b/i.test(lowerText) || /(只用邮箱沟通|邮件沟通|只想用邮件)/.test(lowerText)) return 'username_followup';
@@ -194,39 +220,44 @@ export function inferIntentKey({ topic_group, text = '' }) {
         return 'followup_soft_reminder';
     }
 
-    if (topic_group === 'outreach_contact') {
-        if (/\b(mcn)\b/i.test(lowerText) || /(mcn|机构)/.test(lowerText)) return 'first_outreach_soft_mcn';
-        if (/\b(self run|full service)\b/i.test(lowerText) || /(自营|全托)/.test(lowerText)) return 'first_outreach_self_run';
-        return 'first_outreach_value_pitch';
-    }
-
     return TOPIC_GROUP_DEFAULT_INTENT[topic_group] || 'followup_soft_reminder';
 }
 
 export function resolveTopicContext({
     topic_group = null,
+    intent_key = null,
+    scene_key = null,
     text = '',
     trigger = 'auto',
     detected_at = Date.now(),
     keywords = null,
     confidence = 'medium',
     score = 0,
+    custom_topic_label = '',
+    custom_template_text = '',
+    custom_template_id = null,
+    custom_template_media_items = [],
 }) {
     const resolvedGroup = topic_group || inferTopicGroupFromText(text);
-    const scene_key = inferSceneKeyFromTopicGroup(resolvedGroup, text);
-    const intent_key = inferIntentKey({ topic_group: resolvedGroup, text });
+    const resolvedScene = scene_key || inferSceneKeyFromTopicGroup(resolvedGroup, text);
+    const resolvedIntent = intent_key || inferIntentKey({ topic_group: resolvedGroup, text });
     const normalizedKeywords = keywords || extractKeywords(text);
+    const label = custom_topic_label || getTopicLabel(resolvedIntent, getTopicLabel(resolvedGroup, getTopicLabel(resolvedScene)));
     return {
         topic_key: resolvedGroup,
         topic_group: resolvedGroup,
-        scene_key,
-        intent_key,
+        scene_key: resolvedScene,
+        intent_key: resolvedIntent,
         trigger,
         detected_at,
         keywords: normalizedKeywords,
         confidence,
         score,
-        label: getTopicLabel(resolvedGroup, getTopicLabel(scene_key)),
+        label,
+        custom_topic_label,
+        custom_template_text,
+        custom_template_id,
+        custom_template_media_items,
     };
 }
 

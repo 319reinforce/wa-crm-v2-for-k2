@@ -229,6 +229,9 @@ function extractKeywords(message) {
 
 const TOPIC_GROUP_DEFAULT_SCENE = {
     outreach_contact: 'first_contact',
+    agency_second_touch: 'mcn_binding',
+    agency_recall_pending: 'mcn_binding',
+    custom_topic: 'follow_up',
     followup_progress: 'follow_up',
     signup_onboarding: 'trial_intro',
     product_mechanics: 'content_request',
@@ -239,7 +242,10 @@ const TOPIC_GROUP_DEFAULT_SCENE = {
 };
 
 const TOPIC_GROUP_DEFAULT_INTENT = {
-    outreach_contact: 'first_outreach_value_pitch',
+    outreach_contact: 'first_outreach_fixed',
+    agency_second_touch: 'agency_second_touch_binding',
+    agency_recall_pending: 'agency_recall_pending',
+    custom_topic: 'custom_template',
     followup_progress: 'followup_soft_reminder',
     signup_onboarding: 'invite_code_reply',
     product_mechanics: 'how_moras_works',
@@ -249,11 +255,120 @@ const TOPIC_GROUP_DEFAULT_INTENT = {
     violation_risk_control: 'violation_reassurance',
 };
 
+const FIXED_TOPIC_TEMPLATES = {
+    first_outreach_fixed: {
+        topic_group: 'outreach_contact',
+        intent_key: 'first_outreach_fixed',
+        scene_keys: ['first_contact'],
+        title: '初次建联固定方案',
+        source: 'fixed-initial-outreach',
+        media_items: [
+            sopAprilMediaItem('image1.png', 'App Store 下载 Moras'),
+        ],
+        text: `Hi [Creator Name]! I'm Alice, the marketing manager of the Moras team. Welcome to joining Moras - excited to have you with us!
+
+Nice to meet you! You can call me Alice. Next, I'll help you better use Moras, and you can contact me if you have any questions or product feedback.
+
+May I ask if you encountered any issues while registering for Moras? You can reach out to me here anytime.`,
+    },
+    agency_second_touch_binding: {
+        topic_group: 'agency_second_touch',
+        intent_key: 'agency_second_touch_binding',
+        scene_keys: ['mcn_binding', 'follow_up'],
+        title: '二次触达agency绑定',
+        source: 'fixed-agency-second-touch',
+        media_items: [
+            sopAprilMediaItem('image4.png', 'MCN 邀请与绑定入口'),
+            sopAprilMediaItem('image5.png', 'Agency 权限勾选'),
+        ],
+        text: `Hi [Creator Name], just checking in quickly. I know the agency binding step can feel like one more thing to figure out, so no pressure.
+
+Are you still open to learning how it works? If yes, I can send the exact next step and you can decide from there.`,
+    },
+    agency_recall_pending: {
+        topic_group: 'agency_recall_pending',
+        intent_key: 'agency_recall_pending',
+        scene_keys: ['mcn_binding', 'follow_up'],
+        title: '待召回绑定落地',
+        source: 'fixed-agency-recall-pending',
+        media_items: [
+            sopAprilMediaItem('image4.png', 'MCN 邀请与绑定入口'),
+            sopAprilMediaItem('image6.png', '解绑旧 MCN 参考'),
+        ],
+        text: `Hi [Creator Name], following up on the agency binding we discussed earlier.
+
+If you're still ready to move forward, I can help you complete just the next step today. What time works best for you to finish the binding?`,
+    },
+};
+
+function sopAprilMediaItem(fileName, label, note = '') {
+    return {
+        url: `/sop-assets/apr-2026/${fileName}`,
+        label,
+        note,
+        media_asset_id: null,
+    };
+}
+
+function inferSopMediaItems(section = {}) {
+    const sourceId = String(section.source_id || section.source || '').toLowerCase();
+    const text = [
+        section.title,
+        section.intent_key,
+        section.topic_group,
+        Array.isArray(section.path) ? section.path.join(' ') : '',
+    ].join(' ').toLowerCase();
+    if (!sourceId.includes('sop-creator-outreach-apr') && !sourceId.includes('faq-moras-product-mechanics')) {
+        return [];
+    }
+
+    if (/invite|registration|registered|username|onboarding|signup|邀请码|注册/.test(text)) {
+        return [
+            sopAprilMediaItem('image1.png', 'App Store 下载 Moras'),
+            sopAprilMediaItem('image3.png', '注册 / 邀请码步骤'),
+        ];
+    }
+    if (/mcn|agency|binding|bind|绑定|解绑/.test(text)) {
+        return [
+            sopAprilMediaItem('image4.png', 'MCN 邀请与绑定入口'),
+            sopAprilMediaItem('image5.png', 'Agency 权限勾选'),
+            sopAprilMediaItem('image6.png', '解绑旧 MCN 参考'),
+        ];
+    }
+    if (/login|log in|registration trouble|video_not_loading|setup|登陆|登录|trouble/.test(text)) {
+        return [
+            sopAprilMediaItem('image11.png', '登录返回上一步'),
+            sopAprilMediaItem('image12.png', '使用原邮箱登录'),
+        ];
+    }
+    if (/ads|private|delete|hide|violation|risk|safety|tips|违规|风控|安全|投广告/.test(text)) {
+        return [
+            sopAprilMediaItem('image13.png', '公开视频 / 广告状态参考'),
+            sopAprilMediaItem('image14.jpeg', 'Ads only 设置参考'),
+            sopAprilMediaItem('image15.png', '发布前检查 Tips'),
+        ];
+    }
+    if (/trial|reward|qualified|subsidy|payout|规则|奖励|月费|补贴/.test(text)) {
+        return [
+            sopAprilMediaItem('image2.png', '7 天试用 / MCN 后额度说明'),
+            sopAprilMediaItem('image9.png', '规则与奖励说明'),
+        ];
+    }
+    if (/how moras works|product logic|posting|guide|mechanics|产品|发布|机制/.test(text)) {
+        return [
+            sopAprilMediaItem('image3.png', 'Moras 使用步骤参考'),
+        ];
+    }
+    return [];
+}
+
 function resolveTopicGroupFromText(text = '', currentTopic = null, autoDetectedTopic = null) {
     const explicit = currentTopic?.topic_group || currentTopic?.topic_key || autoDetectedTopic?.topic_group || autoDetectedTopic?.topic_key;
     if (explicit) return explicit;
 
     const lower = String(text || '').toLowerCase();
+    if (/\b(pending recall|recall pending|bring back|re-anchor|lock the execution)\b/.test(lower) || /(待召回|召回|已同意绑定|可以绑定|锁定完成时间|绑定落地)/.test(lower)) return 'agency_recall_pending';
+    if (/\b(second touch|secondary reach|reach back|check in again|agency follow)\b/.test(lower) || /(二次触达|二次建联|再次触达|再次跟进|agency绑定跟进|绑定意愿不明)/.test(lower)) return 'agency_second_touch';
     if (/\b(violation|appeal|flagged|strike|banned|risk|safe)\b/.test(lower) || /(违规|申诉|封号|风控|风险|安全)/.test(lower)) return 'violation_risk_control';
     if (/\b(monthly|membership|fee|pricing|\$20|payment|paypal|payout|settlement|commission|subsidy)\b/.test(lower) || /(月费|包月|会员|收费|价格|支付|付款|结算|佣金|补贴|paypal)/.test(lower)) return 'settlement_pricing';
     if (/\b(mcn|agency|contract|binding|bind|self run|full service)\b/.test(lower) || /(mcn|agency|机构|签约|绑定|自营|全托)/.test(lower)) return 'mcn_partnership';
@@ -267,6 +382,9 @@ function resolveTopicGroupFromText(text = '', currentTopic = null, autoDetectedT
 function resolveSceneKey(topicGroup, text = '', explicitScene = null) {
     if (explicitScene) return explicitScene;
     const lower = String(text || '').toLowerCase();
+    if (topicGroup === 'agency_second_touch' || topicGroup === 'agency_recall_pending') {
+        return 'mcn_binding';
+    }
     if (topicGroup === 'settlement_pricing') {
         if (/\b(monthly|membership|fee|pricing|\$20)\b/.test(lower) || /(月费|包月|会员|收费|价格)/.test(lower)) return 'monthly_inquiry';
         if (/\b(commission|earnings|revenue|subsidy)\b/.test(lower) || /(佣金|分成|收入|补贴)/.test(lower)) return 'commission_query';
@@ -280,6 +398,9 @@ function resolveSceneKey(topicGroup, text = '', explicitScene = null) {
 
 function resolveIntentKey(topicGroup, text = '') {
     const lower = String(text || '').toLowerCase();
+    if (topicGroup === 'outreach_contact') return 'first_outreach_fixed';
+    if (topicGroup === 'agency_second_touch') return 'agency_second_touch_binding';
+    if (topicGroup === 'agency_recall_pending') return 'agency_recall_pending';
     if (topicGroup === 'signup_onboarding') {
         if (/\b(email only|communicate by email|right here on email)\b/.test(lower) || /(只用邮箱沟通|邮件沟通|只想用邮件)/.test(lower)) return 'username_followup';
         if (/\b(not posted|haven't posted|have not posted|first video|generated my first video|generated your first video)\b/.test(lower) || /(还没发|未发布|首条视频|第一条视频|生成了第一条视频)/.test(lower)) return 'registered_not_posted';
@@ -321,11 +442,6 @@ function resolveIntentKey(topicGroup, text = '') {
         if (/\b(final call|last follow)\b/.test(lower) || /(最后一次跟进|最终提醒)/.test(lower)) return 'followup_final_call';
         if (/\b(thank you for your interest|interested)\b/.test(lower) || /(感谢你的兴趣|感兴趣)/.test(lower)) return 'followup_interested_reply';
         return 'followup_soft_reminder';
-    }
-    if (topicGroup === 'outreach_contact') {
-        if (/\b(mcn)\b/.test(lower) || /(mcn|机构)/.test(lower)) return 'first_outreach_soft_mcn';
-        if (/\b(self run|full service)\b/.test(lower) || /(自营|全托)/.test(lower)) return 'first_outreach_self_run';
-        return 'first_outreach_value_pitch';
     }
     return TOPIC_GROUP_DEFAULT_INTENT[topicGroup] || 'followup_soft_reminder';
 }
@@ -672,6 +788,74 @@ function retrieveTemplateSlots(context) {
         .filter((event) => event?.status === 'active')
         .map((event) => String(event?.event_key || '').toLowerCase())
         .filter(Boolean);
+    const customTemplateText = String(currentTopic?.custom_template_text || '').trim();
+
+    if (customTemplateText) {
+        const customTemplateId = currentTopic?.custom_template_id || null;
+        const customMediaItems = Array.isArray(currentTopic?.custom_template_media_items)
+            ? currentTopic.custom_template_media_items
+            : [];
+        const customSection = {
+            source_id: 'operator-custom-topic',
+            title: currentTopic?.custom_topic_label || '自定义话题模板',
+            text: customTemplateText,
+            section_id: `operator-custom-topic::${customTemplateId || slugifySectionId(currentTopic?.custom_topic_label || 'draft')}`,
+            custom_template_id: customTemplateId,
+            custom_template_label: currentTopic?.custom_topic_label || '',
+            media_items: customMediaItems,
+            topic_group,
+            intent_key,
+            scene_keys: [scene_key].filter(Boolean),
+            matched_by: ['custom_template'],
+            sendable: true,
+            score: 100,
+        };
+        return {
+            context: {
+                topic_group,
+                intent_key,
+                scene_key,
+                resolved_operator: operator || null,
+            },
+            slots: {
+                op1: formatTemplateSlot(customSection, 'recommended'),
+                op2: null,
+            },
+            alternatives: [],
+            template: { text: customTemplateText, source: customSection.source_id },
+        };
+    }
+
+    const fixedTemplate = FIXED_TOPIC_TEMPLATES[intent_key] || null;
+    if (fixedTemplate) {
+        const fixedSection = {
+            source_id: fixedTemplate.source,
+            title: fixedTemplate.title,
+            text: fixedTemplate.text,
+            section_id: `${fixedTemplate.source}::${fixedTemplate.intent_key}`,
+            topic_group: fixedTemplate.topic_group,
+            intent_key: fixedTemplate.intent_key,
+            scene_keys: fixedTemplate.scene_keys,
+            media_items: fixedTemplate.media_items || [],
+            matched_by: ['fixed_topic_template'],
+            sendable: true,
+            score: 100,
+        };
+        return {
+            context: {
+                topic_group,
+                intent_key,
+                scene_key,
+                resolved_operator: operator || null,
+            },
+            slots: {
+                op1: formatTemplateSlot(fixedSection, 'recommended'),
+                op2: null,
+            },
+            alternatives: [],
+            template: { text: fixedTemplate.text, source: fixedTemplate.source },
+        };
+    }
 
     const sections = [];
     for (const source of manifestData.sources || []) {
@@ -750,6 +934,11 @@ function formatTemplateSlot(section, slotRole = 'recommended') {
         section_id: section.section_id,
         title: section.title,
         source: section.source_id,
+        custom_template_id: section.custom_template_id || null,
+        custom_template_label: section.custom_template_label || null,
+        media_items: Array.isArray(section.media_items) && section.media_items.length > 0
+            ? section.media_items
+            : inferSopMediaItems(section),
         matched_by: section.matched_by || [],
         sendable: !!section.sendable,
         topic_group: section.topic_group,

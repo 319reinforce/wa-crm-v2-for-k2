@@ -19,6 +19,8 @@ export default function AIReplyPicker({
     onSelect,
     onSkip,
     onEditCandidate,
+    onSaveTemplate,
+    onUpdateTemplate,
     onGenerateAi,
     onRegenerate,
     onRetryTemplates,
@@ -31,6 +33,8 @@ export default function AIReplyPicker({
     compactMobile = false,
     collapsed = false,
     onToggleCollapse,
+    deckHeight = null,
+    onResizeStart,
 }) {
     const aiBusy = loading || generating;
     const sendBusy = !!sending;
@@ -42,10 +46,15 @@ export default function AIReplyPicker({
         background: WA.shellPanelStrong,
         borderTop: `1px solid ${WA.borderLight}`,
         boxShadow: '0 -12px 24px rgba(31,29,26,0.06)',
+        height: deckHeight ? `${deckHeight}px` : undefined,
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: deckHeight ? '220px' : undefined,
+        maxHeight: deckHeight ? '72vh' : undefined,
     };
 
     const content = (
-        <div className={`${compactMobile ? 'px-3 pb-3 pt-2' : 'px-4 pb-4 pt-3'} space-y-3`}>
+        <div className={`${compactMobile ? 'px-3 pb-3 pt-2' : 'px-4 pb-4 pt-3'} space-y-3`} style={{ flex: deckHeight ? 1 : undefined, minHeight: 0, overflow: deckHeight ? 'auto' : undefined }}>
             <div className="flex items-center justify-between">
                 <div className="text-[11px] font-semibold tracking-[0.06em] uppercase" style={{ color: WA.textMuted }}>
                     Reply Options
@@ -69,6 +78,8 @@ export default function AIReplyPicker({
                     placeholder="暂无匹配模板"
                     onRetry={onRetryTemplates}
                     onEdit={(text, slot) => onEditCandidate(text, { kind: 'template', slotKey: 'op1', slot })}
+                    onSaveTemplate={(slot) => onSaveTemplate?.({ slot, slotKey: 'op1' })}
+                    onUpdateTemplate={(slot) => onUpdateTemplate?.({ slot, slotKey: 'op1' })}
                     onSend={(text, slot) => onSelect('template_op1', { text, slot })}
                     compactMobile={compactMobile}
                 />
@@ -83,6 +94,8 @@ export default function AIReplyPicker({
                     placeholder="暂无原始模板"
                     onRetry={onRetryTemplates}
                     onEdit={(text, slot) => onEditCandidate(text, { kind: 'template', slotKey: 'op2', slot })}
+                    onSaveTemplate={(slot) => onSaveTemplate?.({ slot, slotKey: 'op2' })}
+                    onUpdateTemplate={(slot) => onUpdateTemplate?.({ slot, slotKey: 'op2' })}
                     onSend={(text, slot) => onSelect('template_op2', { text, slot })}
                     compactMobile={compactMobile}
                 />
@@ -128,6 +141,17 @@ export default function AIReplyPicker({
 
     return (
         <div style={shellStyle}>
+            {!compactMobile && (
+                <button
+                    type="button"
+                    onMouseDown={onResizeStart}
+                    className="w-full h-4 flex items-center justify-center cursor-row-resize"
+                    style={{ color: WA.textMuted, background: WA.shellPanelStrong, borderBottom: `1px solid ${WA.borderLight}` }}
+                    title="拖动调整 Reply Deck 高度"
+                >
+                    <span className="block w-16 h-1 rounded-full" style={{ background: 'rgba(111,106,98,0.28)' }} />
+                </button>
+            )}
             <div
                 className={`${compactMobile ? 'px-3 py-2.5' : 'px-4 py-3'} flex items-center justify-between gap-3 border-b`}
                 style={{ borderColor: WA.borderLight }}

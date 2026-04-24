@@ -56,6 +56,43 @@ It helps with product discovery, script creation, video generation, and publishi
 - Manual script editing is not supported in the current beta flow.
 - Spanish support is in progress; do not claim it is already live.
 
+## Login / Registration Trouble
+
+Use this when the creator cannot log in or is stuck during setup.
+
+```text
+Can you go back one step and log in with the email address you used before?
+
+If it still does not work, please send me your Moras Username or a screenshot of the page you are stuck on, and I will help check it with the team.
+```
+
+## Posted Video In Ads
+
+Use this when a creator says a video is already in ads and cannot be deleted or hidden.
+
+```text
+You can try setting it to private first.
+
+If you cannot set it to private, you can switch it to "ads only" so it will not receive organic traffic.
+```
+
+## Creator Usage Tips
+
+Use this as a safety reminder before posting generated videos.
+
+- Check whether the product color in the video matches the actual product.
+- Check whether the product shape matches the actual item.
+- Check whether logos, patterns, or textures look inconsistent.
+- If any of these issues appear, do not post that video.
+
+```text
+Quick update: here are a few pro tips for using Moras.
+
+Before posting, please check whether the product color, shape, logo, pattern, or texture matches the real item. If anything looks inconsistent, please skip that video and let me know.
+
+We want to help you improve performance while keeping your account as safe and clean as possible.
+```
+
 ## Suggested Reply Template
 
 ```text
@@ -69,3 +106,4 @@ You still stay in control of what you approve and post.
 ## Version Log
 
 - v1 (2026-04-20): extracted and normalized from the April SOP document for default product-mechanics and creator-control explanations.
+- v2 (2026-04-24): added missing April SOP support cases for login trouble, ads-only fallback, and creator usage tips; related SOP screenshots are exposed through template media items.
