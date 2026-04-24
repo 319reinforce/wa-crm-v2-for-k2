@@ -23,32 +23,7 @@ export default function StandardReplyCard({
     compactMobile = false,
 }) {
     const [expanded, setExpanded] = useState(false);
-    const [templateFormOpen, setTemplateFormOpen] = useState(false);
-    const [draft, setDraft] = useState({ label: '', text: '', mediaUrls: '' });
     const showAlternatives = expanded && Array.isArray(alternatives) && alternatives.length > 0;
-    const canUpdate = !!slot?.custom_template_id || String(slot?.section_id || '').includes('operator-custom-topic::');
-
-    const openTemplateForm = () => {
-        setDraft({
-            label: slot?.custom_template_label || slot?.title || slotLabel || '',
-            text: slot?.text || '',
-            mediaUrls: (slot?.media_items || [])
-                .map((item) => item?.url || item?.file_url || '')
-                .filter(Boolean)
-                .join('\n'),
-        });
-        setTemplateFormOpen((prev) => !prev);
-    };
-
-    const buildDraftPayload = () => ({
-        label: draft.label.trim(),
-        template_text: draft.text.trim(),
-        media_items: draft.mediaUrls
-            .split(/\n+/)
-            .map((url) => url.trim())
-            .filter(Boolean)
-            .map((url) => ({ url, label: '对应图片' })),
-    });
 
     const cardStyle = {
         width: compactMobile ? '88%' : '72%',
@@ -176,54 +151,6 @@ export default function StandardReplyCard({
                         ))}
                     </div>
                 )}
-                {templateFormOpen && slot?.text && (
-                    <div
-                        className="rounded-xl px-2.5 py-2 space-y-2"
-                        style={{ background: 'rgba(255,255,255,0.72)', border: `1px solid ${WA.borderLight}` }}
-                    >
-                        <input
-                            value={draft.label}
-                            onChange={(e) => setDraft((prev) => ({ ...prev, label: e.target.value }))}
-                            placeholder="模板名称"
-                            className="w-full text-[12px] rounded-lg px-2 py-1.5 focus:outline-none"
-                            style={{ background: WA.white, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
-                        />
-                        <textarea
-                            value={draft.text}
-                            onChange={(e) => setDraft((prev) => ({ ...prev, text: e.target.value }))}
-                            placeholder="编辑模板内容"
-                            rows={5}
-                            className="w-full text-[12px] rounded-lg px-2 py-1.5 focus:outline-none resize-y"
-                            style={{ background: WA.white, color: WA.textDark, border: `1px solid ${WA.borderLight}`, minHeight: '112px' }}
-                        />
-                        <textarea
-                            value={draft.mediaUrls}
-                            onChange={(e) => setDraft((prev) => ({ ...prev, mediaUrls: e.target.value }))}
-                            placeholder="对应图片 URL，每行一个"
-                            rows={2}
-                            className="w-full text-[12px] rounded-lg px-2 py-1.5 focus:outline-none resize-y"
-                            style={{ background: WA.white, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
-                        />
-                        <div className="flex gap-2 flex-wrap">
-                            <button
-                                onClick={() => onSaveTemplate?.(buildDraftPayload(), slot)}
-                                disabled={!draft.label.trim() || !draft.text.trim()}
-                                className="px-3 py-2 rounded-full text-[12px] font-semibold disabled:opacity-40"
-                                style={{ background: 'rgba(255,255,255,0.8)', color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
-                            >
-                                保存模板
-                            </button>
-                            <button
-                                onClick={() => onUpdateTemplate?.(buildDraftPayload(), slot)}
-                                disabled={!canUpdate || !draft.label.trim() || !draft.text.trim()}
-                                className="px-3 py-2 rounded-full text-[12px] font-semibold disabled:opacity-40"
-                                style={{ background: canUpdate ? '#b45309' : 'rgba(255,255,255,0.6)', color: canUpdate ? '#fff' : WA.textMuted }}
-                            >
-                                更新模板
-                            </button>
-                        </div>
-                    </div>
-                )}
             </div>
 
             <div className="mt-3 flex gap-2 flex-wrap">
@@ -255,7 +182,7 @@ export default function StandardReplyCard({
                 )}
                 {slot?.text && onSaveTemplate && (
                     <button
-                        onClick={openTemplateForm}
+                        onClick={() => onSaveTemplate(slot)}
                         className="px-3 py-2 rounded-full text-[12px] font-semibold"
                         style={{
                             background: 'rgba(255,255,255,0.68)',
@@ -268,7 +195,7 @@ export default function StandardReplyCard({
                 )}
                 {slot?.text && onUpdateTemplate && (
                     <button
-                        onClick={openTemplateForm}
+                        onClick={() => onUpdateTemplate(slot)}
                         className="px-3 py-2 rounded-full text-[12px] font-semibold"
                         style={{
                             background: 'rgba(255,255,255,0.68)',
@@ -276,7 +203,7 @@ export default function StandardReplyCard({
                             border: `1px solid ${WA.borderLight}`,
                         }}
                     >
-                        {templateFormOpen ? '收起表单' : '更新模板'}
+                        更新模板
                     </button>
                 )}
                 {slot?.text && onSend && (

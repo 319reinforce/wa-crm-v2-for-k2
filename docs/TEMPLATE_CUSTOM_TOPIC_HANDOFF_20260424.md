@@ -30,11 +30,16 @@
    - Removed the composer-level `编辑模板` toolbar panel.
    - Template operations now live inside each template card.
    - `编辑模板` loads the template text into the chat composer only.
-   - `保存模板` opens the attached card form and creates a custom template in the current topic classification.
-   - `更新模板` opens the attached card form and updates the saved template row in the database.
+   - `保存模板` opens a centered large editor for creating a custom template.
+   - `更新模板` opens the same centered large editor for updating the saved template row in the database.
+   - The editor has a right-side topic route panel with all first-level topics and second-level subtopics.
    - Saved templates appear in the topic dropdown under `已保存模板`.
 
-4. Template images:
+4. Reply Deck sizing:
+   - Desktop Reply Deck has a top drag handle.
+   - Operators can drag the handle to resize the candidate panel height.
+
+5. Template images:
    - Custom templates can store `media_items` / `media_items_json`.
    - The card editor accepts corresponding image URLs, one per line.
    - Template cards render saved image previews under the matching template text.
@@ -72,9 +77,11 @@ Browser acceptance:
 3. Open `新话题` and verify `初次建联`, `二次触达agency绑定`, and `待召回` exist.
 4. Select a topic and verify op1/op2 template cards load.
 5. On a template card, click `编辑模板`; verify the template text is copied into the chat composer and no database update happens.
-6. Click `保存模板`; verify the form expands inside the card, not next to the chat input.
-7. Edit the template name/text, add one image URL, click the form's `保存模板`, then reopen `新话题` and verify it appears under `已保存模板`.
-8. Select the saved template, reopen its card form with `更新模板`, change name/text, click the form's `更新模板`, and verify the card reloads with updated content and image preview.
+6. Click `保存模板`; verify a centered large editor opens.
+7. In the editor, verify the topic route panel appears on the right and contains all first-level topics plus second-level subtopics.
+8. Edit the template name/text, add one image URL, click the editor's `保存模板`, then reopen `新话题` and verify it appears under `已保存模板`.
+9. Select the saved template, click `更新模板`, change name/text/topic route, click the editor's `更新模板`, and verify the card reloads with updated content and image preview.
+10. Drag the Reply Deck top handle and verify the panel height changes.
 
 ## Known Limits
 
@@ -85,4 +92,4 @@ Browser acceptance:
 
 ## Next Agent Instruction
 
-Continue from branch `feat/template-custom-recover` in `/Users/depp/wa-bot/wa-crm-v2`. Do not revert existing uncommitted work. The target behavior is: custom templates save to the currently selected topic classification; `编辑模板` only loads template text into the chat composer; `保存模板` creates a custom template; `更新模板` modifies the saved template row in the database; save/update forms are attached to the template card and not at the same level as the chat composer; saved templates can include corresponding document/SOP image URLs and render those previews on the card. Verify with `git diff --check`, `node --check server/routes/customTopicTemplates.js`, `node --check server/index.cjs`, `node --check server/services/localRuleRetrievalService.js`, and `node node_modules/vite/bin/vite.js build`. Then browser-test `http://localhost:3000/` by saving, selecting, updating, and using a custom template under one of the business topics. Prepare a concise commit only after the UI and persistence checks pass; do not push unless asked.
+Continue from branch `feat/template-custom-recover` in `/Users/depp/wa-bot/wa-crm-v2`. Do not revert existing uncommitted work. The target behavior is: custom templates save to the selected topic classification; `编辑模板` only loads template text into the chat composer; `保存模板` opens a centered large editor and creates a custom template; `更新模板` opens that editor and modifies the saved template row in the database; the editor's right side exposes all first-level topics and second-level subtopics; saved templates can include corresponding document/SOP image URLs and render those previews on the card; desktop Reply Deck has a top drag handle for resizing. Verify with `git diff --check`, `node --check server/routes/customTopicTemplates.js`, `node --check server/index.cjs`, `node --check server/services/localRuleRetrievalService.js`, and `node node_modules/vite/bin/vite.js build`. Then browser-test `http://localhost:3000/` by saving, selecting, updating, resizing Reply Deck, and using a custom template under one of the business topics. Prepare a concise commit only after the UI and persistence checks pass; do not push unless asked.
