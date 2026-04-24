@@ -95,7 +95,7 @@ function detectTranslationDirection(text) {
 function pickProvider(explicit) {
     const normalized = String(explicit || '').toLowerCase();
     if (normalized === 'deepl' || normalized === 'minimax') return normalized;
-    return (process.env.TRANSLATION_PROVIDER || 'minimax').toLowerCase();
+    return (process.env.TRANSLATION_PROVIDER || 'deepl').toLowerCase();
 }
 
 function directionToLangs(direction) {
