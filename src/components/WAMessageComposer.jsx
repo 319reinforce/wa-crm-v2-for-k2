@@ -626,8 +626,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
     // 当前活跃的 AI 候选（op3/op4，通过 🤖 按钮手动触发）
     const [activePicker, setActivePicker] = useState(null);
-    const [pickerCustom, setPickerCustom] = useState('');
-    const [customToolLoading, setCustomToolLoading] = useState({ translate: false, emoji: false });
+    // 主输入框工具:Emoji 润色 loading 态(翻译复用 translatingInput)
+    const [emojiEnhancingInput, setEmojiEnhancingInput] = useState(false);
     const [pickerLoading, setPickerLoading] = useState(false);
     const [pickerError, setPickerError] = useState(null);
     const [pickerCollapsed, setPickerCollapsed] = useState(false);
@@ -1379,7 +1379,6 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         setDismissedReplySignature(null);
         setActivePicker(null);
         setPendingCandidates([]);
-        setPickerCustom('');
         setPickerLoading(true);
 
         try {
@@ -1582,44 +1581,24 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         }
     };
 
-    const runCustomTool = async (mode) => {
-        const sourceText = pickerCustom.trim();
+    // 主输入框 Emoji 润色:读 inputText,走 AI 润色后写回 inputText。
+    // 翻译走已有的 handleTranslateInput(DeepL + undo 支持),本函数只做 emoji。
+    const handleEmojiInput = async () => {
+        if (emojiEnhancingInput || translatingInput || writeBlocked) return;
+        const sourceText = (inputText || '').trim();
         if (!sourceText) return;
 
-        const toolKey = mode === 'translate' ? 'translate' : 'emoji';
-        setPickerError(null);
-        setCustomToolLoading(prev => ({ ...prev, [toolKey]: true }));
+        setEmojiEnhancingInput(true);
         try {
-            if (mode === 'translate') {
-                const response = await fetchAppAuth(`${API_BASE}/translate`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        text: sourceText,
-                        mode: 'auto',
-                        provider: 'deepl',
-                    }),
-                    signal: AbortSignal.timeout(30000),
-                });
-                const data = await response.json();
-                if (!response.ok) {
-                    throw new Error(data?.error || `HTTP ${response.status}`);
-                }
-
-                const transformed = String(data?.translation || '').trim();
-                setPickerCustom(transformed || sourceText);
-                return;
-            }
-
             const systemPrompt = [
-                    '你是 WhatsApp 客服文案润色助手。',
-                    '任务：在不改变原意的前提下，为文本添加自然 emoji 风格。',
-                    '规则：',
-                    '1) 保持原语言，不翻译。',
-                    '2) 总共只加 1-3 个 emoji，每句最多 1 个。',
-                    '3) 不改变承诺、价格、时限等业务事实。',
-                    '4) 只输出改写后的文本，不要解释。',
-                ].join('\n');
+                '你是 WhatsApp 客服文案润色助手。',
+                '任务：在不改变原意的前提下，为文本添加自然 emoji 风格。',
+                '规则：',
+                '1) 保持原语言，不翻译。',
+                '2) 总共只加 1-3 个 emoji，每句最多 1 个。',
+                '3) 不改变承诺、价格、时限等业务事实。',
+                '4) 只输出改写后的文本，不要解释。',
+            ].join('\n');
 
             const response = await fetchAppAuth(`${API_BASE}/ai/generate`, {
                 method: 'POST',
@@ -1637,21 +1616,13 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             }
 
             const transformed = String(data?.candidates?.opt1 || '').trim();
-            setPickerCustom(transformed || sourceText);
+            if (transformed) setInputText(transformed);
         } catch (e) {
-            console.error('[customTool] error:', e);
-            setPickerError(`自定义${mode === 'translate' ? '翻译' : 'Emoji润色'}失败：${e.message || '未知错误'}`);
+            console.error('[EmojiInput] error:', e);
+            toast.error(`Emoji 润色失败：${e.message || '未知错误'}`);
         } finally {
-            setCustomToolLoading(prev => ({ ...prev, [toolKey]: false }));
+            setEmojiEnhancingInput(false);
         }
-    };
-
-    const handleTranslateCustom = async () => {
-        await runCustomTool('translate');
-    };
-
-    const handleEmojiCustom = async () => {
-        await runCustomTool('emoji');
     };
 
     const persistCrmSentMessage = async (sentText, sentAt) => {
@@ -1982,9 +1953,10 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             : selectedOpt === 'opt2'
                 ? activePicker?.candidates?.opt2
                 : null;
+        // 'custom' 分支从主输入框取文,不再维护单独的 picker 内 textarea
         const sentText = selectedTemplate?.text
             || selectedAi
-            || pickerCustom.trim();
+            || (inputText || '').trim();
 
         if (!sentText) return;
 
@@ -2047,7 +2019,6 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
         await extractAndSaveMemory(activeReplyContext?.incomingMsg || activePicker?.incomingMsg || null, sentText);
 
-        setPickerCustom('');
         setActivePicker(null);
         setInputText('');
         } finally {
@@ -2075,7 +2046,6 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 signal: AbortSignal.timeout(15000),
             }).catch(() => {});
         }
-        setPickerCustom('');
         setPickerError(null);
 
         // 如果还有排队候选就切到下一条；否则真正关闭整个 Reply Deck
@@ -2098,7 +2068,6 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         setInputText(text);
         setActivePicker(null);
         setPendingCandidates([]);
-        setPickerCustom('');
         setPickerError(null);
     };
 
@@ -2146,7 +2115,6 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 generated_at: Date.now(),
                 policyDocs,
             });
-            setPickerCustom('');
         } catch (e) {
             console.error('生成失败:', e);
             toast.error(`生成失败: ${e.message || '未知错误'}`);
@@ -2843,11 +2811,6 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         operatorLabel={activePicker?.operatorDisplayName || activePicker?.operator || activeReplyContext.operator || 'Base'}
                         operatorConfigured={activePicker?.operatorConfigured}
                         promptVersion={activePicker?.systemPromptVersion}
-                        customText={pickerCustom}
-                        onCustomChange={setPickerCustom}
-                        onTranslateCustom={handleTranslateCustom}
-                        onEmojiCustom={handleEmojiCustom}
-                        customToolLoading={customToolLoading}
                         onSelect={handleSelectCandidate}
                         onSkip={handleSkip}
                         onEditCandidate={handleEditCandidate}
@@ -3070,7 +3033,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                             lastTranslatedInputText !== null &&
                             inputText === lastTranslatedInputText
                         );
-                        const disabled = translatingInput || writeBlocked || (!inputText.trim() && !isUndoState);
+                        const disabled = translatingInput || emojiEnhancingInput || writeBlocked || (!inputText.trim() && !isUndoState);
                         const title = writeBlocked
                             ? (writeBlockedTitle || '只读')
                             : isUndoState
@@ -3089,6 +3052,30 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                 title={title}
                             >
                                 {translatingInput ? <SpinnerIcon /> : <GlobeIcon />}
+                            </button>
+                        );
+                    })()}
+
+                    {/* 🪄 主输入框 Emoji 润色按钮 — AI 在不改变原意的前提下加 1-3 个 emoji
+                        注意:用 WandIcon 而不是 SparkIcon,避免与右侧圆绿色"AI 生成候选"按钮视觉重复 */}
+                    {(() => {
+                        const disabled = emojiEnhancingInput || translatingInput || writeBlocked || !inputText.trim();
+                        const title = writeBlocked
+                            ? (writeBlockedTitle || '只读')
+                            : 'Emoji 润色：AI 为消息框文本加 1-3 个 emoji（保持原语言）';
+                        return (
+                            <button
+                                onClick={handleEmojiInput}
+                                disabled={disabled}
+                                className="w-9 h-9 md:w-11 md:h-11 rounded-full flex items-center justify-center shrink-0 transition-all disabled:opacity-40"
+                                style={{
+                                    color: WA.textMuted,
+                                    background: WA.white,
+                                    border: `1px solid ${WA.borderLight}`,
+                                }}
+                                title={title}
+                            >
+                                {emojiEnhancingInput ? <SpinnerIcon /> : <WandIcon />}
                             </button>
                         );
                     })()}
@@ -3319,6 +3306,20 @@ function SendIcon({ color = 'currentColor' }) {
         <StrokeIcon color={color}>
             <path d="M21 3L10 14" />
             <path d="M21 3l-7 18-4-7-7-4 18-7Z" />
+        </StrokeIcon>
+    );
+}
+
+// 魔杖图标：主输入框 Emoji 润色按钮专用，和 SparkIcon(AI 生成)区分开
+function WandIcon({ color = 'currentColor' }) {
+    return (
+        <StrokeIcon color={color}>
+            <path d="M15 4V2" />
+            <path d="M15 10V8" />
+            <path d="M12 7h2" />
+            <path d="M16 7h2" />
+            <path d="M20 12l-9 9-3-3 9-9 3 3Z" />
+            <path d="M13 14l3 3" />
         </StrokeIcon>
     );
 }
