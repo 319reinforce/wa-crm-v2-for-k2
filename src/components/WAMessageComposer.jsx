@@ -1745,6 +1745,26 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const sendOutboundMessage = async (sentText, { onError } = {}) => {
         const reportError = onError || ((message) => toast.error(`发送失败: ${message}`));
 
+        // 生成 clientId，乐观插入 pending 气泡到聊天列表
+        // message_key 同时设为 clientId，避免 polling/SSE 回来的同文本消息被 merge 判为不同条
+        const clientId = `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const pendingAt = Date.now();
+        setMessages(prev => [...prev, {
+            role: 'me',
+            text: sentText,
+            timestamp: pendingAt,
+            clientId,
+            message_key: clientId,
+            pending: true,
+        }]);
+        setMessageTotal((prev) => prev + 1);
+
+        const markFailed = (errorMsg) => {
+            setMessages(prev => prev.map(m => m.clientId === clientId
+                ? { ...m, pending: false, failed: true, failedReason: errorMsg }
+                : m));
+        };
+
         let data;
         try {
             const res = await fetchWaAdmin(`${API_BASE}/wa/send`, {
@@ -1760,13 +1780,15 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             });
             data = await res.json();
             if (!data.ok) {
+                markFailed(data.error || '未知错误');
                 reportError(data.error || '未知错误');
-                return { ok: false, error: data.error || '未知错误' };
+                return { ok: false, error: data.error || '未知错误', clientId };
             }
         } catch (e) {
             console.error('[WA Send] 发送失败:', e);
+            markFailed(e.message || '请求失败');
             reportError(e.message || '请求失败');
-            return { ok: false, error: e.message || '请求失败' };
+            return { ok: false, error: e.message || '请求失败', clientId };
         }
 
         const crmMessage = data?.crm_message || null;
@@ -1776,11 +1798,21 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         if (!crmMessage) {
             await persistCrmSentMessage(sentText, sentAt);
         }
-        setMessages(prev => [...prev, { role: 'me', text: sentText, timestamp: sentAt }]);
-        setMessageTotal((prev) => prev + 1);
+        // 把 pending 气泡原地替换为 server 确认后的消息；clientId 留下防止 polling 再次插入
+        setMessages(prev => prev.map(m => m.clientId === clientId
+            ? {
+                ...(crmMessage || {}),
+                role: 'me',
+                text: crmMessage?.text || sentText,
+                timestamp: sentAt,
+                clientId,
+                pending: false,
+                failed: false,
+            }
+            : m));
         invalidateMessagesCache(client?.id);
         onMessageSent?.(client.id);
-        return { ok: true, sentAt, crmMessage };
+        return { ok: true, sentAt, crmMessage, clientId };
     };
 
     const persistSftRecord = async ({
@@ -2019,6 +2051,23 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         } finally {
             sendLockRef.current = false;
             setGenerating(false);
+        }
+    };
+
+    // 失败气泡的"重试"：先从列表中删掉这条 failed 消息，再走一遍发送流程
+    const handleRetryFailedMessage = async (failedItem) => {
+        if (!failedItem || !failedItem.text) return;
+        if (sendLockRef.current) return;
+        setMessages(prev => prev.filter(m => m.clientId !== failedItem.clientId));
+        // 总条数在乐观插入时已 +1，这里先 -1，避免 sendOutboundMessage 的乐观插入重复计数
+        setMessageTotal(prev => Math.max(0, prev - 1));
+        sendLockRef.current = true;
+        setSendingText(true);
+        try {
+            await sendOutboundMessage(failedItem.text);
+        } finally {
+            sendLockRef.current = false;
+            setSendingText(false);
         }
     };
 
@@ -2551,9 +2600,13 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                         boxShadow: highlightedMessageKey === item.uiKey
                                             ? '0 0 0 2px rgba(0,168,132,0.18), 0 10px 26px rgba(0,168,132,0.14)'
                                             : '0 1px 1px rgba(17,29,26,0.12)',
-                                        border: highlightedMessageKey === item.uiKey
-                                            ? '1px solid rgba(0,168,132,0.55)'
-                                            : isMe ? '1px solid rgba(169,220,146,0.55)' : `1px solid ${WA.borderLight}`,
+                                        border: item.failed
+                                            ? '1px solid rgba(220,38,38,0.45)'
+                                            : highlightedMessageKey === item.uiKey
+                                                ? '1px solid rgba(0,168,132,0.55)'
+                                                : isMe ? '1px solid rgba(169,220,146,0.55)' : `1px solid ${WA.borderLight}`,
+                                        opacity: item.pending ? 0.72 : 1,
+                                        transition: 'opacity 0.2s ease',
                                     }}
                                 >
                                     {isImage ? (
@@ -2620,8 +2673,36 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                             <span className="inline-flex items-center gap-1"><GlobeIcon size={12} strokeWidth={2} />{translationMap[item.translationKey]}</span>
                                         </div>
                                     )}
-                                    <div className="text-xs mt-1.5 flex justify-end" style={{ color: isMe ? '#667781' : WA.textMuted }}>
-                                        {formatTime(item.normalizedTimestamp)}{isMe ? '  ✓✓' : ''}
+                                    <div className="text-xs mt-1.5 flex justify-end items-center gap-1.5" style={{ color: isMe ? '#667781' : WA.textMuted }}>
+                                        <span>{formatTime(item.normalizedTimestamp)}</span>
+                                        {isMe && (
+                                            item.pending ? (
+                                                <span style={{ color: '#94a3b8' }} title="发送中…">🕐</span>
+                                            ) : item.failed ? (
+                                                <>
+                                                    <span style={{ color: '#dc2626' }} title={item.failedReason || '发送失败'}>⚠ 未送达</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRetryFailedMessage(item)}
+                                                        disabled={sendingText || sendingMedia || generating}
+                                                        className="disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        style={{
+                                                            color: '#0f766e',
+                                                            fontWeight: 600,
+                                                            textDecoration: 'underline',
+                                                            background: 'transparent',
+                                                            border: 'none',
+                                                            padding: 0,
+                                                            cursor: 'pointer',
+                                                        }}
+                                                    >
+                                                        重试
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <span>✓✓</span>
+                                            )
+                                        )}
                                     </div>
                                 </div>
                             </div>
