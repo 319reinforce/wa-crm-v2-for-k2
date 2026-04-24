@@ -19,6 +19,8 @@ export default function AIReplyPicker({
     onSelect,
     onSkip,
     onEditCandidate,
+    onSaveTemplate,
+    onUpdateTemplate,
     onGenerateAi,
     onRegenerate,
     onRetryTemplates,
@@ -69,6 +71,8 @@ export default function AIReplyPicker({
                     placeholder="暂无匹配模板"
                     onRetry={onRetryTemplates}
                     onEdit={(text, slot) => onEditCandidate(text, { kind: 'template', slotKey: 'op1', slot })}
+                    onSaveTemplate={(draft, slot) => onSaveTemplate?.(draft, { slot, slotKey: 'op1' })}
+                    onUpdateTemplate={(draft, slot) => onUpdateTemplate?.(draft, { slot, slotKey: 'op1' })}
                     onSend={(text, slot) => onSelect('template_op1', { text, slot })}
                     compactMobile={compactMobile}
                 />
@@ -83,6 +87,8 @@ export default function AIReplyPicker({
                     placeholder="暂无原始模板"
                     onRetry={onRetryTemplates}
                     onEdit={(text, slot) => onEditCandidate(text, { kind: 'template', slotKey: 'op2', slot })}
+                    onSaveTemplate={(draft, slot) => onSaveTemplate?.(draft, { slot, slotKey: 'op2' })}
+                    onUpdateTemplate={(draft, slot) => onUpdateTemplate?.(draft, { slot, slotKey: 'op2' })}
                     onSend={(text, slot) => onSelect('template_op2', { text, slot })}
                     compactMobile={compactMobile}
                 />

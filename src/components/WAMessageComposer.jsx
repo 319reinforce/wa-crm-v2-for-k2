@@ -6,7 +6,7 @@ import { buildConversation, buildRichContext, computeSimilarity } from './WAMess
 import { inferAutoTopic, startNewTopic, resolveTopicContext } from './WAMessageComposer/ai/topicDetector';
 import { generateViaExperienceRouter } from './WAMessageComposer/ai/experienceRouter';
 import { useMessagePolling, getMessageKey } from './WAMessageComposer/hooks/useMessagePolling';
-import { TOPIC_GROUP_LABELS, TOPIC_GROUP_ORDER, getIntentLabel, getTopicLabel } from './WAMessageComposer/constants/topicLabels';
+import { TOPIC_GROUP_LABELS, TOPIC_GROUP_ORDER, TOPIC_GROUP_SUBTOPICS, getIntentLabel, getTopicLabel } from './WAMessageComposer/constants/topicLabels';
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api';
 import { fetchWaAdmin } from '../utils/waAdmin';
 import { fetchAppAuth, isAppAuthViewer, canAppAuthWriteToOwner, getAppAuthScopeOwner } from '../utils/appAuth';
@@ -692,6 +692,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const [policyDocs, setPolicyDocs] = useState([]);
     const [clientMemory, setClientMemory] = useState([]);
     const [agencyStrategies, setAgencyStrategies] = useState(DEFAULT_UNBOUND_AGENCY_STRATEGIES);
+    const [savedCustomTopicTemplates, setSavedCustomTopicTemplates] = useState([]);
     // 活跃事件数据（用于 inferAutoTopic 置信度加权 + Prompt 注入）
     const [activeEvents, setActiveEvents] = useState([]);
     const [allEvents, setAllEvents] = useState([]);
@@ -766,6 +767,18 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             return normalized.length > 0 ? normalized : DEFAULT_UNBOUND_AGENCY_STRATEGIES;
         } catch (_) {}
         return DEFAULT_UNBOUND_AGENCY_STRATEGIES;
+    };
+
+    const fetchCustomTopicTemplates = async () => {
+        try {
+            const data = await fetchJsonOrThrow(`${API_BASE}/custom-topic-templates`, {
+                signal: AbortSignal.timeout(15000),
+            });
+            return Array.isArray(data?.templates) ? data.templates : [];
+        } catch (e) {
+            console.error('[customTopicTemplates] load failed:', e);
+            return [];
+        }
     };
 
     // 追踪最近一次互动时间（用于48小时话题切换）
@@ -885,11 +898,13 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 }).catch(() => ({ events: [] }))
                 : Promise.resolve({ events: [] }),
             fetchUnboundAgencyStrategies(),
-        ]).then(([docs, mem, evtData, strategyConfig]) => {
+            fetchCustomTopicTemplates(),
+        ]).then(([docs, mem, evtData, strategyConfig, customTemplates]) => {
             if (cancelled || race !== generationRaceRef.current) return;
             setPolicyDocs(docs);
             setClientMemory(mem || []);
             setAgencyStrategies(strategyConfig);
+            setSavedCustomTopicTemplates(customTemplates);
             const events = evtData?.events || [];
             setAllEvents(events);
             setActiveEvents(events.filter(e => e.status === 'active'));
@@ -1004,9 +1019,15 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         const topicSeed = currentTopic || autoDetectedTopic;
         const topicMeta = resolveTopicContext({
             topic_group: topicSeed?.topic_group || topicSeed?.topic_key || null,
+            intent_key: topicSeed?.intent_key || null,
+            scene_key: topicSeed?.scene_key || null,
             text,
             trigger: topicSeed?.trigger || 'auto',
             detected_at: topicSeed?.detected_at || Date.now(),
+            custom_topic_label: topicSeed?.custom_topic_label || '',
+            custom_template_text: topicSeed?.custom_template_text || '',
+            custom_template_id: topicSeed?.custom_template_id || null,
+            custom_template_media_items: topicSeed?.custom_template_media_items || [],
         });
         return {
             incomingMsg: lastIncoming || null,
@@ -1051,6 +1072,11 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         intent_key: currentTopic.intent_key,
                         scene_key: currentTopic.scene_key,
                         trigger: currentTopic.trigger,
+                        label: currentTopic.label,
+                        custom_topic_label: currentTopic.custom_topic_label,
+                        custom_template_text: currentTopic.custom_template_text,
+                        custom_template_id: currentTopic.custom_template_id,
+                        custom_template_media_items: currentTopic.custom_template_media_items || [],
                     } : null,
                     auto_detected_topic: autoDetectedTopic ? {
                         topic_key: autoDetectedTopic.topic_key,
@@ -1078,7 +1104,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const replyContextSignature = useMemo(() => JSON.stringify({
         clientPhone: client?.phone || null,
         latestIncomingKey: getMessageKey(getLatestIncomingMessage(messages)) || null,
-        currentTopic: currentTopic ? [currentTopic.topic_key, currentTopic.intent_key, currentTopic.scene_key, currentTopic.trigger] : null,
+        currentTopic: currentTopic ? [currentTopic.topic_key, currentTopic.intent_key, currentTopic.scene_key, currentTopic.trigger, currentTopic.custom_topic_label, currentTopic.custom_template_text, currentTopic.custom_template_id, currentTopic.custom_template_media_items?.length || 0] : null,
         autoTopic: autoDetectedTopic ? [autoDetectedTopic.topic_key, autoDetectedTopic.intent_key, autoDetectedTopic.scene_key, autoDetectedTopic.confidence] : null,
         activeEventKeys: (activeEvents || []).filter((e) => e?.status === 'active').map((e) => String(e?.event_key || '')),
     }), [activeEvents, autoDetectedTopic, client?.phone, currentTopic, messages]);
@@ -2381,6 +2407,126 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         }
     }, [activePicker?.generated_at, isMobileViewport]);
 
+    useEffect(() => {
+        if (!topicDropdownOpen) return;
+        let cancelled = false;
+        fetchCustomTopicTemplates().then((templates) => {
+            if (!cancelled) setSavedCustomTopicTemplates(templates);
+        });
+        return () => { cancelled = true; };
+    }, [topicDropdownOpen]);
+
+    const handleSelectTopicTemplate = useCallback(({
+        topicGroup,
+        intentKey = null,
+        sceneKey = null,
+        label = '',
+        customTemplateText = '',
+        customTemplateId = null,
+        customTemplateMediaItems = [],
+    }) => {
+        const topicLabel = label || getIntentLabel(intentKey, TOPIC_GROUP_LABELS[topicGroup] || '自定义话题');
+        const lastIncoming = getLatestIncomingMessage(messages);
+        const newTopic = resolveTopicContext({
+            topic_group: topicGroup,
+            intent_key: intentKey,
+            scene_key: sceneKey,
+            text: (inputText || '').trim() || lastIncoming?.text || topicLabel,
+            trigger: 'manual',
+            detected_at: Date.now(),
+            custom_topic_label: topicGroup === 'custom_topic' ? topicLabel : '',
+            custom_template_text: customTemplateText,
+            custom_template_id: customTemplateId,
+            custom_template_media_items: customTemplateMediaItems,
+        });
+        setCurrentTopic(newTopic);
+        setTopicDropdownOpen(false);
+    }, [inputText, messages]);
+
+    const upsertSavedCustomTemplate = useCallback((saved) => {
+        if (!saved) return;
+        setSavedCustomTopicTemplates((prev) => {
+            const withoutSame = (prev || []).filter((item) => item.id !== saved.id && item.label !== saved.label);
+            return [saved, ...withoutSame].slice(0, 100);
+        });
+    }, []);
+
+    const resolveTemplateCardMeta = useCallback((draft = {}, slot = {}) => {
+        const topicLabel = currentTopic?.custom_topic_label || currentTopic?.label || slot?.title || '自定义模板';
+        return {
+            label: String(draft.label || topicLabel).trim(),
+            template_text: String(draft.template_text || draft.template || slot?.text || '').trim(),
+            topic_group: currentTopic?.topic_group || slot?.topic_group || activeReplyContext?.topic_group || 'custom_topic',
+            intent_key: currentTopic?.intent_key || slot?.intent_key || activeReplyContext?.intent_key || 'custom_template',
+            scene_key: currentTopic?.scene_key || slot?.scene_keys?.[0] || activeReplyContext?.scene_key || 'follow_up',
+            media_items: Array.isArray(draft.media_items) ? draft.media_items : [],
+        };
+    }, [activeReplyContext?.intent_key, activeReplyContext?.scene_key, activeReplyContext?.topic_group, currentTopic]);
+
+    const handleSaveTemplateFromCard = useCallback(async (draft, { slot } = {}) => {
+        const payload = resolveTemplateCardMeta(draft, slot);
+        if (!payload.label || !payload.template_text) return;
+        try {
+            const data = await fetchJsonOrThrow(`${API_BASE}/custom-topic-templates`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(15000),
+            });
+            const saved = data?.template || {
+                ...payload,
+                template_text: payload.template_text,
+            };
+            upsertSavedCustomTemplate(saved);
+            handleSelectTopicTemplate({
+                topicGroup: saved.topic_group || payload.topic_group,
+                intentKey: saved.intent_key || 'custom_template',
+                sceneKey: saved.scene_key || 'follow_up',
+                label: saved.label || payload.label,
+                customTemplateText: saved.template_text || payload.template_text,
+                customTemplateId: saved.id || null,
+                customTemplateMediaItems: saved.media_items || payload.media_items || [],
+            });
+        } catch (e) {
+            console.error('[customTopicTemplates] save failed:', e);
+            setTemplateError(`自定义模板保存失败：${e.message || '未知错误'}`);
+        }
+    }, [handleSelectTopicTemplate, resolveTemplateCardMeta, upsertSavedCustomTemplate]);
+
+    const handleUpdateTemplateFromCard = useCallback(async (draft, { slot } = {}) => {
+        const id = currentTopic?.custom_template_id
+            || slot?.custom_template_id
+            || String(slot?.section_id || '').match(/operator-custom-topic::(\d+)/)?.[1];
+        if (!id) {
+            setTemplateError('请先保存为自定义模板后再更新');
+            return;
+        }
+        const payload = resolveTemplateCardMeta(draft, slot);
+        if (!payload.label || !payload.template_text) return;
+        try {
+            const data = await fetchJsonOrThrow(`${API_BASE}/custom-topic-templates/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(15000),
+            });
+            const saved = data?.template || { id, ...payload };
+            upsertSavedCustomTemplate(saved);
+            handleSelectTopicTemplate({
+                topicGroup: saved.topic_group || payload.topic_group,
+                intentKey: saved.intent_key || payload.intent_key,
+                sceneKey: saved.scene_key || payload.scene_key,
+                label: saved.label || payload.label,
+                customTemplateText: saved.template_text || payload.template_text,
+                customTemplateId: saved.id || id,
+                customTemplateMediaItems: saved.media_items || payload.media_items || [],
+            });
+        } catch (e) {
+            console.error('[customTopicTemplates] update failed:', e);
+            setTemplateError(`自定义模板更新失败：${e.message || '未知错误'}`);
+        }
+    }, [currentTopic?.custom_template_id, handleSelectTopicTemplate, resolveTemplateCardMeta, upsertSavedCustomTemplate]);
+
     return (
         <>
             <div className="flex flex-col h-full">
@@ -2434,7 +2580,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                     }}
                                     title={`手动标记 · ${currentTopic.detected_at ? new Date(currentTopic.detected_at).toLocaleString('zh-CN') : ''}`}
                                 >
-                                    📌 {getTopicLabel(currentTopic.topic_group || currentTopic.topic_key)}
+                                    📌 {currentTopic.label || getTopicLabel(currentTopic.intent_key, getTopicLabel(currentTopic.topic_group || currentTopic.topic_key))}
                                 </span>
                             )}
                         </div>
@@ -2509,7 +2655,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                 {currentTopic && (
                                     <div className="flex items-center gap-1 mt-0.5">
                                         <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,130,246,0.12)', color: '#2563eb' }}>
-                                            📌 {getTopicLabel(currentTopic.topic_group || currentTopic.topic_key)}
+                                            📌 {currentTopic.label || getTopicLabel(currentTopic.intent_key, getTopicLabel(currentTopic.topic_group || currentTopic.topic_key))}
                                         </span>
                                     </div>
                                 )}
@@ -2814,6 +2960,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         onSelect={handleSelectCandidate}
                         onSkip={handleSkip}
                         onEditCandidate={handleEditCandidate}
+                        onSaveTemplate={handleSaveTemplateFromCard}
+                        onUpdateTemplate={handleUpdateTemplateFromCard}
                         onGenerateAi={handleBotIconClick}
                         onRegenerate={handleRegenerate}
                         onRetryTemplates={() => activeReplyContext && loadTemplateDeck(activeReplyContext)}
@@ -2952,8 +3100,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                     position: 'absolute',
                                     bottom: '52px',
                                     left: '0',
-                                    width: '200px',
-                                    maxHeight: '320px',
+                                    width: '320px',
+                                    maxHeight: '460px',
                                     background: WA.white,
                                     border: `1px solid ${WA.borderLight}`,
                                     boxShadow: WA.shellShadow,
@@ -2965,34 +3113,92 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                 </div>
                                 {TOPIC_GROUP_ORDER.map((key) => {
                                     const active = (currentTopic?.topic_group || currentTopic?.topic_key) === key;
+                                    const subtopics = TOPIC_GROUP_SUBTOPICS[key] || [];
                                     return (
-                                        <button
-                                            key={key}
-                                            onClick={() => {
-                                                const label = TOPIC_GROUP_LABELS[key];
-                                                const lastIncoming = getLatestIncomingMessage(messages);
-                                                const newTopic = resolveTopicContext({
-                                                    topic_group: key,
-                                                    text: (inputText || '').trim() || lastIncoming?.text || label,
-                                                    trigger: 'manual',
-                                                    detected_at: Date.now(),
-                                                });
-                                                setCurrentTopic(newTopic);
-                                                setTopicDropdownOpen(false);
-                                            }}
-                                            className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2"
-                                            style={{
-                                                color: active ? '#2563eb' : WA.textDark,
-                                                background: active ? 'rgba(37,99,235,0.08)' : 'transparent',
-                                            }}
-                                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(37,99,235,0.06)'}
-                                            onMouseLeave={e => e.currentTarget.style.background = active ? 'rgba(37,99,235,0.08)' : 'transparent'}
-                                        >
-                                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: active ? '#2563eb' : WA.borderLight }} />
-                                            {TOPIC_GROUP_LABELS[key]}
-                                        </button>
+                                        <div key={key} className="px-2 py-1">
+                                            <button
+                                                onClick={() => {
+                                                    const defaultIntent = subtopics[0] || null;
+                                                    handleSelectTopicTemplate({
+                                                        topicGroup: key,
+                                                        intentKey: defaultIntent,
+                                                        label: getIntentLabel(defaultIntent, TOPIC_GROUP_LABELS[key]),
+                                                    });
+                                                }}
+                                                className="w-full text-left px-2.5 py-2 text-xs transition-colors flex items-center gap-2 rounded-lg"
+                                                style={{
+                                                    color: active ? '#2563eb' : WA.textDark,
+                                                    background: active ? 'rgba(37,99,235,0.08)' : 'transparent',
+                                                }}
+                                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(37,99,235,0.06)'}
+                                                onMouseLeave={e => e.currentTarget.style.background = active ? 'rgba(37,99,235,0.08)' : 'transparent'}
+                                            >
+                                                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: active ? '#2563eb' : WA.borderLight }} />
+                                                <span className="font-semibold">{TOPIC_GROUP_LABELS[key]}</span>
+                                            </button>
+                                            {subtopics.length > 0 && (
+                                                <div className="ml-3 mt-1 flex flex-wrap gap-1.5">
+                                                    {subtopics.map((intentKey) => {
+                                                        const subActive = active && currentTopic?.intent_key === intentKey;
+                                                        return (
+                                                            <button
+                                                                key={intentKey}
+                                                                onClick={() => handleSelectTopicTemplate({
+                                                                    topicGroup: key,
+                                                                    intentKey,
+                                                                    label: getIntentLabel(intentKey, TOPIC_GROUP_LABELS[key]),
+                                                                })}
+                                                                className="px-2 py-1 rounded-full text-[11px] font-medium transition-colors"
+                                                                style={{
+                                                                    background: subActive ? 'rgba(37,99,235,0.13)' : WA.shellPanelMuted,
+                                                                    color: subActive ? '#2563eb' : WA.textMuted,
+                                                                    border: `1px solid ${subActive ? 'rgba(37,99,235,0.22)' : WA.borderLight}`,
+                                                                }}
+                                                            >
+                                                                {getIntentLabel(intentKey)}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
                                     );
                                 })}
+                                {savedCustomTopicTemplates.length > 0 && (
+                                    <div className="mt-1 pt-2 border-t" style={{ borderColor: WA.borderLight }}>
+                                        <div className="px-3 pb-1 text-xs font-semibold" style={{ color: WA.textMuted }}>
+                                            已保存模板
+                                        </div>
+                                        <div className="px-2 flex flex-wrap gap-1.5">
+                                            {savedCustomTopicTemplates.slice(0, 12).map((item) => {
+                                                const itemActive = currentTopic?.custom_template_id === item.id;
+                                                return (
+                                                    <button
+                                                        key={item.id || item.label}
+                                                        onClick={() => handleSelectTopicTemplate({
+                                                            topicGroup: item.topic_group || 'custom_topic',
+                                                            intentKey: item.intent_key || 'custom_template',
+                                                            sceneKey: item.scene_key || 'follow_up',
+                                                            label: item.label,
+                                                            customTemplateText: item.template_text,
+                                                            customTemplateId: item.id || null,
+                                                            customTemplateMediaItems: item.media_items || [],
+                                                        })}
+                                                        className="px-2 py-1 rounded-full text-[11px] font-medium transition-colors"
+                                                        style={{
+                                                            background: itemActive ? 'rgba(15,118,110,0.14)' : WA.shellPanelMuted,
+                                                            color: itemActive ? WA.teal : WA.textMuted,
+                                                            border: `1px solid ${itemActive ? 'rgba(15,118,110,0.25)' : WA.borderLight}`,
+                                                        }}
+                                                        title={item.template_text || ''}
+                                                    >
+                                                        {item.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

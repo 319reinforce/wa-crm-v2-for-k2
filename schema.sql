@@ -498,6 +498,28 @@ CREATE INDEX idx_audit_table_record ON audit_log(table_name, record_id);
 CREATE INDEX idx_audit_user ON audit_log(user_id);
 
 -- ============================================================
+-- Custom Topic Templates — 运营自定义话题模板
+-- ============================================================
+CREATE TABLE IF NOT EXISTS custom_topic_templates (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    label           VARCHAR(128) NOT NULL,
+    topic_group     VARCHAR(64) NOT NULL DEFAULT 'custom_topic',
+    intent_key      VARCHAR(64) NOT NULL DEFAULT 'custom_template',
+    scene_key       VARCHAR(64) NOT NULL DEFAULT 'follow_up',
+    template_text   TEXT NOT NULL,
+    media_items_json TEXT NULL,
+    owner_scope     VARCHAR(64) NOT NULL DEFAULT 'global',
+    created_by      VARCHAR(64) NULL,
+    is_active       TINYINT(1) DEFAULT 1,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_custom_topic_owner_label (owner_scope, label)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_ctt_active_updated ON custom_topic_templates(is_active, updated_at);
+CREATE INDEX idx_ctt_owner ON custom_topic_templates(owner_scope);
+
+-- ============================================================
 -- Client Profiles — 客户独立画像
 -- ============================================================
 CREATE TABLE IF NOT EXISTS client_profiles (

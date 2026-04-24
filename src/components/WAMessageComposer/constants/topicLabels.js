@@ -4,7 +4,9 @@
  */
 
 export const TOPIC_GROUP_LABELS = {
-    outreach_contact: '建联触达',
+    outreach_contact: '初次建联',
+    agency_second_touch: '二次触达agency绑定',
+    agency_recall_pending: '待召回',
     followup_progress: '跟进推进',
     signup_onboarding: '注册与邀请码',
     product_mechanics: '产品机制说明',
@@ -12,10 +14,13 @@ export const TOPIC_GROUP_LABELS = {
     settlement_pricing: '结算 / 月费 / 补贴',
     content_strategy: '内容发布 / 选品优化',
     violation_risk_control: '违规申诉 / 风控',
+    custom_topic: '自定义话题',
 };
 
 export const TOPIC_GROUP_ORDER = [
     'outreach_contact',
+    'agency_second_touch',
+    'agency_recall_pending',
     'followup_progress',
     'signup_onboarding',
     'product_mechanics',
@@ -50,9 +55,13 @@ export const EVENT_LABELS = {
 };
 
 export const INTENT_LABELS = {
+    first_outreach_fixed: '初次建联-固定方案',
     first_outreach_soft_mcn: '首次建联-MCN版',
     first_outreach_self_run: '首次建联-自营/全托版',
     first_outreach_value_pitch: '首次建联-价值介绍',
+    agency_second_touch_binding: '二次触达-Agency绑定',
+    agency_recall_pending: '待召回-绑定落地',
+    custom_template: '自定义模板',
     followup_soft_reminder: '二次跟进-轻提醒',
     followup_final_call: '二次跟进-最终召回',
     followup_interested_reply: '二次跟进-感兴趣回复',
@@ -89,6 +98,9 @@ export const ALL_TOPIC_LABELS = {
 
 export const TOPIC_GROUP_DEFAULT_SCENE = {
     outreach_contact: 'first_contact',
+    agency_second_touch: 'mcn_binding',
+    agency_recall_pending: 'mcn_binding',
+    custom_topic: 'follow_up',
     followup_progress: 'follow_up',
     signup_onboarding: 'trial_intro',
     product_mechanics: 'content_request',
@@ -99,7 +111,10 @@ export const TOPIC_GROUP_DEFAULT_SCENE = {
 };
 
 export const TOPIC_GROUP_DEFAULT_INTENT = {
-    outreach_contact: 'first_outreach_value_pitch',
+    outreach_contact: 'first_outreach_fixed',
+    agency_second_touch: 'agency_second_touch_binding',
+    agency_recall_pending: 'agency_recall_pending',
+    custom_topic: 'custom_template',
     followup_progress: 'followup_soft_reminder',
     signup_onboarding: 'invite_code_reply',
     product_mechanics: 'how_moras_works',
@@ -107,6 +122,19 @@ export const TOPIC_GROUP_DEFAULT_INTENT = {
     settlement_pricing: 'monthly_fee_explain',
     content_strategy: 'posting_cadence',
     violation_risk_control: 'violation_reassurance',
+};
+
+export const TOPIC_GROUP_SUBTOPICS = {
+    outreach_contact: ['first_outreach_fixed'],
+    agency_second_touch: ['agency_second_touch_binding'],
+    agency_recall_pending: ['agency_recall_pending'],
+    followup_progress: ['followup_soft_reminder', 'followup_interested_reply', 'followup_final_call'],
+    signup_onboarding: ['invite_code_reply', 'username_followup', 'registered_not_posted'],
+    product_mechanics: ['how_moras_works', 'product_logic', 'manual_editing_request', 'qualified_video_rule'],
+    mcn_partnership: ['mcn_explain', 'mcn_hesitation', 'self_run_vs_full_service'],
+    settlement_pricing: ['monthly_fee_explain', 'subsidy_explain', 'payment_method', 'weekly_settlement'],
+    content_strategy: ['posting_cadence', 'product_selection', 'audience_fit', 'version_update_notice'],
+    violation_risk_control: ['violation_reassurance', 'appeal_template', 'risk_precheck', 'post_compensation_warning'],
 };
 
 export function getTopicLabel(key, fallback = '新话题') {
