@@ -4,7 +4,7 @@
  * - global admin tokens
  * - owner-scoped tokens (locked to one operator/session)
  */
-const { normalizeOperatorName } = require('../utils/operator');
+const { normalizeOperatorName, ownersEqual } = require('../utils/operator');
 const { getInternalServiceTokenEntry } = require('../utils/internalAuth');
 const sessionRepository = require('../services/sessionRepository');
 const userSessionRepo = require('../services/userSessionRepo');
@@ -258,7 +258,9 @@ function getLockedSessionId(req) {
 function matchesOwnerScope(req, owner) {
     const lockedOwner = getLockedOwner(req);
     if (!lockedOwner) return true;
-    return normalizeOperatorName(owner, null) === lockedOwner;
+    // 用 ownersEqual 而不是 ===：动态 operator（不在静态 roster）两侧写入时可能
+    // 大小写不一致，严格比较会把合法请求误判为越权。
+    return ownersEqual(owner, lockedOwner);
 }
 
 function resolveScopedOwner(req, owner, fallback = null) {
