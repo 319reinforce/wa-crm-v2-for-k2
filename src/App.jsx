@@ -17,24 +17,18 @@ import { UsersPanel } from './components/UsersPanel'
 import { AIProvidersAdminPanel } from './components/AIProvidersAdminPanel'
 import { getAppAuthScopeOwner, isAppAuthOwnerLocked, isAppAuthAdmin } from './utils/appAuth'
 import { fetchJsonOrThrow } from './utils/api'
-import { getCreatorMessages, getCreatorStatusMeta } from './utils/creatorMeta'
+import {
+  getCreatorMessages,
+  getCreatorReplyState,
+  getCreatorSignalBadges,
+  getCreatorStatusMeta,
+  getCreatorTrialPhaseMeta,
+} from './utils/creatorMeta'
 import { buildOwnerOptions, getOwnerColor, useOperatorRoster } from './utils/operators'
 import { fetchWaAdmin } from './utils/waAdmin'
 import WA from './utils/waTheme'
 
 const API_BASE = '/api'
-
-const EVENT_BADGES = [
-  { key: 'ev_trial_active', label: '七日挑战进行中', color: '#3b82f6', bg: 'rgba(59,130,246,0.15)' },
-  { key: 'ev_monthly_started', label: '开启月度挑战', color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)' },
-  { key: 'ev_monthly_joined', label: '月卡加入', color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
-  { key: 'ev_whatsapp_shared', label: 'WA已发', color: '#00a884', bg: 'rgba(0,168,132,0.15)' },
-  { key: 'ev_gmv_1k', label: 'GMV>1K', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
-  { key: 'ev_gmv_2k', label: 'GMV 2K', color: '#f97316', bg: 'rgba(249,115,22,0.15)' },
-  { key: 'ev_gmv_5k', label: 'GMV 5K', color: '#f97316', bg: 'rgba(249,115,22,0.15)' },
-  { key: 'ev_gmv_10k', label: 'GMV 10K', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
-  { key: 'ev_churned', label: '已流失', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
-]
 
 const EVENT_FILTER_FIELD_MAP = {
   trial_7day: ['ev_trial_active', 'ev_trial_7day'],
@@ -2341,13 +2335,12 @@ function buildCreatorViewModel(detail, previous = {}) {
   }
 }
 
-function getPriorityBadgeMeta(priority) {
+function getPriorityBadgeMeta(priority, creator) {
   if (!priority) return null
+  const replyState = getCreatorReplyState(creator)
+  if (!replyState.awaitingReply && (priority === 'urgent' || priority === 'high')) return null
   if (priority === 'urgent') {
-    return {
-      label: '高优先级',
-      style: { background: 'rgba(245,158,11,0.16)', color: '#f59e0b' }
-    }
+    return null
   }
   if (priority === 'high') {
     return {
@@ -2375,15 +2368,15 @@ function ChatListItem({ creator, onClick, unread, active = false, selectable = f
   const ownerColor = getOwnerColor(creator.wa_owner, WA.textMuted)
   const full = creator._full || {}
   const wacrm = full.wacrm || {}
-  const joinbrands = full.joinbrands || {}
   const statusMeta = getCreatorStatusMeta(creator)
-  const priorityMeta = getPriorityBadgeMeta(wacrm.priority)
+  const priorityMeta = getPriorityBadgeMeta(wacrm.priority, creator)
   const lifecycle = creator.lifecycle || full.lifecycle || null
   const lifecycleMeta = lifecycle?.stage_key ? LIFECYCLE_BADGE_META[lifecycle.stage_key] : null
   const referralActive = !!lifecycle?.flags?.referral_active
   const waJoined = !!lifecycle?.flags?.wa_joined
   const hasConflicts = !!lifecycle?.has_conflicts
-  const betaStatus = wacrm.beta_status || lifecycle?.flags?.beta_status || ''
+  const trialPhaseMeta = getCreatorTrialPhaseMeta(creator)
+  const signalBadges = getCreatorSignalBadges(creator).slice(0, 2)
 
   const lastActiveTs = getCreatorLastConversationTs(creator)
   const lastActiveLabel = lastActiveTs ? formatChatListTime(lastActiveTs) : null
@@ -2391,7 +2384,6 @@ function ChatListItem({ creator, onClick, unread, active = false, selectable = f
     ? new Date(lastActiveTs).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     : ''
 
-  const activeEvents = EVENT_BADGES.filter(e => joinbrands[e.key] || full[e.key]).slice(0, 2)
   const baseBackground = statusMeta.bg === 'transparent' ? WA.white : statusMeta.bg
   const restBackground = active ? WA.shellActive : baseBackground
   const hoverBackground = active ? WA.shellActive : (statusMeta.hoverBg === 'transparent' ? WA.shellHover : statusMeta.hoverBg)
@@ -2478,7 +2470,7 @@ function ChatListItem({ creator, onClick, unread, active = false, selectable = f
         </div>
 
         {/* Tags row */}
-        {(activeEvents.length > 0 || priorityMeta || lifecycleMeta || wacrm.agency_bound > 0 || creator.keeper_gmv > 0 || statusMeta.label || betaStatus) && (
+        {(trialPhaseMeta || signalBadges.length > 0 || priorityMeta || lifecycleMeta || creator.keeper_gmv > 0 || statusMeta.label) && (
           <div className="flex flex-wrap gap-1 mt-1.5">
             {statusMeta.label && (
               <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: statusMeta.bg === 'transparent' ? WA.shellPanelMuted : statusMeta.bg, color: statusMeta.accent }}>
@@ -2505,7 +2497,12 @@ function ChatListItem({ creator, onClick, unread, active = false, selectable = f
                 冲突
               </span>
             )}
-            {activeEvents.map(e => (
+            {trialPhaseMeta && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: trialPhaseMeta.bg, color: trialPhaseMeta.color }}>
+                {trialPhaseMeta.label}
+              </span>
+            )}
+            {signalBadges.map(e => (
               <span key={e.key} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: e.bg, color: e.color }}>
                 {e.label}
               </span>
@@ -2514,14 +2511,6 @@ function ChatListItem({ creator, onClick, unread, active = false, selectable = f
               <span className="text-[11px] px-2 py-0.5 rounded-full" style={priorityMeta.style}>
                 {priorityMeta.label}
               </span>
-            )}
-            {betaStatus && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}>
-                Beta: {formatBetaStatusLabel(betaStatus)}
-              </span>
-            )}
-            {wacrm.agency_bound > 0 && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'rgba(0,168,132,0.12)', color: '#008069' }}>Agency</span>
             )}
             {creator.keeper_gmv > 0 && (
               <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981' }}>

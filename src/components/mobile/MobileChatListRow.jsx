@@ -1,7 +1,7 @@
 import React from 'react'
 import WA from '../../utils/waTheme'
 import { getOwnerColor } from '../../utils/operators'
-import { getCreatorStatusMeta } from '../../utils/creatorMeta'
+import { getCreatorStatusMeta, getCreatorTrialPhaseMeta } from '../../utils/creatorMeta'
 
 function getCreatorLastTs(creator) {
   return creator?.last_active_ts
@@ -35,16 +35,17 @@ function formatChatListTime(ts) {
 export default function MobileChatListRow({ creator, onClick, unread = 0 }) {
   const ownerColor = getOwnerColor(creator.wa_owner, WA.textMuted)
   const statusMeta = getCreatorStatusMeta(creator)
+  const trialPhaseMeta = getCreatorTrialPhaseMeta(creator)
   const lifecycle = creator.lifecycle || creator._full?.lifecycle || null
   const lifecycleLabel = lifecycle?.stage_key ? LIFECYCLE_LABELS[lifecycle.stage_key] : ''
   const lastActiveTs = getCreatorLastTs(creator)
   const lastActiveLabel = lastActiveTs ? formatChatListTime(lastActiveTs) : ''
 
-  const primaryBadge = statusMeta.label || lifecycleLabel
-  const primaryBadgeColor = statusMeta.label ? statusMeta.accent : WA.teal
+  const primaryBadge = statusMeta.label || trialPhaseMeta?.label || lifecycleLabel
+  const primaryBadgeColor = statusMeta.label ? statusMeta.accent : (trialPhaseMeta?.color || WA.teal)
   const primaryBadgeBg = statusMeta.label
     ? (statusMeta.bg === 'transparent' ? WA.shellPanelMuted : statusMeta.bg)
-    : WA.shellAccentSoft
+    : (trialPhaseMeta?.bg || WA.shellAccentSoft)
 
   return (
     <button

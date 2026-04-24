@@ -11,6 +11,7 @@ import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api';
 import { fetchWaAdmin } from '../utils/waAdmin';
 import { fetchAppAuth, isAppAuthViewer, canAppAuthWriteToOwner, getAppAuthScopeOwner } from '../utils/appAuth';
 import { DEFAULT_UNBOUND_AGENCY_STRATEGIES, normalizeUnboundAgencyStrategies } from '../utils/unboundAgencyStrategies';
+import { getCreatorSignalBadges, getCreatorStatusMeta, getCreatorTrialPhaseMeta } from '../utils/creatorMeta';
 import WA from '../utils/waTheme';
 
 const API_BASE = '/api';
@@ -229,30 +230,13 @@ function getMessageCaption(message = {}) {
 }
 
 function getConversationStatusMeta(creator) {
-    const full = creator?._full || creator || {};
-    const wacrm = full.wacrm || {};
-    const joinbrands = full.joinbrands || {};
-    const urgencyLevel = Number(wacrm.urgency_level || 0);
-    const isUrgent = wacrm.priority === 'urgent' || urgencyLevel >= 8 || !!joinbrands.ev_churned;
-    const isAgencyProspect = !isUrgent && !wacrm.agency_bound && !joinbrands.ev_agency_bound;
-
-    if (isUrgent) {
-        return {
-            label: '紧急跟进',
-            bg: 'rgba(251,146,60,0.12)',
-            color: '#fb923c',
-        };
-    }
-
-    if (isAgencyProspect) {
-        return {
-            label: 'Agency 转化中',
-            bg: 'rgba(16,185,129,0.14)',
-            color: '#047857',
-        };
-    }
-
-    return null;
+    const meta = getCreatorStatusMeta(creator);
+    if (!meta?.label) return null;
+    return {
+        label: meta.label,
+        bg: meta.bg,
+        color: meta.accent,
+    };
 }
 
 function parseLifecycleTimestamp(value) {
@@ -2241,6 +2225,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const msgsToShow = messages;
     const hasOlderMessages = loadedServerCount < messageTotal;
     const conversationStatusMeta = getConversationStatusMeta(creator);
+    const trialPhaseMeta = getCreatorTrialPhaseMeta(creator);
+    const signalBadges = getCreatorSignalBadges(creator);
     msgsToShow.forEach((msg, index) => {
         const normalizedTimestamp = toTimestampMs(msg.timestamp);
         const date = formatDate(normalizedTimestamp);
@@ -2925,15 +2911,10 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                             {creator && creator.joinbrands && (
                                 <>
                                     {conversationStatusMeta?.label && <EventPill label={conversationStatusMeta.label} color={conversationStatusMeta.color} bg={conversationStatusMeta.bg} />}
-                                    {(creator.joinbrands.ev_trial_active || creator.joinbrands.ev_trial_7day) && <EventPill label="7天试用" color="#3b82f6" />}
-                                    {creator.joinbrands.ev_monthly_invited && <EventPill label="月卡邀请" color="#8b5cf6" />}
-                                    {creator.joinbrands.ev_monthly_joined && <EventPill label="月卡加入" color="#10b981" />}
-                                    {creator.joinbrands.ev_whatsapp_shared && <EventPill label="WA已发" color="#00a884" />}
-                                    {creator.joinbrands.ev_gmv_1k && <EventPill label="GMV 1K" color="#f59e0b" />}
-                                    {creator.joinbrands.ev_gmv_2k && <EventPill label="GMV 2K" color="#f97316" />}
-                                    {creator.joinbrands.ev_gmv_5k && <EventPill label="GMV 5K" color="#ea580c" />}
-                                    {creator.joinbrands.ev_gmv_10k && <EventPill label="GMV 10K" color="#ef4444" />}
-                                    {creator.joinbrands.ev_churned && <EventPill label="已流失" color="#ef4444" />}
+                                    {trialPhaseMeta && <EventPill label={trialPhaseMeta.label} color={trialPhaseMeta.color} bg={trialPhaseMeta.bg} />}
+                                    {signalBadges.map((badge) => (
+                                        <EventPill key={badge.key} label={badge.label} color={badge.color} bg={badge.bg} />
+                                    ))}
                                 </>
                             )}
                         </div>
