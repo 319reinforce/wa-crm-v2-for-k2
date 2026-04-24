@@ -714,7 +714,7 @@ function DriverBadge({ driver }) {
   )
 }
 
-function SessionActions({ session, pending, onRestart, onToggle, onDelete, onScan, onSwitchDriver }) {
+function SessionActions({ session, pending, onRestart, onToggle, onDelete, onScan, onSwitchDriver, onReauth }) {
   const showScan = session.agent?.has_qr || (session.agent && !session.agent.ready && session.desired_state === 'running')
   const isRunning = session.desired_state === 'running'
   const isActionPending = (key) => !!pending[`${session.session_id}:${key}`]
@@ -742,6 +742,14 @@ function SessionActions({ session, pending, onRestart, onToggle, onDelete, onSca
         {isActionPending('restart') ? '重启中…' : '重启'}
       </button>
       <button
+        onClick={() => onReauth(session.session_id)}
+        disabled={isActionPending('reauth')}
+        style={{ ...secondaryBtnStyle, minHeight: 36, padding: '0 14px', fontSize: 12 }}
+        title="清除当前登录态并弹出新 QR 码，session 配置保留"
+      >
+        {isActionPending('reauth') ? '处理中…' : '重新扫码'}
+      </button>
+      <button
         onClick={() => onToggle(session.session_id, isRunning ? 'stopped' : 'running')}
         disabled={isActionPending('toggle')}
         style={{ ...secondaryBtnStyle, minHeight: 36, padding: '0 14px', fontSize: 12 }}
@@ -759,7 +767,7 @@ function SessionActions({ session, pending, onRestart, onToggle, onDelete, onSca
   )
 }
 
-function SessionCard({ session, pending, onRestart, onToggle, onDelete, onScan, onSwitchDriver }) {
+function SessionCard({ session, pending, onRestart, onToggle, onDelete, onScan, onSwitchDriver, onReauth }) {
   return (
     <article
       className="rounded-[20px] p-4 space-y-3"
@@ -812,6 +820,7 @@ function SessionCard({ session, pending, onRestart, onToggle, onDelete, onScan, 
           session={session}
           pending={pending}
           onRestart={onRestart}
+          onReauth={onReauth}
           onToggle={onToggle}
           onDelete={onDelete}
           onScan={onScan}
@@ -887,6 +896,18 @@ export function AccountsPanel() {
     fetchJsonOrThrow(`${API_BASE}/wa/sessions/${sid}/restart`, { method: 'POST' })
   )
 
+  const handleReauth = async (sid) => {
+    const confirmed = confirm(
+      `确认重新扫码 session "${sid}"?\n\n会清除当前登录态（LocalAuth 目录），需要在手机端重新扫描 QR 码。\n\n配置（owner / driver / desired_state）保留，消息历史不会丢失。`
+    )
+    if (!confirmed) return
+    await doAction(sid, 'reauth', () =>
+      fetchJsonOrThrow(`${API_BASE}/wa/sessions/${sid}/reauth`, { method: 'POST' })
+    )
+    // 触发扫码弹窗，后台 agent 重启后会产生新 QR
+    setScanSessionId(sid)
+  }
+
   const handleToggleDesired = (sid, nextState) => doAction(sid, 'toggle', () =>
     fetchJsonOrThrow(`${API_BASE}/wa/sessions/${sid}/desired-state`, {
       method: 'POST',
@@ -950,6 +971,7 @@ export function AccountsPanel() {
               session={s}
               pending={actionPending}
               onRestart={handleRestart}
+              onReauth={handleReauth}
               onToggle={handleToggleDesired}
               onDelete={handleDelete}
               onScan={handleScan}
