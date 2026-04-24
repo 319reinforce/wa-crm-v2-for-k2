@@ -27,6 +27,13 @@ const OPERATOR_ROSTER = [
         phones: ['+8617641210103'],
         aliases: ['jiawen', 'sybil'],
     },
+    {
+        operator: 'Jiawei',
+        real_name: 'jiawei',
+        wa_note: 'Jiawei',
+        phones: ['+8613187012419'],
+        aliases: ['jiawei', 'depp', 'moras'],
+    },
 ];
 
 function normalizeDigits(value) {
