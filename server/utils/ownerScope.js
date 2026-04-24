@@ -4,7 +4,7 @@ const {
     resolveScopedOwner,
     sendOwnerScopeForbidden,
 } = require('../middleware/appAuth');
-const { normalizeOperatorName } = require('./operator');
+const { normalizeOperatorName, ownersEqual } = require('./operator');
 const creatorCache = require('../services/creatorCache');
 
 async function findCreatorByClientId(dbConn, clientId, fields = 'id, wa_owner') {
@@ -101,7 +101,7 @@ async function resolveClientAndOwnerScope(req, res, dbConn, options = {}) {
         return { ok: false };
     }
 
-    if (clientScope.owner && ownerScope.requestedOwner && clientScope.owner !== ownerScope.requestedOwner) {
+    if (clientScope.owner && ownerScope.requestedOwner && !ownersEqual(clientScope.owner, ownerScope.requestedOwner)) {
         res.status(400).json({
             ok: false,
             error: `${ownerFieldName} does not match client owner`,
