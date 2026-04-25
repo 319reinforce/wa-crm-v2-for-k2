@@ -30,6 +30,13 @@ const {
     persistLifecycleForCreator,
     listLifecycleTransitions,
 } = require('../services/lifecyclePersistenceService');
+const {
+    canEventDriveLifecycle,
+    normalizeLifecycleEventRow,
+} = require('../services/eventLifecycleFacts');
+const {
+    fetchCreatorEventSnapshotsMap,
+} = require('../services/creatorEventSnapshotService');
 
 function normalizeManualPhone(value) {
     return String(value || '').replace(/\D/g, '').trim();
@@ -83,6 +90,30 @@ function projectLifecycleForList(lifecycle) {
         if (lifecycle[k] !== undefined) projected[k] = lifecycle[k];
     }
     return projected;
+}
+
+const CREATOR_EVENT_FILTER_FIELD_MAP = {
+    trial_7day: ['ev_trial_7day'],
+    trial_active: ['ev_trial_active'],
+    trial: ['ev_trial_active', 'ev_trial_7day'],
+    monthly_invited: ['ev_monthly_invited', 'ev_monthly_started'],
+    monthly_started: ['ev_monthly_started'],
+    monthly_joined: ['ev_monthly_joined'],
+    monthly: ['ev_monthly_started', 'ev_monthly_joined'],
+    whatsapp_shared: ['ev_whatsapp_shared'],
+    gmv_1k: ['ev_gmv_1k'],
+    gmv_2k: ['ev_gmv_2k'],
+    gmv_5k: ['ev_gmv_5k'],
+    gmv_10k: ['ev_gmv_10k'],
+    agency_bound: ['ev_agency_bound'],
+    churned: ['ev_churned'],
+};
+
+function hasCreatorSnapshotEvent(item = {}, eventKey = '') {
+    const fields = CREATOR_EVENT_FILTER_FIELD_MAP[eventKey] || [`ev_${eventKey}`];
+    const snapshotFlags = item.event_snapshot?.compat_ev_flags || {};
+    if (fields.some((field) => snapshotFlags[field])) return true;
+    return fields.some((field) => item[field] || item.joinbrands?.[field]);
 }
 
 function buildCreatorUpdateAuditPayload(payload) {
@@ -177,13 +208,9 @@ async function getLifecycleEventsMap(dbConn, creatorIds, options = {}) {
     const normalizedIds = normalizeCreatorIds(creatorIds);
     if (normalizedIds.length === 0) return new Map();
 
-    const includeMeta = options.includeMeta !== false;
     const placeholders = normalizedIds.map(() => '?').join(', ');
-    const selectFields = includeMeta
-        ? 'id, creator_id, event_key, event_type, owner, status, trigger_source, trigger_text, start_at, end_at, created_at, updated_at, meta'
-        : 'id, creator_id, event_key, event_type, owner, status, trigger_source, trigger_text, start_at, end_at, created_at, updated_at';
     const rows = await dbConn.prepare(`
-        SELECT ${selectFields}
+        SELECT *
         FROM events
         WHERE creator_id IN (${placeholders})
           AND status IN ('active', 'completed')
@@ -194,25 +221,11 @@ async function getLifecycleEventsMap(dbConn, creatorIds, options = {}) {
     for (const row of rows) {
         const creatorId = Number(row.creator_id);
         const list = map.get(creatorId) || [];
-        let normalizedRow = {
+        const normalizedRow = normalizeLifecycleEventRow({
             ...row,
             creator_id: creatorId,
-        };
-        if (includeMeta) {
-            let meta = null;
-            if (row.meta && typeof row.meta === 'object') meta = row.meta;
-            else if (typeof row.meta === 'string' && row.meta.trim()) {
-                try {
-                    meta = JSON.parse(row.meta);
-                } catch (_) {
-                    meta = null;
-                }
-            }
-            normalizedRow = {
-                ...normalizedRow,
-                meta,
-            };
-        }
+        });
+        if (!canEventDriveLifecycle(normalizedRow)) continue;
         list.push(normalizedRow);
         map.set(creatorId, list);
     }
@@ -612,8 +625,8 @@ router.get('/', async (req, res) => {
                         )
                     `;
                 }
-            } else if (VALID_EVENTS.includes(event)) {
-                sql += ` AND j.ev_${event} = 1`;
+            } else if (!VALID_EVENTS.includes(event)) {
+                return res.status(400).json({ error: 'Invalid event filter' });
             }
         }
 
@@ -630,10 +643,11 @@ router.get('/', async (req, res) => {
         __perfEnd(__perfSql);
         const creatorIds = creators.map((item) => item.id);
         const __perfFacts = __perfMark('messageFacts');
-        const [eventsMap, lifecycleOptions, messageFactsMap] = await Promise.all([
+        const [eventsMap, lifecycleOptions, messageFactsMap, eventSnapshotsMap] = await Promise.all([
             getLifecycleEventsMap(dbConn, creatorIds, { includeMeta: false }),
             runtimeOptionsPromise,
             fetchCreatorMessageFactsMap(dbConn, creators),
+            fetchCreatorEventSnapshotsMap(dbConn, creatorIds),
         ]);
         __perfEnd(__perfFacts);
 
@@ -653,11 +667,13 @@ router.get('/', async (req, res) => {
                 wa_owner: normalizeOperatorName(item.roster_operator, item.roster_operator) || item.wa_owner,
                 session_id: item.session_id || getSessionIdForOperator(item.roster_operator || item.wa_owner),
                 message_facts: messageFactsMap.get(Number(item.id)) || null,
+                event_snapshot: eventSnapshotsMap.get(Number(item.id)) || null,
             };
             return attachLifecycle(normalized, eventsMap.get(Number(item.id)) || [], lifecycleOptions, {
                 includeEventLists: false,
             });
         }).filter((item) => {
+            if (event && event !== 'replied' && !hasCreatorSnapshotEvent(item, event)) return false;
             if (lifecycle_stage && item.lifecycle?.stage_key !== lifecycle_stage) return false;
             if (referral_active === '1' && !item.lifecycle?.flags?.referral_active) return false;
             if (referral_active === '0' && item.lifecycle?.flags?.referral_active) return false;

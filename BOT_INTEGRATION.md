@@ -43,7 +43,7 @@ npm start             # 启动服务（实际入口: server/index.cjs）
 ```javascript
 const db = require('/Users/depp/wa-bot/wa-crm-v2/db');
 const conn = db.getDb();
-// conn.prepare(...).get/all/run 与 SQLite 风格保持一致
+// conn.prepare(...).get/all/run 是 MySQL 兼容层暴露的 legacy 调用风格
 ```
 
 ---
@@ -217,6 +217,8 @@ AI 生成回复前，必须：
 
 ## 原始对话数据
 
+> 历史说明：`data/*.json` 是 JSON → MySQL 迁移前的原始导入格式。2026-04-16 清理后，当前运行时以 MySQL `wa_crm_v2` 和 `schema.sql` 为准，不应把 `data/*.json` 当作现役数据源。
+
 ```
 路径：/Users/depp/wa-bot/wa-crm-v2/data/*.json
 格式：{phone}_{name}_{date}.json
@@ -227,10 +229,22 @@ AI 生成回复前，必须：
 
 ## 禁止事项
 
-1. **禁止**直接修改 `crm.db`（通过 audit_log 追溯变更）
+1. **禁止**恢复或重新引入 `crm.db` / SQLite 历史链路
 2. **禁止**在未调用 `GET /api/policy-documents` 的情况下输出涉及政策内容的回复
 3. **禁止**将 `wa_phone` 泄露到日志或外部系统
 4. **必须**使用参数化查询，禁止拼接 SQL
+
+---
+
+## 记忆与文档同步
+
+规范、设计、runbook、PRD、路由决策、灰度决策和 handoff 的同步目标是仓库内 Obsidian vault：
+
+- 规则：`docs/OBSIDIAN_MEMORY_STANDARD.md`
+- Vault：`docs/obsidian/`
+- 索引：`docs/obsidian/index.md`
+
+WA CRM v2 的文档记忆同步只使用 Obsidian。
 
 ---
 
@@ -269,7 +283,15 @@ POST /api/experience/route
 
 ## 遇到问题？
 
-1. 先读 `SFT_PROJECT.md`（详细项目文档）
-2. 查 `CODE_REVIEW.md`（已知问题清单）
-3. 调用 `GET /api/health` 确认服务状态
-4. 调用 `GET /api/audit-log?limit=5` 查看最近操作
+1. 先读 `docs/DOCS_INDEX.md`（文档总索引）
+2. 再读 `docs/CORE_MODULES_OVERVIEW.md`（模块施工边界）
+3. 深入业务链路时读 `SFT_PROJECT.md`
+4. 查 `CODE_REVIEW.md`（历史 review 入口，需结合 2026-04-16 finding/fix 文档）
+5. 调用 `GET /api/health` 确认服务状态
+6. 调用 `GET /api/audit-log?limit=5` 查看最近操作
+
+## Obsidian Sync
+
+- Status: synced
+- Note: `docs/obsidian/notes/2026-04-25-agent-onboarding-and-bot-integration.md`
+- Index: `docs/obsidian/index.md`

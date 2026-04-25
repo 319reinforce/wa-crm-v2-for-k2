@@ -23,6 +23,7 @@ npm run rag:env:check
 知识源标准文档（给其他 Agent 读取）：
 
 - `docs/rag/KNOWLEDGE_SOURCE_STANDARD.md`
+- `docs/OBSIDIAN_MEMORY_STANDARD.md`
 
 ## 知识源清单标准（什么文档才能进 RAG）
 
@@ -113,3 +114,9 @@ npm run metrics:launch:report
 npm run sft:align:rules -- --dry-run
 npm run sft:align:rules -- --apply
 ```
+
+## Obsidian Sync
+
+- Status: synced
+- Note: `docs/obsidian/notes/2026-04-25-obsidian-memory-standard.md`
+- Index: `docs/obsidian/index.md`

@@ -38,6 +38,36 @@ const EVENT_FILTER_FIELD_MAP = {
   churned: ['ev_churned'],
 }
 
+function parseMaybeJson(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback
+  if (typeof value === 'object') return value
+  try {
+    const parsed = JSON.parse(value)
+    return parsed ?? fallback
+  } catch (_) {
+    return fallback
+  }
+}
+
+function normalizeCreatorEventSnapshot(snapshot = null) {
+  if (!snapshot) return null
+  return {
+    ...snapshot,
+    active_event_keys: parseMaybeJson(snapshot.active_event_keys, parseMaybeJson(snapshot.active_event_keys_json, [])),
+    overlay_flags: parseMaybeJson(snapshot.overlay_flags, parseMaybeJson(snapshot.overlay_flags_json, [])),
+    compat_ev_flags: parseMaybeJson(snapshot.compat_ev_flags, parseMaybeJson(snapshot.compat_ev_flags_json, {})),
+  }
+}
+
+function creatorMatchesEventFilter(creator, filterEvent) {
+  if (!filterEvent) return true
+  const evKeys = EVENT_FILTER_FIELD_MAP[filterEvent] || [`ev_${filterEvent}`]
+  const snapshot = normalizeCreatorEventSnapshot(creator?.event_snapshot || creator?._full?.event_snapshot)
+  const snapshotFlags = snapshot?.compat_ev_flags || {}
+  if (evKeys.some(key => snapshotFlags[key])) return true
+  return evKeys.some(key => creator?._full?.joinbrands?.[key] || creator?.joinbrands?.[key] || creator?.[key])
+}
+
 const LIFECYCLE_FILTER_OPTIONS = [
   { key: '', label: '生命周期' },
   { key: 'acquisition', label: '获取' },
@@ -798,9 +828,7 @@ function App() {
     if (filterAgency === 'yes' && !c._full?.wacrm?.agency_bound) return false
     if (filterAgency === 'no' && c._full?.wacrm?.agency_bound) return false
     if (filterEvent) {
-      const evKeys = EVENT_FILTER_FIELD_MAP[filterEvent] || [`ev_${filterEvent}`]
-      const matched = evKeys.some(key => c._full?.joinbrands?.[key])
-      if (!matched) return false
+      if (!creatorMatchesEventFilter(c, filterEvent)) return false
     }
     if (filterLifecycle && c.lifecycle?.stage_key !== filterLifecycle) return false
     return true
@@ -1426,9 +1454,9 @@ function App() {
                   </div>
                   <div className="docs-panel-strong px-3 py-3">
                     <div className="text-sm font-semibold" style={{ color: WA.textDark }}>
-                      {Number(stats?.yesterday_new_events || 0).toLocaleString()}
+                      {Number(stats?.yesterday_business_events ?? stats?.yesterday_new_events ?? 0).toLocaleString()}
                     </div>
-                    <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>昨日新增事件数</div>
+                    <div className="text-xs mt-0.5" style={{ color: WA.textMuted }}>昨日业务事件</div>
                   </div>
                 </div>
               </div>
@@ -2284,6 +2312,7 @@ function buildCreatorListFull(detail = {}) {
     joinbrands,
     wacrm,
     keeper,
+    event_snapshot: normalizeCreatorEventSnapshot(detail.event_snapshot),
   }
 }
 
@@ -2292,6 +2321,7 @@ function buildCreatorViewModel(detail, previous = {}) {
   const joinbrands = detail.joinbrands || previous.joinbrands || {}
   const wacrm = detail.wacrm || previous.wacrm || {}
   const keeper = detail.keeper || previous.keeper || {}
+  const eventSnapshot = normalizeCreatorEventSnapshot(detail.event_snapshot || previous.event_snapshot || previous._full?.event_snapshot)
   const next = {
     ...previous,
     ...detail,
@@ -2305,6 +2335,7 @@ function buildCreatorViewModel(detail, previous = {}) {
     joinbrands,
     wacrm,
     keeper,
+    event_snapshot: eventSnapshot,
     keeper_gmv: keeper.keeper_gmv ?? previous.keeper_gmv ?? 0,
     keeper_gmv30: keeper.keeper_gmv30 ?? previous.keeper_gmv30 ?? 0,
     msg_count: Number.isFinite(Number(detail.msg_count))
@@ -2319,7 +2350,7 @@ function buildCreatorViewModel(detail, previous = {}) {
   }
   return {
     ...next,
-    ...flattenJoinbrandsFlags(joinbrands),
+    ...flattenJoinbrandsFlags({ ...joinbrands, ...(eventSnapshot?.compat_ev_flags || {}) }),
   }
 }
 
@@ -2640,7 +2671,11 @@ function Panel2Empty({ stats, creators }) {
   const activeCreators = creators.filter(c => c.msg_count > 0).length
   const generationReplyHitRate = Number(stats.generation_reply_hit_rate || 0)
   const totalEvents = Number(stats.total_events || 0)
-  const yesterdayNewEvents = Number(stats.yesterday_new_events || 0)
+  const totalCanonicalEvents = Number(stats.total_canonical_events || 0)
+  const totalLifecycleDrivingEvents = Number(stats.total_lifecycle_driving_events || 0)
+  const yesterdayDetectedEvents = Number(stats.yesterday_detected_events ?? stats.yesterday_new_events ?? 0)
+  const yesterdayBusinessEvents = Number(stats.yesterday_business_events || 0)
+  const yesterdayConfirmedEvents = Number(stats.yesterday_confirmed_events || 0)
   const digestItems = buildWorkspaceDigestItems(creators, 4)
 
   return (
@@ -2671,11 +2706,22 @@ function Panel2Empty({ stats, creators }) {
           </div>
           <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
             <div className="text-2xl font-bold" style={{ color: '#f59e0b' }}>{totalEvents.toLocaleString()}</div>
-            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>总共事件数</div>
+            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>事件总数</div>
+            <div className="text-[11px] mt-1" style={{ color: WA.textMuted }}>
+              标准 {totalCanonicalEvents.toLocaleString()} · 可驱动 {totalLifecycleDrivingEvents.toLocaleString()}
+            </div>
           </div>
           <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
-            <div className="text-2xl font-bold" style={{ color: '#2563eb' }}>{yesterdayNewEvents.toLocaleString()}</div>
-            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>昨日最新事件数</div>
+            <div className="text-2xl font-bold" style={{ color: '#2563eb' }}>{yesterdayDetectedEvents.toLocaleString()}</div>
+            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>昨日识别事件</div>
+          </div>
+          <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+            <div className="text-2xl font-bold" style={{ color: '#14b8a6' }}>{yesterdayBusinessEvents.toLocaleString()}</div>
+            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>昨日业务事件</div>
+          </div>
+          <div className="text-center p-5 rounded-[24px]" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+            <div className="text-2xl font-bold" style={{ color: '#7c3aed' }}>{yesterdayConfirmedEvents.toLocaleString()}</div>
+            <div className="text-xs mt-1" style={{ color: WA.textMuted }}>昨日确认事件</div>
           </div>
         </div>
 

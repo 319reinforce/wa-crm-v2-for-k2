@@ -2,7 +2,7 @@
 
 > 本文档供其他 AI Agent 阅读学习使用
 > 更新时间：2026-04-16（回复生成主链路重构 + SFT generation tracking 正式列）
-> 前置文档：`CLAUDE.md`（项目入口）、`BOT_INTEGRATION.md`（API 速查）
+> 前置文档：`CLAUDE.md`（项目入口）、`BOT_INTEGRATION.md`（API 速查）、`docs/OBSIDIAN_MEMORY_STANDARD.md`（记忆同步标准）
 
 ---
 
@@ -219,6 +219,8 @@ scheduleProfileRefresh(client_id)  // 5s debounce → MiniMax summary
 | `server/utils/openai.js` | OpenAI API Client（`USE_OPENAI=true` 时使用） |
 
 ### 原始数据
+
+> 历史说明：`data/*.json` 是 JSON → MySQL 迁移前的原始导入格式。2026-04-16 清理后，当前运行时以 MySQL `wa_crm_v2` 和 `schema.sql` 为准，新增逻辑不得依赖 `data/*.json` 作为现役数据源。
 
 ```
 data/*.json   # 120个达人的每日对话数据（JSON格式）
@@ -548,6 +550,8 @@ GET /api/sft-memory/trends
 
 ## 原始对话数据格式（data/*.json）
 
+> 历史格式，仅用于理解迁移前数据。当前数据源为 MySQL，`data/*.json` 不再作为运行时输入。
+
 ```json
 {
   "phone": "16145639865",
@@ -715,7 +719,8 @@ GET /api/policy-documents?active_only=true
 | SFT Service | `/Users/depp/wa-bot/wa-crm-v2/server/services/sftService.js` |
 | Event Keywords | `/Users/depp/wa-bot/wa-crm-v2/server/constants/eventKeywords.js` |
 | Policy Matcher | `/Users/depp/wa-bot/wa-crm-v2/server/utils/policyMatcher.js` |
-| 原始对话数据 | `/Users/depp/wa-bot/wa-crm-v2/data/*.json` |
+| 原始对话数据 | 历史迁移格式：`/Users/depp/wa-bot/wa-crm-v2/data/*.json`（当前运行时不依赖） |
+| Obsidian Memory Standard | `/Users/depp/wa-bot/wa-crm-v2/docs/OBSIDIAN_MEMORY_STANDARD.md` |
 
 ---
 
@@ -1432,10 +1437,12 @@ MINIMAX_API_KEY=your-key             # MiniMax API key（默认）
 
 ## client_memory 自动积累机制（Implementation Plan）
 
-> 状态：方案设计阶段，待实现
+> 状态：历史设计段落，需以当前 `server/services/memoryExtractionService.js`、`server/routes/profile.js` 和 `client_memory` 表实现为准
 > 更新日期：2026-04-10
 
 ### 1. 现状分析
+
+> 注意：以下“表为空 / 无自动写入机制”描述来自 2026-04-10 设计阶段，不能直接作为当前状态判断。接手时应先查询 MySQL 和当前 profile/memory service 实现。
 
 **问题**：`client_memory` 表（0 条）完全为空，以下读取方均无法获得记忆：
 
@@ -1653,3 +1660,9 @@ if (result.inserted) {
 - **记忆可视化**：前端 `client_memory` 面板 — 查看/编辑/删除单条记忆
 - **批量回填**：对历史 `sft_memory` 记录跑一遍提取，初始化 `client_memory` 基础数据
 ```
+
+## Obsidian Sync
+
+- Status: synced
+- Note: `docs/obsidian/notes/2026-04-16-sft-project-baseline.md`
+- Index: `docs/obsidian/index.md`

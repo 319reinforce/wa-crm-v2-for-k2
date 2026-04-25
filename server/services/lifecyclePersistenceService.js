@@ -7,6 +7,10 @@ const {
     extractPayloadFromRow: extractLifecyclePayloadFromRow,
     toRuntimeOptions,
 } = require('./lifecycleConfigService');
+const {
+    canEventDriveLifecycle,
+    normalizeLifecycleEventRow,
+} = require('./eventLifecycleFacts');
 
 function parseJsonSafe(value, fallback = null) {
     if (value === null || value === undefined) return fallback;
@@ -100,17 +104,16 @@ async function fetchLifecycleEvents(dbConn, creatorId, statuses = ['active', 'co
     const safeStatuses = Array.isArray(statuses) && statuses.length > 0 ? statuses : ['active', 'completed'];
     const placeholders = safeStatuses.map(() => '?').join(', ');
     const rows = await dbConn.prepare(`
-        SELECT id, creator_id, event_key, event_type, owner, status, trigger_source, trigger_text, start_at, end_at, created_at, updated_at, meta
+        SELECT *
         FROM events
         WHERE creator_id = ?
           AND status IN (${placeholders})
         ORDER BY created_at DESC, id DESC
     `).all(creatorId, ...safeStatuses);
 
-    return rows.map((row) => ({
-        ...row,
-        meta: parseJsonSafe(row.meta, null),
-    }));
+    return rows
+        .map((row) => normalizeLifecycleEventRow(row))
+        .filter((row) => canEventDriveLifecycle(row));
 }
 
 function toLifecycleInput(source = {}, events = []) {

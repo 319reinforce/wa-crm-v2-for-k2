@@ -31,6 +31,15 @@ const {
   parseEventMeta,
   verifyEventCandidate,
 } = require('../services/eventVerificationService');
+const {
+  canEventDriveLifecycle,
+  isCanonicalLifecycleEventKey,
+  isGeneratedLifecycleEventKey,
+  normalizeLifecycleEventRow,
+} = require('../services/eventLifecycleFacts');
+const {
+  rebuildCreatorEventSnapshot,
+} = require('../services/creatorEventSnapshotService');
 const { normalizeOperatorName } = require('../utils/operator');
 
 function normalizeOwner(o) {
@@ -335,6 +344,25 @@ function buildEventDisplayStart(event, evidence) {
   };
 }
 
+async function loadStoredEventEvidence(dbConn, eventId) {
+  try {
+    return await dbConn.prepare(`
+      SELECT id, source_kind, source_table, source_record_id, source_message_id,
+             source_message_hash, source_quote, external_system, created_at
+      FROM event_evidence
+      WHERE event_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT 10
+    `).all(eventId);
+  } catch (err) {
+    const message = String(err?.message || '').toLowerCase();
+    if (message.includes('event_evidence') || message.includes("doesn't exist") || message.includes('no such table')) {
+      return [];
+    }
+    throw err;
+  }
+}
+
 async function enrichEventWithEvidence(dbConn, event, messageCache = new Map()) {
   const meta = parseEventMeta(event?.meta);
   const phrases = buildEventEvidencePhrases(event);
@@ -375,6 +403,8 @@ async function enrichEventWithEvidence(dbConn, event, messageCache = new Map()) 
         source_message_hash: meta?.source_anchor?.message_hash || null,
       };
 
+  const storedEvidence = await loadStoredEventEvidence(dbConn, event.id);
+
   return {
     ...event,
     ...evidence,
@@ -382,6 +412,7 @@ async function enrichEventWithEvidence(dbConn, event, messageCache = new Map()) 
     ...buildVerificationSummary(meta),
     source_anchor: meta?.source_anchor || null,
     verification: meta?.verification || meta?.llm_verification || null,
+    evidence: storedEvidence,
   };
 }
 
@@ -390,6 +421,7 @@ router.get('/', async (req, res) => {
   try {
     const db2 = db.getDb();
     const { status, creator_id, event_key } = req.query;
+    const scope = String(req.query.scope || 'all').trim().toLowerCase();
     const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
     if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
     if (creator_id) {
@@ -422,11 +454,20 @@ router.get('/', async (req, res) => {
     ]);
 
     const messageCache = new Map();
+    const scopedEvents = (events || []).filter((event) => {
+      if (scope === 'all' || !scope) return true;
+      const normalized = normalizeLifecycleEventRow(event);
+      if (scope === 'canonical') return isCanonicalLifecycleEventKey(normalized.event_key);
+      if (scope === 'generated') return isGeneratedLifecycleEventKey(normalized.event_key);
+      if (scope === 'lifecycle') return canEventDriveLifecycle(normalized);
+      return true;
+    });
+
     const enrichedEvents = await Promise.all(
-      (events || []).map((event) => enrichEventWithEvidence(db2, event, messageCache))
+      scopedEvents.map((event) => enrichEventWithEvidence(db2, event, messageCache))
     );
 
-    res.json({ events: enrichedEvents, total: total.count, limit: parseInt(limit), offset: parseInt(offset) });
+    res.json({ events: enrichedEvents, total: total.count, scoped_total: enrichedEvents.length, scope, limit: parseInt(limit), offset: parseInt(offset) });
   } catch (err) {
     console.error('GET /api/events error:', err);
     res.status(500).json({ error: err.message });
@@ -580,6 +621,10 @@ router.patch('/:id', async (req, res) => {
   try {
     const db2 = db.getDb();
     const { status, end_at, meta } = req.body;
+    const requestedReviewState = String(req.body?.review_state || '').trim().toLowerCase();
+    const requestedLifecycleEffect = String(req.body?.lifecycle_effect || '').trim().toLowerCase();
+    const requestedSourceKind = String(req.body?.source_kind || '').trim().toLowerCase();
+    const requestedEvidenceTier = req.body?.evidence_tier;
 
     const existing = await ensureEventAccess(req, res, req.params.id);
     if (!existing) return;
@@ -605,6 +650,22 @@ router.patch('/:id', async (req, res) => {
           return res.status(409).json({ error: '同一达人已有相同事件处于 active 状态', existing_id: activeConflict.id });
         }
       }
+    }
+    const validReviewStates = new Set(['unreviewed', 'pending', 'confirmed', 'rejected', 'uncertain']);
+    if (requestedReviewState && !validReviewStates.has(requestedReviewState)) {
+      return res.status(400).json({ error: `非法审核状态: ${requestedReviewState}` });
+    }
+    const validLifecycleEffects = new Set(['none', 'stage_signal', 'overlay']);
+    if (requestedLifecycleEffect && !validLifecycleEffects.has(requestedLifecycleEffect)) {
+      return res.status(400).json({ error: `非法生命周期影响: ${requestedLifecycleEffect}` });
+    }
+    let nextEvidenceTier = null;
+    if (requestedEvidenceTier !== undefined && requestedEvidenceTier !== null && requestedEvidenceTier !== '') {
+      const numericTier = Number(requestedEvidenceTier);
+      if (!Number.isFinite(numericTier) || numericTier < 0 || numericTier > 3) {
+        return res.status(400).json({ error: 'evidence_tier must be 0..3' });
+      }
+      nextEvidenceTier = Math.trunc(numericTier);
     }
 
     const existingMeta = parseEventMeta(existing.meta);
@@ -633,7 +694,34 @@ router.patch('/:id', async (req, res) => {
 
     const updates = [];
     const params = [];
-    if (nextStatus) { updates.push('status = ?'); params.push(nextStatus); }
+    if (nextStatus) {
+      updates.push('status = ?', 'event_state = ?');
+      params.push(nextStatus, nextStatus);
+    }
+    if (requestedReviewState) {
+      updates.push('review_state = ?');
+      params.push(requestedReviewState);
+      if (requestedReviewState === 'confirmed') {
+        updates.push('verified_at = COALESCE(verified_at, CURRENT_TIMESTAMP)', 'verified_by = COALESCE(verified_by, ?)');
+        params.push('manual');
+      }
+    }
+    if (nextEvidenceTier !== null) {
+      updates.push('evidence_tier = ?');
+      params.push(nextEvidenceTier);
+    }
+    if (requestedLifecycleEffect) {
+      updates.push('lifecycle_effect = ?');
+      params.push(requestedLifecycleEffect);
+    }
+    if (requestedSourceKind) {
+      updates.push('source_kind = ?');
+      params.push(requestedSourceKind);
+    }
+    if (!existing.canonical_event_key && isCanonicalLifecycleEventKey(existing.event_key)) {
+      updates.push('canonical_event_key = ?');
+      params.push(existing.event_key);
+    }
     if (end_at !== undefined) { updates.push('end_at = ?'); params.push(toSqlDatetimeValue(end_at)); }
     if (nextMetaPayload) { updates.push('meta = ?'); params.push(JSON.stringify(nextMetaPayload)); }
 
@@ -651,6 +739,10 @@ router.patch('/:id', async (req, res) => {
       triggerSource: 'events',
     }).catch(() => null);
     const afterLifecycle = persistedLifecycle?.lifecycle || await getLifecycleSnapshotByCreatorId(creatorId).catch(() => null);
+    const eventSnapshot = await rebuildCreatorEventSnapshot(db2, creatorId).catch((e) => ({
+      ok: false,
+      error: e.message,
+    }));
     const lifecycleChanged = !!(
       beforeLifecycle?.stage_key &&
       afterLifecycle?.stage_key &&
@@ -686,6 +778,7 @@ router.patch('/:id', async (req, res) => {
       lifecycle_after: afterLifecycle?.stage_key || null,
       lifecycle_changed: lifecycleChanged,
       reply_strategy: strategyRebuild,
+      event_snapshot: eventSnapshot,
     });
   } catch (err) {
     console.error('PATCH /api/events/:id error:', err);

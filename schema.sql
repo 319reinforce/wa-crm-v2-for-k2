@@ -610,9 +610,21 @@ CREATE TABLE IF NOT EXISTS events (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     creator_id      INT NOT NULL,
     event_key       VARCHAR(64) NOT NULL COMMENT "'trial_7day'|'monthly_challenge'|'agency_bound'",
+    canonical_event_key VARCHAR(64) NULL COMMENT '标准化 canonical event key；非标准生成事件可为空',
     event_type      VARCHAR(32) NOT NULL COMMENT "'challenge'|'gmv'|'referral'|'incentive_task'|'agency'",
     owner           VARCHAR(32) NOT NULL COMMENT "'Beau'|'Yiyun'",
     status          VARCHAR(16) DEFAULT 'active' COMMENT "'draft'|'active'|'completed'|'cancelled'",
+    event_state     VARCHAR(24) NULL COMMENT "'candidate'|'active'|'completed'|'cancelled'|'expired'",
+    review_state    VARCHAR(24) NULL COMMENT "'unreviewed'|'confirmed'|'rejected'|'uncertain'",
+    evidence_tier   TINYINT NULL COMMENT '0 keyword, 1 weak import/manual, 2 anchored/operator, 3 external verified',
+    source_kind     VARCHAR(32) NULL COMMENT "'keyword'|'llm'|'operator'|'external_system'|'migration'",
+    source_event_at DATETIME NULL COMMENT '业务事实发生时间',
+    detected_at     DATETIME NULL COMMENT '系统识别/导入时间',
+    verified_at     DATETIME NULL COMMENT '确认时间',
+    verified_by     VARCHAR(64) NULL,
+    idempotency_key VARCHAR(128) NULL,
+    lifecycle_effect VARCHAR(32) NULL COMMENT "'none'|'overlay'|'stage_signal'",
+    expires_at      DATETIME NULL,
     trigger_source  VARCHAR(32) DEFAULT 'semantic_auto' COMMENT "'semantic_auto'|'manual'|'gmv_crosscheck'",
     trigger_text    TEXT,
     start_at        DATETIME,
@@ -627,7 +639,76 @@ CREATE INDEX idx_events_creator ON events(creator_id);
 CREATE INDEX idx_events_status ON events(status);
 CREATE INDEX idx_events_owner ON events(owner);
 CREATE INDEX idx_events_event_type ON events(event_type);
+CREATE INDEX idx_events_canonical_state ON events(canonical_event_key, event_state);
+CREATE INDEX idx_events_source_event_at ON events(source_event_at);
+CREATE UNIQUE INDEX idx_events_idempotency ON events(idempotency_key);
 CREATE UNIQUE INDEX idx_events_unique_active ON events(creator_id, event_key, status, (IF(status='active',0,1)));
+
+-- ============================================================
+-- Event Definitions — 事件字典
+-- ============================================================
+CREATE TABLE IF NOT EXISTS event_definitions (
+    event_key             VARCHAR(64) PRIMARY KEY,
+    event_type            VARCHAR(32) NOT NULL,
+    label                 VARCHAR(128) NOT NULL,
+    lifecycle_effect      VARCHAR(32) NOT NULL DEFAULT 'none',
+    is_periodic           TINYINT(1) NOT NULL DEFAULT 0,
+    allow_parallel        TINYINT(1) NOT NULL DEFAULT 0,
+    requires_verification TINYINT(1) NOT NULL DEFAULT 1,
+    owner_scope_json      JSON,
+    created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Event Evidence — 事件证据锚点
+-- ============================================================
+CREATE TABLE IF NOT EXISTS event_evidence (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    event_id            INT NOT NULL,
+    source_kind         VARCHAR(32) NOT NULL,
+    source_table        VARCHAR(64),
+    source_record_id    VARCHAR(128),
+    source_message_id   BIGINT,
+    source_message_hash VARCHAR(128),
+    source_quote        TEXT,
+    external_system     VARCHAR(64),
+    raw_payload_hash    VARCHAR(128),
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_event_evidence_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_event_evidence_event ON event_evidence(event_id);
+CREATE INDEX idx_event_evidence_message ON event_evidence(source_message_id);
+
+-- ============================================================
+-- Event State Transitions — 事件状态流转
+-- ============================================================
+CREATE TABLE IF NOT EXISTS event_state_transitions (
+    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+    event_id      INT NOT NULL,
+    from_state    VARCHAR(24),
+    to_state      VARCHAR(24) NOT NULL,
+    reason        TEXT,
+    operator      VARCHAR(64),
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_event_state_transition_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_event_state_transition_event_time ON event_state_transitions(event_id, created_at DESC);
+
+-- ============================================================
+-- Creator Event Snapshot — 事件派生快照/兼容层
+-- ============================================================
+CREATE TABLE IF NOT EXISTS creator_event_snapshot (
+    creator_id             INT PRIMARY KEY,
+    active_event_keys_json JSON,
+    overlay_flags_json     JSON,
+    compat_ev_flags_json   JSON,
+    latest_event_at        DATETIME,
+    rebuilt_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_creator_event_snapshot_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
 -- Creator Lifecycle Snapshot — 生命周期当前态

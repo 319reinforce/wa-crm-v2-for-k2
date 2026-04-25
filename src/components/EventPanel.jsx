@@ -90,6 +90,22 @@ const VERIFICATION_LABELS = {
   uncertain: { label: '核对不确定', color: '#64748b', bg: 'rgba(100,116,139,0.15)' },
 }
 
+const REVIEW_LABELS = {
+  unreviewed: { label: '待人工确认', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+  pending: { label: '待人工确认', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+  confirmed: { label: '人工已确认', color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
+  rejected: { label: '人工已驳回', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
+  uncertain: { label: '证据不足', color: '#64748b', bg: 'rgba(100,116,139,0.15)' },
+}
+
+function getTierLabel(value) {
+  const tier = Number(value ?? 0)
+  if (tier >= 3) return 'Tier 3'
+  if (tier === 2) return 'Tier 2'
+  if (tier === 1) return 'Tier 1'
+  return 'Tier 0'
+}
+
 export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEventChange, restoreState }) {
   const toast = useToast()
   const lockedOwner = getAppAuthScopeOwner()
@@ -310,6 +326,49 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
     }
   }
 
+  const handleReviewEvent = async (eventId, decision) => {
+    const currentEvent = Number(selectedEvent?.id || 0) === Number(eventId)
+      ? selectedEvent
+      : events.find(event => Number(event.id || 0) === Number(eventId))
+    const confirmedLifecycleEffect = currentEvent?.event_key === 'referral' ? 'overlay' : 'stage_signal'
+    const payloadByDecision = {
+      confirm: {
+        status: 'active',
+        review_state: 'confirmed',
+        evidence_tier: 2,
+        source_kind: 'human_review',
+        lifecycle_effect: confirmedLifecycleEffect,
+      },
+      reject: {
+        status: 'cancelled',
+        review_state: 'rejected',
+        evidence_tier: 0,
+        source_kind: 'human_review',
+        lifecycle_effect: 'none',
+      },
+      uncertain: {
+        review_state: 'uncertain',
+        evidence_tier: 1,
+        source_kind: 'human_review',
+        lifecycle_effect: 'none',
+      },
+    }
+    const payload = payloadByDecision[decision]
+    if (!payload) return
+    try {
+      await fetchJsonOrThrow(`${API_BASE}/events/${eventId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000),
+      })
+      await fetchEvents(true)
+      await handleViewEvent(eventId)
+    } catch (e) {
+      toast.error(`审核失败: ${e.message}`)
+    }
+  }
+
   const handleJudge = async (eventId) => {
     setJudging(true)
     setJudgeResult(null)
@@ -502,6 +561,11 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
               const verificationMeta = meta.verification || meta.llm_verification || {}
               const verificationStatus = displayEvent.verification_status || verificationMeta.review_status || 'pending'
               const verificationInfo = VERIFICATION_LABELS[verificationStatus] || VERIFICATION_LABELS.pending
+              const reviewState = displayEvent.review_state || (displayEvent.status === 'draft' ? 'pending' : 'unreviewed')
+              const reviewInfo = REVIEW_LABELS[reviewState] || REVIEW_LABELS.unreviewed
+              const evidenceTier = Number(displayEvent.evidence_tier ?? meta?.evidence_contract?.evidence_tier ?? 0)
+              const evidenceRows = Array.isArray(displayEvent.evidence) ? displayEvent.evidence : []
+              const isTier0Draft = displayEvent.status === 'draft' && evidenceTier === 0
               const transitionSuggestion = displayEvent.transition_suggestion || verificationMeta.transition_suggestion || null
               const sourcePreview = displayEvent.trigger_text || meta.source_text || meta.note || '暂无原始触发文本'
               const displayStartAt = displayEvent.display_start_at || displayEvent.created_at || displayEvent.start_at || null
@@ -553,6 +617,12 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
                       </span>
                       <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold whitespace-nowrap" style={{ background: verificationInfo.bg, color: verificationInfo.color }}>
                         {verificationInfo.label}
+                      </span>
+                      <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold whitespace-nowrap" style={{ background: reviewInfo.bg, color: reviewInfo.color }}>
+                        {reviewInfo.label}
+                      </span>
+                      <span className="text-[11px] px-2.5 py-0.5 rounded-full font-semibold whitespace-nowrap" style={{ background: evidenceTier >= 2 ? 'rgba(16,185,129,0.12)' : 'rgba(100,116,139,0.12)', color: evidenceTier >= 2 ? '#0f766e' : '#64748b' }}>
+                        {getTierLabel(evidenceTier)}
                       </span>
                     </div>
                     <span className="text-[11px] shrink-0 whitespace-nowrap" style={{ color: WA.textMuted }}>
@@ -621,6 +691,73 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
 
                   {isSelected && (
                     <div className="space-y-4 pt-2">
+                      <div className="rounded-[20px] p-4 space-y-3" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>证据与人工审核</div>
+                            <div className="text-[14px] mt-1" style={{ color: WA.textDark }}>
+                              {reviewInfo.label} · {getTierLabel(evidenceTier)} · {displayEvent.source_kind || 'unknown'}
+                            </div>
+                          </div>
+                          {isTier0Draft ? (
+                            <div className="flex flex-wrap gap-2 justify-end">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleReviewEvent(displayEvent.id, 'confirm')
+                                }}
+                                className="px-3 py-1.5 rounded-full text-[12px] font-semibold text-white"
+                                style={{ background: '#10b981' }}
+                              >
+                                人工确认
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleReviewEvent(displayEvent.id, 'uncertain')
+                                }}
+                                className="px-3 py-1.5 rounded-full text-[12px] font-semibold"
+                                style={{ background: WA.shellPanelMuted, color: WA.textDark, border: `1px solid ${WA.borderLight}` }}
+                              >
+                                证据不足
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleReviewEvent(displayEvent.id, 'reject')
+                                }}
+                                className="px-3 py-1.5 rounded-full text-[12px] font-semibold text-white"
+                                style={{ background: '#ef4444' }}
+                              >
+                                驳回
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <InfoCard compact label="规范事件" value={displayEvent.canonical_event_key || displayEvent.event_key || '-'} />
+                          <InfoCard compact label="影响" value={displayEvent.lifecycle_effect || 'none'} />
+                          <InfoCard compact label="业务时间" value={displayEvent.source_event_at ? formatDateTimeCN(displayEvent.source_event_at) : '-'} />
+                        </div>
+                        {evidenceRows.length > 0 ? (
+                          <div className="space-y-2">
+                            {evidenceRows.slice(0, 2).map(row => (
+                              <div key={row.id || `${row.source_kind}-${row.created_at}`} className="rounded-[14px] px-3 py-2 text-[12px] leading-5" style={{ color: WA.textMuted, background: WA.shellPanelMuted, border: `1px solid ${WA.borderLight}` }}>
+                                <div className="font-semibold" style={{ color: WA.textDark }}>{row.source_kind || 'source'} · {row.source_table || 'event'}</div>
+                                <div>{row.source_quote || '暂无证据原文'}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-[12px]" style={{ color: WA.textMuted }}>
+                            暂无结构化 evidence 记录。
+                          </div>
+                        )}
+                      </div>
+
                       <div className="rounded-[20px] p-4 space-y-3" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -735,8 +872,8 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
                         />
                         {selectedEvent?.status === 'draft' && (
                           <>
-                            <ActionBtn label={transitionSuggestion?.suggested ? "✅ 人工确认流转" : "✅ 确认激活"} color="#10b981" onClick={() => handleStatusChange(selectedEvent.id, 'active')} />
-                            <ActionBtn label="❌ 取消" color="#ef4444" onClick={() => handleStatusChange(selectedEvent.id, 'cancelled')} />
+                            <ActionBtn label={isTier0Draft ? "确认入库" : (transitionSuggestion?.suggested ? "人工确认流转" : "确认激活")} color="#10b981" onClick={() => isTier0Draft ? handleReviewEvent(selectedEvent.id, 'confirm') : handleStatusChange(selectedEvent.id, 'active')} />
+                            <ActionBtn label="驳回" color="#ef4444" onClick={() => isTier0Draft ? handleReviewEvent(selectedEvent.id, 'reject') : handleStatusChange(selectedEvent.id, 'cancelled')} />
                           </>
                         )}
                         {selectedEvent?.status === 'active' && (
