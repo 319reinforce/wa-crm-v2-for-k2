@@ -10,6 +10,7 @@ const {
     TABLE: ROSTER_TABLE,
     hasRosterAssignments,
 } = require('../services/operatorRosterService');
+const { aggregateEventStats } = require('../services/eventLifecycleFacts');
 
 // GET /api/stats — 统计接口
 router.get('/stats', async (req, res) => {
@@ -38,7 +39,7 @@ router.get('/stats', async (req, res) => {
             : '';
         const scopeParams = lockedOwner ? [lockedOwner] : [];
 
-        const [totalsRow, byOwnerRows, byBetaRows, byPriorityRows, evRow, eventStatsRow, replyHitRow] = await Promise.all([
+        const [totalsRow, byOwnerRows, byBetaRows, byPriorityRows, evRow, eventRows, replyHitRow] = await Promise.all([
             db2.prepare(`
                 SELECT COUNT(DISTINCT c.id) as total_creators,
                        (
@@ -102,20 +103,13 @@ router.get('/stats', async (req, res) => {
             `).get(...scopeParams),
             db2.prepare(`
                 SELECT
-                    COUNT(*) as total_events,
-                    SUM(
-                        CASE
-                            WHEN DATE(CONVERT_TZ(e.created_at, '+00:00', '+08:00')) = DATE(CONVERT_TZ(DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY), '+00:00', '+08:00'))
-                            THEN 1
-                            ELSE 0
-                        END
-                    ) as yesterday_new_events
+                    e.*
                 FROM events e
                 INNER JOIN creators c ON c.id = e.creator_id
                 ${rosterJoin}
                 WHERE c.is_active = 1
                 ${scopeWhere}
-            `).get(...scopeParams),
+            `).all(...scopeParams),
             db2.prepare(`
                 SELECT
                     COUNT(*) as approved_total,
@@ -143,6 +137,7 @@ router.get('/stats', async (req, res) => {
         const replyHitRate = approvedTotal > 0
             ? Math.round((adoptedTotal / approvedTotal) * 1000) / 10
             : 0;
+        const eventStats = aggregateEventStats(eventRows || []);
 
         res.json({
             total_creators: totalsRow.total_creators || 0,
@@ -151,8 +146,13 @@ router.get('/stats', async (req, res) => {
             by_beta: byBeta,
             by_priority: byPriority,
             events: evRow,
-            total_events: Number(eventStatsRow?.total_events || 0),
-            yesterday_new_events: Number(eventStatsRow?.yesterday_new_events || 0),
+            total_events: Number(eventStats.total_events || 0),
+            total_canonical_events: Number(eventStats.total_canonical_events || 0),
+            total_lifecycle_driving_events: Number(eventStats.total_lifecycle_driving_events || 0),
+            yesterday_new_events: Number(eventStats.yesterday_detected_events || 0),
+            yesterday_detected_events: Number(eventStats.yesterday_detected_events || 0),
+            yesterday_business_events: Number(eventStats.yesterday_business_events || 0),
+            yesterday_confirmed_events: Number(eventStats.yesterday_confirmed_events || 0),
             generation_reply_hit_rate: replyHitRate,
             });
     } catch (err) {

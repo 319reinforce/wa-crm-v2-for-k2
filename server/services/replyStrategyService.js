@@ -2,6 +2,10 @@ const db = require('../../db');
 const creatorCache = require('./creatorCache');
 const { buildLifecycle } = require('./lifecycleService');
 const {
+    canEventDriveLifecycle,
+    normalizeLifecycleEventRow,
+} = require('./eventLifecycleFacts');
+const {
     DEFAULT_POLICY_KEY: LIFECYCLE_POLICY_KEY,
     buildDefaultPayload: buildDefaultLifecyclePayload,
     extractPayloadFromRow: extractLifecyclePayloadFromRow,
@@ -191,16 +195,15 @@ async function fetchCreatorCore(dbConn, creatorId) {
 
 async function fetchLifecycleEvents(dbConn, creatorId) {
     const rows = await dbConn.prepare(`
-        SELECT id, creator_id, event_key, event_type, status, trigger_source, start_at, end_at, meta
+        SELECT *
         FROM events
         WHERE creator_id = ?
           AND status IN ('active', 'completed')
         ORDER BY created_at DESC, id DESC
     `).all(creatorId);
-    return rows.map((row) => ({
-        ...row,
-        meta: parseJsonSafe(row.meta, null),
-    }));
+    return rows
+        .map((row) => normalizeLifecycleEventRow(row))
+        .filter((row) => canEventDriveLifecycle(row));
 }
 
 async function getLifecycleSnapshotByCreatorId(creatorId) {

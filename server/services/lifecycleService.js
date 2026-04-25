@@ -1,8 +1,8 @@
 const {
-    CANONICAL_LIFECYCLE_EVENT_KEYS,
-} = require('../constants/eventDecisionRules');
-
-const CANONICAL_LIFECYCLE_EVENT_KEY_SET = new Set(CANONICAL_LIFECYCLE_EVENT_KEYS);
+    canEventDriveLifecycle,
+    normalizeEventStatus,
+    parseEventMeta,
+} = require('./eventLifecycleFacts');
 
 const STAGE_META = {
     acquisition: {
@@ -94,52 +94,6 @@ function buildGmvTier(gmvValue) {
     if (gmvValue >= 2000) return 'gte_2k';
     if (gmvValue > 0) return 'gt_0';
     return 'lt_2k';
-}
-
-function normalizeEventStatus(value) {
-    const status = String(value || '').trim().toLowerCase();
-    if (!status) return 'active';
-    if (status === 'pending') return 'draft';
-    return status;
-}
-
-function parseEventMeta(value) {
-    if (!value) return {};
-    if (typeof value === 'object' && !Array.isArray(value)) return value;
-    try {
-        return JSON.parse(value);
-    } catch (_) {
-        return {};
-    }
-}
-
-function getEventEvidenceTier(item = {}) {
-    const meta = parseEventMeta(item?.meta);
-    const contractTier = meta?.evidence_contract?.evidence_tier;
-    if (contractTier !== undefined && contractTier !== null && contractTier !== '') {
-        const numeric = Number(contractTier);
-        return Number.isFinite(numeric) ? Math.max(0, Math.min(Math.trunc(numeric), 3)) : 0;
-    }
-    const verificationStatus = String(meta?.verification?.review_status || '').trim().toLowerCase();
-    if (verificationStatus === 'confirmed') return 2;
-    return null;
-}
-
-function isGeneratedLifecycleEventKey(eventKey = '') {
-    const key = String(eventKey || '').trim();
-    return /^jb_touchpoint_/i.test(key)
-        || /^violation_/i.test(key)
-        || /_unknown$/i.test(key)
-        || /^gmv_milestone_\d+/i.test(key);
-}
-
-function canEventDriveLifecycle(item = {}) {
-    const key = String(item?.event_key || item?.eventKey || '').trim();
-    if (!CANONICAL_LIFECYCLE_EVENT_KEY_SET.has(key)) return false;
-    if (isGeneratedLifecycleEventKey(key)) return false;
-    const evidenceTier = getEventEvidenceTier(item);
-    if (evidenceTier !== null && evidenceTier < 2) return false;
-    return true;
 }
 
 function matchesEvent(item, matcher = {}, allowedStatuses = ['active', 'completed']) {
