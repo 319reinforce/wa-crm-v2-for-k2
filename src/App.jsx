@@ -63,13 +63,11 @@ const KANBAN_COLUMNS = [
   { key: 'churned', label: '⚠️ 流失', color: '#ef4444', filter: c => c.ev_churned },
 ]
 
-const DETAIL_COLLAPSED_WIDTH = 28
 const LIST_PANEL_MIN_WIDTH = 260
 const LIST_PANEL_MAX_WIDTH = 500
-const DETAIL_PANEL_MIN_WIDTH = 360
-const DETAIL_PANEL_MAX_WIDTH = 460
 const DESKTOP_PRIMARY_TABS = [
   { key: 'creators', label: '消息', subtitle: '达人对话与跟进' },
+  { key: 'finance', label: '财务', subtitle: '月费与 Keeper 指标' },
   { key: 'events', label: '事件', subtitle: '事件判断与回顾' },
   { key: 'strategy', label: '策略', subtitle: '生命周期与策略配置' },
   { key: 'sft', label: 'SFT', subtitle: '训练与审核看板' },
@@ -79,6 +77,7 @@ const DESKTOP_PRIMARY_TABS = [
 ]
 const WORKSPACE_META = {
   creators: { title: '消息工作台', subtitle: '以聊天为中心推进达人转化、跟进与维护。' },
+  finance: { title: '财务面板', subtitle: '按达人查看月费、GMV、订单与 Keeper 指标。' },
   events: { title: '事件面板', subtitle: '集中处理事件判定、回填和时间线检查。' },
   strategy: { title: '策略配置', subtitle: '统一管理生命周期规则与未绑定 Agency 策略。' },
   sft: { title: 'SFT 看板', subtitle: '查看语料、反馈与训练准备状态。' },
@@ -154,7 +153,6 @@ function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [tagsVisible, setTagsVisible] = useState(true)
   const [waQrData, setWaQrData] = useState(null)  // WA QR code data URL
-  const [detailPanelPinned, setDetailPanelPinned] = useState(false)
   const [manualOpen, setManualOpen] = useState(false)
   const [manualSaving, setManualSaving] = useState(false)
   const [manualError, setManualError] = useState('')
@@ -209,11 +207,10 @@ function App() {
         const parsed = JSON.parse(saved)
         return {
           list: clamp(Number(parsed?.list) || 320, LIST_PANEL_MIN_WIDTH, LIST_PANEL_MAX_WIDTH),
-          detail: clamp(Number(parsed?.detail) || 360, DETAIL_PANEL_MIN_WIDTH, DETAIL_PANEL_MAX_WIDTH),
         }
       }
     } catch (_) {}
-    return { list: 320, detail: 360 }
+    return { list: 320 }
   })
   const [dragging, setDragging] = useState(null) // 'list-detail'
 
@@ -454,18 +451,18 @@ function App() {
 
   const handleSelectCreator = async (creator) => {
     if (!creator?.id) return
+    const nextTab = activeTab === 'finance' ? 'finance' : 'creators'
     if (!shouldShowUnread(creator)) {
       setUnreadCounts(prev => ({ ...prev, [creator.id]: 0 }))
     }
     setEventReturnContext(null)
     setChatJumpTarget(null)
-    setActiveTab('creators')
+    setActiveTab(nextTab)
     setConversationScope('creators')
     setSelectedGroupChat(null)
     setSelectedCreator(null)
     await selectCreatorById(creator.id, {
-      activeTab: 'creators',
-      expandDetail: detailPanelPinned,
+      activeTab: nextTab,
     })
   }
 
@@ -575,7 +572,7 @@ function App() {
       console.error('[workspaceBootstrap] selectCreatorById error:', e)
       return null
     }
-  }, [creators, detailPanelPinned, selectedCreator])
+  }, [creators, selectedCreator])
 
   const handleOpenCreatorChatFromEvent = useCallback(async (jumpPayload) => {
     const creatorId = Number(jumpPayload?.creatorId || 0)
@@ -591,7 +588,6 @@ function App() {
     await selectCreatorById(creatorId, {
       activeTab: 'creators',
       selectedEventId: nextEventId,
-      expandDetail: detailPanelPinned,
       chatJumpTarget: {
         requestId: Date.now(),
         creatorId,
@@ -602,7 +598,7 @@ function App() {
         eventKey: jumpPayload?.eventKey || '',
       },
     })
-  }, [detailPanelPinned, selectCreatorById])
+  }, [selectCreatorById])
 
   useEffect(() => {
     if (queryBootstrapDoneRef.current) return
@@ -636,14 +632,13 @@ function App() {
       await selectCreatorById(resolvedCreatorId, {
         activeTab: targetTab,
         selectedEventId: eventId,
-        expandDetail: targetTab === 'creators' && detailPanelPinned,
       })
     }
 
     bootstrap().catch((e) => {
       console.error('[workspaceBootstrap] error:', e)
     })
-  }, [detailPanelPinned, resolveCreatorIdFromQuery, selectCreatorById])
+  }, [resolveCreatorIdFromQuery, selectCreatorById])
 
   const handleCloseConversation = useCallback(() => {
     setChatJumpTarget(null)
@@ -882,13 +877,6 @@ function App() {
 
   const activeFilterCount = [filterBeta, filterPriority, filterAgency, filterEvent, filterLifecycle].filter(Boolean).length
   const selectedCreatorStatusMeta = getCreatorStatusMeta(selectedCreator)
-  const isCreatorWorkspace = activeTab === 'creators'
-  const showDetailPanel = isCreatorWorkspace && conversationScope === 'creators' && !!selectedCreator
-  // 右栏完全由 pin 控制：点击折叠条 = pin 展开；点 pin 按钮 = unpin 折叠
-  const isDetailPanelOpen = showDetailPanel && detailPanelPinned
-  const detailPanelWidth = showDetailPanel
-    ? (isDetailPanelOpen ? clamp(panelWidths.detail, DETAIL_PANEL_MIN_WIDTH, DETAIL_PANEL_MAX_WIDTH) : DETAIL_COLLAPSED_WIDTH)
-    : clamp(panelWidths.detail, DETAIL_PANEL_MIN_WIDTH, DETAIL_PANEL_MAX_WIDTH)
   const workspaceMeta = WORKSPACE_META[activeTab] || WORKSPACE_META.creators
   const waStatusLabel = waQrData ? '需要扫码' : '已连接'
   const waStatusTone = waQrData ? '#b45309' : WA.teal
@@ -1122,13 +1110,6 @@ function App() {
               >
                 <span className="w-2 h-2 rounded-full" style={{ background: waStatusTone }} />
                 {waStatusLabel}
-              </div>
-              <div
-                className="hidden xl:flex items-center gap-2 px-3 py-2 rounded-full text-xs font-medium"
-                style={{ background: WA.white, color: WA.textMuted, border: `1px solid ${WA.borderLight}` }}
-              >
-                Owner
-                <span style={{ color: WA.textDark }}>{selectedOwnerLabel}</span>
               </div>
               <button
                 onClick={() => loadData()}
@@ -1472,23 +1453,35 @@ function App() {
                 conversationScope === 'groups' ? (
                   <WAGroupChatViewer groupChat={selectedGroupChat} apiBase={API_BASE} />
                 ) : selectedCreator ? (
-                  <WAMessageComposer
-                    key={selectedCreator.id}
-                    client={{
-                      id: selectedCreator.id,
-                      phone: selectedCreator.wa_phone,
-                      name: selectedCreator.primary_name,
-                      wa_owner: selectedCreator.wa_owner,
-                      conversion_stage: selectedCreator.lifecycle?.stage_key || selectedCreator.beta_status || 'unknown',
-                      lifecycle_stage: selectedCreator.lifecycle?.stage_key || 'unknown',
-                      lifecycle_label: selectedCreator.lifecycle?.stage_label || null,
-                    }}
-                    creator={selectedCreator}
-                    jumpTarget={selectedCreator?.id === chatJumpTarget?.creatorId ? chatJumpTarget : null}
-                    onClose={handleCloseConversation}
-                    onMessageSent={handleCreatorMessageSent}
-                    onCreatorUpdated={handleCreatorUpdated}
-                  />
+                  <div className="flex-1 min-h-0 flex flex-col overflow-hidden" style={{ background: WA.chatBg }}>
+                    <CreatorDetail
+                      key={`chat-context-${selectedCreator.id}`}
+                      creatorId={selectedCreator.id}
+                      creatorName={selectedCreator.primary_name}
+                      onClose={handleCloseConversation}
+                      onMessageSent={handleCreatorMessageSent}
+                      onCreatorUpdated={handleCreatorUpdated}
+                      embedded
+                    >
+                      <WAMessageComposer
+                        key={selectedCreator.id}
+                        client={{
+                          id: selectedCreator.id,
+                          phone: selectedCreator.wa_phone,
+                          name: selectedCreator.primary_name,
+                          wa_owner: selectedCreator.wa_owner,
+                          conversion_stage: selectedCreator.lifecycle?.stage_key || selectedCreator.beta_status || 'unknown',
+                          lifecycle_stage: selectedCreator.lifecycle?.stage_key || 'unknown',
+                          lifecycle_label: selectedCreator.lifecycle?.stage_label || null,
+                        }}
+                        creator={selectedCreator}
+                        jumpTarget={selectedCreator?.id === chatJumpTarget?.creatorId ? chatJumpTarget : null}
+                        onClose={handleCloseConversation}
+                        onMessageSent={handleCreatorMessageSent}
+                        onCreatorUpdated={handleCreatorUpdated}
+                      />
+                    </CreatorDetail>
+                  </div>
                 ) : waQrData ? (
                   <div className="flex-1 flex items-center justify-center" style={{ background: WA.chatBg }}>
                     <div
@@ -1529,7 +1522,26 @@ function App() {
                     </div>
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto docs-scrollbar" style={{ background: WA.shellPanel }}>
-                    {activeTab === 'events' ? (
+                    {activeTab === 'finance' ? (
+                      selectedCreator ? (
+                        <CreatorDetail
+                          key={`finance-${selectedCreator.id}`}
+                          creatorId={selectedCreator.id}
+                          creatorName={selectedCreator.primary_name}
+                          onClose={handleCloseConversation}
+                          onMessageSent={handleCreatorMessageSent}
+                          onCreatorUpdated={handleCreatorUpdated}
+                          financeOnly
+                        />
+                      ) : (
+                        <div className="h-full flex items-center justify-center p-8" style={{ color: WA.textMuted }}>
+                          <div className="docs-panel-strong px-6 py-5 text-center">
+                            <div className="docs-title">请选择左侧达人</div>
+                            <div className="text-sm mt-2">选择后查看月费、GMV、订单和 Keeper 指标。</div>
+                          </div>
+                        </div>
+                      )
+                    ) : activeTab === 'events' ? (
                       <EventPanel
                         onOpenCreatorChat={handleOpenCreatorChatFromEvent}
                         selectedEventId={selectedEventId}
@@ -1557,30 +1569,6 @@ function App() {
               )}
             </div>
 
-            {showDetailPanel && (
-              <div
-                className="shrink-0 flex flex-col docs-panel overflow-hidden"
-                style={{
-                  width: detailPanelWidth,
-                  minWidth: detailPanelWidth,
-                  maxWidth: detailPanelWidth,
-                  transition: 'width 220ms ease',
-                  background: WA.shellPanel,
-                }}
-              >
-                <CreatorDetail
-                  creatorId={selectedCreator.id}
-                  creatorName={selectedCreator.primary_name}
-                  onClose={handleCloseConversation}
-                  onMessageSent={handleCreatorMessageSent}
-                  onCreatorUpdated={handleCreatorUpdated}
-                  asPanel
-                  collapsed={!isDetailPanelOpen}
-                  pinned={detailPanelPinned}
-                  onTogglePin={() => setDetailPanelPinned(prev => !prev)}
-                />
-              </div>
-            )}
           </div>
         </div>
       </div>

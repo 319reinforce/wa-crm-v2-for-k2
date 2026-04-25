@@ -2,11 +2,16 @@ const {
   EVENT_DECISION_RULES,
   EVENT_DECISION_RULES_BY_KEY,
   EVENT_RECALL_KEYWORDS,
+  CANONICAL_LIFECYCLE_EVENT_KEYS,
+  LIFECYCLE_STAGE_KEYS,
+  LIFECYCLE_OVERLAY_KEYS,
 } = require('../constants/eventDecisionRules');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_API_BASE = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
+const DEFAULT_MINIMAX_BASE = 'https://minimax.a7m.com.cn';
+const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.7-highspeed';
 
 const VERDICT_SET = new Set(['confirm', 'reject', 'uncertain']);
 const REVIEW_STATUS_MAP = {
@@ -15,6 +20,9 @@ const REVIEW_STATUS_MAP = {
   uncertain: 'uncertain',
 };
 const EVENT_STATUS_SET = new Set(['draft', 'active', 'completed', 'cancelled']);
+const CANONICAL_LIFECYCLE_EVENT_KEY_SET = new Set(CANONICAL_LIFECYCLE_EVENT_KEYS);
+const LIFECYCLE_STAGE_KEY_SET = new Set(LIFECYCLE_STAGE_KEYS);
+const LIFECYCLE_OVERLAY_KEY_SET = new Set(LIFECYCLE_OVERLAY_KEYS);
 
 function parseEventMeta(value) {
   if (!value) return {};
@@ -43,6 +51,65 @@ function tokenizeText(value) {
 
 function limitText(value, max = 320) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+function clampConfidence(value, fallback = 0.5) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  if (numeric > 1) return Math.max(0, Math.min(numeric / 5, 1));
+  return Math.max(0, Math.min(numeric, 1));
+}
+
+function clampEvidenceTier(value, { sourceAnchor = null, sourceKind = '', evidenceQuote = '' } = {}) {
+  const numeric = Number(value);
+  let tier = Number.isFinite(numeric) ? Math.max(0, Math.min(Math.trunc(numeric), 3)) : 0;
+  const hasAnchor = !!(sourceAnchor?.message_id || sourceAnchor?.message_hash || sourceAnchor?.timestamp);
+  const normalizedSourceKind = String(sourceKind || '').trim().toLowerCase();
+  const trustedSource = ['operator_confirmed', 'external_system'].includes(normalizedSourceKind);
+  if (tier >= 2 && !trustedSource && (!hasAnchor || !String(evidenceQuote || '').trim())) {
+    tier = 1;
+  }
+  return tier;
+}
+
+function uniqueAllowed(values, allowedSet) {
+  const out = [];
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const key = String(value || '').trim();
+    if (allowedSet.has(key) && !out.includes(key)) out.push(key);
+  });
+  return out;
+}
+
+function resolveMinimaxMessagesUrl(rawBase) {
+  const input = String(rawBase || '').trim() || DEFAULT_MINIMAX_BASE;
+  try {
+    const url = new URL(input);
+    const normalizedPath = url.pathname.replace(/\/+$/, '');
+    const basePath = normalizedPath && normalizedPath !== '/' ? normalizedPath : '';
+    const messagesPath = /\/v1$/i.test(basePath) ? `${basePath}/messages` : `${basePath}/v1/messages`;
+    return `${url.origin}${messagesPath}`;
+  } catch (_) {
+    const normalized = input.replace(/\/+$/, '');
+    return /\/v1$/i.test(normalized) ? `${normalized}/messages` : `${normalized}/v1/messages`;
+  }
+}
+
+function resolveMinimaxModel(explicitModel) {
+  const input = String(explicitModel || '').trim();
+  if (input) return input;
+  return String(process.env.MINIMAX_EVENT_MODEL || process.env.MINIMAX_MODEL || '').trim() || DEFAULT_MINIMAX_MODEL;
+}
+
+function extractTextFromMiniMaxResponse(data) {
+  if (typeof data?.content === 'string') return data.content;
+  if (Array.isArray(data?.content)) {
+    return data.content.find((item) => item?.type === 'text')?.text || '';
+  }
+  if (Array.isArray(data?.choices)) {
+    return data.choices[0]?.message?.content || data.choices[0]?.text || '';
+  }
+  return data?.content?.text || '';
 }
 
 function clampWindow(value, fallback) {
@@ -333,6 +400,252 @@ function buildEventVerificationPrompt({ owner = 'Beau', candidate = {}, messages
   return { systemPrompt, userPrompt };
 }
 
+function buildMiniMaxEventMatchingPrompt({ owner = 'Beau', text = '', messages = [], sourceAnchor = null }) {
+  const transcript = (messages || []).map((message) => {
+    const role = message.role === 'me' ? owner : 'Creator';
+    const when = toIsoOrNull(message.timestamp) || '-';
+    return `[${message.id}][${role}][${when}] ${limitText(message.text, 320)}`;
+  }).join('\n');
+
+  const ruleSummary = buildRuleSummary();
+  const sourceHint = sourceAnchor
+    ? `source_anchor: ${JSON.stringify(sourceAnchor)}`
+    : 'source_anchor: none; current_text is the only evidence';
+
+  const systemPrompt = [
+    'You are a strict WhatsApp CRM event and lifecycle evidence matcher.',
+    'Your job is to extract candidate canonical events and overlay flags from the provided text/context.',
+    'Never create dynamic event keys. Use only listed event_key values.',
+    'Lifecycle main stage is advisory only. Do not let weak or dynamic evidence drive a main stage.',
+    'Risk, settlement, referral, weak evidence, missing challenge periods, and unverified GMV claims are overlays, not main stages.',
+    'Account bans, violations, freezes, payout issues, and posting blocks are risk/settlement overlays unless the creator explicitly opts out or asks not to be contacted.',
+    'Return strict JSON only.',
+    '',
+    'Evidence tiers:',
+    '0 = raw keyword/draft/dynamic touchpoint; never drives lifecycle.',
+    '1 = imported/manual/current-text evidence without source quote or verification; badge/overlay only.',
+    '2 = canonical event with source message anchor and direct quote, or operator-confirmed import; may drive lifecycle after backend rules.',
+    '3 = external-system verified fact such as Keeper GMV or confirmed agency binding.',
+    '',
+    `Allowed lifecycle stages: ${LIFECYCLE_STAGE_KEYS.join(', ')}`,
+    `Allowed overlays: ${LIFECYCLE_OVERLAY_KEYS.join(', ')}`,
+    '',
+    'Available event rules:',
+    ruleSummary,
+  ].join('\n');
+
+  const userPrompt = [
+    `Owner: ${owner}`,
+    sourceHint,
+    '',
+    'Current text to classify:',
+    limitText(text, 1400) || '(empty)',
+    '',
+    'Conversation window, chronological when available:',
+    transcript || '(no message window available)',
+    '',
+    'Return JSON with this exact shape:',
+    '{',
+    '  "events": [',
+    '    {',
+    '      "event_key": "one listed event_key",',
+    '      "status": "draft|active|completed|cancelled",',
+    '      "confidence": 0.0,',
+    '      "evidence_tier": 0,',
+    '      "source_kind": "current_text|source_message|operator_confirmed|external_system|imported|keyword",',
+    '      "source_quote": "direct quote or empty string",',
+    '      "reason": "short explanation",',
+    '      "overlays": ["optional allowed overlay keys"],',
+    '      "lifecycle_stage_suggestion": "acquisition|activation|retention|revenue|terminated|null",',
+    '      "meta": {}',
+    '    }',
+    '  ],',
+    '  "overlays": ["optional allowed overlay keys"],',
+    '  "lifecycle_stage_suggestion": "acquisition|activation|retention|revenue|terminated|null",',
+    '  "reason": "short overall explanation"',
+    '}',
+  ].join('\n');
+
+  return { systemPrompt, userPrompt };
+}
+
+async function callMiniMaxForEventMatching({ systemPrompt, userPrompt, model, maxTokens = 1200 }) {
+  const apiKey = process.env.MINIMAX_API_KEY;
+  if (!apiKey) {
+    const error = new Error('MINIMAX_API_KEY environment variable not set');
+    error.statusCode = 500;
+    throw error;
+  }
+
+  const messagesUrl = resolveMinimaxMessagesUrl(process.env.MINIMAX_EVENT_API_BASE || process.env.MINIMAX_API_BASE);
+  const resolvedModel = resolveMinimaxModel(model);
+  const response = await fetch(messagesUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: resolvedModel,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      max_tokens: maxTokens,
+      temperature: 0,
+    }),
+    signal: AbortSignal.timeout(Number(process.env.MINIMAX_EVENT_TIMEOUT_MS || 45000)),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.error) {
+    const detail = payload?.error?.message || payload?.message || response.statusText || 'unknown error';
+    const error = new Error(`MiniMax event matching error: ${detail}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  return {
+    raw: extractTextFromMiniMaxResponse(payload),
+    model: payload?.model || resolvedModel,
+    id: payload?.id || null,
+  };
+}
+
+function normalizeMiniMaxEventMatchingResult(raw, {
+  owner = 'Beau',
+  text = '',
+  sourceAnchor = null,
+  model = null,
+} = {}) {
+  const cleaned = String(raw || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('MiniMax event matcher returned non-JSON payload');
+  const parsed = JSON.parse(match[0]);
+
+  const globalOverlays = uniqueAllowed(parsed?.overlays, LIFECYCLE_OVERLAY_KEY_SET);
+  const globalStage = LIFECYCLE_STAGE_KEY_SET.has(parsed?.lifecycle_stage_suggestion)
+    ? parsed.lifecycle_stage_suggestion
+    : null;
+  const events = Array.isArray(parsed?.events) ? parsed.events : [];
+  const detected = [];
+
+  events.forEach((item) => {
+    const eventKey = String(item?.event_key || '').trim();
+    if (!EVENT_DECISION_RULES_BY_KEY[eventKey]) return;
+    if (!CANONICAL_LIFECYCLE_EVENT_KEY_SET.has(eventKey)) return;
+
+    const itemOverlays = uniqueAllowed([...(item?.overlays || []), ...globalOverlays], LIFECYCLE_OVERLAY_KEY_SET);
+    const sourceKind = String(item?.source_kind || (sourceAnchor ? 'source_message' : 'current_text')).trim() || 'current_text';
+    const evidenceQuote = limitText(item?.source_quote || '', 260);
+    const evidenceTier = clampEvidenceTier(item?.evidence_tier, {
+      sourceAnchor,
+      sourceKind,
+      evidenceQuote,
+    });
+    const lifecycleStageSuggestion = LIFECYCLE_STAGE_KEY_SET.has(item?.lifecycle_stage_suggestion)
+      ? item.lifecycle_stage_suggestion
+      : globalStage;
+    const status = EVENT_STATUS_SET.has(item?.status) ? item.status : 'draft';
+    const confidence = clampConfidence(item?.confidence, evidenceTier >= 2 ? 0.72 : 0.58);
+
+    detected.push({
+      event_key: eventKey,
+      event_type: EVENT_DECISION_RULES_BY_KEY[eventKey]?.event_type || 'incentive_task',
+      owner,
+      trigger_text: text,
+      trigger_source: 'minimax_semantic',
+      suggested_status: status,
+      confidence,
+      reason: limitText(item?.reason || parsed?.reason || '', 260),
+      source_anchor: sourceAnchor,
+      evidence_tier: evidenceTier,
+      source_kind: sourceKind,
+      source_quote: evidenceQuote,
+      overlays: itemOverlays,
+      lifecycle_stage_suggestion: lifecycleStageSuggestion,
+      lifecycle_drives_main_stage: false,
+      verification: {
+        review_status: evidenceTier >= 2 ? 'uncertain' : 'pending',
+        verdict: evidenceTier >= 2 ? 'uncertain' : 'uncertain',
+        confidence: null,
+      },
+      meta: {
+        ...(item?.meta && typeof item.meta === 'object' && !Array.isArray(item.meta) ? item.meta : {}),
+        evidence_contract: {
+          evidence_tier: evidenceTier,
+          source_kind: sourceKind,
+          source_message_id: sourceAnchor?.message_id || null,
+          source_quote: evidenceQuote,
+          external_system: sourceKind === 'external_system' ? (item?.meta?.external_system || null) : null,
+          verified_by: null,
+          verified_at: null,
+        },
+        lifecycle_overlay: {
+          overlays: itemOverlays,
+          lifecycle_stage_suggestion: lifecycleStageSuggestion,
+          drives_main_stage: false,
+        },
+        llm_event_matcher: {
+          provider: 'minimax',
+          model,
+          matched_at: new Date().toISOString(),
+        },
+      },
+    });
+  });
+
+  return {
+    detected,
+    overlays: globalOverlays,
+    lifecycle_stage_suggestion: globalStage,
+    reason: limitText(parsed?.reason || '', 260),
+  };
+}
+
+async function detectEventsWithMiniMax({ dbConn, creatorId, owner = 'Beau', text = '', sourceAnchor = null, contextWindow = {}, model = null }) {
+  const context = sourceAnchor
+    ? await loadContextWindow(dbConn, {
+        creatorId,
+        sourceAnchor,
+        triggerText: text,
+        eventKey: '',
+        before: contextWindow.before,
+        after: contextWindow.after,
+      })
+    : {
+        anchor: sourceAnchor,
+        messages: [],
+        stats: { before_count: 0, after_count: 0, used_count: 0 },
+      };
+  const { systemPrompt, userPrompt } = buildMiniMaxEventMatchingPrompt({
+    owner,
+    text,
+    messages: context.messages,
+    sourceAnchor,
+  });
+  const result = await callMiniMaxForEventMatching({
+    systemPrompt,
+    userPrompt,
+    model,
+    maxTokens: Number(process.env.MINIMAX_EVENT_MAX_TOKENS || 1200),
+  });
+  const normalized = normalizeMiniMaxEventMatchingResult(result.raw, {
+    owner,
+    text,
+    sourceAnchor: context.anchor || sourceAnchor,
+    model: result.model,
+  });
+  return {
+    raw: result.raw,
+    model: result.model,
+    id: result.id,
+    normalized,
+    context,
+  };
+}
+
 async function callOpenAIForVerification({ systemPrompt, userPrompt }) {
   const { generateResponseFor } = require('../utils/openai');
   return generateResponseFor(
@@ -460,6 +773,10 @@ module.exports = {
   resolveSourceAnchor,
   loadContextWindow,
   buildEventVerificationPrompt,
+  buildMiniMaxEventMatchingPrompt,
+  callMiniMaxForEventMatching,
+  normalizeMiniMaxEventMatchingResult,
+  detectEventsWithMiniMax,
   callOpenAIForVerification,
   normalizeVerificationResult,
   buildTransitionSuggestion,

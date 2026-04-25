@@ -150,6 +150,101 @@ const EVENT_DECISION_RULES = [
     },
     required_evidence: ['必须体现“此前未明确回复/无明确意愿”这一上下文'],
   },
+  {
+    event_key: 'churned',
+    event_type: 'termination',
+    label: '合作流失',
+    owner_scope: ['Beau', 'Yiyun'],
+    recall_keywords: ['churn', 'churned', 'stopped working', 'no longer working', '结束合作', '不合作了', '流失'],
+    positive_signals: [
+      'creator explicitly says the collaboration has ended',
+      'operator manually confirms the creator is no longer in the program',
+      'conversation confirms there is no remaining recovery, settlement, or referral path',
+    ],
+    negative_signals: [
+      'account ban, violation, or posting block while settlement or recovery is still being discussed',
+      'old imported churn flag followed by later payment, referral, support, or restart activity',
+    ],
+    status_guidance: {
+      draft: '只是出现风险或停滞，尚不能确认终止。',
+      active: '明确进入流失/终止维护状态。',
+      completed: '终止状态已由人工或明确上下文确认。',
+    },
+    required_evidence: ['必须有明确终止合作语义；风险/封号/提现问题不等于 churned'],
+  },
+  {
+    event_key: 'do_not_contact',
+    event_type: 'termination',
+    label: '停止主动联系',
+    owner_scope: ['Beau', 'Yiyun'],
+    recall_keywords: ['do not contact', "don't contact", 'stop contacting', '不要再联系', '停止联系', '别联系'],
+    positive_signals: [
+      'creator explicitly asks not to be contacted again',
+      'operator records a manual do-not-contact decision',
+    ],
+    negative_signals: [
+      'creator is only unavailable, busy, delayed, banned, or waiting for payment',
+      'operator suggests a softer follow-up cadence without creator opt-out',
+    ],
+    status_guidance: {
+      draft: '只是跟进频率或时机不清楚。',
+      active: '明确要求停止主动联系。',
+      completed: '停止联系状态已人工确认。',
+    },
+    required_evidence: ['必须引用明确拒绝联系或人工确认语义'],
+  },
+  {
+    event_key: 'opt_out',
+    event_type: 'termination',
+    label: '主动退出',
+    owner_scope: ['Beau', 'Yiyun'],
+    recall_keywords: ['opt out', 'quit', 'withdraw', 'leave the program', '退出', '不参加了', '放弃'],
+    positive_signals: [
+      'creator explicitly opts out of the program or challenge',
+      'creator clearly says they will not continue after understanding the program',
+    ],
+    negative_signals: [
+      'temporary issue, risk hold, account ban, or settlement question',
+      'creator asks questions about payment, recovery, referral, or restart',
+    ],
+    status_guidance: {
+      draft: '只是犹豫或遇到问题。',
+      active: '明确选择退出。',
+      completed: '退出状态已人工确认。',
+    },
+    required_evidence: ['必须有明确退出/不继续参与语义'],
+  },
+];
+
+const CANONICAL_LIFECYCLE_EVENT_KEYS = [
+  'trial_7day',
+  'monthly_challenge',
+  'agency_bound',
+  'gmv_milestone',
+  'referral',
+  'recall_pending',
+  'second_touch',
+  'churned',
+  'do_not_contact',
+  'opt_out',
+];
+
+const LIFECYCLE_STAGE_KEYS = [
+  'acquisition',
+  'activation',
+  'retention',
+  'revenue',
+  'terminated',
+];
+
+const LIFECYCLE_OVERLAY_KEYS = [
+  'referral_active',
+  'risk_control_active',
+  'settlement_blocked',
+  'revenue_claim_pending_verification',
+  'migration_imported_fact',
+  'weak_event_evidence',
+  'challenge_period_missing',
 ];
 
 const EVENT_DECISION_RULES_BY_KEY = Object.fromEntries(
@@ -177,6 +272,9 @@ module.exports = {
   EVENT_DECISION_RULES,
   EVENT_DECISION_RULES_BY_KEY,
   EVENT_RECALL_KEYWORDS,
+  CANONICAL_LIFECYCLE_EVENT_KEYS,
+  LIFECYCLE_STAGE_KEYS,
+  LIFECYCLE_OVERLAY_KEYS,
   getEventDecisionRule,
   buildEventDecisionTableMarkdown,
 };

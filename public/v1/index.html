@@ -887,7 +887,7 @@
 
         .lifecycle-shell {
             display: grid;
-            grid-template-columns: 280px minmax(0, 1fr);
+            grid-template-columns: minmax(0, 1fr);
             background: #f7f3ea;
             border: 1px solid #d8d0c2;
             border-radius: 28px;
@@ -896,12 +896,12 @@
         }
 
         .lifecycle-sidebar {
+            display: none;
             background:
                 linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(247, 243, 234, 0.82) 100%),
                 #f1ebdf;
             border-right: 1px solid #ddd3c5;
             padding: 28px 20px;
-            display: flex;
             flex-direction: column;
             gap: 18px;
         }
@@ -1053,6 +1053,30 @@
             display: flex;
             flex-direction: column;
             gap: 18px;
+        }
+
+        .lifecycle-toolbar {
+            background: rgba(255, 255, 255, 0.76);
+            border: 1px solid #e1d9cd;
+            border-radius: 20px;
+            padding: 16px;
+            display: grid;
+            grid-template-columns: minmax(220px, 1.4fr) repeat(2, minmax(160px, 0.8fr));
+            gap: 12px;
+            box-shadow: 0 12px 32px rgba(120, 104, 72, 0.08);
+        }
+
+        .lifecycle-stage-strip {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+
+        .lifecycle-stage-strip .lifecycle-stage-item {
+            width: auto;
+            min-width: 132px;
+            flex: 0 0 auto;
         }
 
         .lifecycle-hero {
@@ -2241,6 +2265,7 @@
             <nav class="tab-nav">
                 <button id="tabBtnLifecycle" class="tab-btn active" onclick="switchTab('lifecycle')">生命周期</button>
                 <button id="tabBtnWa" class="tab-btn" onclick="switchTab('wa')">WhatsApp CRM</button>
+                <button id="tabBtnFinance" class="tab-btn" onclick="switchTab('finance')">财务</button>
                 <button id="tabBtnJb" class="tab-btn" onclick="switchTab('jb')" style="display:none;">JoinBrands</button>
                 <button id="tabBtnKeeper" class="tab-btn" onclick="switchTab('keeper')" style="display:none;">Keeper</button>
             </nav>
@@ -2374,6 +2399,72 @@
                 <div class="empty-state-text">没有匹配的用户</div>
             </div>
         </main>
+    </div>
+
+    <!-- Finance Tab -->
+    <div id="tab-finance" class="tab-content">
+        <div class="stats-bar" id="financeStatsBar">
+            <div class="stat-card">
+                <div class="stat-label">应收月费</div>
+                <div class="stat-value green" id="financeReceivable">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">已支付</div>
+                <div class="stat-value cyan" id="financePaid">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">逾期/待扣</div>
+                <div class="stat-value red" id="financePending">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Keeper GMV</div>
+                <div class="stat-value blue" id="financeGMV">-</div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="filter-bar">
+                <div class="search-box">
+                    <input type="text" id="financeSearchInput" placeholder="搜索姓名 / 手机号 / Keeper...">
+                </div>
+                <select class="filter-select" id="financeStatusFilter">
+                    <option value="">月费: 全部</option>
+                    <option value="pending">待支付</option>
+                    <option value="due">待扣款</option>
+                    <option value="paid">已支付</option>
+                    <option value="overdue">逾期</option>
+                    <option value="waived">免除</option>
+                </select>
+                <select class="filter-select" id="financeOwnerFilter">
+                    <option value="">负责人: 全部</option>
+                </select>
+            </div>
+
+            <div class="sheet-view">
+                <table class="sheet-table">
+                    <thead>
+                        <tr>
+                            <th>达人</th>
+                            <th>电话</th>
+                            <th>负责人</th>
+                            <th>月费状态</th>
+                            <th>月费金额</th>
+                            <th>Keeper</th>
+                            <th>总GMV</th>
+                            <th>30天GMV</th>
+                            <th>订单数</th>
+                            <th>视频</th>
+                            <th>中台</th>
+                        </tr>
+                    </thead>
+                    <tbody id="financeBody"></tbody>
+                </table>
+            </div>
+            <div class="empty-state" id="financeEmptyState" style="display:none;">
+                <div class="empty-state-icon">📭</div>
+                <div class="empty-state-text">没有匹配的财务数据</div>
+            </div>
+        </div>
     </div>
 
     <!-- JoinBrands Tab -->
@@ -2511,52 +2602,35 @@
     <div id="tab-lifecycle" class="tab-content active">
         <div class="main-content">
             <div class="lifecycle-shell">
-                <aside class="lifecycle-sidebar">
-                    <div class="lifecycle-sidebar-card">
-                        <div class="lifecycle-sidebar-eyebrow">Lifecycle Workspace</div>
-                        <div class="lifecycle-sidebar-title">客户生命周期</div>
-                        <div class="lifecycle-sidebar-copy">
-                            把主阶段、子流程和并行徽章拆开看。这个页面的结构已经按 PRD 预留好，后面接入 v2 的正式快照和迁移表时可以直接替换数据层。
-                        </div>
-                    </div>
-
-                    <div class="lifecycle-sidebar-card">
-                        <div class="lifecycle-sidebar-eyebrow">Filters</div>
-                        <div class="lifecycle-filters">
-                            <div>
-                                <div class="lifecycle-filter-label">搜索</div>
-                                <div class="search-box">
-                                    <input type="text" id="lifeSearchInput" placeholder="搜索姓名 / 手机号...">
-                                </div>
-                            </div>
-                            <div>
-                                <div class="lifecycle-filter-label">主阶段</div>
-                                <select class="filter-select" id="lifeStageFilter">
-                                    <option value="">阶段: 全部</option>
-                                    <option value="acquisition">获取</option>
-                                    <option value="activation">激活</option>
-                                    <option value="retention">留存</option>
-                                    <option value="revenue">变现</option>
-                                    <option value="referral">传播</option>
-                                    <option value="terminated">终止池</option>
-                                </select>
-                            </div>
-                            <div>
-                                <div class="lifecycle-filter-label">负责人</div>
-                                <select class="filter-select" id="lifeOwnerFilter">
-                                    <option value="">负责人: 全部</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="lifecycle-sidebar-card">
-                        <div class="lifecycle-sidebar-eyebrow">Stage Index</div>
-                        <div class="lifecycle-stage-list" id="lifeStageList"></div>
-                    </div>
-                </aside>
-
                 <section class="lifecycle-main">
+                    <div class="lifecycle-toolbar">
+                        <div>
+                            <div class="lifecycle-filter-label">搜索</div>
+                            <div class="search-box">
+                                <input type="text" id="lifeSearchInput" placeholder="搜索姓名 / 手机号...">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="lifecycle-filter-label">主阶段</div>
+                            <select class="filter-select" id="lifeStageFilter">
+                                <option value="">阶段: 全部</option>
+                                <option value="acquisition">获取</option>
+                                <option value="activation">激活</option>
+                                <option value="retention">留存</option>
+                                <option value="revenue">变现</option>
+                                <option value="referral">传播</option>
+                                <option value="terminated">终止池</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div class="lifecycle-filter-label">负责人</div>
+                            <select class="filter-select" id="lifeOwnerFilter">
+                                <option value="">负责人: 全部</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="lifecycle-stage-strip" id="lifeStageList"></div>
+
                     <div class="lifecycle-hero">
                         <div>
                             <div class="lifecycle-panel-eyebrow">Lifecycle Overview</div>
@@ -2765,7 +2839,7 @@
             const params = new URLSearchParams(window.location.search);
             const normalizeTab = (value) => {
                 const tab = String(value || '').trim().toLowerCase();
-                return ['wa', 'lifecycle', 'jb', 'keeper'].includes(tab) ? tab : 'wa';
+                return ['wa', 'finance', 'lifecycle', 'jb', 'keeper'].includes(tab) ? tab : 'wa';
             };
             const parsePositiveInt = (value) => {
                 const n = parseInt(String(value || '').trim(), 10);
@@ -2926,6 +3000,7 @@
             const tabButtonMap = {
                 lifecycle: 'tabBtnLifecycle',
                 wa: 'tabBtnWa',
+                finance: 'tabBtnFinance',
                 jb: 'tabBtnJb',
                 keeper: 'tabBtnKeeper'
             };
@@ -2938,6 +3013,9 @@
             }
             if (tab === 'wa') {
                 refreshWAData({ force: true });
+            }
+            if (tab === 'finance') {
+                refreshFinanceData();
             }
         }
 
@@ -3486,8 +3564,10 @@
                     populateEventKeySelect(users);
                     populateOwnerSelect('filterOperator', users);
                     populateOwnerSelect('lifeOwnerFilter', users);
+                    populateOwnerSelect('financeOwnerFilter', users);
                     allLifeData = buildLifecycleData(users);
                     filterUsers();
+                    filterFinanceData();
                     filterLifecycleData(true);
                     return users;
                 })
@@ -3802,6 +3882,91 @@
         document.getElementById('filterEventKey').addEventListener('change', filterUsers);
         document.getElementById('filterOperator').addEventListener('change', filterUsers);
 
+        function getFinanceAmount(user) {
+            const raw = user?.events?.monthly_fee?.amount ?? user?.monthly_fee_amount ?? 0;
+            const amount = Number(raw);
+            return Number.isFinite(amount) ? amount : 0;
+        }
+
+        function getFinanceStatus(user) {
+            return getMonthlyFeeLabel(user?.events?.monthly_fee?.status, user?.events?.monthly_fee?.deducted);
+        }
+
+        function renderFinanceStats(users) {
+            const receivable = users.reduce((sum, u) => sum + getFinanceAmount(u), 0);
+            const paid = users.filter(u => getFinanceStatus(u) === 'paid').length;
+            const pending = users.filter(u => ['pending', 'due', 'overdue'].includes(getFinanceStatus(u))).length;
+            const gmv = users.reduce((sum, u) => sum + (Number(u.keeper_gmv || 0) || 0), 0);
+            document.getElementById('financeReceivable').textContent = '$' + Math.round(receivable).toLocaleString();
+            document.getElementById('financePaid').textContent = paid.toLocaleString();
+            document.getElementById('financePending').textContent = pending.toLocaleString();
+            document.getElementById('financeGMV').textContent = '$' + Math.round(gmv).toLocaleString();
+        }
+
+        function renderFinanceTable(users) {
+            const tbody = document.getElementById('financeBody');
+            const empty = document.getElementById('financeEmptyState');
+            if (!tbody || !empty) return;
+            if (users.length === 0) {
+                tbody.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+            empty.style.display = 'none';
+            tbody.innerHTML = users.map(u => {
+                const status = getMonthlyFeeDisplay(u.events?.monthly_fee?.status, u.events?.monthly_fee?.deducted);
+                const amount = getFinanceAmount(u);
+                const keeper = u.keeper_username || u.events?.keeper_username || '-';
+                const gmv = Number(u.keeper_gmv || 0) || 0;
+                const gmv30 = Number(u.keeper_gmv30 || 0) || 0;
+                const orders = Number(u.keeper_orders || 0) || 0;
+                const videos = Number(u.keeper_videos_posted || 0) || Number(u.events?.weekly_videos?.current_count || 0) || 0;
+                const v2Url = u.id ? buildV2WorkspaceUrl({ creatorId: u.id, tab: 'finance', owner: u.wa_owner }) : '';
+                return `<tr class="chat-target-row" data-creator-id="${escapeHtmlAttr(u.id || '')}" ${getChatTargetAttrs(u.phone, u.name)}>
+                    <td>${escapeHtml(u.name || 'Unknown')}</td>
+                    <td>${escapeHtml(u.phone || '-')}</td>
+                    <td>${escapeHtml(u.wa_owner || '-')}</td>
+                    <td>${escapeHtml(status)}</td>
+                    <td style="color: var(--accent-green);">${amount ? '$' + amount.toLocaleString() : '-'}</td>
+                    <td>${escapeHtml(keeper)}</td>
+                    <td style="color: var(--accent-green);">${gmv ? '$' + gmv.toLocaleString() : '-'}</td>
+                    <td style="color: var(--accent-cyan);">${gmv30 ? '$' + gmv30.toLocaleString() : '-'}</td>
+                    <td>${orders || '-'}</td>
+                    <td>${videos || '-'}</td>
+                    <td>${v2Url ? `<button type="button" class="action-btn js-open-v2" data-v2-url="${escapeHtmlAttr(v2Url)}">中台</button>` : '-'}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function filterFinanceData() {
+            const search = document.getElementById('financeSearchInput')?.value.toLowerCase() || '';
+            const status = document.getElementById('financeStatusFilter')?.value || '';
+            const owner = document.getElementById('financeOwnerFilter')?.value || '';
+            const filtered = allUsers.filter(u => {
+                const matchesSearch = !search ||
+                    (u.name || '').toLowerCase().includes(search) ||
+                    (u.phone || '').toLowerCase().includes(search) ||
+                    (u.keeper_username || '').toLowerCase().includes(search);
+                const matchesStatus = !status || getFinanceStatus(u) === status;
+                const matchesOwner = !owner || (u.wa_owner || '') === owner;
+                return matchesSearch && matchesStatus && matchesOwner;
+            });
+            renderFinanceStats(filtered);
+            renderFinanceTable(filtered);
+        }
+
+        function refreshFinanceData() {
+            if (!allUsers.length) {
+                refreshWAData({ force: true }).then(() => filterFinanceData());
+                return;
+            }
+            filterFinanceData();
+        }
+
+        document.getElementById('financeSearchInput').addEventListener('input', filterFinanceData);
+        document.getElementById('financeStatusFilter').addEventListener('change', filterFinanceData);
+        document.getElementById('financeOwnerFilter').addEventListener('change', filterFinanceData);
+
         function populateOwnerSelect(selectId, users) {
             const operatorSelect = document.getElementById(selectId);
             if (!operatorSelect) return;
@@ -3829,7 +3994,9 @@
                 renderCards(users);
                 populateOwnerSelect('filterOperator', users);
                 populateOwnerSelect('lifeOwnerFilter', users);
+                populateOwnerSelect('financeOwnerFilter', users);
                 allLifeData = buildLifecycleData(users);
+                filterFinanceData();
                 filterLifecycleData();
                 if (window.location.hash === '#life-board') {
                     switchLifecycleRowsView('board');

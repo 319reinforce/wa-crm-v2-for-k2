@@ -26,6 +26,7 @@ const {
 const {
   buildSourceAnchor,
   buildVerificationPatch,
+  detectEventsWithMiniMax,
   loadContextWindow,
   parseEventMeta,
   verifyEventCandidate,
@@ -112,6 +113,28 @@ function toSqlDatetimeValue(value) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return null;
   return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function shouldUseMiniMaxEventDetect(body = {}) {
+  const mode = String(body.mode || body.provider || body.detect_provider || '').trim().toLowerCase();
+  if (['minimax', 'llm', 'semantic_llm'].includes(mode)) return true;
+  if (body.use_minimax === true || body.use_llm === true) return true;
+  const envMode = String(process.env.EVENT_DETECT_PROVIDER || '').trim().toLowerCase();
+  return ['minimax', 'llm', 'semantic_llm'].includes(envMode);
+}
+
+function upsertDetectedCandidate(detected, candidate) {
+  if (!candidate?.event_key) return;
+  const existing = detected.find((item) => item.event_key === candidate.event_key);
+  if (!existing) {
+    detected.push(candidate);
+    return;
+  }
+  Object.assign(existing, {
+    ...candidate,
+    trigger_source: [existing.trigger_source, candidate.trigger_source].filter(Boolean).join('+'),
+    confidence: Math.max(Number(existing.confidence || 0), Number(candidate.confidence || 0)),
+  });
 }
 
 function normalizeEvidenceText(value) {
@@ -748,6 +771,7 @@ router.post('/detect', async (req, res) => {
 
     const lowerText = text.toLowerCase();
     const detected = [];
+    const owner = normalizeOwner(creator.wa_owner) || 'Beau';
     const sourceAnchor = buildSourceAnchor(req.body, req.body?.meta);
 
     for (const [event_key, keywords] of Object.entries(EVENT_KEYWORDS)) {
@@ -764,17 +788,39 @@ router.post('/detect', async (req, res) => {
             detected.push({
               event_key,
               event_type,
-              owner: normalizeOwner(creator.wa_owner) || 'Beau',
+              owner,
               trigger_text: text,
               trigger_source: 'semantic_auto',
               suggested_status: 'draft',
               confidence: 0.62,
               reason: `matched keyword: ${kw}`,
               source_anchor: sourceAnchor,
+              evidence_tier: 0,
+              source_kind: 'keyword',
+              source_quote: '',
+              overlays: ['weak_event_evidence'],
+              lifecycle_stage_suggestion: null,
+              lifecycle_drives_main_stage: false,
               verification: {
                 review_status: 'pending',
                 verdict: 'uncertain',
                 confidence: null,
+              },
+              meta: {
+                evidence_contract: {
+                  evidence_tier: 0,
+                  source_kind: 'keyword',
+                  source_message_id: sourceAnchor?.message_id || null,
+                  source_quote: '',
+                  external_system: null,
+                  verified_by: null,
+                  verified_at: null,
+                },
+                lifecycle_overlay: {
+                  overlays: ['weak_event_evidence'],
+                  lifecycle_stage_suggestion: null,
+                  drives_main_stage: false,
+                },
               },
             });
           }
@@ -791,7 +837,7 @@ router.post('/detect', async (req, res) => {
           detected.push({
             event_key: 'gmv_milestone',
             event_type: 'gmv',
-            owner: normalizeOwner(creator.wa_owner) || 'Beau',
+            owner,
             trigger_text: text,
             trigger_source: 'gmv_crosscheck',
             gmv_current: keeper.keeper_gmv,
@@ -799,10 +845,34 @@ router.post('/detect', async (req, res) => {
             confidence: 0.8,
             reason: 'detected GMV-related keyword and keeper_gmv > 0',
             source_anchor: sourceAnchor,
+            evidence_tier: 3,
+            source_kind: 'external_system',
+            source_quote: '',
+            overlays: [],
+            lifecycle_stage_suggestion: 'revenue',
+            lifecycle_drives_main_stage: true,
             verification: {
               review_status: 'pending',
               verdict: 'uncertain',
               confidence: null,
+            },
+            meta: {
+              threshold: keeper.keeper_gmv >= 10000 ? 10000 : (keeper.keeper_gmv >= 5000 ? 5000 : 2000),
+              current_gmv: keeper.keeper_gmv,
+              evidence_contract: {
+                evidence_tier: 3,
+                source_kind: 'external_system',
+                source_message_id: sourceAnchor?.message_id || null,
+                source_quote: '',
+                external_system: 'keeper_link',
+                verified_by: 'system_crosscheck',
+                verified_at: new Date().toISOString(),
+              },
+              lifecycle_overlay: {
+                overlays: [],
+                lifecycle_stage_suggestion: 'revenue',
+                drives_main_stage: true,
+              },
             },
           });
         }
@@ -810,7 +880,44 @@ router.post('/detect', async (req, res) => {
       }
     }
 
-    res.json({ detected, creator_id, creator_name: creator.primary_name });
+    let minimax = null;
+    if (shouldUseMiniMaxEventDetect(req.body)) {
+      try {
+        const result = await detectEventsWithMiniMax({
+          dbConn: db2,
+          creatorId: Number(creator_id),
+          owner,
+          text,
+          sourceAnchor,
+          contextWindow: req.body?.context_window || {},
+          model: req.body?.model || null,
+        });
+        (result.normalized?.detected || []).forEach((candidate) => upsertDetectedCandidate(detected, candidate));
+        minimax = {
+          ok: true,
+          provider: 'minimax',
+          model: result.model || null,
+          detected_count: result.normalized?.detected?.length || 0,
+          overlays: result.normalized?.overlays || [],
+          lifecycle_stage_suggestion: result.normalized?.lifecycle_stage_suggestion || null,
+          reason: result.normalized?.reason || '',
+          context_stats: result.context?.stats || null,
+        };
+      } catch (err) {
+        minimax = {
+          ok: false,
+          provider: 'minimax',
+          error: err.message,
+        };
+      }
+    }
+
+    res.json({
+      detected,
+      creator_id,
+      creator_name: creator.primary_name,
+      minimax,
+    });
   } catch (err) {
     console.error('POST /api/events/detect error:', err);
     res.status(500).json({ error: err.message });
