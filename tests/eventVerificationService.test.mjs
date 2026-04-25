@@ -7,6 +7,7 @@ const {
   buildTransitionSuggestion,
   buildVerificationPatch,
   loadContextWindow,
+  normalizeMiniMaxEventMatchingResult,
   normalizeVerificationResult,
 } = require('../server/services/eventVerificationService');
 
@@ -181,4 +182,68 @@ test('buildTransitionSuggestion only recommends draft to active after confirmed 
 
   assert.equal(buildTransitionSuggestion('active', { verdict: 'confirm' }), null);
   assert.equal(buildTransitionSuggestion('draft', { verdict: 'uncertain' }), null);
+});
+
+test('normalizeMiniMaxEventMatchingResult keeps weak current-text evidence from driving lifecycle', () => {
+  const payload = normalizeMiniMaxEventMatchingResult(JSON.stringify({
+    events: [{
+      event_key: 'agency_bound',
+      status: 'active',
+      confidence: 0.92,
+      evidence_tier: 2,
+      source_kind: 'current_text',
+      source_quote: '',
+      reason: 'creator asks about agency signing',
+      overlays: [],
+      lifecycle_stage_suggestion: 'retention',
+      meta: {},
+    }],
+    overlays: [],
+    lifecycle_stage_suggestion: 'retention',
+  }), {
+    owner: 'Beau',
+    text: 'Can you send the agency link?',
+    sourceAnchor: null,
+    model: 'MiniMax-M2.7-highspeed',
+  });
+
+  assert.equal(payload.detected.length, 1);
+  assert.equal(payload.detected[0].event_key, 'agency_bound');
+  assert.equal(payload.detected[0].evidence_tier, 1);
+  assert.equal(payload.detected[0].lifecycle_drives_main_stage, false);
+  assert.equal(payload.detected[0].meta.evidence_contract.evidence_tier, 1);
+});
+
+test('normalizeMiniMaxEventMatchingResult preserves overlays without turning risk into termination', () => {
+  const payload = normalizeMiniMaxEventMatchingResult(JSON.stringify({
+    events: [{
+      event_key: 'gmv_milestone',
+      status: 'draft',
+      confidence: 0.81,
+      evidence_tier: 1,
+      source_kind: 'current_text',
+      source_quote: 'I had around 9400 GMV but my account is banned.',
+      reason: 'GMV is claimed in chat but needs external verification; ban is risk overlay.',
+      overlays: ['revenue_claim_pending_verification', 'risk_control_active', 'not_allowed_overlay'],
+      lifecycle_stage_suggestion: 'retention',
+      meta: { claimed_gmv: 9400 },
+    }],
+    overlays: ['settlement_blocked'],
+    lifecycle_stage_suggestion: 'terminated',
+  }), {
+    owner: 'Yiyun',
+    text: 'I had around 9400 GMV but my account is banned. How do I get paid?',
+    sourceAnchor: { message_id: 44, timestamp: 1710000000000 },
+    model: 'MiniMax-M2.7-highspeed',
+  });
+
+  assert.equal(payload.detected[0].event_key, 'gmv_milestone');
+  assert.equal(payload.detected[0].suggested_status, 'draft');
+  assert.deepEqual(payload.detected[0].overlays, [
+    'revenue_claim_pending_verification',
+    'risk_control_active',
+    'settlement_blocked',
+  ]);
+  assert.equal(payload.detected[0].lifecycle_stage_suggestion, 'retention');
+  assert.equal(payload.detected[0].lifecycle_drives_main_stage, false);
 });

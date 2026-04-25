@@ -45,7 +45,7 @@ test('BaileysDriver — getStatus before start returns not ready', () => {
     assert.equal(status.accountPhone, null, 'accountPhone null before auth');
 });
 
-test('BaileysDriver — start() returns a promise', () => {
+test('BaileysDriver — start() returns a promise and stop closes async setup', async () => {
     const driver = new BaileysDriver({
         sessionId: 'unit-test',
         owner: 'unit',
@@ -54,9 +54,8 @@ test('BaileysDriver — start() returns a promise', () => {
     });
     const ret = driver.start();
     assert.ok(ret instanceof Promise, 'start() must return Promise');
-    // Suppress expected rejection — @whiskeysockets/baileys not installed in unit-test env
-    ret.catch(() => {});
-    driver.stop();
+    await ret.catch(() => {});
+    await driver.stop();
 });
 
 test('BaileysDriver — sendMessage without auth returns error shape', async () => {

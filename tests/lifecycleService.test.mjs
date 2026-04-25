@@ -142,3 +142,51 @@ test('extractSignals promotes agency/gmv/referral from events table rows', () =>
   assert.equal(signals.gmvReached, true);
   assert.equal(signals.referral, true);
 });
+
+test('extractSignals ignores weak MiniMax evidence for main lifecycle movement', () => {
+  const signals = extractSignals({
+    message_facts: { wa_joined: true },
+    events: [
+      {
+        event_key: 'agency_bound',
+        event_type: 'agency',
+        status: 'active',
+        meta: {
+          evidence_contract: {
+            evidence_tier: 1,
+            source_kind: 'current_text',
+          },
+        },
+      },
+      {
+        event_key: 'gmv_milestone',
+        event_type: 'gmv',
+        status: 'active',
+        meta: {
+          evidence_contract: {
+            evidence_tier: 0,
+            source_kind: 'keyword',
+          },
+        },
+      },
+    ],
+  });
+
+  assert.equal(signals.agencyBound, false);
+  assert.equal(signals.gmvReached, false);
+});
+
+test('extractSignals ignores generated event keys even when event_type looks lifecycle-like', () => {
+  const signals = extractSignals({
+    message_facts: { wa_joined: true },
+    events: [
+      { event_key: 'violation_appeal', event_type: 'challenge', status: 'active' },
+      { event_key: 'jb_touchpoint_20260424', event_type: 'agency', status: 'completed' },
+      { event_key: 'gmv_milestone_10k', event_type: 'gmv', status: 'completed' },
+    ],
+  });
+
+  assert.equal(signals.trialInProgress, false);
+  assert.equal(signals.agencyBound, false);
+  assert.equal(signals.gmvReached, false);
+});

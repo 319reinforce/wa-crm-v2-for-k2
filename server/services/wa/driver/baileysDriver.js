@@ -96,6 +96,8 @@ class BaileysDriver extends EventEmitter {
         this._qr = null;
         this._lastError = null;
         this._accountPhone = null;
+        this._stopped = true;
+        this._reconnectTimer = null;
         this._authDir = path.join(cfg.authRootDir, `session-${this.sessionId}`);
 
         // Per-jid message ring buffer for fetchRecentMessages()
@@ -168,6 +170,7 @@ class BaileysDriver extends EventEmitter {
 
     async start() {
         if (this._sock) return;
+        this._stopped = false;
 
         if (!fs.existsSync(this._authDir)) fs.mkdirSync(this._authDir, { recursive: true });
 
@@ -265,9 +268,13 @@ class BaileysDriver extends EventEmitter {
                 this._ready = false;
                 const info = { reason: reasonCode, autoReconnect: shouldReconnect };
                 this.emit('disconnect', info);
-                if (shouldReconnect) {
+                if (shouldReconnect && !this._stopped) {
                     console.log(`[BaileysDriver:${this.sessionId}] reconnecting in ${RECONNECT_DELAY_MS}ms (reason=${reasonCode})`);
-                    setTimeout(() => this._reconnect(), RECONNECT_DELAY_MS);
+                    this._reconnectTimer = setTimeout(() => {
+                        this._reconnectTimer = null;
+                        this._reconnect();
+                    }, RECONNECT_DELAY_MS);
+                    if (typeof this._reconnectTimer.unref === 'function') this._reconnectTimer.unref();
                 } else {
                     this._lastError = `logged out (code=${reasonCode}), please rescan QR`;
                     this.emit('failed', new Error(this._lastError));
@@ -375,6 +382,11 @@ class BaileysDriver extends EventEmitter {
     }
 
     async stop() {
+        this._stopped = true;
+        if (this._reconnectTimer) {
+            clearTimeout(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
         if (this._sock) {
             try { this._sock.end(); } catch (_) {}
             this._sock = null;
@@ -599,6 +611,7 @@ class BaileysDriver extends EventEmitter {
     // ---- private ----
 
     async _reconnect() {
+        if (this._stopped) return;
         if (this._sock) {
             try { this._sock.end(); } catch (_) {}
             this._sock = null;
