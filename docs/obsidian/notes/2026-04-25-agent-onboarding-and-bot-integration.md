@@ -15,11 +15,13 @@ tags:
 
 ## Summary
 
-Agent onboarding now points new agents to the Obsidian memory standard after the project entry docs. Bot integration docs now describe JSON raw data and SQLite as historical migration context, not current runtime inputs.
+Agent onboarding now points new agents to the documentation index, core module overview, current progress handoffs, and Obsidian memory standard after the project entry docs. Bot integration docs now describe JSON raw data and SQLite as historical migration context, not current runtime inputs.
 
 ## Key Decisions
 
 - Read order includes `docs/OBSIDIAN_MEMORY_STANDARD.md`.
+- Read order includes `docs/DOCS_INDEX.md` and `docs/CORE_MODULES_OVERVIEW.md` so agents can quickly find the module they need to work on.
+- Latest event/lifecycle progress is anchored at `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`.
 - Session closeout reports Obsidian sync status.
 - `data/*.json` is historical migration context.
 - `crm.db` / SQLite must not be restored.
@@ -29,6 +31,8 @@ Agent onboarding now points new agents to the Obsidian memory standard after the
 - `AGENTS.md`
 - `CLAUDE.md`
 - `BOT_INTEGRATION.md`
+- `docs/DOCS_INDEX.md`
+- `docs/CORE_MODULES_OVERVIEW.md`
 
 ## Verification
 

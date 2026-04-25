@@ -58,4 +58,10 @@
 ### Notes
 
 - Historical review and analysis documents still mention some removed files intentionally as past context.
-- Shared MetaMemory write was attempted but blocked because the local `mm` CLI was unavailable and the memory server at `http://localhost:8100` was not reachable.
+- As of 2026-04-25, cleanup memory is tracked through `docs/OBSIDIAN_MEMORY_STANDARD.md` and `docs/obsidian/notes/2026-04-16-legacy-cleanup-memory.md`.
+
+## Obsidian Sync
+
+- Status: historical-backfill
+- Note: `docs/obsidian/notes/2026-04-16-legacy-cleanup-memory.md`
+- Index: `docs/obsidian/index.md`

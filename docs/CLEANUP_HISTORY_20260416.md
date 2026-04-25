@@ -102,22 +102,17 @@ Remove SQLite-era entrypoints, migration scripts, and dependencies that no longe
   - `better-sqlite3`
   - `deasync`
 
-## Shared Memory Attempt
-
-An attempt was made to write the cleanup result into shared MetaMemory.
-
-### Blocker
-
-- local `mm` CLI was unavailable
-- memory server at `http://localhost:8100` was unreachable
-
-### Fallback
+## Memory Record
 
 Cleanup state was preserved locally in:
 
 - `docs/HISTORICAL_REPORTS_ARCHIVE.md`
 - `docs/LEGACY_CLEANUP_LOG.md`
 - this file: `docs/CLEANUP_HISTORY_20260416.md`
+
+As of 2026-04-25, the durable memory note is:
+
+- `docs/obsidian/notes/2026-04-16-legacy-cleanup-memory.md`
 
 ## `.wwebjs_auth` Session Audit
 
@@ -221,3 +216,9 @@ Before deleting the likely-removable session set, stop any ad hoc local WA/brows
 - `sessions-wangyouke`
 
 Leave `session-3000` in place until the API WA service is explicitly disabled in your runtime or confirmed to use a different named session.
+
+## Obsidian Sync
+
+- Status: historical-backfill
+- Note: `docs/obsidian/notes/2026-04-16-legacy-cleanup-memory.md`
+- Index: `docs/obsidian/index.md`

@@ -1,5 +1,6 @@
 # WA CRM v2 代码问题报告
 
+> 历史归档说明：本文是 2026-04-03 基于旧 `server.js` / SQLite 迁移期代码的 review。当前运行时已迁移为 MySQL + `server/index.cjs`，因此本文不能作为最新规范或当前缺陷清单直接执行。最新复核和修复记录见下方两份 2026-04-16 文档。
 > 最新复核入口：2026-04-16 的细化复核结果见 `docs/CODE_REVIEW_FINDINGS_20260416.md`
 > 最新修复与验收报告：2026-04-16 的落地修改汇总见 `docs/REVIEW_FIX_REPORT_20260416.md`
 > 说明：上述两份文档分别承接“问题是否仍成立”和“实际修了什么、如何验证”的两个视角。
@@ -316,3 +317,9 @@ document.getElementById('statBeau').textContent = stats.by_owner.Beau || 0;
 - `sft_feedback` 表（skip/reject/edit 反馈）
 - `idx_sft_dedup` 唯一索引（SHA256 去重）
 - 5 个新 API：pending review / review / trends / sft-feedback / sft-feedback/stats
+
+## Obsidian Sync
+
+- Status: historical-backfill
+- Note: `docs/obsidian/notes/2026-04-16-code-review-archive.md`
+- Index: `docs/obsidian/index.md`

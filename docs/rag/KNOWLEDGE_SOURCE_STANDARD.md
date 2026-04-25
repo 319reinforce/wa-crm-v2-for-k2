@@ -2,6 +2,8 @@
 
 本标准用于约束所有写入 `docs/rag/sources/` 的政策/SOP/FAQ 文档，确保其他 Agent 可稳定解析、清洗、入库并检索。
 
+记忆同步基线：新增或更新 RAG 规范、政策、SOP、runbook 或配置决策后，必须按 `docs/OBSIDIAN_MEMORY_STANDARD.md` 同步到 `docs/obsidian/`。
+
 ## 1. 目录与命名
 
 - 原始知识文件统一放在：`docs/rag/sources/`
@@ -92,3 +94,9 @@
 2. 运行 `npm run sft:align:rules -- --dry-run`
 3. 审核预览结果后再 `npm run sft:align:rules -- --apply`
 4. 对齐后再触发训练，避免旧规则样本直接进入新轮训练
+
+## 9. Obsidian Sync
+
+- Status: synced
+- Note: `docs/obsidian/notes/2026-04-25-obsidian-memory-standard.md`
+- Index: `docs/obsidian/index.md`

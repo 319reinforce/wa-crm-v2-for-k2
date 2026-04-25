@@ -23,7 +23,7 @@
   - `SFTDashboard` 记录卡能看到单条 SFT 的生成追踪字段
   - `SFTDashboard` 评估页能看到 generation log 的聚合与最近日志
 - 本文档当前是这轮工作的权威 handoff 记录
-  - 由于共享 MetaMemory CLI 不可用，仓库内文档是当前唯一可靠落袋点
+  - 2026-04-25 已按 Obsidian 标准回填到 `docs/obsidian/notes/2026-04-16-reply-generation-refactor-memory.md`
 
 ## 本轮已完成
 
@@ -235,7 +235,7 @@
 ## 已知风险 / 注意事项
 
 - 当前 worktree 很脏，本轮没有清理或回滚任何无关改动。
-- 共享 MetaMemory CLI `mm` 当前环境不可用，因此本次 memory 采用仓库内文档落袋，而不是写入共享 memory server。
+- 本文档已在 2026-04-25 回填到 Obsidian memory note。
 - `USE_FINETUNED=true` 时仍需特别留意 `.env` 里的 `AB_RATIO`，避免误变成超预期放量。
 
 ## 后续建议顺序
@@ -262,3 +262,9 @@
 5. `src/components/SFTDashboard.jsx`
 
 这样可以最快恢复对“生成主链 + SFT 回流 + 追踪字段 + 展示层”的完整上下文。
+
+## Obsidian Sync
+
+- Status: historical-backfill
+- Note: `docs/obsidian/notes/2026-04-16-reply-generation-refactor-memory.md`
+- Index: `docs/obsidian/index.md`
