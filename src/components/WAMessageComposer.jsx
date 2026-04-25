@@ -715,7 +715,7 @@ function LifecycleJourneyStrip({ creator, events = [] }) {
     );
 }
 
-export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwipeLeft, onMessageSent, onCreatorUpdated, asPanel }) {
+export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwipeLeft, onMessageSent, onCreatorUpdated, asPanel, topSlot = null }) {
     // 当前用户是否 viewer,以及对当前目标 creator 的 owner 是否有写权限
     const isViewer = isAppAuthViewer();
     const viewerOwnOwner = isViewer ? String(getAppAuthScopeOwner() || '').trim() : '';
@@ -2543,18 +2543,29 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
     const handleReplyDeckResizeStart = useCallback((event) => {
         event.preventDefault();
-        const startY = event.clientY;
+        const startY = event.touches?.[0]?.clientY ?? event.clientY;
         const startHeight = replyDeckHeight || 420;
         const onMove = (moveEvent) => {
-            const nextHeight = Math.max(260, Math.min(680, startHeight + (startY - moveEvent.clientY)));
+            moveEvent.preventDefault?.();
+            const currentY = moveEvent.touches?.[0]?.clientY ?? moveEvent.clientY;
+            const maxHeight = typeof window === 'undefined' ? 680 : Math.min(680, Math.floor(window.innerHeight * 0.72));
+            const nextHeight = Math.max(220, Math.min(maxHeight, startHeight + (startY - currentY)));
             setReplyDeckHeight(nextHeight);
         };
         const onUp = () => {
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('touchmove', onMove);
+            window.removeEventListener('touchend', onUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
         };
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
+        window.addEventListener('touchmove', onMove, { passive: false });
+        window.addEventListener('touchend', onUp);
     }, [replyDeckHeight]);
 
     useEffect(() => {
@@ -3389,6 +3400,14 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         {translating ? <SpinnerIcon /> : <GlobeIcon />}
                     </IconButton>
                 </div>
+                {topSlot && (
+                    <div
+                        className="hidden md:block px-4 py-2 border-b"
+                        style={{ background: WA.shellPanelStrong, borderColor: WA.borderLight }}
+                    >
+                        {topSlot}
+                    </div>
+                )}
 
                 {/* Mobile Header with Tags toggle — only shown when NOT used as panel in App.jsx */}
                 {!asPanel && (
@@ -3486,8 +3505,6 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         </div>
                     </>
                 )}
-
-                <LifecycleJourneyStrip creator={creator} events={allEvents} />
 
                 {/* Translation Progress Bar */}
                 {translating && translateProgress && typeof translateProgress === 'string' && (
@@ -3763,7 +3780,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 )}
                 {/* Input area */}
                 <div
-                    className="px-4 md:px-5 py-3 md:py-4 flex items-end gap-2 md:gap-3 border-t"
+                    className="px-4 md:px-5 py-3 md:py-4 flex items-center gap-2 md:gap-3 border-t"
                     style={{
                         background: WA.shellPanelStrong,
                         borderTop: `1px solid ${WA.borderLight}`,

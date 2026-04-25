@@ -21,6 +21,7 @@ export default function StandardReplyCard({
     onUpdateTemplate = null,
     onSend = null,
     compactMobile = false,
+    deckHeight = null,
 }) {
     const [expanded, setExpanded] = useState(false);
     const showAlternatives = expanded && Array.isArray(alternatives) && alternatives.length > 0;
@@ -29,11 +30,16 @@ export default function StandardReplyCard({
         || /^operator-custom-topic::\d+$/.test(String(slot?.section_id || ''))
     );
     const templateActionHandler = canUpdateTemplate ? onUpdateTemplate : onSaveTemplate;
+    const resizableDeck = Number.isFinite(Number(deckHeight)) && !compactMobile;
 
     const cardStyle = {
         width: compactMobile ? '88%' : '72%',
         minWidth: compactMobile ? '280px' : '320px',
         maxWidth: compactMobile ? '360px' : '520px',
+        height: resizableDeck ? '100%' : undefined,
+        minHeight: 0,
+        display: resizableDeck ? 'flex' : undefined,
+        flexDirection: resizableDeck ? 'column' : undefined,
         background: '#fffbeb',
         color: WA.textDark,
         border: '1px solid #fde68a',
@@ -45,7 +51,7 @@ export default function StandardReplyCard({
             className="shrink-0 snap-start rounded-[18px] px-3 py-3"
             style={cardStyle}
         >
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-2 shrink-0">
                 <span
                     className="text-[11px] font-bold px-2 py-0.5 rounded-full"
                     style={{ background: `${accent}20`, color: accent }}
@@ -64,7 +70,11 @@ export default function StandardReplyCard({
 
             <div
                 className={`${compactMobile ? 'text-[13px]' : 'text-sm'} leading-relaxed overflow-y-auto`}
-                style={{ maxHeight: compactMobile ? '156px' : '132px' }}
+                style={{
+                    flex: resizableDeck ? 1 : undefined,
+                    minHeight: resizableDeck ? 0 : undefined,
+                    maxHeight: resizableDeck ? 'none' : (compactMobile ? '156px' : '132px'),
+                }}
             >
                 {loading && (
                     <div className="text-xs" style={{ color: WA.textMuted }}>
@@ -158,7 +168,7 @@ export default function StandardReplyCard({
                 )}
             </div>
 
-            <div className="mt-3 flex gap-2 flex-wrap">
+            <div className="mt-3 flex gap-2 flex-wrap shrink-0">
                 {alternatives.length > 0 && (
                     <button
                         onClick={() => setExpanded((prev) => !prev)}

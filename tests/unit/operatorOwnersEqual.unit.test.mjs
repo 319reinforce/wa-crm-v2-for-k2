@@ -50,11 +50,12 @@ test('normalizeOperatorName — 静态 roster 映射到权威大小写', () => {
     assert.equal(normalizeOperatorName('yifan', null), 'Beau');
     assert.equal(normalizeOperatorName('alice', null), 'Yiyun');
     assert.equal(normalizeOperatorName('sybil', null), 'Jiawen');
+    assert.equal(normalizeOperatorName('jiawei', null), 'Jiawei');
 });
 
 test('normalizeOperatorName — 动态 operator 原样返回（保留现有契约）', () => {
     // 这是根本 bug 的来源：动态 operator 没权威大小写
     // 但我们不强行 lowercase，避免影响别的数据写入路径
-    assert.equal(normalizeOperatorName('jiawei', null), 'jiawei');
-    assert.equal(normalizeOperatorName('Jiawei', null), 'Jiawei');
+    assert.equal(normalizeOperatorName('marco', null), 'marco');
+    assert.equal(normalizeOperatorName('Marco', null), 'Marco');
 });

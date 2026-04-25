@@ -41,6 +41,7 @@ export default function AIReplyPicker({
     const templateSlots = templateDeck?.slots || {};
     const alternatives = Array.isArray(templateDeck?.alternatives) ? templateDeck.alternatives : [];
     const aiReady = !!(aiDeck?.opt1 || aiDeck?.opt2);
+    const resizableDeck = Number.isFinite(Number(deckHeight)) && !compactMobile;
 
     const shellStyle = {
         background: WA.shellPanelStrong,
@@ -54,8 +55,18 @@ export default function AIReplyPicker({
     };
 
     const content = (
-        <div className={`${compactMobile ? 'px-3 pb-3 pt-2' : 'px-4 pb-4 pt-3'} space-y-3`} style={{ flex: deckHeight ? 1 : undefined, minHeight: 0, overflow: deckHeight ? 'auto' : undefined }}>
-            <div className="flex items-center justify-between">
+        <div
+            className={`${compactMobile ? 'px-3 pb-3 pt-2' : 'px-4 pb-4 pt-3'}`}
+            style={{
+                flex: resizableDeck ? 1 : undefined,
+                minHeight: 0,
+                overflow: resizableDeck ? 'hidden' : undefined,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: compactMobile ? 10 : 12,
+            }}
+        >
+            <div className="flex items-center justify-between shrink-0">
                 <div className="text-[11px] font-semibold tracking-[0.06em] uppercase" style={{ color: WA.textMuted }}>
                     Reply Options
                 </div>
@@ -66,7 +77,7 @@ export default function AIReplyPicker({
                 )}
             </div>
 
-            <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory pb-1">
+            <div className={`flex gap-3 overflow-x-auto snap-x snap-mandatory pb-1 ${resizableDeck ? 'flex-1 min-h-0 items-stretch' : ''}`}>
                 <StandardReplyCard
                     slotLabel="op1 推荐模板"
                     badge="1"
@@ -82,6 +93,7 @@ export default function AIReplyPicker({
                     onUpdateTemplate={(slot) => onUpdateTemplate?.({ slot, slotKey: 'op1' })}
                     onSend={(text, slot) => onSelect('template_op1', { text, slot })}
                     compactMobile={compactMobile}
+                    deckHeight={resizableDeck ? deckHeight : null}
                 />
                 <StandardReplyCard
                     slotLabel="op2 原始模板"
@@ -98,6 +110,7 @@ export default function AIReplyPicker({
                     onUpdateTemplate={(slot) => onUpdateTemplate?.({ slot, slotKey: 'op2' })}
                     onSend={(text, slot) => onSelect('template_op2', { text, slot })}
                     compactMobile={compactMobile}
+                    deckHeight={resizableDeck ? deckHeight : null}
                 />
                 <CandidateCard
                     badge="3"
@@ -112,6 +125,7 @@ export default function AIReplyPicker({
                     onEdit={() => onEditCandidate(aiDeck?.opt1, { kind: 'ai', slotKey: 'opt1' })}
                     onSend={() => onSelect('opt1')}
                     compactMobile={compactMobile}
+                    deckHeight={resizableDeck ? deckHeight : null}
                 />
                 <CandidateCard
                     badge="4"
@@ -126,15 +140,8 @@ export default function AIReplyPicker({
                     onEdit={() => onEditCandidate(aiDeck?.opt2, { kind: 'ai', slotKey: 'opt2' })}
                     onSend={() => onSelect('opt2')}
                     compactMobile={compactMobile}
+                    deckHeight={resizableDeck ? deckHeight : null}
                 />
-            </div>
-
-            <div
-                className="text-[11px] leading-relaxed rounded-[12px] px-3 py-2"
-                style={{ background: WA.shellPanelMuted, color: WA.textMuted }}
-            >
-                需要人工改写 / 翻译 / 加 Emoji 或从零输入文案? 直接在下方消息框操作即可。
-                消息框旁的 🌐 翻译 和 😀 Emoji 润色按钮会作用在消息框里的文本。
             </div>
         </div>
     );
@@ -145,6 +152,7 @@ export default function AIReplyPicker({
                 <button
                     type="button"
                     onMouseDown={onResizeStart}
+                    onTouchStart={onResizeStart}
                     className="w-full h-4 flex items-center justify-center cursor-row-resize"
                     style={{ color: WA.textMuted, background: WA.shellPanelStrong, borderBottom: `1px solid ${WA.borderLight}` }}
                     title="拖动调整 Reply Deck 高度"
@@ -223,10 +231,11 @@ export default function AIReplyPicker({
     );
 }
 
-function CandidateCard({ badge, label, text, accent, ready, loading, sending, error, onGenerate, onEdit, onSend, compactMobile }) {
+function CandidateCard({ badge, label, text, accent, ready, loading, sending, error, onGenerate, onEdit, onSend, compactMobile, deckHeight = null }) {
     const waiting = !ready && !loading && !error;
     const showError = !ready && !!error && !loading;
     const canInteract = ready && !sending;
+    const resizableDeck = Number.isFinite(Number(deckHeight)) && !compactMobile;
     return (
         <div
             className="shrink-0 snap-start rounded-[18px] px-3 py-3"
@@ -234,13 +243,17 @@ function CandidateCard({ badge, label, text, accent, ready, loading, sending, er
                 width: compactMobile ? '88%' : '72%',
                 minWidth: compactMobile ? '280px' : '320px',
                 maxWidth: compactMobile ? '360px' : '520px',
+                height: resizableDeck ? '100%' : undefined,
+                minHeight: 0,
+                display: resizableDeck ? 'flex' : undefined,
+                flexDirection: resizableDeck ? 'column' : undefined,
                 background: '#DCF8C6',
                 color: WA.textDark,
                 border: '1px solid rgba(169,220,146,0.55)',
                 boxShadow: '0 1px 1px rgba(17,29,26,0.10)',
             }}
         >
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-2 shrink-0">
                 <span
                     className="text-[11px] font-bold px-2 py-0.5 rounded-full"
                     style={{ background: `${accent}18`, color: accent }}
@@ -252,7 +265,14 @@ function CandidateCard({ badge, label, text, accent, ready, loading, sending, er
                 </span>
             </div>
 
-            <div className={`${compactMobile ? 'text-[13px]' : 'text-sm'} leading-relaxed whitespace-pre-wrap break-words`} style={{ minHeight: compactMobile ? '108px' : '96px' }}>
+            <div
+                className={`${compactMobile ? 'text-[13px]' : 'text-sm'} leading-relaxed whitespace-pre-wrap break-words overflow-y-auto`}
+                style={{
+                    flex: resizableDeck ? 1 : undefined,
+                    minHeight: resizableDeck ? 0 : (compactMobile ? '108px' : '96px'),
+                    maxHeight: resizableDeck ? 'none' : undefined,
+                }}
+            >
                 {loading ? (
                     <span style={{ color: WA.textMuted }}>AI 正在生成候选回复...</span>
                 ) : showError ? (
@@ -260,7 +280,7 @@ function CandidateCard({ badge, label, text, accent, ready, loading, sending, er
                 ) : text}
             </div>
 
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex gap-2 shrink-0">
                 {waiting ? (
                     <button
                         onClick={onGenerate}
