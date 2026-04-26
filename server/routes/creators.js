@@ -723,7 +723,7 @@ router.get('/manual-check', async (req, res) => {
         if (lockedOwner && requestedOwner && !matchesOwnerScope(req, requestedOwner)) {
             return sendOwnerScopeForbidden(res, lockedOwner);
         }
-        const operator = resolveScopedOwner(req, requestedOwner, 'Yiyun');
+        const operator = resolveScopedOwner(req, requestedOwner, null);
 
         const [samePhone, sameName] = await Promise.all([
             findPhoneConflictRows(dbConn, normalizedPhone),
@@ -767,7 +767,7 @@ router.post('/manual', async (req, res) => {
         if (lockedOwner && requestedOwner && !matchesOwnerScope(req, requestedOwner)) {
             return sendOwnerScopeForbidden(res, lockedOwner);
         }
-        const operator = resolveScopedOwner(req, requestedOwner, 'Yiyun');
+        const operator = resolveScopedOwner(req, requestedOwner, null);
         const source = String(req.body?.source || 'manual').trim() || 'manual';
         const normalizedPhone = normalizeManualPhone(rawPhone);
         const normalizedName = rawName.replace(/\s+/g, ' ').trim();
@@ -777,6 +777,9 @@ router.post('/manual', async (req, res) => {
         }
         if (!normalizedPhone) {
             return res.status(400).json({ ok: false, error: 'wa_phone required' });
+        }
+        if (!operator) {
+            return res.status(400).json({ ok: false, error: 'wa_owner required' });
         }
 
         const samePhoneRows = await findPhoneConflictRows(dbConn, normalizedPhone);
@@ -876,7 +879,10 @@ router.post('/import', async (req, res) => {
         if (lockedOwner && requestedOwner && !matchesOwnerScope(req, requestedOwner)) {
             return sendOwnerScopeForbidden(res, lockedOwner);
         }
-        const operator = resolveScopedOwner(req, requestedOwner, 'Yiyun');
+        const operator = resolveScopedOwner(req, requestedOwner, null);
+        if (!operator) {
+            return res.status(400).json({ ok: false, error: 'owner required' });
+        }
         const source = String(req.body?.source || 'csv-import').trim() || 'csv-import';
 
         const results = [];
@@ -1085,6 +1091,100 @@ router.post('/batch-next-action', async (req, res) => {
         });
     } catch (err) {
         console.error('POST /api/creators/batch-next-action error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// POST /api/creators/batch-active — 按 owner 批量解绑/恢复绑定
+router.post('/batch-active', async (req, res) => {
+    try {
+        const creatorIds = normalizeCreatorIds(req.body?.creator_ids || req.body?.ids || []);
+        if (creatorIds.length === 0) {
+            return res.status(400).json({ ok: false, error: 'creator_ids required' });
+        }
+        if (creatorIds.length > 500) {
+            return res.status(400).json({ ok: false, error: 'too many creators (max 500 per request)' });
+        }
+
+        const action = String(req.body?.action || '').trim().toLowerCase();
+        const nextIsActive = action === 'rebind' || action === 'activate'
+            ? 1
+            : action === 'unbind' || action === 'deactivate'
+                ? 0
+                : null;
+        if (nextIsActive === null) {
+            return res.status(400).json({ ok: false, error: 'action must be unbind or rebind' });
+        }
+
+        const lockedOwner = getLockedOwner(req);
+        const requestedOwner = normalizeOperatorName(req.body?.owner || req.body?.wa_owner, null);
+        if (lockedOwner && requestedOwner && !matchesOwnerScope(req, requestedOwner)) {
+            return sendOwnerScopeForbidden(res, lockedOwner);
+        }
+        const effectiveOwner = resolveScopedOwner(req, requestedOwner, null);
+        if (!effectiveOwner) {
+            return res.status(400).json({ ok: false, error: 'owner required' });
+        }
+
+        const dbConn = db.getDb();
+        const placeholders = creatorIds.map(() => '?').join(', ');
+        const rows = await dbConn.prepare(`
+            SELECT id, primary_name, wa_phone, wa_owner, is_active
+            FROM creators
+            WHERE id IN (${placeholders})
+              AND wa_owner = ?
+        `).all(...creatorIds, effectiveOwner);
+        if (rows.length !== creatorIds.length) {
+            return res.status(403).json({
+                ok: false,
+                error: 'some creators are not in the requested owner scope',
+                requested_count: creatorIds.length,
+                matched_count: rows.length,
+            });
+        }
+
+        const idsToUpdate = rows
+            .filter((row) => Number(row.is_active ?? 1) !== nextIsActive)
+            .map((row) => Number(row.id));
+        let updatedCount = 0;
+        if (idsToUpdate.length > 0) {
+            const updatePlaceholders = idsToUpdate.map(() => '?').join(', ');
+            const result = await dbConn.prepare(`
+                UPDATE creators
+                SET is_active = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id IN (${updatePlaceholders})
+                  AND wa_owner = ?
+            `).run(nextIsActive, ...idsToUpdate, effectiveOwner);
+            updatedCount = Number(result?.changes || 0);
+        }
+
+        await writeAudit(
+            nextIsActive ? 'creator_batch_rebind' : 'creator_batch_unbind',
+            'creators',
+            null,
+            { is_active: nextIsActive ? 0 : 1 },
+            {
+                is_active: nextIsActive,
+                owner: effectiveOwner,
+                requested_count: creatorIds.length,
+                updated_count: updatedCount,
+                creator_ids: creatorIds,
+            },
+            req
+        );
+
+        await Promise.all(rows.map((row) => creatorCache.invalidateCreator(row.id, row.wa_phone)));
+        res.json({
+            ok: true,
+            owner: effectiveOwner,
+            action: nextIsActive ? 'rebind' : 'unbind',
+            requested_count: creatorIds.length,
+            updated_count: updatedCount,
+            unchanged_count: creatorIds.length - updatedCount,
+        });
+    } catch (err) {
+        console.error('POST /api/creators/batch-active error:', err);
         res.status(500).json({ ok: false, error: err.message });
     }
 });

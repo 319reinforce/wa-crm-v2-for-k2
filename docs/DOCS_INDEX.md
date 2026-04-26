@@ -47,6 +47,7 @@ Read in this order:
 | --- | --- |
 | `docs/V1_LAYOUT_HANDOFF_20260425.md` | V1/V2 navigation and finance/layout handoff. |
 | `docs/V1_LAYOUT_FOLLOWUP_HANDOFF_20260425.md` | Follow-up layout adjustments. |
+| `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md` | Batch creator import, dynamic owners, owner welcome template pool, and standard welcome-message publish handoff. |
 | `docs/FRONTEND_LAYOUT_REFACTOR.md` | Frontend layout refactor notes. |
 | `docs/FRONTEND_LOAD_OPTIMIZATION_20260423.md` | Frontend load optimization notes. |
 | `docs/VIEWER_ROLE_20260423.md` | Viewer role feature notes. |

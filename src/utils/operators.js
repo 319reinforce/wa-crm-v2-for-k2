@@ -8,10 +8,9 @@ export const OWNER_COLORS = {
   WangYouKe: '#14b8a6',
 }
 
-// Fallback ordering when the dynamic /api/operator-roster is unavailable.
-// The list below is intentionally duplicated from server/config/operatorRoster.js
-// so the UI still renders something usable before the roster fetch resolves.
-export const OWNER_ORDER = ['Beau', 'Yiyun', 'Jiawen', 'WangYouKe']
+// Dynamic owner lists come from /api/operator-roster. Keep this empty so local
+// fixed owners do not appear unless they exist in users/creators/wa_sessions.
+export const OWNER_ORDER = []
 
 export function getOwnerColor(owner, fallback = '#94a3b8') {
   if (OWNER_COLORS[owner]) return OWNER_COLORS[owner]
@@ -76,8 +75,8 @@ export function clearRosterCache() {
 
 /**
  * React hook that fetches `/api/operator-roster` once per session and returns
- * a dynamic owner list. Falls back to `OWNER_ORDER` until the fetch resolves
- * (or if it fails), so callers can render a selector immediately.
+ * a dynamic owner list. Returns an empty list until the fetch resolves (or if
+ * it fails), so callers only show owners that exist in runtime data.
  *
  * 额外监听 `operator-roster-refresh` 事件,收到后重新拉取(用于 admin
  * 在 UsersPanel 新增 owner 后让其它页面的下拉实时跟上)。

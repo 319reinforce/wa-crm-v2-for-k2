@@ -54,14 +54,17 @@ function normalizeMediaItems(value) {
             ? value.split(/\n+/).map((line) => ({ url: line }))
             : [];
     return rawItems
-        .map((item) => ({
-            url: normalizeTemplateText(item?.url || item?.file_url || ''),
-            label: normalizeText(item?.label || item?.title || item?.file_name || '对应图片', 96),
-            note: normalizeText(item?.note || item?.description || '', 160),
-            media_asset_id: Number.isFinite(Number(item?.media_asset_id || item?.id))
-                ? Number(item?.media_asset_id || item?.id)
-                : null,
-        }))
+        .map((item) => {
+            const media = typeof item === 'string' ? { url: item } : (item || {});
+            return {
+                url: normalizeTemplateText(media.url || media.file_url || ''),
+                label: normalizeText(media.label || media.title || media.file_name || '对应图片', 96),
+                note: normalizeText(media.note || media.description || '', 160),
+                media_asset_id: Number.isFinite(Number(media.media_asset_id || media.id))
+                    ? Number(media.media_asset_id || media.id)
+                    : null,
+            };
+        })
         .filter((item) => item.url || item.media_asset_id)
         .slice(0, 6);
 }
@@ -122,8 +125,9 @@ router.post('/custom-topic-templates', async (req, res) => {
     try {
         const label = normalizeText(req.body?.label);
         const templateText = normalizeTemplateText(req.body?.template_text || req.body?.template);
-        if (!label || !templateText) {
-            return res.status(400).json({ error: 'label and template_text required' });
+        const mediaItems = normalizeMediaItems(req.body?.media_items || req.body?.media_urls || []);
+        if (!label || (!templateText && mediaItems.length === 0)) {
+            return res.status(400).json({ error: 'label and template_text or media_items required' });
         }
         if (templateText.length > 6000) {
             return res.status(400).json({ error: 'template_text too long' });
@@ -136,7 +140,6 @@ router.post('/custom-topic-templates', async (req, res) => {
         const topicGroup = normalizeText(req.body?.topic_group || 'custom_topic', 64) || 'custom_topic';
         const intentKey = normalizeText(req.body?.intent_key || 'custom_template', 64) || 'custom_template';
         const sceneKey = normalizeText(req.body?.scene_key || 'follow_up', 64) || 'follow_up';
-        const mediaItems = normalizeMediaItems(req.body?.media_items || req.body?.media_urls || []);
         const mediaItemsJson = mediaItems.length ? JSON.stringify(mediaItems) : null;
 
         const oldRow = await db2.prepare(`
@@ -201,8 +204,9 @@ router.put('/custom-topic-templates/:id', async (req, res) => {
         }
         const label = normalizeText(req.body?.label);
         const templateText = normalizeTemplateText(req.body?.template_text || req.body?.template);
-        if (!label || !templateText) {
-            return res.status(400).json({ error: 'label and template_text required' });
+        const mediaItems = normalizeMediaItems(req.body?.media_items || req.body?.media_urls || []);
+        if (!label || (!templateText && mediaItems.length === 0)) {
+            return res.status(400).json({ error: 'label and template_text or media_items required' });
         }
         if (templateText.length > 6000) {
             return res.status(400).json({ error: 'template_text too long' });
@@ -224,7 +228,6 @@ router.put('/custom-topic-templates/:id', async (req, res) => {
         const topicGroup = normalizeText(req.body?.topic_group || oldRow.topic_group || 'custom_topic', 64) || 'custom_topic';
         const intentKey = normalizeText(req.body?.intent_key || oldRow.intent_key || 'custom_template', 64) || 'custom_template';
         const sceneKey = normalizeText(req.body?.scene_key || oldRow.scene_key || 'follow_up', 64) || 'follow_up';
-        const mediaItems = normalizeMediaItems(req.body?.media_items || req.body?.media_urls || []);
         const mediaItemsJson = mediaItems.length ? JSON.stringify(mediaItems) : null;
 
         await db2.prepare(`

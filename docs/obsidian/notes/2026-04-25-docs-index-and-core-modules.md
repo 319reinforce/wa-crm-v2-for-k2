@@ -22,6 +22,7 @@ The documentation set now has a top-level index and a module overview for the ma
 - `docs/DOCS_INDEX.md` is the navigation entry for project docs.
 - `docs/CORE_MODULES_OVERVIEW.md` is the current map of the most important modules.
 - Latest event/lifecycle progress is linked through `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`.
+- Creator bulk import, owner welcome template pool, and standard welcome-message publish progress is linked through `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md`.
 - Older review and cleanup docs remain as historical context and are labeled accordingly.
 
 ## Source

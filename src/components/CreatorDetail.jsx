@@ -3,7 +3,7 @@ import { WAMessageComposer } from './WAMessageComposer'
 import { CreatorEventsSection } from './CreatorEventsSection'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 import { getCreatorStatusMeta } from '../utils/creatorMeta'
-import { OWNER_ORDER, useOperatorRoster } from '../utils/operators'
+import { useOperatorRoster } from '../utils/operators'
 import {
   DEFAULT_UNBOUND_AGENCY_STRATEGIES,
   isAgencyBoundStatus,
@@ -201,7 +201,7 @@ function CreatorDetail({
   const [unbindError, setUnbindError] = useState('')
 
   const ownerOptions = useMemo(() => {
-    const base = rosterOwners && rosterOwners.length > 0 ? rosterOwners : [...OWNER_ORDER]
+    const base = rosterOwners && rosterOwners.length > 0 ? rosterOwners : []
     const current = editForm?.wa_owner
     return current && !base.includes(current) ? [current, ...base] : base
   }, [rosterOwners, editForm?.wa_owner])

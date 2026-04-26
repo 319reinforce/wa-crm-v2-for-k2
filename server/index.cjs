@@ -38,6 +38,7 @@ const waSessionsRouter = require('./routes/waSessions');
 const trainingRouter = require('./routes/training');
 const usersRouter = require('./routes/users');
 const operatorRosterRouter = require('./routes/operatorRoster');
+const creatorImportBatchesRouter = require('./routes/creatorImportBatches');
 const aiProvidersRouter = require('./routes/aiProviders');
 const v1BoardRouter = require('./routes/v1Board');
 const { listStatusSessions, readSessionStatus } = require('./services/waIpc');
@@ -375,6 +376,7 @@ app.get('/metrics/wa', (req, res) => {
 app.use('/api/training', requireAppAuth, trainingRouter);
 app.use('/api/users', requireAppAuth, usersRouter);
 app.use('/api/operator-roster', requireAppAuth, operatorRosterRouter);
+app.use('/api/creator-import-batches', requireAppAuth, creatorImportBatchesRouter);
 app.use('/api/admin', aiProvidersRouter);
 // v1 看板后端（public/v1/ 的静态 shell 对应的只读 API）
 app.use('/v1/api', requireAppAuth, v1BoardRouter);

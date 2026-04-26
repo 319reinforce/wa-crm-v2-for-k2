@@ -115,8 +115,10 @@ function buildJumpTokens(value) {
 }
 
 function extractImageUrls(value = '') {
-    const matches = String(value || '').match(/https?:\/\/[^\s"'<>，。；、)）\]]+/g) || [];
-    return [...new Set(matches.map((url) => url.trim()).filter(Boolean))].slice(0, 6);
+    const source = String(value || '');
+    const absolute = source.match(/https?:\/\/[^\s"'<>，。；、)）\]]+/g) || [];
+    const relative = source.match(/\/[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+\.(?:png|jpe?g|webp|gif)(?:\?[^\s"'<>，。；、)）\]]*)?/gi) || [];
+    return [...new Set([...absolute, ...relative].map((url) => url.trim()).filter(Boolean))].slice(0, 12);
 }
 
 function mergeMediaUrls(current = '', incoming = '') {
@@ -128,6 +130,10 @@ function mergeMediaUrls(current = '', incoming = '') {
 }
 
 function formatMediaUrlLabel(url = '') {
+    if (String(url || '').startsWith('/')) {
+        const fileName = String(url).split('/').filter(Boolean).pop() || url;
+        return decodeURIComponent(fileName).slice(0, 56);
+    }
     try {
         const parsed = new URL(url);
         const fileName = parsed.pathname.split('/').filter(Boolean).pop() || parsed.hostname;
@@ -1525,6 +1531,38 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         }
     };
 
+    const sendTemplateMediaItem = useCallback(async (item, caption = '') => {
+        const url = String(item?.url || item?.file_url || '').trim();
+        if (!url || !client?.phone) return;
+        if (sendLockRef.current) return;
+        try {
+            const resolvedUrl = url.startsWith('/')
+                ? new URL(url, window.location.origin).toString()
+                : url;
+            const response = await fetch(resolvedUrl);
+            if (!response.ok) throw new Error(`image fetch failed: HTTP ${response.status}`);
+            const blob = await response.blob();
+            const mimeType = blob.type || 'image/png';
+            if (!String(mimeType).startsWith('image/')) throw new Error('素材不是图片');
+            if (blob.size > MAX_IMAGE_UPLOAD_BYTES) {
+                throw new Error(`图片过大：${formatBytes(blob.size)}，上限 ${formatBytes(MAX_IMAGE_UPLOAD_BYTES)}`);
+            }
+            const fallbackName = String(url).split('/').filter(Boolean).pop() || `template_image_${Date.now()}.png`;
+            const fileName = item?.label
+                ? `${String(item.label).replace(/[^\w.-]+/g, '_')}.${String(mimeType).split('/')[1] || 'png'}`
+                : fallbackName;
+            const file = new File([blob], fileName, { type: mimeType });
+            await sendMediaOptimistic({
+                file,
+                previewUrl: URL.createObjectURL(file),
+                fileName,
+                mimeType,
+            }, caption);
+        } catch (e) {
+            toast.error(`发送模板图片失败：${e.message || '未知错误'}`);
+        }
+    }, [client?.phone, sendMediaOptimistic, toast]);
+
     // 点了 bot 图标 → 强制为最新 incoming 消息重新生成候选
     const handleBotIconClick = async () => {
         // 读最新 messages（SSE/增量拉已同步进 state；messagesRef 与 state 实时对齐）
@@ -2595,7 +2633,9 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             text: (inputText || '').trim() || lastIncoming?.text || topicLabel,
             trigger: 'manual',
             detected_at: Date.now(),
-            custom_topic_label: topicGroup === 'custom_topic' ? topicLabel : '',
+            custom_topic_label: (customTemplateId || customTemplateText || customTemplateMediaItems.length > 0 || topicGroup === 'custom_topic')
+                ? topicLabel
+                : '',
             custom_template_text: customTemplateText,
             custom_template_id: customTemplateId,
             custom_template_media_items: customTemplateMediaItems,
@@ -2753,7 +2793,9 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         ? prev.mediaUrls
                         : (nextMediaUrls || prev.mediaUrls || ''),
                     routeLoading: false,
-                    routeError: slot?.text ? null : '这个子话题暂无标准模板，可手动填写后保存',
+                    routeError: (slot?.text || (slot?.media_items || []).length > 0)
+                        ? null
+                        : '这个子话题暂无标准模板，可手动填写后保存',
                     routeSourceTitle: slot?.title || slot?.source || null,
                 };
             });
@@ -2811,7 +2853,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             slot: {},
             slotKey: 'sop_image_topic',
             label: item.label,
-            template_text: item.summary,
+            template_text: '',
             mediaUrls: item.image,
             topic_group: item.topic_group,
             intent_key: item.intent_key,
@@ -2851,7 +2893,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
     const submitTemplateManageModal = useCallback(async () => {
         const payload = resolveTemplateModalPayload();
-        if (!payload || !payload.label || !payload.template_text) return;
+        if (!payload || !payload.label || (!payload.template_text && !(payload.media_items || []).length)) return;
         const mode = templateManageModal?.mode || 'save';
         const slot = templateManageModal?.slot || {};
         const id = slot?.custom_template_id
@@ -2971,6 +3013,14 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const templateModalMediaUrls = templateManageModal
         ? extractImageUrls(templateManageModal.mediaUrls || '')
         : [];
+    const canSaveTemplateModal = Boolean(
+        templateManageModal
+        && templateManageModal.label.trim()
+        && (
+            templateManageModal.template_text.trim()
+            || templateModalMediaUrls.length > 0
+        )
+    );
 
     const templateManageModalView = templateManageModal ? (
         <div
@@ -3041,7 +3091,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                             />
                         </label>
                         <label className="block">
-                            <div className="text-xs font-semibold mb-1.5" style={{ color: WA.textMuted }}>模板内容</div>
+                            <div className="text-xs font-semibold mb-1.5" style={{ color: WA.textMuted }}>模板内容（可选）</div>
                             {(templateManageModal.routeLoading || templateManageModal.routeError || templateManageModal.routeSourceTitle) && (
                                 <div
                                     className="mb-2 rounded-lg px-3 py-2 text-xs"
@@ -3091,7 +3141,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                 </div>
                             </div>
                             <div className="text-[11px] mb-2" style={{ color: WA.textMuted }}>
-                                复制图片链接后，在此弹窗内按 Ctrl/Cmd+V 即可加入素材。
+                                图片会作为独立素材保存，可在 Reply Deck 里单独发送，不会自动绑在文字后面。
                             </div>
                             <div
                                 className="rounded-xl px-3 py-3"
@@ -3169,7 +3219,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         <button
                             type="button"
                             onClick={submitTemplateManageModal}
-                            disabled={templateManageModal.routeLoading || !templateManageModal.label.trim() || !templateManageModal.template_text.trim()}
+                            disabled={templateManageModal.routeLoading || !canSaveTemplateModal}
                             className="px-5 py-2.5 rounded-full text-sm font-semibold text-white disabled:opacity-50"
                             style={{ background: templateManageModal.mode === 'update' ? '#b45309' : WA.teal }}
                         >
@@ -3748,6 +3798,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         onEditCandidate={handleEditCandidate}
                         onSaveTemplate={handleSaveTemplateFromCard}
                         onUpdateTemplate={handleUpdateTemplateFromCard}
+                        onSendTemplateMedia={sendTemplateMediaItem}
                         onGenerateAi={handleBotIconClick}
                         onRegenerate={handleRegenerate}
                         onRetryTemplates={() => activeReplyContext && loadTemplateDeck(activeReplyContext)}

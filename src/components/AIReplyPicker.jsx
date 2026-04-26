@@ -24,6 +24,7 @@ export default function AIReplyPicker({
     onGenerateAi,
     onRegenerate,
     onRetryTemplates,
+    onSendTemplateMedia,
     templateLoading = false,
     templateError = null,
     loading = false,
@@ -92,6 +93,7 @@ export default function AIReplyPicker({
                     onSaveTemplate={(slot) => onSaveTemplate?.({ slot, slotKey: 'op1' })}
                     onUpdateTemplate={(slot) => onUpdateTemplate?.({ slot, slotKey: 'op1' })}
                     onSend={(text, slot) => onSelect('template_op1', { text, slot })}
+                    onSendMedia={(item) => onSendTemplateMedia?.(item)}
                     compactMobile={compactMobile}
                     deckHeight={resizableDeck ? deckHeight : null}
                 />
@@ -109,6 +111,7 @@ export default function AIReplyPicker({
                     onSaveTemplate={(slot) => onSaveTemplate?.({ slot, slotKey: 'op2' })}
                     onUpdateTemplate={(slot) => onUpdateTemplate?.({ slot, slotKey: 'op2' })}
                     onSend={(text, slot) => onSelect('template_op2', { text, slot })}
+                    onSendMedia={(item) => onSendTemplateMedia?.(item)}
                     compactMobile={compactMobile}
                     deckHeight={resizableDeck ? deckHeight : null}
                 />

@@ -163,6 +163,9 @@ function normalizeSessionId(value) {
 }
 
 function getDefaultTargets() {
+    if (String(process.env.WA_ENABLE_LEGACY_SESSION_TARGETS || '').toLowerCase() !== 'true') {
+        return [];
+    }
     return [
         { session_id: 'beau', owner: 'Beau' },
         { session_id: 'yiyun', owner: 'Yiyun' },
