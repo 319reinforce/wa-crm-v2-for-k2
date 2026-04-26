@@ -33,6 +33,7 @@ Read in this order:
 | `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md` | Current event/lifecycle data-model PRD. |
 | `docs/EVENT_LIFECYCLE_HANDOFF_20260425.md` | 2026-04-25 lifecycle implementation handoff. |
 | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` | Backfill and audit handoff. |
+| `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Active event-detection queue, message-supplement integration, dry-run/write rollout, and local audit handoff. |
 | `docs/LIFECYCLE_REFACTOR_PRD.md` | Larger lifecycle refactor plan. |
 | `docs/LIFECYCLE_EVENT_STRATEGY_HANDOFF_20260424.md` | Event strategy handoff before the fact-model PRD. |
 | `docs/EVENT_SYSTEM.md` | Event system implementation notes. |

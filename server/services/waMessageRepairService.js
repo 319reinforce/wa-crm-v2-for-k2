@@ -6,6 +6,9 @@ const {
     filterDirectMessagesAgainstGroups,
     purgeCreatorMessagesMatchingGroups,
 } = require('./groupMessageService');
+const {
+    enqueueCreatorEventDetection,
+} = require('./activeEventDetectionService');
 
 const NEAR_WINDOW_MS = 2 * 60 * 1000;
 const QUERY_PADDING_MS = 12 * 60 * 60 * 1000;
@@ -328,6 +331,13 @@ async function reconcileCreatorMessagesFromRaw({
                 INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash)
                 VALUES ${placeholders}
             `).run(...values.flat());
+            enqueueCreatorEventDetection(db2, {
+                creatorId,
+                reason: 'message_reconcile',
+                fromTimestamp: minTs,
+            }).catch((err) => {
+                console.warn('[waMessageRepairService] event detection enqueue failed:', err.message);
+            });
         }
 
         if (roleUpdates.length > 0 || deletes.length > 0 || inserts.length > 0) {
@@ -430,6 +440,13 @@ async function syncCreatorMessagesFromRaw({
             VALUES ${placeholders}
         `).run(...values.flat());
         await db2.prepare('UPDATE creators SET updated_at = NOW() WHERE id = ?').run(creatorId);
+        enqueueCreatorEventDetection(db2, {
+            creatorId,
+            reason: 'message_supplement',
+            fromTimestamp: minTs,
+        }).catch((err) => {
+            console.warn('[waMessageRepairService] event detection enqueue failed:', err.message);
+        });
     }
 
     if (!dryRun) {
@@ -562,6 +579,13 @@ async function replaceCreatorMessagesFromRaw({
             INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash)
             VALUES ${placeholders}
         `).run(...values.flat());
+        enqueueCreatorEventDetection(db2, {
+            creatorId,
+            reason: 'message_replace',
+            fromTimestamp: minTs,
+        }).catch((err) => {
+            console.warn('[waMessageRepairService] event detection enqueue failed:', err.message);
+        });
 
         await db2.prepare('UPDATE creators SET updated_at = NOW() WHERE id = ?').run(creatorId);
 

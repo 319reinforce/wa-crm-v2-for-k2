@@ -8,6 +8,9 @@ require('dotenv').config();
 const mysql = require('mysql2/promise');
 const crypto = require('crypto');
 const { filterShortWindowDuplicates, toTimestampMs } = require('./server/services/messageDedupService');
+const {
+    enqueueCreatorEventDetection,
+} = require('./server/services/activeEventDetectionService');
 
 const DB_CONFIG = {
     host: process.env.DB_HOST || '127.0.0.1',
@@ -191,13 +194,22 @@ async function insertMessage(creatorId, role, text, timestamp, operator = null) 
     if (kept.length === 0) return;
     const safe = kept[0];
     const messageHash = buildMessageHash(safe.role, safe.text, safe.timestamp);
-    await db.prepare(
+    const result = await db.prepare(
         'INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash) VALUES (?, ?, ?, ?, ?, ?)'
     ).run(creatorId, safe.role, safe.operator || null, safe.text, safe.timestamp, messageHash);
+    if (Number(result?.changes || 0) > 0) {
+        enqueueCreatorEventDetection(db, {
+            creatorId,
+            reason: 'legacy_message_insert',
+            fromTimestamp: safe.timestamp,
+        }).catch(() => {});
+    }
 }
 
 async function insertMessagesBatch(creatorId, messages) {
     if (!messages || messages.length === 0) return;
+    let minInsertedTimestamp = null;
+    let insertedCount = 0;
     await db.transaction(async (txDb) => {
         const normalizedMessages = messages.map((msg) => ({
             creator_id: creatorId,
@@ -216,9 +228,22 @@ async function insertMessagesBatch(creatorId, messages) {
         );
         for (const msg of kept) {
             const messageHash = buildMessageHash(msg.role, msg.text, msg.timestamp);
-            await insert.run(creatorId, msg.role, msg.operator || null, msg.text, msg.timestamp, messageHash);
+            const result = await insert.run(creatorId, msg.role, msg.operator || null, msg.text, msg.timestamp, messageHash);
+            if (Number(result?.changes || 0) > 0) {
+                insertedCount += 1;
+                minInsertedTimestamp = minInsertedTimestamp === null
+                    ? msg.timestamp
+                    : Math.min(minInsertedTimestamp, msg.timestamp);
+            }
         }
     });
+    if (insertedCount > 0) {
+        enqueueCreatorEventDetection(db, {
+            creatorId,
+            reason: 'legacy_message_batch',
+            fromTimestamp: minInsertedTimestamp,
+        }).catch(() => {});
+    }
 }
 
 async function getMessageCount(creatorId) {

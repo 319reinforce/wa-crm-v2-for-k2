@@ -57,6 +57,9 @@ const { initRegistry } = require('./services/sessionRegistry');
 const sseBus = require('./events/sseBus');
 const { perfLog, perfLogEnabled } = require('./services/perfLog');
 const { shutdownIpc } = require('./services/waIpc');
+const {
+    ensureActiveEventDetectionSchema,
+} = require('./services/activeEventDetectionService');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -491,6 +494,15 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
             console.log('[Startup] ai-provider-config migration done');
         } catch (err) {
             console.error('[Startup] ai-provider-config migration failed:', err.message);
+            throw err;
+        }
+
+        // 1.4.1) 主动事件识别队列/cursor 建表
+        try {
+            await ensureActiveEventDetectionSchema(db.getDb());
+            console.log('[Startup] active-event-detection schema done');
+        } catch (err) {
+            console.error('[Startup] active-event-detection schema failed:', err.message);
             throw err;
         }
 

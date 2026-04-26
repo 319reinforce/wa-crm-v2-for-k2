@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-04-26T05:06:48.307Z",
+  "mode": "dry_run",
+  "provider": "keyword",
+  "options": {
+    "write": false,
+    "advanceCursor": false,
+    "provider": "keyword",
+    "limit": 10,
+    "messageLimit": 120,
+    "owner": null,
+    "creatorId": 1072,
+    "creatorName": null,
+    "sinceTimestamp": 1776268800000,
+    "reason": "manual_active_detection",
+    "enqueueNew": false,
+    "processPending": false,
+    "output": "reports/active-event-detection-1072-keyword-20260426.json"
+  },
+  "enqueues": [],
+  "results": [
+    {
+      "ok": true,
+      "run_id": 3,
+      "creator_id": 1072,
+      "creator_name": "Noelia(elkingdomi1)",
+      "provider": "keyword",
+      "dry_run": true,
+      "scanned_messages": 1,
+      "candidate_count": 0,
+      "written_count": 0,
+      "skipped_count": 0,
+      "error_count": 0,
+      "candidates": [],
+      "errors": []
+    }
+  ]
+}
