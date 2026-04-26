@@ -10,6 +10,9 @@ const {
     ensureGroupMessageSchema,
     filterDirectMessagesAgainstGroups,
 } = require('./groupMessageService');
+const {
+    enqueueMessageForEventDetection,
+} = require('./activeEventDetectionService');
 const { normalizeOperatorName } = require('../utils/operator');
 const { perfLog } = require('./perfLog');
 const sseBus = require('../events/sseBus');
@@ -186,6 +189,14 @@ async function persistDirectMessageRecord({
 
     if (persisted) {
         try { invalidateMessageCache(creatorId); } catch (_) {}
+        enqueueMessageForEventDetection(dbConn, {
+            creatorId,
+            messageId: insertResult.lastInsertRowid || null,
+            timestamp: safe.timestamp,
+            reason: auditAction === 'message_backfill' ? 'message_supplement' : 'message_ingest',
+        }).catch((err) => {
+            console.warn('[persistDirectMessageRecord] event detection enqueue failed:', err.message);
+        });
         if (req) {
             await writeAudit(auditAction, 'wa_messages', messageHash, null, {
                 creator_id: creatorId,

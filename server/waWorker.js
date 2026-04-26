@@ -24,6 +24,9 @@ const {
     filterShortWindowDuplicates,
     toTimestampMs,
 } = require('./services/messageDedupService');
+const {
+    enqueueCreatorEventDetection,
+} = require('./services/activeEventDetectionService');
 const { extractWaMessageId } = require('./utils/waMessageId');
 
 // Optional-require for message cache (perf-cache branch). No-op when not present.
@@ -573,6 +576,16 @@ async function insertMessages(creatorId, messages) {
         const changes = Number(result?.changes || 0);
         if (changes > 0) {
             try { invalidateMessageCache(creatorId); } catch (_) {}
+            const insertedTimestamps = groupFiltered.kept
+                .map((m) => Number(m.timestamp || 0))
+                .filter((ts) => Number.isFinite(ts) && ts > 0);
+            enqueueCreatorEventDetection(db2, {
+                creatorId,
+                reason: 'wa_worker_message_ingest',
+                fromTimestamp: insertedTimestamps.length > 0 ? Math.min(...insertedTimestamps) : null,
+            }).catch((err) => {
+                console.warn(`${LOG_PREFIX} event detection enqueue failed:`, err.message);
+            });
         }
         return changes;
     } catch (e) {

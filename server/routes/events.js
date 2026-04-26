@@ -40,6 +40,13 @@ const {
 const {
   rebuildCreatorEventSnapshot,
 } = require('../services/creatorEventSnapshotService');
+const {
+  enqueueCreatorEventDetection,
+  enqueueCreatorsWithNewMessages,
+  ensureActiveEventDetectionSchema,
+  processCreatorEventDetection,
+  processPendingEventDetections,
+} = require('../services/activeEventDetectionService');
 const { normalizeOperatorName } = require('../utils/operator');
 
 function normalizeOwner(o) {
@@ -323,6 +330,20 @@ async function getCreatorMessageWindow(dbConn, cache, creatorId) {
 }
 
 function buildEventDisplayStart(event, evidence) {
+  if (event?.source_event_at) {
+    return {
+      display_start_at: event.source_event_at,
+      display_start_label: '业务时间',
+      display_start_source: 'source_event_at',
+    };
+  }
+  if (event?.start_at) {
+    return {
+      display_start_at: event.start_at,
+      display_start_label: '开始时间',
+      display_start_source: 'start_at',
+    };
+  }
   if (evidence?.source_message_timestamp) {
     return {
       display_start_at: evidence.source_message_timestamp,
@@ -470,6 +491,97 @@ router.get('/', async (req, res) => {
     res.json({ events: enrichedEvents, total: total.count, scoped_total: enrichedEvents.length, scope, limit: parseInt(limit), offset: parseInt(offset) });
   } catch (err) {
     console.error('GET /api/events error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/events/detection/cursors
+router.get('/detection/cursors', async (req, res) => {
+  try {
+    const db2 = db.getDb();
+    await ensureActiveEventDetectionSchema(db2);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
+    const status = String(req.query.status || '').trim();
+    const params = [];
+    let where = 'WHERE 1=1';
+    if (status) {
+      where += ' AND cur.status = ?';
+      params.push(status);
+    }
+    const rows = await db2.prepare(`
+      SELECT cur.*, c.primary_name AS creator_name, c.wa_owner
+      FROM event_detection_cursor cur
+      LEFT JOIN creators c ON c.id = cur.creator_id
+      ${where}
+      ORDER BY cur.updated_at DESC
+      LIMIT ${limit}
+    `).all(...params);
+    res.json({ ok: true, cursors: rows, limit });
+  } catch (err) {
+    console.error('GET /api/events/detection/cursors error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/events/detection/enqueue
+router.post('/detection/enqueue', async (req, res) => {
+  try {
+    const db2 = db.getDb();
+    await ensureActiveEventDetectionSchema(db2);
+    const creatorId = Number(req.body?.creator_id || 0);
+    if (creatorId > 0) {
+      const creator = await ensureCreatorAccess(req, res, creatorId);
+      if (!creator) return;
+      const ret = await enqueueCreatorEventDetection(db2, {
+        creatorId,
+        reason: req.body?.reason || 'manual_enqueue',
+        fromMessageId: req.body?.from_message_id || null,
+        fromTimestamp: req.body?.from_timestamp || req.body?.since || null,
+      });
+      return res.json({ ok: true, enqueued: ret });
+    }
+    const effectiveOwner = resolveRequestedOwner(req, res, req.body?.owner || req.query.owner, null);
+    if (effectiveOwner === null && getLockedOwner(req) && (req.body?.owner || req.query.owner)) return;
+    const ret = await enqueueCreatorsWithNewMessages(db2, {
+      owner: effectiveOwner,
+      limit: req.body?.limit || req.query.limit || 100,
+      reason: req.body?.reason || 'manual_enqueue_new_messages',
+      sinceTimestamp: req.body?.since || req.body?.since_timestamp || req.query.since || null,
+    });
+    return res.json({ ok: true, ...ret });
+  } catch (err) {
+    console.error('POST /api/events/detection/enqueue error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/events/detection/run
+router.post('/detection/run', async (req, res) => {
+  try {
+    const db2 = db.getDb();
+    await ensureActiveEventDetectionSchema(db2);
+    const provider = String(req.body?.provider || 'keyword').trim().toLowerCase();
+    const write = req.body?.write === true;
+    const options = {
+      provider,
+      write,
+      advanceCursor: req.body?.advance_cursor === true || write,
+      messageLimit: req.body?.message_limit || req.body?.messageLimit || 80,
+      limit: req.body?.limit || 10,
+      sinceTimestamp: req.body?.since || req.body?.since_timestamp || null,
+      reason: req.body?.reason || 'manual_detection_run',
+    };
+    const creatorId = Number(req.body?.creator_id || 0);
+    if (creatorId > 0) {
+      const creator = await ensureCreatorAccess(req, res, creatorId);
+      if (!creator) return;
+      const result = await processCreatorEventDetection(db2, creatorId, options);
+      return res.json({ ok: true, result });
+    }
+    const results = await processPendingEventDetections(db2, options);
+    return res.json({ ok: true, results });
+  } catch (err) {
+    console.error('POST /api/events/detection/run error:', err);
     res.status(500).json({ error: err.message });
   }
 });

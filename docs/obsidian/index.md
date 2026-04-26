@@ -15,6 +15,7 @@ Status: Active
 - [[notes/2026-04-25-event-lifecycle-data-model|Event Lifecycle Data Model]]
 - [[notes/2026-04-25-event-lifecycle-handoff|Event Lifecycle Handoff]]
 - [[notes/2026-04-25-event-lifecycle-backfill-handoff|Event Lifecycle Backfill Handoff]]
+- [[notes/2026-04-26-active-event-detection-handoff|Active Event Detection Handoff]]
 - [[notes/2026-04-25-v1-layout-handoff|V1 Layout Handoff]]
 - [[notes/2026-04-25-worktree-remediation-plan|Worktree Remediation Plan]]
 
