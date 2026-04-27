@@ -24,6 +24,7 @@ Phase 2 continues the database cleanup after PR #84. It adds managed migration c
 - Target environments now need migrations 005 through 010 before deploying this code.
 - `joinbrands_link.ev_*` and lifecycle fields in `wa_crm_data` remain compatibility/read paths, not normal write targets.
 - CreatorDetail positive lifecycle edits should create canonical `events` rows.
+- CreatorDetail clear/cancel lifecycle edits should use `POST /api/events/cancel-by-key`, cancel canonical event rows, rebuild lifecycle/snapshot state, and never write deprecated lifecycle fields back to false/null.
 - `monthly_fee_amount`, video progress fields, and agency deadline fields stay frozen until billing/progress/deadline ownership is implemented.
 - AI/profile tables now carry nullable `creator_id` for stable joins and future cleanup.
 
@@ -41,7 +42,7 @@ Phase 2 continues the database cleanup after PR #84. It adds managed migration c
 ## Follow-Up Items
 
 - Run migrations 005-010 in staging/prod once DB env access is available.
+- Add `POST /api/events/cancel-by-key` and wire CreatorDetail clear/cancel actions to it.
 - Add canonical write APIs for billing/progress/deadline fields.
-- Add negative/cancel event transitions from UI if users need to clear lifecycle state.
 - Implement retention/archive jobs for generation/retrieval logs and media after policy approval.
 - Remove read dependence on deprecated compatibility fields after a verification window.

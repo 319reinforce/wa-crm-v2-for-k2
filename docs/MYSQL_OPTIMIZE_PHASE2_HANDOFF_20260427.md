@@ -65,6 +65,19 @@ Event-first mappings:
 
 The `wacrm` request now keeps non-lifecycle operational writes such as `priority`, `next_action`, and Keeper metrics. It no longer sends `joinbrands_link.ev_*` or lifecycle `wa_crm_data` fields during normal CreatorDetail saves.
 
+### Canonical event cancel/clear follow-up
+
+CreatorDetail still needs the inverse path for manual lifecycle edits: when an operator clears a lifecycle state in the UI, the app must cancel canonical event state rather than writing old `joinbrands_link.ev_*` or `wa_crm_data` lifecycle fields back to false/null.
+
+The intended canonical contract is:
+
+- API: `POST /api/events/cancel-by-key`
+- Body: `creator_id`, `event_key`, optional `reason`, `trigger_source`, and `meta`
+- Behavior: find this creator's canonical events for the key in active/draft/pending/completed lifecycle states, mark them `cancelled`, set `event_state=cancelled`, set `lifecycle_effect=none`, write audit history, persist creator lifecycle, and rebuild `creator_event_snapshot`
+- UI owner: `CreatorDetail` lifecycle editor should send clear actions through this API before sending non-lifecycle `wacrm` updates
+
+This keeps both positive and negative lifecycle edits inside the canonical event system. If no matching event exists, the API should return a no-op result plus the rebuilt snapshot so the caller can stop trying to mutate deprecated compatibility columns.
+
 ### AI/profile creator linkage
 
 `schema.sql` and migration 009 add nullable `creator_id` columns plus indexes to:
@@ -171,7 +184,7 @@ Expected analyzer result: no missing tables, no extra tables, no column diffs, n
 ## Remaining Work
 
 1. Run the 005-010 migration sequence against staging and production once DB env access is available.
-2. Add write paths for negative/cancel lifecycle transitions if the UI needs to clear event states, not only create positive transitions.
+2. Add `POST /api/events/cancel-by-key` and wire CreatorDetail clear/cancel lifecycle edits to it.
 3. Implement canonical billing/progress ownership for `monthly_fee_amount`, `video_count`, `video_target`, `video_last_checked`, and agency deadlines.
 4. Add retention/archive jobs after the policy is approved, starting with generation/retrieval logs and media.
 5. After a verification window, remove read dependence on `joinbrands_link.ev_*` and narrow deprecated lifecycle fields in `wa_crm_data`.
