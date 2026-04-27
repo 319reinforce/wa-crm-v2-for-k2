@@ -26,10 +26,8 @@ function buildCompatFlags(events = []) {
     const flags = {
         ev_trial_7day: false,
         ev_trial_active: false,
-        ev_monthly_invited: false,
         ev_monthly_started: false,
         ev_monthly_joined: false,
-        ev_whatsapp_shared: false,
         ev_gmv_1k: false,
         ev_gmv_2k: false,
         ev_gmv_5k: false,
