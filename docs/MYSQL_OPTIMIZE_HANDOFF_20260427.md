@@ -153,7 +153,7 @@ Results:
 | Check | Result |
 | --- | --- |
 | JS syntax checks | Passed |
-| `npm run test:unit` | Passed: 31 pass, 3 skipped |
+| `npm run test:unit` | Passed: 35 pass, 3 skipped |
 | `npm test` | Passed smoke, build, and unit suite |
 | `git diff --check` | Passed |
 | `analyze-schema-state` | Passed: 49 actual tables, 49 expected tables, no missing tables, no extra tables, no column diffs |
@@ -204,6 +204,14 @@ Goal:
 
 - Make lifecycle changes write `events` and `event_evidence`, not compatibility fields.
 
+Status:
+
+- Partially implemented after the first handoff commit.
+- Added `server/services/lifecycleEventWriteService.js`.
+- `PUT /api/creators/:id/wacrm` now converts mappable legacy lifecycle payloads into canonical event facts when `ALLOW_LEGACY_LIFECYCLE_WRITES` is not set.
+- The route still blocks unmapped legacy fields instead of silently writing deprecated columns.
+- `creator_event_snapshot` is rebuilt after converted event writes; lifecycle persistence still runs through the existing lifecycle persistence service.
+
 Tasks:
 
 1. Add a backend helper for canonical lifecycle fact writes:
@@ -219,6 +227,24 @@ Tasks:
    - persist lifecycle snapshot.
 3. Update audit payloads to record both requested fields and created event ids.
 4. Add tests for blocked legacy writes and new event fact writes.
+
+Current mapped fields:
+
+| Legacy input | Canonical event |
+| --- | --- |
+| `ev_trial_active`, `ev_trial_7day`, active/completed `beta_status` | `trial_7day` |
+| `ev_monthly_started`, `ev_monthly_joined`, active/paid `monthly_fee_status`, `monthly_fee_deducted` | `monthly_challenge` |
+| `agency_bound`, `ev_agency_bound` | `agency_bound` |
+| `ev_gmv_1k`, `ev_gmv_2k`, `ev_gmv_5k`, `ev_gmv_10k` | `gmv_milestone` with highest threshold |
+| `ev_churned`, `beta_status=churned` | `churned` |
+
+Still protected / not silently migrated:
+
+- `monthly_fee_amount`
+- non-default `video_count`, `video_target`, `video_last_checked`
+- `beta_program_type`, `beta_cycle_start`
+- `agency_bound_at`, `agency_deadline`
+- non-canonical JoinBrands flags such as `ev_whatsapp_shared`
 
 Acceptance:
 
@@ -320,6 +346,7 @@ Acceptance:
 
 1. Migration application and schema convergence PR.
 2. Event-fact write helper plus backend `wacrm` route migration.
+   - Status: backend helper and route migration are implemented in the second commit; frontend cleanup remains.
 3. Frontend creator detail edit migration.
 4. Remaining runtime DDL cleanup.
 5. `creator_id` profile/AI backfill.
