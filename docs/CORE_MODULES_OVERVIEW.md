@@ -112,7 +112,7 @@ Current docs:
 - `docs/AI_REPLY_GENERATION_SYSTEM.md`
 - `docs/obsidian/notes/2026-04-27-runtime-architecture-docs.md`
 - `docs/obsidian/notes/2026-04-16-reply-generation-refactor-memory.md` for historical refactor context
-- `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`
+- `docs/obsidian/notes/2026-04-27-profile-skill-memory-direction.md` for the next memory direction
 
 ## 5. SFT, Feedback, And Training
 
@@ -156,7 +156,7 @@ Responsibilities:
 
 Current docs:
 
-- `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`
+- `docs/obsidian/notes/2026-04-27-profile-skill-memory-direction.md`
 - `docs/obsidian/notes/2026-04-16-sft-project-baseline.md` for historical profile/memory context
 
 ## 7. Event, Lifecycle, And V1 Board
@@ -195,7 +195,7 @@ Latest progress:
 - Event fact backfill, Tier 2 compatibility downgrade, `creator_event_snapshot` primary filtering, and EventPanel human review are summarized in `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`.
 - Obsidian note: `docs/obsidian/notes/2026-04-25-event-lifecycle-backfill-handoff.md`.
 
-## 8. RAG, Policy, And Knowledge Sources
+## 8. Policy, Profile Memory, And Transitional Knowledge Sources
 
 Primary files:
 
@@ -204,23 +204,20 @@ Primary files:
 - `server/services/localRuleRetrievalService.js`
 - `server/services/retrievalService.js`
 - `scripts/validate-knowledge-manifest.cjs`
-- `scripts/sync-openai-vector-store.cjs`
-- `scripts/query-openai-vector-store.cjs`
 - `docs/rag/knowledge-manifest.json`
 - `docs/rag/sources/`
 
 Responsibilities:
 
-- Maintains policy/SOP/FAQ/playbook source material.
-- Supports deterministic local retrieval and optional hosted vector retrieval.
-- Keeps reply generation grounded in approved knowledge sources.
+- Maintains the current policy API and transitional manifest-backed local rules.
+- Future direction is per-user Markdown profile memory / skill memory, not heavy RAG.
+- Keeps reply generation grounded while the legacy manifest path is still in code.
 
 Current docs:
 
-- `docs/rag/KNOWLEDGE_SOURCE_STANDARD.md`
-- `docs/rag/OPENAI_RAG_RUNBOOK.md`
-- `docs/rag/LOCAL_RULE_IMPLEMENTATION_20260420.md`
-- `docs/rag/APRIL_DOC_CONFIG_MAPPING_20260420.md`
+- `docs/AI_REPLY_GENERATION_SYSTEM.md`
+- `docs/obsidian/notes/2026-04-27-profile-skill-memory-direction.md`
+- `docs/obsidian/notes/2026-04-27-rag-knowledge-source-docs.md` for historical RAG context
 
 ## 9. Frontend Shell And Operations UI
 

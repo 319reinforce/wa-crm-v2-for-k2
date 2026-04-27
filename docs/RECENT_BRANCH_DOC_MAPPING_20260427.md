@@ -29,7 +29,7 @@ Removed local branches after merge:
 | `#76` `feat: add active event detection queue` | `codex/import` | `e761059` merge, `f34e1ca` feature | Active event detection queue, dry-run/write rollout, message supplement integration, repair hooks | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | `docs/obsidian/notes/2026-04-26-active-event-detection-handoff.md` |
 | `#74` `eventoptimize` | `codex/eventoptimize` | `bc811d1` merge, `cec106b` docs tail | Event/lifecycle backfill hardening, docs index, core module handoff | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/DOCS_INDEX.md`, `docs/CORE_MODULES_OVERVIEW.md` | `docs/obsidian/notes/2026-04-25-event-lifecycle-backfill-handoff.md`, `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md` |
 | `#75` `fix: sync V1 layout follow-up with latest main` | `codex/v1-layout-followup-sync` | `bbccdab` merge, `fa75ec7` feature | V1/V2 layout follow-up sync | Obsidian only | `docs/obsidian/notes/2026-04-25-v1-layout-handoff.md` |
-| `#73` `feat: recover custom topic templates` | `feat/template-custom-recover` | `6ec538d` merge, `f787157` asset tail | Custom topic templates, April SOP assets, knowledge manifest updates | `docs/rag/APRIL_DOC_CONFIG_MAPPING_20260420.md`, `docs/rag/knowledge-manifest.json` | `docs/obsidian/notes/2026-04-26-template-custom-topic-handoff.md` for the later media-decoupling update |
+| `#73` `feat: recover custom topic templates` | `feat/template-custom-recover` | `6ec538d` merge, `f787157` asset tail | Custom topic templates, April SOP assets, knowledge manifest updates | `docs/rag/knowledge-manifest.json` legacy context only | `docs/obsidian/notes/2026-04-26-template-custom-topic-handoff.md` for the later media-decoupling update |
 
 ## Archive Tag Mapping
 

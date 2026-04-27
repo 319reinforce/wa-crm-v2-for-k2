@@ -22,7 +22,7 @@ WA CRM v2 now has an explicit cleanup baseline for reports, runtime exports, gen
 
 - Remove tracked `LightRAG` gitlink.
 - Add `LightRAG/` to `.gitignore`.
-- Keep current RAG direction on knowledge-source standards, local deterministic rules, and OpenAI hosted RAG.
+- Avoid expanding the heavy RAG path; remaining manifest-backed local-rule files are transitional until profile/skill memory replaces them.
 - Remove raw generated reports once their conclusions are summarized in handoffs or Obsidian.
 - Do not commit generated observation reports, runtime state, backups, local media data, or build assets unless they are intentional product assets.
 - Pre-2026-04-20 lifecycle exports and dirty-data SQL were removed after their value was summarized; lifecycle exports contained raw phone values and should not remain in source control.

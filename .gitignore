@@ -17,9 +17,8 @@ test-results/
 docs/rag/sources/*
 !docs/rag/sources/.gitkeep
 docs/rag/.openai-vector-sync-state.json
-docs/rag/observation-window.json
-docs/rag/observation-reports/*
-!docs/rag/observation-reports/.gitkeep
+data/runtime-state/retrieval-observation-window.json
+reports/retrieval-observation/
 reports/lifecycle-exports/
 data/media-assets/
 backups/
@@ -28,7 +27,6 @@ backups/
 docs/
 !docs/
 !docs/rag/
-!docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md
 !docs/rag/shadow-cases/
 !docs/rag/shadow-cases/README.md
 !docs/rag/shadow-cases/local-rule-shadow-cases.json

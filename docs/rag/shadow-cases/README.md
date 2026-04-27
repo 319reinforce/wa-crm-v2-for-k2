@@ -9,7 +9,7 @@ The goal is not to test model quality. The goal is to ensure that deterministic 
 ## Files
 
 - `local-rule-shadow-cases.json`: source-grounding cases for trial, payment, posting safety, and violation-risk flows.
-- `../../LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`: technical design and PR description draft.
+- Historical design context is retained in Obsidian; the active future direction is profile/skill memory rather than expanding RAG.
 
 ## Validation
 

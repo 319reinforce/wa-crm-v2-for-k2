@@ -9,15 +9,17 @@ Status: Active
 - [[notes/2026-04-25-agent-onboarding-and-bot-integration|Agent Onboarding And Bot Integration]]
 - [[notes/2026-04-25-docs-index-and-core-modules|Docs Index And Core Modules]]
 - [[notes/2026-04-27-document-retention-audit|Documentation Retention Audit]]
-- [[notes/2026-04-27-rag-knowledge-source-docs|RAG Knowledge Source Docs]]
+- [[notes/2026-04-27-rag-knowledge-source-docs|Historical RAG Knowledge Source Docs]]
 - [[notes/2026-04-27-runtime-artifact-cleanup-plan|Runtime Artifact Cleanup Plan]]
 - [[notes/2026-04-27-deep-doc-cleanup|Deep Doc Cleanup]]
 - [[notes/2026-04-27-sft-docs-and-report-cleanup|SFT Docs And Report Cleanup]]
+- [[notes/2026-04-27-profile-skill-memory-direction|Profile Skill Memory Direction]]
 
 ## Implementation Baselines
 
 - [[notes/2026-04-16-sft-project-baseline|SFT Project Baseline]]
 - [[notes/2026-04-27-runtime-architecture-docs|Runtime Architecture Docs]]
+- [[notes/2026-04-27-baileys-session-direction|Baileys Session Direction]]
 - [[notes/2026-04-27-database-schema-optimization-plan|Database Schema Optimization Plan]]
 - [[notes/2026-04-25-event-lifecycle-data-model|Event Lifecycle Data Model]]
 - [[notes/2026-04-25-event-lifecycle-handoff|Event Lifecycle Handoff]]

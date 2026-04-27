@@ -1,10 +1,9 @@
 /**
  * Local Rule Retrieval Service
  *
- * 根据 scene/operator/user_message 从 docs/rag/sources/ 检索相关知识源
- * 并注入到 grounding_json.local_rules
- *
- * Design: docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN.md
+ * 根据 scene/operator/user_message 从 legacy knowledge manifest 检索相关知识源，
+ * 并注入到 grounding_json.local_rules。
+ * This is transitional until profile/skill memory replaces the manifest-backed path.
  */
 
 const fs = require('fs');
