@@ -81,6 +81,7 @@ DB_MIGRATE_ON_STARTUP=false
 
 ```bash
 node scripts/apply-sql-migrations.cjs --allow-remote \
+  server/migrations/004_event_lifecycle_fact_model.sql \
   server/migrations/005_active_event_detection_queue.sql \
   server/migrations/006_managed_runtime_tables.sql \
   server/migrations/007_creator_import_tables.sql \
@@ -94,17 +95,19 @@ node scripts/apply-sql-migrations.cjs --allow-remote \
 
 容器启动 runner 会直接以 startup migration 身份调用 `scripts/apply-sql-migrations.cjs --allow-remote`，因此不再要求额外设置 `CONFIRM_REMOTE_MIGRATION=1`。
 
-如果线上库缺少 004 event/lifecycle 基础 migration，可在首次 rollout 前额外设置：
+容器环境默认包含 004 event/lifecycle 基础 migration：
 
 ```bash
 DB_MIGRATION_INCLUDE_004=true
 ```
 
+只有确认不需要重复执行 004 时，才显式设置 `DB_MIGRATION_INCLUDE_004=false`。
+
 为避免多副本同时启动产生 DDL 竞争，runner 会在执行 SQL 前获取 MySQL named lock：`wa_crm_v2_schema_migrations:<DB_NAME>`。`013_retention_external_archive_checks.sql` 的索引创建也已经改成 information_schema guard，支持每次重启重复执行。
 
 我这里没有、也不会要求你提供 staging/prod 数据库凭据。因此当前仓库内能确认的是：
 
-- 本地 MySQL 已验证 migration 005-013。
+- 本地 MySQL 已验证 migration 004-013。
 - 本地 schema analyzer 已验证期望表、实际表、列、索引一致。
 - staging/prod 容器重启时会在目标 DB env 下执行 migration。
 - 只有 migration 执行成功后，Node API 才会启动并处理线上历史达人派生状态 rebuild。
@@ -113,7 +116,7 @@ DB_MIGRATION_INCLUDE_004=true
 
 1. 在 staging/prod 执行数据库备份或确认回滚点。
 2. 加载目标环境 DB env。
-3. 重启容器镜像，让 entrypoint 自动执行 migration 005-013。
+3. 重启容器镜像，让 entrypoint 自动执行 migration 004-013。
 4. 执行 `node scripts/analyze-schema-state.js`，期望无 missing table、extra table、column diff、index diff。
 5. 执行 `node scripts/run-retention-archive-jobs.cjs --dry-run`，只看归档/清理预览，不做 apply。
 6. 部署本分支代码。
@@ -138,7 +141,7 @@ DB_MIGRATION_INCLUDE_004=true
 
 ## 6. 仍需继续的工作
 
-1. staging/prod 真实执行 migration 005-013。
+1. staging/prod 真实执行 migration 004-013。
 2. migration 后在 staging/prod 跑 schema analyzer。
 3. 重启 API 并确认启动 rebuild 日志。
 4. 完成验证窗口后，继续缩小旧 `joinbrands_link.ev_*` 和 `wa_crm_data` deprecated 字段读取依赖。

@@ -37,7 +37,7 @@ function parseMigrationFiles() {
         return explicit.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
     }
     const migrations = [...DEFAULT_MIGRATIONS];
-    if (envFlag('DB_MIGRATION_INCLUDE_004', false)) {
+    if (envFlag('DB_MIGRATION_INCLUDE_004', true)) {
         migrations.unshift(LIFECYCLE_BASE_MIGRATION);
     }
     return migrations;

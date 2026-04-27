@@ -54,7 +54,7 @@ Create or migrate the MySQL schema from `schema.sql` and server migrations:
 mysql -h "$DB_HOST" -u "$DB_USER" -p "$DB_NAME" < schema.sql
 ```
 
-For container deployments, the image entrypoint runs the managed migration sequence before the Node process starts. Startup runs `server/migrations/005_active_event_detection_queue.sql` through `server/migrations/013_retention_external_archive_checks.sql` under a MySQL named lock, then starts `node server/index.cjs`.
+For container deployments, the image entrypoint runs the managed migration sequence before the Node process starts. Startup runs `server/migrations/004_event_lifecycle_fact_model.sql` through `server/migrations/013_retention_external_archive_checks.sql` under a MySQL named lock, then starts `node server/index.cjs`.
 
 To skip startup migration intentionally:
 
@@ -62,11 +62,13 @@ To skip startup migration intentionally:
 DB_MIGRATE_ON_STARTUP=false
 ```
 
-For older environments that never received the event/lifecycle base migration, also set:
+The event/lifecycle base migration is included by default:
 
 ```bash
 DB_MIGRATION_INCLUDE_004=true
 ```
+
+Only set `DB_MIGRATION_INCLUDE_004=false` if you intentionally want to skip migration 004.
 
 Optional verification after the startup migration:
 

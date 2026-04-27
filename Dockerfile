@@ -16,6 +16,7 @@ ENV WA_HEADLESS=true
 ENV WA_AUTH_ROOT=/app/.wwebjs_auth
 ENV WA_BAILEYS_AUTH_ROOT=/app/.baileys_auth
 ENV WA_DEFAULT_DRIVER=wwebjs
+ENV DB_MIGRATION_INCLUDE_004=true
 
 WORKDIR /app
 
