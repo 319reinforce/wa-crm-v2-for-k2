@@ -362,3 +362,9 @@ USE_OPENAI=true              →  OpenAI（OPENAI_MODEL，默认 gpt-4o）
 | 共享 Prompt 构建器 | `systemPromptBuilder.cjs` |
 | SFT Service | `server/services/sftService.js` |
 | 数据库 Schema | `schema.sql` |
+
+## Obsidian Sync
+
+- Status: synced
+- Note: `docs/obsidian/notes/2026-04-27-ai-reply-generation-current.md`
+- Index: `docs/obsidian/index.md`
