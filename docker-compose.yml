@@ -17,6 +17,8 @@ services:
       - DB_USER=root
       - DB_PASSWORD=${DB_PASSWORD:-wa_crm_password}
       - DB_NAME=wa_crm_v2
+      - DB_MIGRATE_ON_STARTUP=${DB_MIGRATE_ON_STARTUP:-false}
+      - DB_MIGRATION_ANALYZE_AFTER=${DB_MIGRATION_ANALYZE_AFTER:-false}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_API_BASE=${OPENAI_API_BASE:-https://api.openai.com/v1}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}

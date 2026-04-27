@@ -18,9 +18,50 @@ CREATE TABLE IF NOT EXISTS data_retention_external_archive_checks (
         FOREIGN KEY (policy_key) REFERENCES data_retention_policies(policy_key) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX idx_retention_external_archive_policy ON data_retention_external_archive_checks(policy_key, table_name, status);
-CREATE INDEX idx_retention_external_archive_covered ON data_retention_external_archive_checks(table_name, covered_before);
-CREATE INDEX idx_retention_external_archive_expires ON data_retention_external_archive_checks(expires_at);
+SET @has_idx_retention_external_archive_policy := (
+    SELECT COUNT(*) FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'data_retention_external_archive_checks'
+      AND index_name = 'idx_retention_external_archive_policy'
+);
+SET @sql_stmt := IF(
+    @has_idx_retention_external_archive_policy = 0,
+    'CREATE INDEX idx_retention_external_archive_policy ON data_retention_external_archive_checks(policy_key, table_name, status)',
+    'SELECT ''idx_retention_external_archive_policy exists'' AS status'
+);
+PREPARE stmt FROM @sql_stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @has_idx_retention_external_archive_covered := (
+    SELECT COUNT(*) FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'data_retention_external_archive_checks'
+      AND index_name = 'idx_retention_external_archive_covered'
+);
+SET @sql_stmt := IF(
+    @has_idx_retention_external_archive_covered = 0,
+    'CREATE INDEX idx_retention_external_archive_covered ON data_retention_external_archive_checks(table_name, covered_before)',
+    'SELECT ''idx_retention_external_archive_covered exists'' AS status'
+);
+PREPARE stmt FROM @sql_stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @has_idx_retention_external_archive_expires := (
+    SELECT COUNT(*) FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'data_retention_external_archive_checks'
+      AND index_name = 'idx_retention_external_archive_expires'
+);
+SET @sql_stmt := IF(
+    @has_idx_retention_external_archive_expires = 0,
+    'CREATE INDEX idx_retention_external_archive_expires ON data_retention_external_archive_checks(expires_at)',
+    'SELECT ''idx_retention_external_archive_expires exists'' AS status'
+);
+PREPARE stmt FROM @sql_stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 UPDATE data_retention_policies
 SET config_json = JSON_SET(

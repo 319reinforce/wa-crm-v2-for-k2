@@ -54,4 +54,5 @@ RUN pnpm run build
 EXPOSE 3000
 
 # 启动后端（生产模式自动 serve public/ 静态文件）
+ENTRYPOINT ["sh", "/app/scripts/docker-entrypoint.sh"]
 CMD ["node", "server/index.cjs"]

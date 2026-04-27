@@ -54,6 +54,30 @@ Create or migrate the MySQL schema from `schema.sql` and server migrations:
 mysql -h "$DB_HOST" -u "$DB_USER" -p "$DB_NAME" < schema.sql
 ```
 
+For container deployments, the image entrypoint can run the managed migration sequence before the Node process starts:
+
+```bash
+DB_MIGRATE_ON_STARTUP=true
+```
+
+When enabled, startup runs `server/migrations/005_active_event_detection_queue.sql` through `server/migrations/013_retention_external_archive_checks.sql` under a MySQL named lock, then starts `node server/index.cjs`. For older environments that never received the event/lifecycle base migration, also set:
+
+```bash
+DB_MIGRATION_INCLUDE_004=true
+```
+
+For non-local database hosts, keep the explicit remote safety confirmation:
+
+```bash
+CONFIRM_REMOTE_MIGRATION=1
+```
+
+Optional verification after the startup migration:
+
+```bash
+DB_MIGRATION_ANALYZE_AFTER=true
+```
+
 Do not restore SQLite or `crm.db`.
 
 ## Persistent Data
@@ -71,6 +95,8 @@ Keep these out of source control:
 
 Docker deployment should persist MySQL data, Baileys auth, and media assets. Chromium is not part of the future deployment requirement once WWeb compatibility is removed.
 
+The Docker image uses `scripts/docker-entrypoint.sh`. By default it logs that startup migrations are disabled. Set `DB_MIGRATE_ON_STARTUP=true` on the app container to apply the managed migration sequence on every image/container restart. The migration SQL must remain idempotent because this path is intentionally repeatable.
+
 ## Useful Docs
 
 - `AGENTS.md`
@@ -83,5 +109,5 @@ Docker deployment should persist MySQL data, Baileys auth, and media assets. Chr
 ## Obsidian Sync
 
 - Status: synced
-- Note: `docs/obsidian/notes/2026-04-27-baileys-session-direction.md`
+- Note: `docs/obsidian/notes/2026-04-27-deploy-and-startup-migrations.md`
 - Index: `docs/obsidian/index.md`

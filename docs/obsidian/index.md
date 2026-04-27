@@ -20,6 +20,7 @@ Status: Active
 
 - [[notes/2026-04-16-sft-project-baseline|SFT Project Baseline]]
 - [[notes/2026-04-27-runtime-architecture-docs|Runtime Architecture Docs]]
+- [[notes/2026-04-27-deploy-and-startup-migrations|Deploy And Startup Migrations]]
 - [[notes/2026-04-27-ai-reply-generation-current|AI Reply Generation Current]]
 - [[notes/2026-04-27-sse-and-deployment-current|SSE And Deployment Current]]
 - [[notes/2026-04-27-baileys-session-direction|Baileys Session Direction]]

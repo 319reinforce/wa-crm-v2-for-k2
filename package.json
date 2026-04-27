@@ -44,6 +44,7 @@
     "db:seed:ai-providers": "node scripts/seed-ai-provider-configs.cjs",
     "wa:sessions:bootstrap": "node server/bootstrap/migrateLegacySessions.js",
     "db:migrate:sql": "node scripts/apply-sql-migrations.cjs",
+    "db:migrate:startup": "node scripts/run-startup-migrations.cjs",
     "lifecycle:backfill": "node migrate-lifecycle-state.js --backfill",
     "cleanup:creators": "node scripts/cleanup-invalid-creators.cjs",
     "cleanup:merge-creator-duplicate": "node scripts/merge-creator-duplicate.cjs",
