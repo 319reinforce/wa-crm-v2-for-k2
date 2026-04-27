@@ -26,6 +26,7 @@ Phase 2 continues the database cleanup after PR #84. It adds managed migration c
 - CreatorDetail positive lifecycle edits should create canonical `events` rows.
 - CreatorDetail clear/cancel lifecycle edits now use `POST /api/events/cancel-by-key`, cancel canonical event rows, rebuild lifecycle/snapshot state, and never write deprecated lifecycle fields back to false/null.
 - Creator detail responses expose `event_snapshot`, and positive `POST /api/events` writes rebuild `creator_event_snapshot` so the UI can prefer canonical flags over deprecated compatibility columns.
+- The API process now schedules startup event derived-data recompute after boot. It checks schema first, skips safely if staging/prod lifecycle/SQL migrations are not applied, and recomputes `creator_event_snapshot` plus `creator_lifecycle_snapshot` after migration/restart.
 - `monthly_fee_amount`, video progress fields, and agency deadline fields stay frozen until billing/progress/deadline ownership is implemented.
 - AI/profile tables now carry nullable `creator_id` for stable joins and future cleanup.
 
@@ -36,6 +37,7 @@ Phase 2 continues the database cleanup after PR #84. It adds managed migration c
 - `node scripts/analyze-schema-state.js` reported 52 expected tables, 52 actual tables, no missing/extra tables, no column diffs, no index diffs, and no key findings.
 - Runtime DDL grep over `server/services`, `server/routes`, and `server/workers` returned no normal path matches.
 - Canonical event cancel/clear patch verification: `npm test` passed, and `node scripts/analyze-schema-state.js` again reported no table/column/index drift.
+- Startup recompute was checked with targeted `node --check`, `npm run build`, and `npm run test:unit`; this desktop session's follow-up schema analyzer run was blocked by local sandbox networking to MySQL. Production/staging verification requires applying migrations, then restarting and checking `[Startup][EventDerivedData]` logs.
 
 ## Source Document
 
@@ -44,6 +46,7 @@ Phase 2 continues the database cleanup after PR #84. It adds managed migration c
 ## Follow-Up Items
 
 - Run migrations 005-010 in staging/prod once DB env access is available.
+- Restart staging/prod after migration and confirm startup event derived-data recompute logs.
 - Verify `POST /api/events/cancel-by-key` in staging/prod with CreatorDetail clear/cancel actions.
 - Add canonical write APIs for billing/progress/deadline fields.
 - Implement retention/archive jobs for generation/retrieval logs and media after policy approval.

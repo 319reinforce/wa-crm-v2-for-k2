@@ -78,6 +78,19 @@ Canonical contract:
 
 This keeps both positive and negative lifecycle edits inside the canonical event system. If no matching event exists, the API returns a no-op result plus the rebuilt snapshot so the caller can stop trying to mutate deprecated compatibility columns. `POST /api/events` now also rebuilds `creator_event_snapshot` after positive event writes, and `GET /api/creators/:id` exposes `event_snapshot` so CreatorDetail can prefer canonical snapshot flags over old compatibility columns.
 
+### Startup event derived-data recompute
+
+Production/staging DB credentials are intentionally not required for this PR. The app now owns an idempotent startup recompute path that runs after the API process starts:
+
+- Service: `server/services/eventDerivedDataRecomputeService.js`
+- Startup hook: `server/index.cjs`
+- Default behavior: enabled unless `STARTUP_EVENT_RECOMPUTE_ENABLED=0`
+- Safety gate: checks required event/lifecycle tables and columns first; if lifecycle schema plus migrations 004-010 have not been applied, it skips and logs the missing schema instead of creating tables or blocking startup
+- Recomputed data: `creator_event_snapshot` via `rebuildCreatorEventSnapshot`, and `creator_lifecycle_snapshot` via `persistLifecycleForCreator`
+- Transition safety: startup recompute writes snapshots only and sets `writeTransition=false`, so restarts do not spam lifecycle transition history
+
+Rollout expectation: staging/prod can deploy the code before DB migration without failing. Once migrations are executed by an operator with DB access, restart the API process and look for `[Startup][EventDerivedData] recompute done` in logs. For large databases, use `STARTUP_EVENT_RECOMPUTE_BATCH_SIZE` to tune batch size or `STARTUP_EVENT_RECOMPUTE_MAX_CREATORS` for a bounded canary run.
+
 ### AI/profile creator linkage
 
 `schema.sql` and migration 009 add nullable `creator_id` columns plus indexes to:
@@ -172,6 +185,8 @@ node scripts/analyze-schema-state.js
 
 Result: smoke test passed; analyzer reported 52 expected tables, 52 actual tables, no missing/extra tables, no column diffs, no index diffs, and no key findings.
 
+The startup recompute service was checked with `node --check server/services/eventDerivedDataRecomputeService.js`, `node --check server/index.cjs`, `npm run build`, and `npm run test:unit`. The follow-up schema analyzer run in this desktop session was blocked by local sandbox network restrictions to `127.0.0.1:3306`; this patch does not change schema files.
+
 ## Staging/Prod Runbook
 
 Run with the target DB env loaded. For non-local DB hosts, confirm intent explicitly:
@@ -190,13 +205,22 @@ node scripts/analyze-schema-state.js
 
 Expected analyzer result: no missing tables, no extra tables, no column diffs, no index diffs, no key findings.
 
+After migration, restart the API service. Expected startup log:
+
+```text
+[Startup][EventDerivedData] recompute done: processed=<n>, snapshots=<n>, lifecycles=<n>, duration_ms=<ms>
+```
+
+If the lifecycle schema or SQL migrations have not been applied, expected startup log is a skip with missing schema details, and the API should continue booting.
+
 ## Remaining Work
 
 1. Run the 005-010 migration sequence against staging and production once DB env access is available.
-2. Verify `POST /api/events/cancel-by-key` in staging/prod with CreatorDetail clear/cancel lifecycle edits.
-3. Implement canonical billing/progress ownership for `monthly_fee_amount`, `video_count`, `video_target`, `video_last_checked`, and agency deadlines.
-4. Add retention/archive jobs after the policy is approved, starting with generation/retrieval logs and media.
-5. After a verification window, remove read dependence on `joinbrands_link.ev_*` and narrow deprecated lifecycle fields in `wa_crm_data`.
+2. Restart staging/prod after migration and confirm startup event derived-data recompute logs.
+3. Verify `POST /api/events/cancel-by-key` in staging/prod with CreatorDetail clear/cancel lifecycle edits.
+4. Implement canonical billing/progress ownership for `monthly_fee_amount`, `video_count`, `video_target`, `video_last_checked`, and agency deadlines.
+5. Add retention/archive jobs after the policy is approved, starting with generation/retrieval logs and media.
+6. After a verification window, remove read dependence on `joinbrands_link.ev_*` and narrow deprecated lifecycle fields in `wa_crm_data`.
 
 ## Obsidian Sync
 

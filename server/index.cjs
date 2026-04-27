@@ -61,6 +61,9 @@ const { shutdownIpc } = require('./services/waIpc');
 const {
     ensureActiveEventDetectionSchema,
 } = require('./services/activeEventDetectionService');
+const {
+    startStartupEventDerivedDataRecompute,
+} = require('./services/eventDerivedDataRecomputeService');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -554,6 +557,8 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
         }
         console.log(`   PID:     ${process.pid}`);
         console.log(`   MySQL:   ${process.env.DB_NAME || 'wa_crm_v2'}\n`);
+
+        startStartupEventDerivedDataRecompute(db.getDb());
 
         // graceful shutdown
         const shutdown = async (signal) => {
