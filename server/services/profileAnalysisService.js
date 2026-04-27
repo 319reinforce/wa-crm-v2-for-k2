@@ -7,6 +7,11 @@ const STRONG_SIGNAL_REGEX = /\b(how|can i|price|try)\b/i;
 const TRIGGER_THRESHOLD = 5;
 const FALLBACK_HOURS = 48;
 let schemaEnsured = false;
+const REQUIRED_PROFILE_ANALYSIS_TABLES = [
+    'profile_analysis_state',
+    'client_profile_snapshots',
+    'client_profile_change_events',
+];
 
 function parseJsonSafe(value, fallback = null) {
     if (value === null || value === undefined) return fallback;
@@ -239,67 +244,17 @@ async function ensureStateRow(clientId) {
 async function ensureProfileAnalysisSchema() {
     if (schemaEnsured) return;
     const db2 = db.getDb();
-    await db2.prepare(`
-        CREATE TABLE IF NOT EXISTS profile_analysis_state (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            client_id VARCHAR(64) NOT NULL UNIQUE,
-            pending_unanalyzed_count INT DEFAULT 0,
-            last_profile_analyzed_at DATETIME NULL,
-            last_analyzed_message_ts BIGINT NULL,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `).run();
-    try { await db2.prepare('CREATE INDEX idx_pas_pending ON profile_analysis_state(pending_unanalyzed_count)').run(); } catch (_) {}
-    try { await db2.prepare('CREATE INDEX idx_pas_last_analyzed ON profile_analysis_state(last_profile_analyzed_at)').run(); } catch (_) {}
-
-    await db2.prepare(`
-        CREATE TABLE IF NOT EXISTS client_profile_snapshots (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            client_id VARCHAR(64) NOT NULL,
-            frequency_level VARCHAR(16) NULL,
-            frequency_conf INT DEFAULT 1,
-            frequency_evidence TEXT,
-            difficulty_level VARCHAR(16) NULL,
-            difficulty_conf INT DEFAULT 1,
-            difficulty_evidence TEXT,
-            intent_level VARCHAR(16) NULL,
-            intent_conf INT DEFAULT 1,
-            intent_evidence TEXT,
-            emotion_level VARCHAR(16) NULL,
-            emotion_conf INT DEFAULT 1,
-            emotion_evidence TEXT,
-            motivation_positive JSON,
-            motivation_conf INT DEFAULT 1,
-            motivation_evidence TEXT,
-            pain_points JSON,
-            pain_conf INT DEFAULT 1,
-            pain_evidence TEXT,
-            summary TEXT,
-            source VARCHAR(32) DEFAULT 'system',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `).run();
-    try { await db2.prepare('CREATE INDEX idx_cps_client ON client_profile_snapshots(client_id)').run(); } catch (_) {}
-
-    await db2.prepare(`
-        CREATE TABLE IF NOT EXISTS client_profile_change_events (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            client_id VARCHAR(64) NOT NULL,
-            old_snapshot_id INT NULL,
-            new_snapshot_id INT NOT NULL,
-            status VARCHAR(16) DEFAULT 'pending',
-            change_summary JSON,
-            trigger_type VARCHAR(32),
-            trigger_text TEXT,
-            reviewed_by VARCHAR(64) NULL,
-            reviewed_note TEXT NULL,
-            reviewed_at DATETIME NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `).run();
-    try { await db2.prepare('CREATE INDEX idx_cpce_client_status ON client_profile_change_events(client_id, status)').run(); } catch (_) {}
+    const rows = await db2.prepare(`
+        SELECT TABLE_NAME AS table_name
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME IN (${REQUIRED_PROFILE_ANALYSIS_TABLES.map(() => '?').join(', ')})
+    `).all(...REQUIRED_PROFILE_ANALYSIS_TABLES);
+    const existing = new Set(rows.map((row) => row.table_name));
+    const missing = REQUIRED_PROFILE_ANALYSIS_TABLES.filter((table) => !existing.has(table));
+    if (missing.length > 0) {
+        throw new Error(`Profile analysis schema is missing ${missing.join(', ')}; run server/migrations/006_managed_runtime_tables.sql`);
+    }
 
     schemaEnsured = true;
 }

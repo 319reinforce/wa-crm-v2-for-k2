@@ -37,6 +37,10 @@ const {
 const {
     fetchCreatorEventSnapshotsMap,
 } = require('../services/creatorEventSnapshotService');
+const {
+    findLegacyLifecycleFields,
+    isLegacyLifecycleWriteAllowed,
+} = require('../services/legacyLifecycleWriteGuard');
 
 function normalizeManualPhone(value) {
     return String(value || '').replace(/\D/g, '').trim();
@@ -1241,6 +1245,20 @@ router.put('/:id/wacrm', async (req, res) => {
         const creatorId = parseInt(req.params.id);
         const creator = await ensureCreatorAccess(req, res, creatorId, 'id, wa_owner');
         if (!creator) return;
+        const blockedLegacyFields = findLegacyLifecycleFields(req.body);
+        if (blockedLegacyFields.length > 0 && !isLegacyLifecycleWriteAllowed()) {
+            await writeAudit('legacy_lifecycle_write_blocked', 'multi', creatorId, null, {
+                blocked_fields: blockedLegacyFields,
+                migration_path: 'write events/event_evidence first, then rebuild creator_event_snapshot and creator_lifecycle_snapshot',
+            }, req).catch(() => {});
+            return res.status(409).json({
+                ok: false,
+                code: 'legacy_lifecycle_writes_frozen',
+                error: 'Legacy lifecycle fields are frozen; write canonical event facts instead.',
+                blocked_fields: blockedLegacyFields,
+                migration_path: 'events + event_evidence + snapshot rebuild',
+            });
+        }
         const beforeLifecycle = await evaluateCreatorLifecycle(db.getDb(), creatorId)
             .then((ret) => ret?.lifecycle || null)
             .catch(() => null);

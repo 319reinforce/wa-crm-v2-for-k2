@@ -12,6 +12,8 @@ Status: Active
 ## Implementation Baselines
 
 - [[notes/2026-04-16-sft-project-baseline|SFT Project Baseline]]
+- [[notes/2026-04-27-database-schema-optimization-plan|Database Schema Optimization Plan]]
+- [[notes/2026-04-27-mysql-optimize-handoff|MySQL Optimize Handoff]]
 - [[notes/2026-04-25-event-lifecycle-data-model|Event Lifecycle Data Model]]
 - [[notes/2026-04-25-event-lifecycle-handoff|Event Lifecycle Handoff]]
 - [[notes/2026-04-25-event-lifecycle-backfill-handoff|Event Lifecycle Backfill Handoff]]

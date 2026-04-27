@@ -90,6 +90,48 @@ CREATE INDEX idx_messages_media_type   ON wa_messages(media_type);
 CREATE INDEX idx_messages_proto_driver ON wa_messages(proto_driver);
 
 -- ============================================================
+-- WA 群聊表
+-- ============================================================
+CREATE TABLE IF NOT EXISTS wa_group_chats (
+    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    session_id   VARCHAR(64) NOT NULL,
+    operator     VARCHAR(32) DEFAULT NULL,
+    chat_id      VARCHAR(128) NOT NULL,
+    group_name   VARCHAR(255) DEFAULT NULL,
+    last_active  BIGINT DEFAULT NULL,
+    last_synced  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_session_chat (session_id, chat_id),
+    KEY idx_group_operator (operator),
+    KEY idx_group_last_active (last_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS wa_group_messages (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    group_chat_id       BIGINT NOT NULL,
+    session_id          VARCHAR(64) NOT NULL,
+    operator            VARCHAR(32) DEFAULT NULL,
+    chat_id             VARCHAR(128) NOT NULL,
+    role                VARCHAR(16) NOT NULL,
+    author_jid          VARCHAR(128) DEFAULT NULL,
+    author_phone        VARCHAR(64) DEFAULT NULL,
+    author_name         VARCHAR(255) DEFAULT NULL,
+    text                TEXT,
+    timestamp           BIGINT NOT NULL,
+    message_hash        VARCHAR(64) NOT NULL,
+    message_fingerprint VARCHAR(64) NOT NULL,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_group_message (group_chat_id, message_hash),
+    KEY idx_group_messages_chat_ts (group_chat_id, timestamp DESC),
+    KEY idx_group_messages_session_fp (session_id, message_fingerprint),
+    KEY idx_group_messages_operator_fp (operator, message_fingerprint),
+    CONSTRAINT fk_group_messages_chat
+        FOREIGN KEY (group_chat_id) REFERENCES wa_group_chats(id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
 -- WA CRM 扩展数据
 -- ============================================================
 CREATE TABLE IF NOT EXISTS wa_crm_data (
@@ -99,18 +141,18 @@ CREATE TABLE IF NOT EXISTS wa_crm_data (
     next_action         TEXT,
     event_score         DOUBLE DEFAULT 0,
     urgency_level       INT DEFAULT 5,
-    monthly_fee_status  VARCHAR(32) DEFAULT 'pending',
-    monthly_fee_amount  DOUBLE DEFAULT 20,
-    monthly_fee_deducted INT DEFAULT 0,
-    beta_status         VARCHAR(32) DEFAULT 'not_introduced',
-    beta_cycle_start    BIGINT,
-    beta_program_type   VARCHAR(32) DEFAULT '20_day_beta',
-    agency_bound        TINYINT(1) DEFAULT 0,
-    agency_bound_at     BIGINT,
-    agency_deadline     BIGINT,
-    video_count         INT DEFAULT 0,
-    video_target        INT DEFAULT 35,
-    video_last_checked  BIGINT,
+    monthly_fee_status  VARCHAR(32) DEFAULT 'pending' COMMENT 'DEPRECATED lifecycle compatibility; write canonical facts to events',
+    monthly_fee_amount  DOUBLE DEFAULT 20 COMMENT 'DEPRECATED lifecycle compatibility; write canonical facts to events',
+    monthly_fee_deducted INT DEFAULT 0 COMMENT 'DEPRECATED lifecycle compatibility; write canonical facts to events',
+    beta_status         VARCHAR(32) DEFAULT 'not_introduced' COMMENT 'DEPRECATED lifecycle compatibility; write canonical facts to events',
+    beta_cycle_start    BIGINT COMMENT 'DEPRECATED lifecycle compatibility; write canonical facts to events',
+    beta_program_type   VARCHAR(32) DEFAULT '20_day_beta' COMMENT 'DEPRECATED lifecycle compatibility; write canonical facts to events',
+    agency_bound        TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED lifecycle compatibility; write canonical facts to events',
+    agency_bound_at     BIGINT COMMENT 'DEPRECATED lifecycle compatibility; write canonical facts to events',
+    agency_deadline     BIGINT COMMENT 'DEPRECATED lifecycle compatibility; write canonical facts to events',
+    video_count         INT DEFAULT 0 COMMENT 'DEPRECATED lifecycle compatibility; write challenge progress to event_periods or external facts',
+    video_target        INT DEFAULT 35 COMMENT 'DEPRECATED lifecycle compatibility; write challenge progress to event_periods or external facts',
+    video_last_checked  BIGINT COMMENT 'DEPRECATED lifecycle compatibility; write challenge progress to event_periods or external facts',
     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
@@ -158,20 +200,20 @@ CREATE TABLE IF NOT EXISTS joinbrands_link (
     last_message    BIGINT,
     days_since_msg  INT DEFAULT 999,
     invite_code_jb  VARCHAR(64),
-    ev_joined       TINYINT(1) DEFAULT 0,
-    ev_ready_sent   TINYINT(1) DEFAULT 0,
-    ev_trial_7day   TINYINT(1) DEFAULT 0 COMMENT '旧字段，兼容',
-    ev_trial_active TINYINT(1) DEFAULT 0,
-    ev_monthly_started TINYINT(1) DEFAULT 0,
-    ev_monthly_invited TINYINT(1) DEFAULT 0,
-    ev_monthly_joined  TINYINT(1) DEFAULT 0,
-    ev_whatsapp_shared TINYINT(1) DEFAULT 0,
-    ev_gmv_1k       TINYINT(1) DEFAULT 0,
-    ev_gmv_2k       TINYINT(1) DEFAULT 0,
-    ev_gmv_5k       TINYINT(1) DEFAULT 0,
-    ev_gmv_10k      TINYINT(1) DEFAULT 0,
-    ev_agency_bound TINYINT(1) DEFAULT 0,
-    ev_churned      TINYINT(1) DEFAULT 0,
+    ev_joined       TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_ready_sent   TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_trial_7day   TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_trial_active TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_monthly_started TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_monthly_invited TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_monthly_joined  TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_whatsapp_shared TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_gmv_1k       TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_gmv_2k       TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_gmv_5k       TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_gmv_10k      TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_agency_bound TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
+    ev_churned      TINYINT(1) DEFAULT 0 COMMENT 'DEPRECATED compatibility cache; derive from events/snapshots',
     last_synced     DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -538,6 +580,74 @@ CREATE INDEX idx_cp_client ON client_profiles(client_id);
 CREATE INDEX idx_cp_stage ON client_profiles(stage);
 
 -- ============================================================
+-- Profile Analysis State — 画像分析队列状态
+-- ============================================================
+CREATE TABLE IF NOT EXISTS profile_analysis_state (
+    id                         INT AUTO_INCREMENT PRIMARY KEY,
+    client_id                  VARCHAR(64) NOT NULL UNIQUE,
+    pending_unanalyzed_count   INT DEFAULT 0,
+    last_profile_analyzed_at   DATETIME NULL,
+    last_analyzed_message_ts   BIGINT NULL,
+    updated_at                 DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at                 DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_pas_pending ON profile_analysis_state(pending_unanalyzed_count);
+CREATE INDEX idx_pas_last_analyzed ON profile_analysis_state(last_profile_analyzed_at);
+
+-- ============================================================
+-- Client Profile Snapshots — 画像历史快照
+-- ============================================================
+CREATE TABLE IF NOT EXISTS client_profile_snapshots (
+    id                   INT AUTO_INCREMENT PRIMARY KEY,
+    client_id            VARCHAR(64) NOT NULL,
+    frequency_level      VARCHAR(16) NULL,
+    frequency_conf       INT DEFAULT 1,
+    frequency_evidence   TEXT,
+    difficulty_level     VARCHAR(16) NULL,
+    difficulty_conf      INT DEFAULT 1,
+    difficulty_evidence  TEXT,
+    intent_level         VARCHAR(16) NULL,
+    intent_conf          INT DEFAULT 1,
+    intent_evidence      TEXT,
+    emotion_level        VARCHAR(16) NULL,
+    emotion_conf         INT DEFAULT 1,
+    emotion_evidence     TEXT,
+    motivation_positive  JSON,
+    motivation_conf      INT DEFAULT 1,
+    motivation_evidence  TEXT,
+    pain_points          JSON,
+    pain_conf            INT DEFAULT 1,
+    pain_evidence        TEXT,
+    summary              TEXT,
+    source               VARCHAR(32) DEFAULT 'system',
+    created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_cps_client ON client_profile_snapshots(client_id);
+
+-- ============================================================
+-- Client Profile Change Events — 画像变更审核事件
+-- ============================================================
+CREATE TABLE IF NOT EXISTS client_profile_change_events (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    client_id       VARCHAR(64) NOT NULL,
+    old_snapshot_id INT NULL,
+    new_snapshot_id INT NOT NULL,
+    status          VARCHAR(16) DEFAULT 'pending',
+    change_summary  JSON,
+    trigger_type    VARCHAR(32),
+    trigger_text    TEXT,
+    reviewed_by     VARCHAR(64) NULL,
+    reviewed_note   TEXT NULL,
+    reviewed_at     DATETIME NULL,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_cpce_client_status ON client_profile_change_events(client_id, status);
+
+-- ============================================================
 -- Client Tags — 动态标签
 -- ============================================================
 CREATE TABLE IF NOT EXISTS client_tags (
@@ -709,6 +819,54 @@ CREATE TABLE IF NOT EXISTS creator_event_snapshot (
     rebuilt_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_creator_event_snapshot_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Active Event Detection Cursor — 主动事件识别队列/游标
+-- ============================================================
+CREATE TABLE IF NOT EXISTS event_detection_cursor (
+    creator_id              INT PRIMARY KEY,
+    status                  VARCHAR(24) NOT NULL DEFAULT 'idle',
+    pending_reason          VARCHAR(64),
+    pending_from_message_id BIGINT NULL,
+    pending_from_timestamp  BIGINT NULL,
+    last_message_id         BIGINT NULL,
+    last_message_timestamp  BIGINT NULL,
+    last_detected_at        DATETIME NULL,
+    last_run_id             BIGINT NULL,
+    attempt_count           INT NOT NULL DEFAULT 0,
+    last_error              TEXT,
+    updated_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_event_detection_cursor_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_event_detection_cursor_status ON event_detection_cursor(status, updated_at);
+CREATE INDEX idx_event_detection_cursor_pending_ts ON event_detection_cursor(pending_from_timestamp);
+
+CREATE TABLE IF NOT EXISTS event_detection_runs (
+    id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+    creator_id        INT NOT NULL,
+    mode              VARCHAR(32) NOT NULL,
+    provider          VARCHAR(32) NOT NULL,
+    status            VARCHAR(24) NOT NULL DEFAULT 'running',
+    dry_run           TINYINT(1) NOT NULL DEFAULT 1,
+    from_message_id   BIGINT NULL,
+    to_message_id     BIGINT NULL,
+    from_timestamp    BIGINT NULL,
+    to_timestamp      BIGINT NULL,
+    scanned_messages  INT NOT NULL DEFAULT 0,
+    candidate_count   INT NOT NULL DEFAULT 0,
+    written_count     INT NOT NULL DEFAULT 0,
+    skipped_count     INT NOT NULL DEFAULT 0,
+    error_count       INT NOT NULL DEFAULT 0,
+    error_message     TEXT,
+    config_json       JSON,
+    started_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at      DATETIME NULL,
+    CONSTRAINT fk_event_detection_run_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_event_detection_runs_creator_time ON event_detection_runs(creator_id, started_at);
 
 -- ============================================================
 -- Creator Lifecycle Snapshot — 生命周期当前态

@@ -21,6 +21,8 @@ Read in this order:
 | Document | Purpose |
 | --- | --- |
 | `docs/CORE_MODULES_OVERVIEW.md` | Current map of the most important modules and ownership boundaries. |
+| `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md` | Database schema ownership, compatibility cleanup, and staged optimization plan. |
+| `docs/MYSQL_OPTIMIZE_HANDOFF_20260427.md` | MySQL optimize implementation report, verification notes, and future development plan. |
 | `docs/AI_REPLY_GENERATION_SYSTEM.md` | AI reply generation architecture. |
 | `docs/SFT_RLHF_PIPELINE.md` | SFT/RLHF collection, export, and rollout flow. |
 | `docs/RLHF_ONBOARDING.md` | RLHF onboarding and operator workflow. |
