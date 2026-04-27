@@ -63,7 +63,7 @@ Scope:
 - `docs/DOCS_INDEX.md`
 - `docs/CORE_MODULES_OVERVIEW.md`
 - `docs/OBSIDIAN_MEMORY_STANDARD.md`
-- `docs/WORKTREE_REMEDIATION_PLAN_20260425.md`
+- `docs/archive/handoffs/WORKTREE_REMEDIATION_PLAN_20260425.md`
 - `docs/obsidian/`
 - Updated handoff and standards docs.
 

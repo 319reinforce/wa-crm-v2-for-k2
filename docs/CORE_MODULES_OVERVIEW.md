@@ -191,7 +191,7 @@ Responsibilities:
 Current docs:
 
 - `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md`
-- `docs/EVENT_LIFECYCLE_HANDOFF_20260425.md`
+- `docs/archive/handoffs/EVENT_LIFECYCLE_HANDOFF_20260425.md` for historical rollout context
 - `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`
 - `docs/LIFECYCLE_REFACTOR_PRD.md`
 - `docs/EVENT_DECISION_TABLE.md`
@@ -252,8 +252,8 @@ Responsibilities:
 
 Current docs:
 
-- `docs/V1_LAYOUT_HANDOFF_20260425.md`
-- `docs/V1_LAYOUT_FOLLOWUP_HANDOFF_20260425.md`
+- `docs/archive/handoffs/V1_LAYOUT_HANDOFF_20260425.md` for historical layout rollout context
+- `docs/archive/handoffs/V1_LAYOUT_FOLLOWUP_HANDOFF_20260425.md` for historical layout rollout context
 - `docs/FRONTEND_LAYOUT_REFACTOR.md`
 - `docs/FRONTEND_LOAD_OPTIMIZATION_20260423.md`
 

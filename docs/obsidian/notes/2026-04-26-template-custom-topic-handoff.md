@@ -3,7 +3,7 @@ title: Template Custom Topic Handoff
 date: 2026-04-26
 project: wa-crm-v2
 type: handoff
-source_path: docs/TEMPLATE_CUSTOM_TOPIC_HANDOFF_20260424.md
+source_path: docs/archive/handoffs/TEMPLATE_CUSTOM_TOPIC_HANDOFF_20260424.md
 status: active
 tags:
   - wa-crm-v2
@@ -29,7 +29,7 @@ WA CRM v2 custom topic templates now support independent image assets. A saved t
 
 ## Source
 
-- Source document: `docs/TEMPLATE_CUSTOM_TOPIC_HANDOFF_20260424.md`
+- Source document: `docs/archive/handoffs/TEMPLATE_CUSTOM_TOPIC_HANDOFF_20260424.md`
 - Main code paths:
   - `server/routes/customTopicTemplates.js`
   - `server/services/localRuleRetrievalService.js`

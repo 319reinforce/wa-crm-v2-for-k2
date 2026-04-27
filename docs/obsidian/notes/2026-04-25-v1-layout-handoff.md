@@ -3,7 +3,7 @@ title: V1 Layout Handoff
 date: 2026-04-25
 project: wa-crm-v2
 type: handoff
-source_path: docs/V1_LAYOUT_HANDOFF_20260425.md
+source_path: docs/archive/handoffs/V1_LAYOUT_HANDOFF_20260425.md
 status: active
 tags:
   - wa-crm-v2
@@ -25,8 +25,8 @@ The V1/V2 layout handoffs capture front-end navigation, finance tab, lifecycle p
 
 ## Source
 
-- Primary source: `docs/V1_LAYOUT_HANDOFF_20260425.md`
-- Follow-up source: `docs/V1_LAYOUT_FOLLOWUP_HANDOFF_20260425.md`
+- Primary source: `docs/archive/handoffs/V1_LAYOUT_HANDOFF_20260425.md`
+- Follow-up source: `docs/archive/handoffs/V1_LAYOUT_FOLLOWUP_HANDOFF_20260425.md`
 
 ## Verification
 

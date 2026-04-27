@@ -71,7 +71,7 @@ function toCsv(rows, headers) {
   }, {});
 
   const stamp = new Date().toISOString().slice(0, 10);
-  const outDir = path.join(process.cwd(), 'docs/exports');
+  const outDir = path.join(process.cwd(), 'reports', 'lifecycle-exports');
   fs.mkdirSync(outDir, { recursive: true });
   const mdPath = path.join(outDir, `lifecycle-wa-audit-${stamp}.md`);
   const csvMainPath = path.join(outDir, `lifecycle-wa-mainline-${stamp}.csv`);

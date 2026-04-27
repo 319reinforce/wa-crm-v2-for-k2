@@ -13,7 +13,10 @@ const OPERATOR = 'Beau';
 const BATCH_SIZE = 5;
 const FETCH_LIMIT = 120;
 const REPORT_ROOT = path.resolve(process.cwd(), 'reports', 'beau-nightly-role-heartbeat');
-const STATE_PATH = path.resolve(process.cwd(), 'docs', 'wa', 'beau-nightly-role-heartbeat-state.json');
+const STATE_PATH = path.resolve(
+    process.cwd(),
+    process.env.BEAU_HEARTBEAT_STATE_PATH || 'data/runtime-state/beau-nightly-role-heartbeat-state.json'
+);
 
 function parseArgs(argv) {
     const out = {

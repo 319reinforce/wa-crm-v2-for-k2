@@ -30,8 +30,8 @@ Use these as the active entry points for future development:
 | --- | --- | --- |
 | Agent onboarding | `AGENTS.md`, `BOT_INTEGRATION.md`, `docs/DOCS_INDEX.md`, `docs/CORE_MODULES_OVERVIEW.md` | `docs/obsidian/notes/2026-04-25-agent-onboarding-and-bot-integration.md`, `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md` |
 | Database/schema cleanup | `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md`, `schema.sql` | `docs/obsidian/notes/2026-04-27-database-schema-optimization-plan.md` |
-| Event/lifecycle | `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md`, `docs/EVENT_LIFECYCLE_HANDOFF_20260425.md`, `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Existing dated event/lifecycle notes under `docs/obsidian/notes/` |
-| Contact import and templates | `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md`, `docs/TEMPLATE_CUSTOM_TOPIC_HANDOFF_20260424.md` | `2026-04-26-creator-import-welcome-handoff.md`, `2026-04-26-template-custom-topic-handoff.md` |
+| Event/lifecycle | `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md`, `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Existing dated event/lifecycle notes under `docs/obsidian/notes/`; older handoffs are under `docs/archive/handoffs/` |
+| Contact import and templates | `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md`; older template handoff is under `docs/archive/handoffs/` | `2026-04-26-creator-import-welcome-handoff.md`, `2026-04-26-template-custom-topic-handoff.md` |
 | Runtime architecture | `docs/AI_REPLY_GENERATION_SYSTEM.md`, `docs/SFT_RLHF_PIPELINE.md`, `docs/WA_SESSIONS_DESIGN.md`, `docs/BAILEYS_ROLLOUT.md`, `docs/SSE_HARDENING.md` | `docs/obsidian/notes/2026-04-27-runtime-architecture-docs.md` |
 | RAG / knowledge source | `docs/rag/KNOWLEDGE_SOURCE_STANDARD.md`, `docs/rag/OPENAI_RAG_RUNBOOK.md`, `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`, `docs/rag/LOCAL_RULE_IMPLEMENTATION_20260420.md`, `docs/rag/knowledge-manifest.json`, approved files in `docs/rag/sources/` | `docs/obsidian/notes/2026-04-27-rag-knowledge-source-docs.md` |
 | Branch and archive mapping | `docs/RECENT_BRANCH_DOC_MAPPING_20260427.md` | `docs/obsidian/notes/2026-04-27-recent-branch-doc-mapping.md` |
@@ -84,7 +84,7 @@ Some older docs remain active because they still describe live behavior:
 - `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`
 - `docs/rag/LOCAL_RULE_IMPLEMENTATION_20260420.md`
 - `docs/rag/APRIL_DOC_CONFIG_MAPPING_20260420.md`
-- `docs/LIFECYCLE_EVENT_STRATEGY_HANDOFF_20260424.md`
+- `docs/archive/handoffs/LIFECYCLE_EVENT_STRATEGY_HANDOFF_20260424.md`
 - `docs/LIFECYCLE_REFACTOR_PRD.md`
 - `docs/EVENT_DECISION_TABLE.md`
 - `docs/FRONTEND_LAYOUT_REFACTOR.md`

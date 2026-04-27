@@ -3,7 +3,7 @@ title: Event Lifecycle Handoff
 date: 2026-04-25
 project: wa-crm-v2
 type: handoff
-source_path: docs/EVENT_LIFECYCLE_HANDOFF_20260425.md
+source_path: docs/archive/handoffs/EVENT_LIFECYCLE_HANDOFF_20260425.md
 status: active
 tags:
   - wa-crm-v2
@@ -25,7 +25,7 @@ The 2026-04-25 event lifecycle handoff records local-only validation and remaini
 
 ## Source
 
-- Source document: `docs/EVENT_LIFECYCLE_HANDOFF_20260425.md`
+- Source document: `docs/archive/handoffs/EVENT_LIFECYCLE_HANDOFF_20260425.md`
 - Related: `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`
 
 ## Verification
