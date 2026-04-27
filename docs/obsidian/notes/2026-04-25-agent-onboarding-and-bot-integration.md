@@ -22,6 +22,8 @@ Agent onboarding now points new agents to the documentation index, core module o
 - Read order includes `docs/OBSIDIAN_MEMORY_STANDARD.md`.
 - Read order includes `docs/DOCS_INDEX.md` and `docs/CORE_MODULES_OVERVIEW.md` so agents can quickly find the module they need to work on.
 - Latest event/lifecycle progress is anchored at `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`.
+- Event onboarding now points to current lifecycle/data-model docs and active event detection handoff instead of the legacy event requirements archive.
+- Documentation cleanup guidance now points to `docs/DOCUMENT_RETENTION_AUDIT_20260427.md`.
 - Session closeout reports Obsidian sync status.
 - `data/*.json` is historical migration context.
 - `crm.db` / SQLite must not be restored.

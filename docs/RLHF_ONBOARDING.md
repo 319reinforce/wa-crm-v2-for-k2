@@ -36,7 +36,8 @@ wa-crm-v2/
 1. CLAUDE.md → 项目全貌、核心模块、禁止事项
 2. BOT_INTEGRATION.md → API 端点速查、数据库表
 3. SFT_PROJECT.md → SFT 语料系统、Experience Router、Scene 11 类
-4. docs/EVENT_SYSTEM.md → 事件系统（挑战/Bonus/GMV 里程碑）
+4. docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md → 当前事件/生命周期数据模型
+5. docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md → active event detection queue 与 rollout
 ```
 
 ---

@@ -3,7 +3,7 @@ title: Code Review Archive
 date: 2026-04-16
 project: wa-crm-v2
 type: review
-source_path: CODE_REVIEW.md
+source_path: docs/archive/PRE_20260420_DOCS_ARCHIVE.md
 status: historical
 tags:
   - wa-crm-v2
@@ -15,22 +15,22 @@ tags:
 
 ## Summary
 
-`CODE_REVIEW.md` is a historical review from the SQLite and `server.js` era. It should not be used as the current defect list without checking the 2026-04-16 review and fix reports.
+The original `CODE_REVIEW.md` was a historical review from the SQLite and `server.js` era. It was consolidated into `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` during the 2026-04-27 retention cleanup and should not be used as the current defect list.
 
 ## Key Decisions
 
-- Treat the old review as archive context.
-- Use `docs/CODE_REVIEW_FINDINGS_20260416.md` for current finding validation.
-- Use `docs/REVIEW_FIX_REPORT_20260416.md` for landed fixes and verification.
+- Treat the old review as archive context only.
+- Use current dated handoff docs and `docs/DOCS_INDEX.md` for active module status.
+- Use `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` only when historical rationale is needed.
 
 ## Source
 
-- Source document: `CODE_REVIEW.md`
+- Source archive: `docs/archive/PRE_20260420_DOCS_ARCHIVE.md`
 
 ## Verification
 
-- Top of source document now includes a historical archive notice.
+- Original source document was removed after consolidation.
 
 ## Follow-Ups
 
-- Consider replacing `CODE_REVIEW.md` with a short index to dated review reports.
+- Keep active docs from pointing at the removed review file.

@@ -28,8 +28,8 @@ Current docs:
 
 - `AGENTS.md`
 - `BOT_INTEGRATION.md`
-- `docs/SECURITY_FIX_PLAN.md`
-- `docs/SECURITY_FIX_REPORT.md`
+- `docs/DOCS_INDEX.md`
+- `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` for historical security cleanup only
 
 ## 2. Data Model And Creator Identity
 
@@ -52,8 +52,8 @@ Responsibilities:
 Current docs:
 
 - `SFT_PROJECT.md`
-- `docs/CLEANUP_HISTORY_20260416.md`
-- `docs/LEGACY_CLEANUP_LOG.md`
+- `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md`
+- `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` for historical SQLite/legacy cleanup only
 
 ## 3. WhatsApp Sessions, Messages, And Media
 
@@ -112,8 +112,9 @@ Responsibilities:
 Current docs:
 
 - `docs/AI_REPLY_GENERATION_SYSTEM.md`
-- `docs/REPLY_GENERATION_REFACTOR_MEMORY_20260416.md`
-- `docs/REPLY_GENERATION_REFACTOR_ISSUES_20260416.md`
+- `docs/SFT_RLHF_PIPELINE.md`
+- `docs/obsidian/notes/2026-04-27-runtime-architecture-docs.md`
+- `docs/obsidian/notes/2026-04-16-reply-generation-refactor-memory.md` for historical refactor context
 - `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`
 
 ## 5. SFT, Feedback, And Training
