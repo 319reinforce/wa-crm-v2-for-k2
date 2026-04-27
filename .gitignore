@@ -1,4 +1,5 @@
 node_modules/
+LightRAG/
 public/assets/
 data/*.json
 .wa_ipc/

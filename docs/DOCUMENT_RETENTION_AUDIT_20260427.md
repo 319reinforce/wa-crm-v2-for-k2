@@ -17,9 +17,10 @@ Reviewed:
 
 Not treated as deletion candidates in this pass:
 
-- `LightRAG/` vendor/library docs.
 - Runtime state JSON, CSV exports, SQL helper files, deployment rsync lists, and generated runtime artifacts.
 - `.claude/` local agent notes.
+
+Later update: `LightRAG` was removed in the runtime artifact cleanup because the project will not adopt that solution and the repository only had a broken gitlink without `.gitmodules`.
 
 ## Current Source Of Truth
 
@@ -34,6 +35,7 @@ Use these as the active entry points for future development:
 | Runtime architecture | `docs/AI_REPLY_GENERATION_SYSTEM.md`, `docs/SFT_RLHF_PIPELINE.md`, `docs/WA_SESSIONS_DESIGN.md`, `docs/BAILEYS_ROLLOUT.md`, `docs/SSE_HARDENING.md` | `docs/obsidian/notes/2026-04-27-runtime-architecture-docs.md` |
 | RAG / knowledge source | `docs/rag/KNOWLEDGE_SOURCE_STANDARD.md`, `docs/rag/OPENAI_RAG_RUNBOOK.md`, `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`, `docs/rag/LOCAL_RULE_IMPLEMENTATION_20260420.md`, `docs/rag/knowledge-manifest.json`, approved files in `docs/rag/sources/` | `docs/obsidian/notes/2026-04-27-rag-knowledge-source-docs.md` |
 | Branch and archive mapping | `docs/RECENT_BRANCH_DOC_MAPPING_20260427.md` | `docs/obsidian/notes/2026-04-27-recent-branch-doc-mapping.md` |
+| Runtime artifact cleanup | `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md`, `docs/archive/reports/REPORTS_INDEX_20260427.md` | `docs/obsidian/notes/2026-04-27-runtime-artifact-cleanup-plan.md` |
 | Pre-2026-04-20 archive | `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` | `docs/obsidian/notes/2026-04-27-pre-20260420-docs-archive.md` |
 | Obsidian standard | `docs/OBSIDIAN_MEMORY_STANDARD.md` | `docs/obsidian/notes/2026-04-25-obsidian-memory-standard.md` |
 

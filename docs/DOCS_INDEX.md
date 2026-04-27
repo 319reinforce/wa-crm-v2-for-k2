@@ -16,6 +16,7 @@ Read in this order:
 5. `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` - latest event/lifecycle backfill and review UI progress.
 6. `docs/OBSIDIAN_MEMORY_STANDARD.md` - Obsidian memory and sync standard.
 7. `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` - current documentation retention and cleanup record.
+8. `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` - reports, runtime artifacts, and external vendor cleanup baseline.
 
 ## Core Architecture
 
@@ -83,6 +84,8 @@ Read in this order:
 | --- | --- |
 | `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` | Consolidated archive for pre-2026-04-20 code review, security, cleanup, event, runtime, and dirty-data docs. |
 | `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` | Documentation retention decision log and cleanup verification. |
+| `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` | Runtime artifact, report, and external vendor cleanup baseline. |
+| `docs/archive/reports/REPORTS_INDEX_20260427.md` | Current tracked report inventory and cleanup conditions. |
 
 ## Obsidian Memory
 
@@ -100,6 +103,7 @@ Read in this order:
 | `docs/WORKTREE_REMEDIATION_PLAN_20260425.md` | Plan for current code conflicts and non-document changes. |
 | `docs/RECENT_BRANCH_DOC_MAPPING_20260427.md` | Recent Gitea branch, PR, archive tag, and handoff/Obsidian mapping. |
 | `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` | Current documentation retention audit, Obsidian fill-in summary, and executed cleanup record. |
+| `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` | Report/runtime artifact boundary and LightRAG removal decision. |
 
 ## Archived Or Removed Pre-2026-04-20 Docs
 
@@ -108,6 +112,12 @@ The current cleanup authority is `docs/DOCUMENT_RETENTION_AUDIT_20260427.md`.
 Pre-2026-04-20 docs that could distract future development were consolidated into `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` and removed from active indexes. Use that archive only for historical rationale, not for current module ownership or defect status.
 
 Current docs retained from the 2026-04-20 boundary include the RAG local rule design/implementation docs because `localRuleRetrievalService` and template/media routing still depend on them.
+
+## Runtime Artifacts And External Vendor Boundary
+
+`LightRAG` was removed from source control and is ignored going forward. WA CRM v2 will not adopt that solution path; current RAG work stays on the local-rule and OpenAI hosted RAG docs listed above.
+
+Generated reports, exports, runtime state, backups, local media data, and build assets are governed by `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md`.
 
 ## Obsidian Sync
 

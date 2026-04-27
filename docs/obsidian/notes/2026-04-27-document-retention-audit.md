@@ -25,6 +25,7 @@ WA CRM v2 now has a documentation retention audit that separates active developm
 - High-value runtime and RAG docs were summarized into Obsidian so later agents do not need to scan every dated handoff.
 - Old event-system docs and duplicate security logs were consolidated into `docs/archive/PRE_20260420_DOCS_ARCHIVE.md`.
 - `docs/.DS_Store` had no documentation value and was removed.
+- The broken `LightRAG` gitlink was removed in the follow-up runtime artifact cleanup; WA CRM v2 will not adopt that RAG path.
 - Historical review docs should not be used as current bug lists unless they explicitly point to current implementation status.
 
 ## Cleanup Executed
