@@ -39,12 +39,12 @@ The first MySQL optimize implementation pass moved active runtime-created schema
 - `node --test tests/unit/lifecycleEventWriteService.unit.test.mjs tests/creatorListFields.test.mjs` passed after the backend route migration.
 - Relevant `node --check` commands passed.
 - `git diff --check` passed.
-- `node scripts/analyze-schema-state.js` reports 49 actual tables, 49 expected tables, no missing tables, no extra tables, and no column diffs.
+- `node scripts/analyze-schema-state.js` reports 52 actual tables, 52 expected tables, no missing tables, no extra tables, and no column diffs after applying migration 007 locally.
 
 ## Follow-Up Items
 
-- Apply and verify migrations 005 and 006 in target environments.
+- Apply and verify migrations 005, 006, and 007 in target environments.
 - Finish frontend edit flow migration so normal UI does not submit deprecated lifecycle fields.
 - Decide canonical handling for still-protected amount/progress fields such as `monthly_fee_amount`, `video_count`, and `video_target`.
-- Continue runtime DDL cleanup for creator import, custom topic, media, and training paths.
+- Continue runtime DDL cleanup for creator import, custom topic, media, and training paths; migration 007 now covers creator import tables, but service-time DDL still needs removal after rollout.
 - Plan `creator_id` backfill for profile and AI tables.

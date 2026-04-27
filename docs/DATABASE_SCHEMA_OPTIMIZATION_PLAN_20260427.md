@@ -40,6 +40,7 @@ Implementation update:
 - `schema.sql` now includes all 7 managed runtime tables.
 - `event_detection_cursor` and `event_detection_runs` are covered by `server/migrations/005_active_event_detection_queue.sql`.
 - `server/migrations/006_managed_runtime_tables.sql` covers WA group tables and profile analysis tables, so fresh environments can converge without relying on service-time DDL.
+- After rebasing onto latest Gitea `origin/main`, `server/migrations/007_creator_import_tables.sql` covers `operator_outreach_templates`, `creator_import_batches`, and `creator_import_items`, which latest `schema.sql` already defines.
 - `groupMessageService`, `profileAnalysisService`, and `activeEventDetectionService` now check for managed tables instead of creating them at runtime.
 - `event_detection_cursor` and `event_detection_runs` were not archived because an active owner was found.
 - `scripts/analyze-schema-state.js` was updated so generated column expressions do not create the false `CASE` column finding.
@@ -351,7 +352,7 @@ Acceptance:
 Recommended order after the first implementation pass:
 
 1. Migration application and schema convergence PR:
-   - Apply migrations 005 and 006 in target environments.
+   - Apply migrations 005, 006, and 007 in target environments.
    - Verify `node scripts/analyze-schema-state.js` reports no drift.
 2. Event-fact write helper plus backend `wacrm` route migration:
    - Convert lifecycle edits into `events` plus `event_evidence`.
@@ -361,6 +362,7 @@ Recommended order after the first implementation pass:
    - Handle `legacy_lifecycle_writes_frozen` responses clearly.
 4. Remaining runtime DDL cleanup:
    - Classify creator import, custom topic, media, and training DDL paths.
+   - Remove creator import service-time DDL after migration 007 is deployed everywhere.
    - Move request/runtime DDL into migrations where needed.
 5. `creator_id` profile/AI backfill:
    - Add nullable `creator_id` columns.

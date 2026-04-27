@@ -43,12 +43,13 @@ The WA CRM v2 database had 49 actual MySQL tables while `schema.sql` defined 42 
 - First implementation pass added the managed runtime tables to `schema.sql`.
 - `event_detection_cursor` and `event_detection_runs` are covered by `server/migrations/005_active_event_detection_queue.sql`.
 - `server/migrations/006_managed_runtime_tables.sql` covers WA group tables and profile analysis tables.
-- Post-implementation schema check on local MySQL reports 49 actual tables, 49 expected tables, and no missing/extra/column diffs.
+- After rebasing onto latest Gitea `origin/main`, `server/migrations/007_creator_import_tables.sql` covers the creator import tables already present in latest `schema.sql`.
+- Post-rebase schema check on local MySQL reports 52 actual tables, 52 expected tables, and no missing/extra/column diffs after applying migration 007 locally.
 - Runtime DDL was removed from `groupMessageService`, `profileAnalysisService`, and `activeEventDetectionService`; these services now fail clearly if the migration has not been run.
 - Second pass added backend canonical lifecycle event writes for mappable `wacrm` legacy payloads while keeping unmapped amount/progress fields protected.
 
 ## Follow-Up Items
 
-- Apply and verify `server/migrations/005_active_event_detection_queue.sql` and `server/migrations/006_managed_runtime_tables.sql` in target environments.
+- Apply and verify `server/migrations/005_active_event_detection_queue.sql`, `server/migrations/006_managed_runtime_tables.sql`, and `server/migrations/007_creator_import_tables.sql` in target environments.
 - Add `creator_id` backfill plan for AI/profile tables.
 - Define retention windows for high-volume logs.

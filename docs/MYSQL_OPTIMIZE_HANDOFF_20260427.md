@@ -60,6 +60,14 @@ It creates:
 - `client_profile_snapshots`
 - `client_profile_change_events`
 
+After rebasing onto latest Gitea `origin/main`, added `server/migrations/007_creator_import_tables.sql`.
+
+It creates the creator import tables that were already present in latest `schema.sql`:
+
+- `operator_outreach_templates`
+- `creator_import_batches`
+- `creator_import_items`
+
 ### 2.3 Runtime DDL Removal
 
 Changed these services so they no longer create active tables at runtime:
@@ -156,13 +164,14 @@ Results:
 | `npm run test:unit` | Passed: 35 pass, 3 skipped |
 | `npm test` | Passed smoke, build, and unit suite |
 | `git diff --check` | Passed |
-| `analyze-schema-state` | Passed: 49 actual tables, 49 expected tables, no missing tables, no extra tables, no column diffs |
+| `analyze-schema-state` | Passed after applying migration 007 locally: 52 actual tables, 52 expected tables, no missing tables, no extra tables, no column diffs |
 
 Current local DB note:
 
-- Local MySQL now matches the canonical schema table inventory.
+- Local MySQL now matches the latest rebased canonical schema table inventory.
 - `event_detection_cursor` and `event_detection_runs` are kept as active managed tables because `activeEventDetectionService` owns them.
 - `server/migrations/006_managed_runtime_tables.sql` is still required for fresh or partially migrated environments that do not yet have the WA group/profile analysis tables.
+- `server/migrations/007_creator_import_tables.sql` is required for environments that have latest `schema.sql` but have not let the creator import runtime path create those tables yet.
 
 ## 4. Current Risk Register
 
@@ -186,8 +195,9 @@ Tasks:
 
 1. Apply `server/migrations/005_active_event_detection_queue.sql` where needed.
 2. Apply `server/migrations/006_managed_runtime_tables.sql`.
-3. Run `node scripts/analyze-schema-state.js`.
-4. Confirm:
+3. Apply `server/migrations/007_creator_import_tables.sql`.
+4. Run `node scripts/analyze-schema-state.js`.
+5. Confirm:
    - no missing active tables,
    - no extra unowned tables,
    - no column diffs,
@@ -357,7 +367,7 @@ Acceptance:
 - Stay on `codex/mysqloptimize`.
 - Do not set `ALLOW_LEGACY_LIFECYCLE_WRITES=1` unless intentionally testing a legacy migration path.
 - Do not drop `event_detection_cursor` or `event_detection_runs`.
-- Apply migrations 005 and 006 in target environments before deploying services that require the managed tables.
+- Apply migrations 005, 006, and 007 in target environments before deploying services that require the managed tables.
 - Keep Obsidian sync up to date for any design, runbook, migration, or handoff update.
 
 ## Obsidian Sync
