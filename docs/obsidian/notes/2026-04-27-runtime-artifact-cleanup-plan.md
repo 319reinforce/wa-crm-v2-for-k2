@@ -23,7 +23,7 @@ WA CRM v2 now has an explicit cleanup baseline for reports, runtime exports, gen
 - Remove tracked `LightRAG` gitlink.
 - Add `LightRAG/` to `.gitignore`.
 - Keep current RAG direction on knowledge-source standards, local deterministic rules, and OpenAI hosted RAG.
-- Keep referenced reports while active handoffs still need them, but classify each with an owner and cleanup condition.
+- Remove raw generated reports once their conclusions are summarized in handoffs or Obsidian.
 - Do not commit generated observation reports, runtime state, backups, local media data, or build assets unless they are intentional product assets.
 - Pre-2026-04-20 lifecycle exports and dirty-data SQL were removed after their value was summarized; lifecycle exports contained raw phone values and should not remain in source control.
 - Runtime state moved from `docs/wa/*state.json` to ignored `data/runtime-state/`.
@@ -37,4 +37,4 @@ WA CRM v2 now has an explicit cleanup baseline for reports, runtime exports, gen
 
 - `git ls-files LightRAG` should return no tracked files.
 - `git diff --check` should pass before merging.
-- Report references should remain only in owning handoffs, archive docs, or scripts that generate report output.
+- Report references should remain only as regeneration commands or summarized historical evidence.

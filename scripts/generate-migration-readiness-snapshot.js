@@ -167,8 +167,7 @@ async function main() {
         table_exists: tables.includes('training_log'),
         code_references: [
             '/Users/depp/wa-bot/wa-crm-v2/server/routes/training.js',
-            '/Users/depp/wa-bot/wa-crm-v2/server/workers/trainingWorker.js',
-            '/Users/depp/wa-bot/wa-crm-v2/docs/SFT_RLHF_PIPELINE.md'
+            '/Users/depp/wa-bot/wa-crm-v2/server/workers/trainingWorker.js'
         ]
     };
 

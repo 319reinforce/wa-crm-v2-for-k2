@@ -29,9 +29,8 @@ Repository artifacts added or updated:
 - `scripts/backfill-event-lifecycle-facts.cjs`
 - `scripts/test-event-lifecycle-top-creators.cjs`
 - `tests/eventLifecycleFacts.test.mjs`
-- `reports/event-lifecycle-top-creators-20260425-local.json`
-- `reports/event-lifecycle-top-creators-20260425-minimax.json`
-- `reports/tier2-compat-event-audit-20260425.json`
+
+Raw generated report JSON from this session was removed from source control during the 2026-04-27 deep cleanup. The result summaries below are the retained evidence; regenerate reports locally if raw output is needed.
 
 Compatibility note:
 
@@ -227,7 +226,7 @@ node scripts/audit-tier2-compat-events.cjs --write
 
 Report:
 
-- `reports/tier2-compat-event-audit-20260425.json`
+- Raw JSON was generated during the session and later removed from source control after the summary below was retained.
 
 Decision:
 

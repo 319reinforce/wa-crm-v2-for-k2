@@ -11,8 +11,8 @@ Read in this order:
 
 1. `AGENTS.md` - agent entry guide and working rules.
 2. `BOT_INTEGRATION.md` - API and integration quick reference.
-3. `SFT_PROJECT.md` - SFT, Experience Router, profile memory, and generation tracking deep reference.
-4. `docs/CORE_MODULES_OVERVIEW.md` - current module map.
+3. `docs/CORE_MODULES_OVERVIEW.md` - current module map.
+4. `docs/AI_REPLY_GENERATION_SYSTEM.md` - current reply generation, Experience Router, and SFT capture entry points.
 5. `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md` - schema ownership, compatibility cleanup, and migration order.
 6. `docs/OBSIDIAN_MEMORY_STANDARD.md` - Obsidian memory and sync standard.
 7. `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` - documentation retention and pre-2026-04-20 cleanup record.
@@ -23,9 +23,7 @@ Read in this order:
 | Document | Purpose |
 | --- | --- |
 | `docs/CORE_MODULES_OVERVIEW.md` | Current module ownership and code boundaries. |
-| `docs/AI_REPLY_GENERATION_SYSTEM.md` | AI reply generation architecture. |
-| `docs/SFT_RLHF_PIPELINE.md` | SFT/RLHF collection, export, and rollout flow. |
-| `docs/RLHF_ONBOARDING.md` | RLHF operator workflow. |
+| `docs/AI_REPLY_GENERATION_SYSTEM.md` | AI reply generation architecture, topic detection, provider routing, and generation tracking. |
 | `docs/WA_SESSIONS_DESIGN.md` | WA multi-session design and IPC/volume planning. |
 | `docs/BAILEYS_ROLLOUT.md` | Baileys driver rollout and risk notes. |
 | `docs/SSE_HARDENING.md` | SSE transport hardening. |
@@ -69,6 +67,10 @@ Read in this order:
 ## Deleted Historical Handoffs
 
 Old handoffs that were more than half stale against current branch direction were removed from `docs/archive/handoffs/`. Their useful decisions are preserved in Obsidian notes and current branch mapping docs.
+
+## Deleted Historical SFT Docs
+
+The old root `SFT_PROJECT.md`, `docs/SFT_RLHF_PIPELINE.md`, and `docs/RLHF_ONBOARDING.md` were removed because they mixed current concepts with obsolete `server.js`, SQLite-era, and early RLHF rollout instructions. Use current code, `docs/AI_REPLY_GENERATION_SYSTEM.md`, and the Obsidian SFT baseline note for retained context.
 
 ## Runtime Artifact Boundary
 

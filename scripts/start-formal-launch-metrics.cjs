@@ -14,7 +14,7 @@ const db = require('../db');
 
 const args = process.argv.slice(2);
 const atArg = args.find((item) => item.startsWith('--at='));
-const OUTPUT_PATH = process.env.FORMAL_LAUNCH_MARKER_PATH || 'docs/rag/formal-launch-window.json';
+const OUTPUT_PATH = process.env.FORMAL_LAUNCH_MARKER_PATH || 'data/runtime-state/formal-launch-window.json';
 
 function parseLaunchAt(input) {
     if (!input) {
@@ -91,4 +91,3 @@ main().catch((err) => {
     db.closeDb().catch(() => {});
     process.exit(1);
 });
-

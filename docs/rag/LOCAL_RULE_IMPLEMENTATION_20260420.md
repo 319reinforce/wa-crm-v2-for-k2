@@ -170,4 +170,4 @@ console.log(result.prompt); // 包含 local rules 的完整 prompt
 
 - `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN.md` - 设计文档
 - `docs/rag/APRIL_DOC_CONFIG_MAPPING_20260420.md` - 4 月文档映射
-- `SFT_PROJECT.md` - SFT 项目整体说明
+- `docs/AI_REPLY_GENERATION_SYSTEM.md` - 当前 AI 回复生成与策略入口

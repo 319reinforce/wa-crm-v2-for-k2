@@ -12,6 +12,7 @@ Status: Active
 - [[notes/2026-04-27-rag-knowledge-source-docs|RAG Knowledge Source Docs]]
 - [[notes/2026-04-27-runtime-artifact-cleanup-plan|Runtime Artifact Cleanup Plan]]
 - [[notes/2026-04-27-deep-doc-cleanup|Deep Doc Cleanup]]
+- [[notes/2026-04-27-sft-docs-and-report-cleanup|SFT Docs And Report Cleanup]]
 
 ## Implementation Baselines
 

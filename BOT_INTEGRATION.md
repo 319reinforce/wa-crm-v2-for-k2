@@ -13,7 +13,7 @@
 | 路径 | `/Users/depp/wa-bot/wa-crm-v2/` |
 | 后端端口 | `3000` |
 | 数据库 | `MySQL`（运行时） / `schema.sql` 为主 schema |
-| 文档 | `SFT_PROJECT.md`（详细项目文档） |
+| 文档 | `docs/DOCS_INDEX.md`（当前文档入口） |
 
 ---
 
@@ -215,18 +215,6 @@ AI 生成回复前，必须：
 
 ---
 
-## 原始对话数据
-
-> 历史说明：`data/*.json` 是 JSON → MySQL 迁移前的原始导入格式。2026-04-16 清理后，当前运行时以 MySQL `wa_crm_v2` 和 `schema.sql` 为准，不应把 `data/*.json` 当作现役数据源。
-
-```
-路径：/Users/depp/wa-bot/wa-crm-v2/data/*.json
-格式：{phone}_{name}_{date}.json
-内容：{ phone, name, keeper_username, wa_owner, messages: [{role, text, timestamp}] }
-```
-
----
-
 ## 禁止事项
 
 1. **禁止**恢复或重新引入 `crm.db` / SQLite 历史链路
@@ -285,7 +273,7 @@ POST /api/experience/route
 
 1. 先读 `docs/DOCS_INDEX.md`（文档总索引）
 2. 再读 `docs/CORE_MODULES_OVERVIEW.md`（模块施工边界）
-3. 深入业务链路时读 `SFT_PROJECT.md`
+3. 深入业务链路时读 `docs/AI_REPLY_GENERATION_SYSTEM.md` 与 `docs/CORE_MODULES_OVERVIEW.md`
 4. 查 `docs/DOCS_INDEX.md` 与相关 dated handoff；2026-04-20 前 review/security 历史只看 `docs/archive/PRE_20260420_DOCS_ARCHIVE.md`
 5. 调用 `GET /api/health` 确认服务状态
 6. 调用 `GET /api/audit-log?limit=5` 查看最近操作
