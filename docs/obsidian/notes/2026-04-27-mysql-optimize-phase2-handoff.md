@@ -21,7 +21,7 @@ Phase 2 continues the database cleanup after PR #84. It adds managed migration c
 ## Key Decisions
 
 - Normal service/route/worker paths should check schema readiness and fail with migration guidance instead of creating tables or columns.
-- Target environments now need migrations 005 through 013 before deploying this code.
+- Target environments now need migrations 004 through 013 before deploying this code.
 - `joinbrands_link.ev_*` and lifecycle fields in `wa_crm_data` remain compatibility/read paths, not normal write targets.
 - CreatorDetail positive lifecycle edits should create canonical `events` rows.
 - CreatorDetail clear/cancel lifecycle edits now use `POST /api/events/cancel-by-key`, cancel canonical event rows, rebuild lifecycle/snapshot state, and never write deprecated lifecycle fields back to false/null.
@@ -36,7 +36,7 @@ Phase 2 continues the database cleanup after PR #84. It adds managed migration c
 ## Verification
 
 - Local `.env` points to `127.0.0.1:3306/wa_crm_v2`; no staging/prod DB env was present.
-- Local migrations 005-013 were applied with `scripts/apply-sql-migrations.cjs` / `npm run db:migrate:sql`; staging/prod still need the 005-013 sequence with target DB env loaded.
+- Local migrations 004-013 were applied with `scripts/apply-sql-migrations.cjs` / `npm run db:migrate:sql`; staging/prod still need the 004-013 sequence with target DB env loaded.
 - `node scripts/analyze-schema-state.js` reported 52 expected tables, 52 actual tables, no missing/extra tables, no column diffs, no index diffs, and no key findings.
 - Runtime DDL grep over `server/services`, `server/routes`, and `server/workers` returned no normal path matches.
 - Canonical event cancel/clear patch verification: `npm test` passed, and `node scripts/analyze-schema-state.js` again reported no table/column/index drift.
@@ -51,7 +51,7 @@ Phase 2 continues the database cleanup after PR #84. It adds managed migration c
 
 ## Follow-Up Items
 
-- Run migrations 005-013 in staging/prod once DB env access is available.
+- Run migrations 004-013 in staging/prod once DB env access is available.
 - Restart staging/prod after migration and confirm startup event derived-data recompute logs.
 - Verify `POST /api/events/cancel-by-key` in staging/prod with CreatorDetail clear/cancel actions.
 - Verify `POST /api/creators/:id/operational-facts` in staging/prod after migration 011.

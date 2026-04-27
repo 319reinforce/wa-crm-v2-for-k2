@@ -21,11 +21,12 @@ This note records the production rollout boundary for the MySQL optimize branch:
 
 ## Key Decisions
 
-- Production/staging schema changes require explicit migrations 005 through 013 with the target DB env loaded.
+- Production/staging schema changes require explicit migrations 004 through 013 with the target DB env loaded.
 - The API process does not create or migrate production tables at startup.
-- Container deployments can opt into startup migrations with `DB_MIGRATE_ON_STARTUP=true`; the entrypoint runs migrations 005-013 before `node server/index.cjs`.
-- Non-local DB startup migrations still require `CONFIRM_REMOTE_MIGRATION=1`.
-- `DB_MIGRATION_INCLUDE_004=true` can prepend the event/lifecycle base migration for older environments.
+- Container deployments run startup migrations by default; the entrypoint runs migrations 004-013 before `node server/index.cjs`.
+- Set `DB_MIGRATE_ON_STARTUP=false` only to intentionally skip startup migrations.
+- Startup runner calls `scripts/apply-sql-migrations.cjs --allow-remote`, so no separate `CONFIRM_REMOTE_MIGRATION=1` is required for container startup.
+- `DB_MIGRATION_INCLUDE_004=true` is the default so the event/lifecycle base migration runs with every startup migration sequence.
 - Startup migrations run under a MySQL named lock to avoid multi-container DDL races.
 - Startup recompute is enabled by default unless `STARTUP_EVENT_RECOMPUTE_ENABLED` is disabled.
 - Startup recompute rebuilds `creator_event_snapshot` and `creator_lifecycle_snapshot` from existing facts/events/compatibility data.
@@ -35,7 +36,7 @@ This note records the production rollout boundary for the MySQL optimize branch:
 
 ## Verification Or Rollout Notes
 
-- Local migrations 005-013 were already verified in the implementation branch.
+- Local migrations 004-013 were verified in the implementation branch.
 - Local schema analyzer verification was clean after migration 013.
 - Startup migration runner added: `scripts/run-startup-migrations.cjs`, `scripts/docker-entrypoint.sh`, and `npm run db:migrate:startup`.
 - `013_retention_external_archive_checks.sql` index creation is guarded by information_schema so repeated image restarts remain idempotent.
@@ -49,8 +50,8 @@ This note records the production rollout boundary for the MySQL optimize branch:
 
 ## Follow-Up Items
 
-- Run migrations 005-013 in staging/prod through the approved DB operation path.
-- For container rollout, set `DB_MIGRATE_ON_STARTUP=true`; add `CONFIRM_REMOTE_MIGRATION=1` for external DB hosts.
+- Run migrations 004-013 in staging/prod through the approved DB operation path.
+- For container rollout, leave `DB_MIGRATE_ON_STARTUP` unset or set it to `true`.
 - Run `node scripts/analyze-schema-state.js` after migration.
 - Restart API and confirm startup recompute logs.
 - Keep deprecated `joinbrands_link.ev_*` and `wa_crm_data` fields as fallback until the verification window closes.

@@ -21,11 +21,12 @@ WA CRM v2 deploys as a Node.js + MySQL app. Container images now have an entrypo
 ## Key Decisions
 
 - The Docker image entrypoint is `scripts/docker-entrypoint.sh`.
-- Startup migrations are disabled by default.
-- Set `DB_MIGRATE_ON_STARTUP=true` to run `server/migrations/005_active_event_detection_queue.sql` through `server/migrations/013_retention_external_archive_checks.sql` before `node server/index.cjs`.
-- Set `DB_MIGRATION_INCLUDE_004=true` only for older environments that never received the event/lifecycle base migration.
-- Non-local DB hosts still require `CONFIRM_REMOTE_MIGRATION=1`.
+- Startup migrations run by default.
+- Set `DB_MIGRATE_ON_STARTUP=false` only to skip startup migrations intentionally.
+- The entrypoint runs `server/migrations/004_event_lifecycle_fact_model.sql` through `server/migrations/013_retention_external_archive_checks.sql` before `node server/index.cjs`.
+- `DB_MIGRATION_INCLUDE_004=true` is the default; set it to `false` only when intentionally skipping migration 004.
 - Startup migrations use a MySQL named lock to reduce multi-container DDL race risk.
+- The managed migration sequence is data-preserving: it creates missing schema, adds missing columns/indexes, backfills facts, and upserts retention policy rows; it does not drop, truncate, delete, or run retention purge.
 - `crm.db` and SQLite remain banned.
 
 ## Verification Or Rollout Notes
@@ -41,6 +42,6 @@ WA CRM v2 deploys as a Node.js + MySQL app. Container images now have an entrypo
 
 ## Follow-Up Items
 
-- Enable `DB_MIGRATE_ON_STARTUP=true` only after backup/rollout approval.
+- Leave `DB_MIGRATE_ON_STARTUP` unset for normal container rollout, or set it to `true` explicitly.
 - Confirm startup migration logs before relying on startup event-derived-data recompute.
 - Keep SQL migrations idempotent because the entrypoint path is repeatable on every image/container restart.

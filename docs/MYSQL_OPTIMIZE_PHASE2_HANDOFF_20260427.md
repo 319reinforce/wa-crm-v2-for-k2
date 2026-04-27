@@ -260,10 +260,11 @@ Result: migration 013 applied locally; analyzer reported 60 expected tables, 60 
 
 ## Staging/Prod Runbook
 
-Run with the target DB env loaded. For non-local DB hosts, confirm intent explicitly:
+Run with the target DB env loaded:
 
 ```bash
-CONFIRM_REMOTE_MIGRATION=1 npm run db:migrate:sql -- \
+node scripts/apply-sql-migrations.cjs --allow-remote \
+  server/migrations/004_event_lifecycle_fact_model.sql \
   server/migrations/005_active_event_detection_queue.sql \
   server/migrations/006_managed_runtime_tables.sql \
   server/migrations/007_creator_import_tables.sql \
@@ -290,7 +291,7 @@ If the lifecycle schema or SQL migrations have not been applied, expected startu
 
 ## Remaining Work
 
-1. Run the 005-013 migration sequence against staging and production once DB env access is available.
+1. Run the 004-013 migration sequence against staging and production once DB env access is available.
 2. Restart staging/prod after migration and confirm startup event derived-data recompute logs.
 3. Verify `POST /api/events/cancel-by-key` plus `POST /api/creators/:id/operational-facts` in staging/prod with CreatorDetail edits.
 4. Run retention dry-run in staging/prod and review rollup/candidate samples before any `--apply`.
