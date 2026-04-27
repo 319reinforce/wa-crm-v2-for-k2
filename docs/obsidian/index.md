@@ -25,6 +25,7 @@ Status: Active
 - [[notes/2026-04-27-sse-and-deployment-current|SSE And Deployment Current]]
 - [[notes/2026-04-27-baileys-session-direction|Baileys Session Direction]]
 - [[notes/2026-04-27-database-schema-optimization-plan|Database Schema Optimization Plan]]
+- [[notes/2026-04-27-database-structure-future-optimization-handoff|Database Structure Future Optimization Handoff]]
 - [[notes/2026-04-27-mysql-optimize-handoff|MySQL Optimize Handoff]]
 - [[notes/2026-04-27-mysql-optimize-phase2-handoff|MySQL Optimize Phase 2 Handoff, Operational Facts, Retention Archive Gates]]
 - [[notes/2026-04-27-mysql-optimize-prod-rollout-handoff|MySQL Optimize Prod Rollout Handoff]]
