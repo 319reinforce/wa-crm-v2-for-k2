@@ -123,25 +123,40 @@ Forward writes now populate `creator_id` in the hot paths for:
 | --- | --- |
 | `joinbrands_link.ev_*` | Compatibility cache only. Forward writes go to `events`, `event_evidence`, and `creator_event_snapshot`. |
 | `wa_crm_data.monthly_fee_status` | Derived from `monthly_challenge` event state. Normal UI writes should create/update events. |
-| `wa_crm_data.monthly_fee_amount` | Billing/policy data, not lifecycle state. Keep frozen until a billing fact table or event meta contract is implemented. |
-| `wa_crm_data.video_count` | Challenge progress fact. Use `event_periods.video_count` for period-level progress. |
-| `wa_crm_data.video_target` | Policy target. Derive from `events_policy.policy_json.weekly_target` by owner/event key. |
-| `wa_crm_data.video_last_checked` | Period/progress observation timestamp. Put in `event_periods.meta` or a future progress-check table. |
+| `wa_crm_data.monthly_fee_amount` | Canonical forward owner is `event_billing_facts` with `billing_key='monthly_fee'`. |
+| `wa_crm_data.video_count` | Canonical forward owner is `event_progress_facts` with `progress_key='video_progress'`; period settlement still uses `event_periods.video_count`. |
+| `wa_crm_data.video_target` | Canonical forward owner is `event_progress_facts.video_target` for observed/operator overrides; owner policy defaults can still live in `events_policy`. |
+| `wa_crm_data.video_last_checked` | Canonical forward owner is `event_progress_facts.last_checked_at` / `observed_at`. |
 | `wa_crm_data.agency_bound` | Derived from `agency_bound` event state. |
 | `wa_crm_data.agency_bound_at` | Event date / verification metadata for `agency_bound`. |
-| `wa_crm_data.agency_deadline` | Deadline/schedule metadata. Keep frozen until deadline ownership is added to event meta or a dedicated schedule table. |
+| `wa_crm_data.agency_deadline` | Canonical forward owner is `event_deadline_facts` with `deadline_key='agency_deadline'`. |
+
+Migration 011 adds the three fact tables and backfills existing `wa_crm_data` values with `source_kind='migration'`. Forward writes use:
+
+- `POST /api/creators/:id/operational-facts` for CreatorDetail amount/progress/deadline edits.
+- `PUT /api/creators/:id/wacrm` compatibility handling for old clients; mapped operational fields are diverted into facts while deprecated legacy columns stay frozen unless `ALLOW_LEGACY_LIFECYCLE_WRITES=1`.
+- `GET /api/creators/:id` returns `operational_facts` and projects latest canonical facts into `wacrm` for existing UI/read compatibility.
 
 ## Retention And Archive Policy
 
 | Data | Hot window | Archive / cold policy | Keep exceptions |
 | --- | --- | --- | --- |
-| `generation_log` | 90 days full detail | Roll up success/latency/provider stats after 90 days; keep rows linked to approved SFT examples or incidents. | rows linked from `sft_memory.generation_log_id` |
-| `retrieval_snapshot` | 90 days full context | Compress or redact rich context after 90-180 days; retain hash and metadata. | rows linked from `sft_memory.retrieval_snapshot_id` |
-| `ai_usage_logs` | 180 days raw | Keep `ai_usage_daily` aggregates long term. | billing disputes / launch experiments |
-| `audit_log` | 365+ days | Keep longer than product logs; archive by month rather than delete during active ops. | security/admin actions |
-| `wa_messages` | 180-365 days in hot DB | Archive old inactive creator conversations by creator/month. | messages referenced by events, evidence, SFT, or active lifecycle state |
-| `wa_group_messages` | 90-180 days in hot DB | Archive by group/month; group noise can age out faster than 1:1 messages. | messages linked to creator evidence or incidents |
-| `media_assets` and files | existing default 30-day retention | Soft delete to `storage_tier=deleted`, then purge after configured grace window. | `cleanup_exemptions`, event/SFT references, active templates |
+| `generation_log` | 90 days full detail | Mark archive refs after 90 days; no hard delete in this job. | rows linked from `sft_memory.generation_log_id` |
+| `retrieval_snapshot` | 90 days full context | Mark archive refs after 90 days; no hard delete in this job. | rows linked from `sft_memory.retrieval_snapshot_id` |
+| `ai_usage_logs` | 180 days raw | Mark archive refs after 180 days; daily rollup can be added later. | billing disputes / launch experiments |
+| `audit_log` | 365+ days | Archive refs by record; never hard delete from this job. | security/admin actions |
+| `wa_messages` | 365 days in hot DB | Archive refs by creator/month follow-up; current job records archive refs only. | messages referenced by events, evidence, SFT, or active lifecycle state |
+| `wa_group_messages` | 180 days in hot DB | Archive refs by group/month follow-up; current job records archive refs only. | messages linked to creator evidence or incidents |
+| `media_assets` and files | existing default 30-day retention | `--apply` moves eligible hot active assets to `storage_tier='cold'` and writes archive refs; no file delete. | `cleanup_exemptions`, event/SFT references, active templates |
+
+Migration 011 seeds `data_retention_policies`, `data_retention_runs`, and `data_retention_archive_refs`. The runner is intentionally conservative:
+
+```bash
+node scripts/run-retention-archive-jobs.cjs --dry-run
+node scripts/run-retention-archive-jobs.cjs --apply --policy=media_assets_30d --limit=100
+```
+
+Dry-run does not write run records, archive refs, or media tier updates. Apply mode writes `data_retention_runs` plus `data_retention_archive_refs`; media apply only marks eligible assets cold.
 
 ## Verification
 
@@ -185,7 +200,17 @@ node scripts/analyze-schema-state.js
 
 Result: smoke test passed; analyzer reported 52 expected tables, 52 actual tables, no missing/extra tables, no column diffs, no index diffs, and no key findings.
 
-The startup recompute service was checked with `node --check server/services/eventDerivedDataRecomputeService.js`, `node --check server/index.cjs`, `npm run build`, and `npm run test:unit`. The follow-up schema analyzer run in this desktop session was blocked by local sandbox network restrictions to `127.0.0.1:3306`; this patch does not change schema files.
+The startup recompute service was checked with `node --check server/services/eventDerivedDataRecomputeService.js`, `node --check server/index.cjs`, `npm run build`, and `npm run test:unit`.
+
+Additional local verification for migration 011:
+
+```bash
+npm run db:migrate:sql -- server/migrations/011_billing_progress_deadline_retention.sql
+node scripts/analyze-schema-state.js
+node scripts/run-retention-archive-jobs.cjs --dry-run --limit=5
+```
+
+Result: migration 011 applied locally after a collation guard fix; analyzer reported 58 expected tables, 58 actual tables, no missing/extra tables, no column diffs, no index diffs, and no key findings. Retention dry-run returned all seven seeded policies with zero local candidates and no writes.
 
 ## Staging/Prod Runbook
 
@@ -198,9 +223,11 @@ CONFIRM_REMOTE_MIGRATION=1 npm run db:migrate:sql -- \
   server/migrations/007_creator_import_tables.sql \
   server/migrations/008_template_media_training_tables.sql \
   server/migrations/009_ai_profile_creator_id_backfill.sql \
-  server/migrations/010_schema_index_backfill.sql
+  server/migrations/010_schema_index_backfill.sql \
+  server/migrations/011_billing_progress_deadline_retention.sql
 
 node scripts/analyze-schema-state.js
+node scripts/run-retention-archive-jobs.cjs --dry-run
 ```
 
 Expected analyzer result: no missing tables, no extra tables, no column diffs, no index diffs, no key findings.
@@ -215,11 +242,11 @@ If the lifecycle schema or SQL migrations have not been applied, expected startu
 
 ## Remaining Work
 
-1. Run the 005-010 migration sequence against staging and production once DB env access is available.
+1. Run the 005-011 migration sequence against staging and production once DB env access is available.
 2. Restart staging/prod after migration and confirm startup event derived-data recompute logs.
-3. Verify `POST /api/events/cancel-by-key` in staging/prod with CreatorDetail clear/cancel lifecycle edits.
-4. Implement canonical billing/progress ownership for `monthly_fee_amount`, `video_count`, `video_target`, `video_last_checked`, and agency deadlines.
-5. Add retention/archive jobs after the policy is approved, starting with generation/retrieval logs and media.
+3. Verify `POST /api/events/cancel-by-key` plus `POST /api/creators/:id/operational-facts` in staging/prod with CreatorDetail edits.
+4. Run retention dry-run in staging/prod and review candidate samples before any `--apply`.
+5. Add daily/monthly aggregate jobs for `ai_usage_logs`, `wa_messages`, and `wa_group_messages` after archive ref counts are validated.
 6. After a verification window, remove read dependence on `joinbrands_link.ev_*` and narrow deprecated lifecycle fields in `wa_crm_data`.
 
 ## Obsidian Sync

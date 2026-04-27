@@ -409,6 +409,88 @@ CREATE UNIQUE INDEX idx_exemptions_asset ON cleanup_exemptions(media_asset_id);
 CREATE INDEX idx_exemptions_expiry ON cleanup_exemptions(expires_at);
 
 -- ============================================================
+-- Data Retention Policies / Runs / Archive Refs — 数据保留与归档任务
+-- ============================================================
+CREATE TABLE IF NOT EXISTS data_retention_policies (
+    policy_key          VARCHAR(64) PRIMARY KEY,
+    table_name          VARCHAR(64) NOT NULL,
+    date_column         VARCHAR(64) NOT NULL DEFAULT 'created_at',
+    hot_window_days     INT NOT NULL,
+    archive_after_days  INT NOT NULL,
+    purge_after_days    INT NULL,
+    archive_mode        VARCHAR(32) NOT NULL DEFAULT 'reference_only',
+    batch_size          INT NOT NULL DEFAULT 500,
+    enabled             TINYINT(1) NOT NULL DEFAULT 1,
+    config_json         JSON NULL,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_retention_policy_table ON data_retention_policies(table_name);
+CREATE INDEX idx_retention_policy_enabled ON data_retention_policies(enabled);
+
+CREATE TABLE IF NOT EXISTS data_retention_runs (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    policy_key          VARCHAR(64) NOT NULL,
+    status              VARCHAR(24) NOT NULL DEFAULT 'running',
+    dry_run             TINYINT(1) NOT NULL DEFAULT 1,
+    scanned_count       INT NOT NULL DEFAULT 0,
+    archived_count      INT NOT NULL DEFAULT 0,
+    purged_count         INT NOT NULL DEFAULT 0,
+    skipped_count        INT NOT NULL DEFAULT 0,
+    error_count          INT NOT NULL DEFAULT 0,
+    error_message        TEXT NULL,
+    started_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at        DATETIME NULL,
+    triggered_by        VARCHAR(64) NOT NULL DEFAULT 'system',
+    meta_json           JSON NULL,
+    CONSTRAINT fk_retention_run_policy FOREIGN KEY (policy_key) REFERENCES data_retention_policies(policy_key) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_retention_runs_policy_time ON data_retention_runs(policy_key, started_at);
+CREATE INDEX idx_retention_runs_status ON data_retention_runs(status);
+
+CREATE TABLE IF NOT EXISTS data_retention_archive_refs (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    policy_key          VARCHAR(64) NOT NULL,
+    run_id              BIGINT NULL,
+    table_name          VARCHAR(64) NOT NULL,
+    record_id           VARCHAR(128) NOT NULL,
+    action              VARCHAR(32) NOT NULL DEFAULT 'archive_mark',
+    record_created_at   DATETIME NULL,
+    archived_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    meta_json           JSON NULL,
+    CONSTRAINT fk_retention_archive_policy FOREIGN KEY (policy_key) REFERENCES data_retention_policies(policy_key) ON DELETE RESTRICT,
+    CONSTRAINT fk_retention_archive_run FOREIGN KEY (run_id) REFERENCES data_retention_runs(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE UNIQUE INDEX uk_retention_archive_ref ON data_retention_archive_refs(policy_key, table_name, record_id, action);
+CREATE INDEX idx_retention_archive_run ON data_retention_archive_refs(run_id);
+CREATE INDEX idx_retention_archive_table_time ON data_retention_archive_refs(table_name, archived_at);
+
+INSERT INTO data_retention_policies (
+    policy_key, table_name, date_column, hot_window_days, archive_after_days, purge_after_days, archive_mode, batch_size, enabled, config_json
+) VALUES
+('generation_log_90d', 'generation_log', 'created_at', 90, 90, NULL, 'reference_only', 500, 1, JSON_OBJECT('keep_if_linked_table', 'sft_memory', 'keep_if_linked_column', 'generation_log_id')),
+('retrieval_snapshot_90d', 'retrieval_snapshot', 'created_at', 90, 90, NULL, 'reference_only', 500, 1, JSON_OBJECT('keep_if_linked_table', 'sft_memory', 'keep_if_linked_column', 'retrieval_snapshot_id')),
+('ai_usage_logs_180d', 'ai_usage_logs', 'created_at', 180, 180, NULL, 'daily_rollup_then_reference', 1000, 1, JSON_OBJECT('rollup_table', 'ai_usage_daily')),
+('audit_log_365d', 'audit_log', 'created_at', 365, 365, NULL, 'monthly_archive_reference', 500, 1, JSON_OBJECT('no_delete', true)),
+('wa_messages_365d', 'wa_messages', 'created_at', 365, 365, NULL, 'creator_month_reference', 500, 1, JSON_OBJECT('keep_event_evidence', true)),
+('wa_group_messages_180d', 'wa_group_messages', 'created_at', 180, 180, NULL, 'group_month_reference', 500, 1, JSON_OBJECT('keep_creator_evidence', true)),
+('media_assets_30d', 'media_assets', 'created_at', 30, 30, NULL, 'media_tier_cold', 250, 1, JSON_OBJECT('respect_cleanup_exemptions', true))
+ON DUPLICATE KEY UPDATE
+    table_name = VALUES(table_name),
+    date_column = VALUES(date_column),
+    hot_window_days = VALUES(hot_window_days),
+    archive_after_days = VALUES(archive_after_days),
+    purge_after_days = VALUES(purge_after_days),
+    archive_mode = VALUES(archive_mode),
+    batch_size = VALUES(batch_size),
+    enabled = VALUES(enabled),
+    config_json = VALUES(config_json),
+    updated_at = CURRENT_TIMESTAMP;
+
+-- ============================================================
 -- Media Send Log — 图片发送日志
 -- ============================================================
 CREATE TABLE IF NOT EXISTS media_send_log (
@@ -952,6 +1034,87 @@ CREATE TABLE IF NOT EXISTS event_periods (
 
 CREATE INDEX idx_periods_event ON event_periods(event_id);
 CREATE INDEX idx_periods_status ON event_periods(status);
+
+-- ============================================================
+-- Event Billing Facts — 费用事实归属（月费金额等）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS event_billing_facts (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NOT NULL,
+    event_id            INT NULL,
+    event_key           VARCHAR(64) NOT NULL DEFAULT 'monthly_challenge',
+    billing_key         VARCHAR(64) NOT NULL DEFAULT 'monthly_fee',
+    amount              DECIMAL(12,2) NULL,
+    currency            VARCHAR(8) NOT NULL DEFAULT 'USD',
+    billing_status      VARCHAR(32) NULL,
+    effective_at        DATETIME NULL,
+    source_kind         VARCHAR(32) NOT NULL DEFAULT 'operator',
+    source_record_id    VARCHAR(128) NULL,
+    meta_json           JSON NULL,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_event_billing_fact_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE,
+    CONSTRAINT fk_event_billing_fact_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_event_billing_creator_key ON event_billing_facts(creator_id, billing_key, created_at);
+CREATE INDEX idx_event_billing_event ON event_billing_facts(event_id);
+CREATE INDEX idx_event_billing_effective ON event_billing_facts(effective_at);
+CREATE INDEX idx_event_billing_source ON event_billing_facts(source_kind, source_record_id);
+
+-- ============================================================
+-- Event Progress Facts — 进度事实归属（视频数/目标/检查时间）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS event_progress_facts (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NOT NULL,
+    event_id            INT NULL,
+    event_key           VARCHAR(64) NOT NULL DEFAULT 'monthly_challenge',
+    progress_key        VARCHAR(64) NOT NULL DEFAULT 'video_progress',
+    period_start        DATETIME NULL,
+    period_end          DATETIME NULL,
+    video_count         INT NULL,
+    video_target        INT NULL,
+    last_checked_at     DATETIME NULL,
+    observed_at         DATETIME NULL,
+    source_kind         VARCHAR(32) NOT NULL DEFAULT 'operator',
+    source_record_id    VARCHAR(128) NULL,
+    meta_json           JSON NULL,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_event_progress_fact_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE,
+    CONSTRAINT fk_event_progress_fact_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_event_progress_creator_key ON event_progress_facts(creator_id, progress_key, created_at);
+CREATE INDEX idx_event_progress_event ON event_progress_facts(event_id);
+CREATE INDEX idx_event_progress_observed ON event_progress_facts(observed_at);
+CREATE INDEX idx_event_progress_source ON event_progress_facts(source_kind, source_record_id);
+
+-- ============================================================
+-- Event Deadline Facts — 截止时间事实归属（agency deadline 等）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS event_deadline_facts (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NOT NULL,
+    event_id            INT NULL,
+    event_key           VARCHAR(64) NOT NULL DEFAULT 'agency_bound',
+    deadline_key        VARCHAR(64) NOT NULL DEFAULT 'agency_deadline',
+    deadline_at         DATETIME NULL,
+    status              VARCHAR(24) NOT NULL DEFAULT 'active',
+    source_kind         VARCHAR(32) NOT NULL DEFAULT 'operator',
+    source_record_id    VARCHAR(128) NULL,
+    meta_json           JSON NULL,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_event_deadline_fact_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE,
+    CONSTRAINT fk_event_deadline_fact_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_event_deadline_creator_key ON event_deadline_facts(creator_id, deadline_key, created_at);
+CREATE INDEX idx_event_deadline_event ON event_deadline_facts(event_id);
+CREATE INDEX idx_event_deadline_at ON event_deadline_facts(deadline_at);
+CREATE INDEX idx_event_deadline_source ON event_deadline_facts(source_kind, source_record_id);
 
 -- ============================================================
 -- Events Policy — 事件策略配置
