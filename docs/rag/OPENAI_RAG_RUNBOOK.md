@@ -118,5 +118,5 @@ npm run sft:align:rules -- --apply
 ## Obsidian Sync
 
 - Status: synced
-- Note: `docs/obsidian/notes/2026-04-25-obsidian-memory-standard.md`
+- Note: `docs/obsidian/notes/2026-04-27-rag-knowledge-source-docs.md`
 - Index: `docs/obsidian/index.md`

@@ -8,10 +8,14 @@ Status: Active
 - [[notes/2026-04-25-obsidian-memory-standard|Obsidian Memory Standard]]
 - [[notes/2026-04-25-agent-onboarding-and-bot-integration|Agent Onboarding And Bot Integration]]
 - [[notes/2026-04-25-docs-index-and-core-modules|Docs Index And Core Modules]]
+- [[notes/2026-04-27-document-retention-audit|Documentation Retention Audit]]
+- [[notes/2026-04-27-rag-knowledge-source-docs|RAG Knowledge Source Docs]]
 
 ## Implementation Baselines
 
 - [[notes/2026-04-16-sft-project-baseline|SFT Project Baseline]]
+- [[notes/2026-04-27-runtime-architecture-docs|Runtime Architecture Docs]]
+- [[notes/2026-04-27-database-schema-optimization-plan|Database Schema Optimization Plan]]
 - [[notes/2026-04-25-event-lifecycle-data-model|Event Lifecycle Data Model]]
 - [[notes/2026-04-25-event-lifecycle-handoff|Event Lifecycle Handoff]]
 - [[notes/2026-04-25-event-lifecycle-backfill-handoff|Event Lifecycle Backfill Handoff]]
@@ -20,12 +24,14 @@ Status: Active
 - [[notes/2026-04-25-worktree-remediation-plan|Worktree Remediation Plan]]
 - [[notes/2026-04-26-creator-import-welcome-handoff|Creator Import Welcome Handoff]]
 - [[notes/2026-04-26-template-custom-topic-handoff|Template Custom Topic Handoff]]
+- [[notes/2026-04-27-recent-branch-doc-mapping|Recent Branch Doc Mapping]]
 
 ## Historical Backfills
 
 - [[notes/2026-04-16-legacy-cleanup-memory|Legacy Cleanup Memory]]
 - [[notes/2026-04-16-reply-generation-refactor-memory|Reply Generation Refactor Memory]]
 - [[notes/2026-04-16-code-review-archive|Code Review Archive]]
+- [[notes/2026-04-27-pre-20260420-docs-archive|Pre-20260420 Docs Archive]]
 
 ## Index Maintenance
 

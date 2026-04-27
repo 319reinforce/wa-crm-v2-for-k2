@@ -286,7 +286,7 @@ POST /api/experience/route
 1. 先读 `docs/DOCS_INDEX.md`（文档总索引）
 2. 再读 `docs/CORE_MODULES_OVERVIEW.md`（模块施工边界）
 3. 深入业务链路时读 `SFT_PROJECT.md`
-4. 查 `CODE_REVIEW.md`（历史 review 入口，需结合 2026-04-16 finding/fix 文档）
+4. 查 `docs/DOCS_INDEX.md` 与相关 dated handoff；2026-04-20 前 review/security 历史只看 `docs/archive/PRE_20260420_DOCS_ARCHIVE.md`
 5. 调用 `GET /api/health` 确认服务状态
 6. 调用 `GET /api/audit-log?limit=5` 查看最近操作
 

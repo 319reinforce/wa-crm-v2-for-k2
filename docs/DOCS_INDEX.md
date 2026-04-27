@@ -15,16 +15,18 @@ Read in this order:
 4. `docs/CORE_MODULES_OVERVIEW.md` - current module map.
 5. `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` - latest event/lifecycle backfill and review UI progress.
 6. `docs/OBSIDIAN_MEMORY_STANDARD.md` - Obsidian memory and sync standard.
+7. `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` - current documentation retention and cleanup record.
 
 ## Core Architecture
 
 | Document | Purpose |
 | --- | --- |
 | `docs/CORE_MODULES_OVERVIEW.md` | Current map of the most important modules and ownership boundaries. |
+| `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md` | Database schema ownership, compatibility cleanup, and staged optimization plan. |
 | `docs/AI_REPLY_GENERATION_SYSTEM.md` | AI reply generation architecture. |
 | `docs/SFT_RLHF_PIPELINE.md` | SFT/RLHF collection, export, and rollout flow. |
 | `docs/RLHF_ONBOARDING.md` | RLHF onboarding and operator workflow. |
-| `docs/PROJECT_ANALYSIS.md` | Historical project analysis and review context. |
+| `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` | Consolidated 2026-04-20-and-earlier review/security/runtime archive; not a current defect list. |
 
 ## Event And Lifecycle
 
@@ -36,8 +38,6 @@ Read in this order:
 | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Active event-detection queue, message-supplement integration, dry-run/write rollout, and local audit handoff. |
 | `docs/LIFECYCLE_REFACTOR_PRD.md` | Larger lifecycle refactor plan. |
 | `docs/LIFECYCLE_EVENT_STRATEGY_HANDOFF_20260424.md` | Event strategy handoff before the fact-model PRD. |
-| `docs/EVENT_SYSTEM.md` | Event system implementation notes. |
-| `docs/EVENT_SYSTEM_REQUIREMENTS.md` | Earlier event requirements. |
 | `docs/EVENT_DECISION_TABLE.md` | Event decision table. |
 | `docs/sql/event_lifecycle_audit_20260425.sql` | Audit SQL for event/lifecycle data checks. |
 
@@ -71,9 +71,7 @@ Read in this order:
 | `docs/rag/OPENAI_RAG_RUNBOOK.md` | OpenAI hosted RAG runbook. |
 | `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md` | Deterministic local rule retrieval design. |
 | `docs/rag/LOCAL_RULE_IMPLEMENTATION_20260420.md` | Local rule retrieval implementation notes. |
-| `docs/rag/RUNTIME_ALIGNMENT_20260416.md` | RAG/runtime alignment dated handoff. |
 | `docs/rag/APRIL_DOC_CONFIG_MAPPING_20260420.md` | April SOP/config mapping. |
-| `docs/rag/SESSION_SUMMARY_20260420.md` | RAG session summary. |
 | `docs/rag/knowledge-manifest.json` | Active knowledge-source manifest. |
 | `docs/rag/sources/` | Approved/draft policy, SOP, FAQ, and playbook sources. |
 | `docs/rag/templates/` | Knowledge source templates. |
@@ -83,16 +81,8 @@ Read in this order:
 
 | Document | Purpose |
 | --- | --- |
-| `CODE_REVIEW.md` | Historical review archive; do not treat as current defect list without checking dated reports. |
-| `docs/CODE_REVIEW_FINDINGS_20260416.md` | Current dated review findings. |
-| `docs/REVIEW_FIX_REPORT_20260416.md` | Review fix report and verification. |
-| `docs/SECURITY_FIX_PLAN.md` | Security fix plan. |
-| `docs/SECURITY_FIX_REPORT.md` | Security fix report. |
-| `docs/SECURITY_CHANGES_20260416.md` | Security change log. |
-| `docs/SECURITY_CHANGES_2026-04-16.md` | Duplicate dated security change log; keep until consolidated. |
-| `docs/CLEANUP_HISTORY_20260416.md` | Cleanup history and session audit. |
-| `docs/LEGACY_CLEANUP_LOG.md` | Legacy cleanup log. |
-| `docs/HISTORICAL_REPORTS_ARCHIVE.md` | Archive of historical report conclusions. |
+| `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` | Consolidated archive for pre-2026-04-20 code review, security, cleanup, event, runtime, and dirty-data docs. |
+| `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` | Documentation retention decision log and cleanup verification. |
 
 ## Obsidian Memory
 
@@ -103,20 +93,21 @@ Read in this order:
 | `docs/obsidian/notes/` | Dated memory notes. |
 | `docs/obsidian/templates/MEMORY_NOTE_TEMPLATE.md` | Memory note template. |
 
-## Worktree Planning
+## Worktree And Documentation Planning
 
 | Document | Purpose |
 | --- | --- |
 | `docs/WORKTREE_REMEDIATION_PLAN_20260425.md` | Plan for current code conflicts and non-document changes. |
+| `docs/RECENT_BRANCH_DOC_MAPPING_20260427.md` | Recent Gitea branch, PR, archive tag, and handoff/Obsidian mapping. |
+| `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` | Current documentation retention audit, Obsidian fill-in summary, and executed cleanup record. |
 
-## Cleanup Candidates
+## Archived Or Removed Pre-2026-04-20 Docs
 
-These docs are useful but should eventually be consolidated:
+The current cleanup authority is `docs/DOCUMENT_RETENTION_AUDIT_20260427.md`.
 
-- `docs/SECURITY_CHANGES_20260416.md` and `docs/SECURITY_CHANGES_2026-04-16.md` appear to overlap.
-- `docs/EVENT_SYSTEM.md`, `docs/EVENT_SYSTEM_REQUIREMENTS.md`, and `docs/LIFECYCLE_REFACTOR_PRD.md` should be cross-checked against `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md`.
-- `CODE_REVIEW.md` should eventually become a short index to dated review reports.
-- Old SFT rollout sections should be reconciled with the current `replyGenerationService` path.
+Pre-2026-04-20 docs that could distract future development were consolidated into `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` and removed from active indexes. Use that archive only for historical rationale, not for current module ownership or defect status.
+
+Current docs retained from the 2026-04-20 boundary include the RAG local rule design/implementation docs because `localRuleRetrievalService` and template/media routing still depend on them.
 
 ## Obsidian Sync
 

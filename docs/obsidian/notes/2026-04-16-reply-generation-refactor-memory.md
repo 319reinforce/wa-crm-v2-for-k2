@@ -3,7 +3,7 @@ title: Reply Generation Refactor Memory
 date: 2026-04-16
 project: wa-crm-v2
 type: status
-source_path: docs/REPLY_GENERATION_REFACTOR_MEMORY_20260416.md
+source_path: docs/archive/PRE_20260420_DOCS_ARCHIVE.md
 status: historical
 tags:
   - wa-crm-v2
@@ -15,7 +15,7 @@ tags:
 
 ## Summary
 
-The reply generation refactor unified AI candidate generation into `replyGenerationService` and added SFT generation tracking fields.
+The reply generation refactor unified AI candidate generation into `replyGenerationService` and added SFT generation tracking fields. The original 2026-04-16 source docs were consolidated into the pre-2026-04-20 archive on 2026-04-27.
 
 ## Key Decisions
 
@@ -26,11 +26,11 @@ The reply generation refactor unified AI candidate generation into `replyGenerat
 
 ## Source
 
-- Source document: `docs/REPLY_GENERATION_REFACTOR_MEMORY_20260416.md`
+- Source archive: `docs/archive/PRE_20260420_DOCS_ARCHIVE.md`
 
 ## Verification
 
-- Source document records syntax checks, build, tests, and migration execution.
+- Consolidated archive records the original verification at a summary level.
 
 ## Follow-Ups
 

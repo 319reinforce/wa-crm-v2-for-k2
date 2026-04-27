@@ -59,7 +59,7 @@ Scope:
 - `CLAUDE.md`
 - `BOT_INTEGRATION.md`
 - `SFT_PROJECT.md`
-- `CODE_REVIEW.md`
+- `docs/archive/PRE_20260420_DOCS_ARCHIVE.md`
 - `docs/DOCS_INDEX.md`
 - `docs/CORE_MODULES_OVERVIEW.md`
 - `docs/OBSIDIAN_MEMORY_STANDARD.md`
@@ -75,7 +75,7 @@ Goal:
 Validation:
 
 ```bash
-git diff --check -- AGENTS.md CLAUDE.md BOT_INTEGRATION.md SFT_PROJECT.md CODE_REVIEW.md docs
+git diff --check -- AGENTS.md CLAUDE.md BOT_INTEGRATION.md SFT_PROJECT.md docs
 rg -n "Obsidian Sync|docs/obsidian|OBSIDIAN_MEMORY_STANDARD" -g '*.md'
 ```
 
