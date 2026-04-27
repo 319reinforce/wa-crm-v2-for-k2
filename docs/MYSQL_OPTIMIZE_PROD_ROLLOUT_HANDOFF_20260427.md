@@ -10,12 +10,13 @@ MySQL 优化上线 Handoff：历史重算与线上 Schema 应用确认
 
 ## 描述
 
-本文用于交接 `codex/mysqloptimize-autorecompute-events` 分支上线前后的数据库行为，重点回答两个问题：
+本文用于交接 `codex/mysqloptimize-autorecompute-events` 分支上线前后的数据库行为，重点回答三个问题：
 
 1. 线上服务上线并重启后，是否会对历史事件派生数据做 rebuild。
 2. 线上数据库结构是否会被本次修改自动应用，还是需要单独执行 migration。
+3. 如果使用容器镜像重启，如何自动执行 managed migrations。
 
-结论先写在这里：代码上线后会自动尝试重算历史派生状态，但前提是目标库已经具备所需 schema；线上数据库结构不会被 API 进程自动修改，必须由拥有线上数据库权限的操作人或部署流水线显式执行 SQL migrations。
+结论先写在这里：代码上线后会自动尝试重算历史派生状态，但前提是目标库已经具备所需 schema；API 进程本身不会偷偷修改线上数据库结构。已有数据库必须通过显式 migration 流程更新；如果是容器部署，可以设置 `DB_MIGRATE_ON_STARTUP=true`，让镜像 entrypoint 在启动 Node 服务前自动执行 managed migrations。
 
 ## 1. 线上上线后是否会对历史 rebuild
 
@@ -62,7 +63,15 @@ MySQL 优化上线 Handoff：历史重算与线上 Schema 应用确认
 
 ## 2. 线上数据库结构是否会应用修改
 
-不会自动应用。`schema.sql` 是主 schema/source of truth，适合新环境或完整初始化；已有 staging/prod 数据库必须显式执行 migration 才会拿到这次表、列、索引和种子策略更新。
+默认不会自动应用。`schema.sql` 是主 schema/source of truth，适合新环境或完整初始化；已有 staging/prod 数据库必须显式执行 migration 才会拿到这次表、列、索引和种子策略更新。
+
+本分支新增了容器启动 migration runner：
+
+- `scripts/docker-entrypoint.sh`
+- `scripts/run-startup-migrations.cjs`
+- `npm run db:migrate:startup`
+
+默认 `DB_MIGRATE_ON_STARTUP=false`，entrypoint 只打印 skip 日志，不改数据库。设置 `DB_MIGRATE_ON_STARTUP=true` 后，容器每次启动会先执行 migration，再 `exec node server/index.cjs`。
 
 本分支涉及的目标环境 migration 顺序是：
 
@@ -81,6 +90,21 @@ CONFIRM_REMOTE_MIGRATION=1 npm run db:migrate:sql -- \
 
 `scripts/apply-sql-migrations.cjs` 对非本地 DB_HOST 有保护：如果目标不是 `127.0.0.1`、`localhost`、`::1` 或 `mysql`，必须设置 `CONFIRM_REMOTE_MIGRATION=1` 或传 `--allow-remote`，否则脚本会拒绝执行。这是为了避免误打线上库。
 
+容器启动 runner 复用同一个保护规则。远端 DB 自动 migration 需要同时满足：
+
+```bash
+DB_MIGRATE_ON_STARTUP=true
+CONFIRM_REMOTE_MIGRATION=1
+```
+
+如果线上库缺少 004 event/lifecycle 基础 migration，可在首次 rollout 前额外设置：
+
+```bash
+DB_MIGRATION_INCLUDE_004=true
+```
+
+为避免多副本同时启动产生 DDL 竞争，runner 会在执行 SQL 前获取 MySQL named lock：`wa_crm_v2_schema_migrations:<DB_NAME>`。`013_retention_external_archive_checks.sql` 的索引创建也已经改成 information_schema guard，支持每次重启重复执行。
+
 我这里没有、也不会要求你提供 staging/prod 数据库凭据。因此当前仓库内能确认的是：
 
 - 本地 MySQL 已验证 migration 005-013。
@@ -92,7 +116,7 @@ CONFIRM_REMOTE_MIGRATION=1 npm run db:migrate:sql -- \
 
 1. 在 staging/prod 执行数据库备份或确认回滚点。
 2. 加载目标环境 DB env。
-3. 按顺序执行 migration 005-013。
+3. 按顺序执行 migration 005-013，或在容器环境设置 `DB_MIGRATE_ON_STARTUP=true` 后重启镜像。
 4. 执行 `node scripts/analyze-schema-state.js`，期望无 missing table、extra table、column diff、index diff。
 5. 执行 `node scripts/run-retention-archive-jobs.cjs --dry-run`，只看归档/清理预览，不做 apply。
 6. 部署本分支代码。
@@ -110,6 +134,7 @@ CONFIRM_REMOTE_MIGRATION=1 npm run db:migrate:sql -- \
 ## 5. 风险和回滚边界
 
 - 如果 migration 未执行，API 可以启动，但启动 rebuild 会跳过，依赖新表的写入接口可能返回 schema readiness 错误。
+- 如果 `DB_MIGRATE_ON_STARTUP=true` 且 migration 失败，entrypoint 会阻止 Node 服务启动，避免半迁移状态继续对外服务。
 - 如果启动 rebuild 对线上压力过大，可以先设置 `STARTUP_EVENT_RECOMPUTE_MAX_CREATORS` 做 canary，或设置 `STARTUP_EVENT_RECOMPUTE_ENABLED=false` 临时关闭。
 - 旧 deprecated 字段仍保留为兼容读 fallback，不建议在验证窗口结束前删除列。
 - WA 消息硬删除必须先完成外部归档校验；没有 manifest sha256 和覆盖 cutoff 的 verified 记录时，不应执行 `--apply --purge`。

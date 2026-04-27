@@ -19,6 +19,8 @@ services:
       DB_USER: ${DB_USER:-root}
       DB_PASSWORD: ${DB_PASSWORD:-wa_crm_password}
       DB_NAME: ${DB_NAME:-wa_crm_v2}
+      DB_MIGRATE_ON_STARTUP: ${DB_MIGRATE_ON_STARTUP:-false}
+      DB_MIGRATION_ANALYZE_AFTER: ${DB_MIGRATION_ANALYZE_AFTER:-false}
       WA_SESSION_ID: ${WA_SESSION_ID:-beau}
       WA_OWNER: ${WA_OWNER:-Beau}
       WA_API_BASE: ${WA_API_BASE:-http://wa-crm:${PORT:-3000}}
