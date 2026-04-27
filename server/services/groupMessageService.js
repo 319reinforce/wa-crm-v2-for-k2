@@ -3,6 +3,7 @@ const { sha256 } = require('../utils/crypto');
 const { normalizeMessageText, toTimestampMs } = require('./messageDedupService');
 
 let schemaReady = false;
+const REQUIRED_GROUP_MESSAGE_TABLES = ['wa_group_chats', 'wa_group_messages'];
 
 function normalizeRole(value) {
     return value === 'me' ? 'me' : 'user';
@@ -126,47 +127,17 @@ async function findScopedGroupConflicts(dbConn, {
 
 async function ensureGroupMessageSchema(dbConn = db.getDb()) {
     if (schemaReady) return;
-    await dbConn.prepare(`
-        CREATE TABLE IF NOT EXISTS wa_group_chats (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            session_id VARCHAR(64) NOT NULL,
-            operator VARCHAR(32) DEFAULT NULL,
-            chat_id VARCHAR(128) NOT NULL,
-            group_name VARCHAR(255) DEFAULT NULL,
-            last_active BIGINT DEFAULT NULL,
-            last_synced DATETIME DEFAULT CURRENT_TIMESTAMP,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY uk_session_chat (session_id, chat_id),
-            KEY idx_group_operator (operator),
-            KEY idx_group_last_active (last_active)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `).run();
-    await dbConn.prepare(`
-        CREATE TABLE IF NOT EXISTS wa_group_messages (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            group_chat_id BIGINT NOT NULL,
-            session_id VARCHAR(64) NOT NULL,
-            operator VARCHAR(32) DEFAULT NULL,
-            chat_id VARCHAR(128) NOT NULL,
-            role VARCHAR(16) NOT NULL,
-            author_jid VARCHAR(128) DEFAULT NULL,
-            author_phone VARCHAR(64) DEFAULT NULL,
-            author_name VARCHAR(255) DEFAULT NULL,
-            text TEXT,
-            timestamp BIGINT NOT NULL,
-            message_hash VARCHAR(64) NOT NULL,
-            message_fingerprint VARCHAR(64) NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY uk_group_message (group_chat_id, message_hash),
-            KEY idx_group_messages_chat_ts (group_chat_id, timestamp DESC),
-            KEY idx_group_messages_session_fp (session_id, message_fingerprint),
-            KEY idx_group_messages_operator_fp (operator, message_fingerprint),
-            CONSTRAINT fk_group_messages_chat
-                FOREIGN KEY (group_chat_id) REFERENCES wa_group_chats(id)
-                ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `).run();
+    const rows = await dbConn.prepare(`
+        SELECT TABLE_NAME AS table_name
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME IN (${REQUIRED_GROUP_MESSAGE_TABLES.map(() => '?').join(', ')})
+    `).all(...REQUIRED_GROUP_MESSAGE_TABLES);
+    const existing = new Set(rows.map((row) => row.table_name));
+    const missing = REQUIRED_GROUP_MESSAGE_TABLES.filter((table) => !existing.has(table));
+    if (missing.length > 0) {
+        throw new Error(`WA group message schema is missing ${missing.join(', ')}; run server/migrations/006_managed_runtime_tables.sql`);
+    }
     schemaReady = true;
 }
 

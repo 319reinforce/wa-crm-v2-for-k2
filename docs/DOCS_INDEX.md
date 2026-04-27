@@ -24,6 +24,8 @@ Read in this order:
 | Document | Purpose |
 | --- | --- |
 | `docs/CORE_MODULES_OVERVIEW.md` | Current module ownership and code boundaries. |
+| `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md` | Database schema ownership, compatibility cleanup, and staged optimization plan. |
+| `docs/MYSQL_OPTIMIZE_HANDOFF_20260427.md` | MySQL optimize implementation report, verification notes, and future development plan. |
 | `docs/AI_REPLY_GENERATION_SYSTEM.md` | AI reply generation architecture, topic detection, provider routing, and generation tracking. |
 | `docs/WA_SESSIONS_DESIGN.md` | WA multi-session design and IPC/volume planning. |
 | `docs/BAILEYS_ROLLOUT.md` | Baileys driver rollout and risk notes. |

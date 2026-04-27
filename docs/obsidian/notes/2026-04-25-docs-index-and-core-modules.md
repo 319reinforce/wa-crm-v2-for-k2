@@ -21,7 +21,7 @@ The documentation set now has a top-level index and a module overview for the ma
 
 - `docs/DOCS_INDEX.md` is the navigation entry for project docs.
 - `docs/CORE_MODULES_OVERVIEW.md` is the current map of the most important modules.
-- `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md` is the active database schema cleanup and ownership plan.
+- `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md` and `docs/MYSQL_OPTIMIZE_HANDOFF_20260427.md` are the current database cleanup plan and implementation handoff.
 - `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` is the active documentation cleanup record.
 - `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` holds the consolidated pre-2026-04-20 review/security/runtime/event history.
 - `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` owns the report/runtime artifact boundary and LightRAG removal decision.

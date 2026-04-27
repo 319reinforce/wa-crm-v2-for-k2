@@ -13,12 +13,24 @@ function parseCreateTableBlocks(sql) {
         const tableName = match[1];
         const body = match[2];
         const columns = [];
+        let generatedExpressionDepth = 0;
         for (const rawLine of body.split('\n')) {
             const line = rawLine.trim();
             if (!line || line.startsWith('--')) continue;
-            if (/^(PRIMARY KEY|UNIQUE KEY|KEY|CONSTRAINT|FOREIGN KEY)/i.test(line)) continue;
+            if (generatedExpressionDepth > 0) {
+                if (line.includes('(')) generatedExpressionDepth += (line.match(/\(/g) || []).length;
+                if (line.includes(')')) generatedExpressionDepth -= (line.match(/\)/g) || []).length;
+                continue;
+            }
+            if (/^(PRIMARY KEY|UNIQUE KEY|KEY|CONSTRAINT|FOREIGN KEY|ON DELETE|ON UPDATE)/i.test(line)) continue;
+            if (/^(CASE|WHEN|ELSE|END|ON)\b/i.test(line)) continue;
             const columnMatch = line.match(/^([a-zA-Z0-9_]+)\s+/);
-            if (columnMatch) columns.push(columnMatch[1]);
+            if (columnMatch) {
+                columns.push(columnMatch[1]);
+                if (/\bAS\s*\($/i.test(line) || /\bGENERATED\b/i.test(line)) {
+                    generatedExpressionDepth = 1;
+                }
+            }
         }
         tables[tableName] = columns;
     }

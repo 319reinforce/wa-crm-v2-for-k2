@@ -15,11 +15,10 @@ CREATE TABLE IF NOT EXISTS event_detection_cursor (
     last_error              TEXT,
     updated_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     created_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_event_detection_cursor_status (status, updated_at),
+    KEY idx_event_detection_cursor_pending_ts (pending_from_timestamp),
     CONSTRAINT fk_event_detection_cursor_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE INDEX idx_event_detection_cursor_status ON event_detection_cursor(status, updated_at);
-CREATE INDEX idx_event_detection_cursor_pending_ts ON event_detection_cursor(pending_from_timestamp);
 
 CREATE TABLE IF NOT EXISTS event_detection_runs (
     id                BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -41,7 +40,6 @@ CREATE TABLE IF NOT EXISTS event_detection_runs (
     config_json       JSON,
     started_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at      DATETIME NULL,
+    KEY idx_event_detection_runs_creator_time (creator_id, started_at),
     CONSTRAINT fk_event_detection_run_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE INDEX idx_event_detection_runs_creator_time ON event_detection_runs(creator_id, started_at);

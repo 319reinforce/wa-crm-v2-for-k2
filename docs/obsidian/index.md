@@ -24,6 +24,7 @@ Status: Active
 - [[notes/2026-04-27-sse-and-deployment-current|SSE And Deployment Current]]
 - [[notes/2026-04-27-baileys-session-direction|Baileys Session Direction]]
 - [[notes/2026-04-27-database-schema-optimization-plan|Database Schema Optimization Plan]]
+- [[notes/2026-04-27-mysql-optimize-handoff|MySQL Optimize Handoff]]
 - [[notes/2026-04-25-event-lifecycle-data-model|Event Lifecycle Data Model]]
 - [[notes/2026-04-27-event-decision-table-current|Event Decision Table Current]]
 - [[notes/2026-04-25-event-lifecycle-handoff|Event Lifecycle Handoff]]
