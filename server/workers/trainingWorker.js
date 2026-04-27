@@ -18,6 +18,7 @@ const https = require('https');
 const http = require('http');
 
 const DB = require('../../db');
+const { assertManagedSchemaReady } = require('../services/schemaReadinessGuard');
 const { prepareDataset } = require('../../scripts/prepare-safe-finetune-jsonl.cjs');
 const { getInternalServiceHeaders } = require('../utils/internalAuth');
 const { hasPrivilegedRole } = require('../utils/ownerScope');
@@ -162,18 +163,14 @@ async function exportSFTData(monthLabel) {
 
 async function ensureTrainingLogTable() {
     const db2 = DB.getDb();
-    await db2.prepare(`
-        CREATE TABLE IF NOT EXISTS training_log (
-            id INTEGER PRIMARY KEY AUTO_INCREMENT,
-            month_label VARCHAR(16) NOT NULL,
-            record_count INT NOT NULL,
-            export_path VARCHAR(256),
-            status VARCHAR(16) NOT NULL,
-            detail TEXT,
-            triggered_by VARCHAR(32) DEFAULT 'manual',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    `).run();
+    await assertManagedSchemaReady(db2, {
+        feature: 'Training log',
+        migration: 'server/migrations/008_template_media_training_tables.sql',
+        tables: ['training_log'],
+        columns: {
+            training_log: ['id', 'month_label', 'record_count', 'export_path', 'status', 'detail', 'triggered_by', 'created_at'],
+        },
+    });
 }
 
 // ========== 记录训练元数据 ==========

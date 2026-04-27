@@ -355,19 +355,24 @@ Acceptance:
 ## 6. Suggested Next PR Order
 
 1. Migration application and schema convergence PR.
+   - Status: phase 2 added `008_template_media_training_tables.sql`, `009_ai_profile_creator_id_backfill.sql`, and `010_schema_index_backfill.sql`; local analyzer now reports no table/column/index drift.
 2. Event-fact write helper plus backend `wacrm` route migration.
    - Status: backend helper and route migration are implemented in the second commit; frontend cleanup remains.
 3. Frontend creator detail edit migration.
+   - Status: phase 2 changed CreatorDetail positive lifecycle edits to `POST /api/events` and stopped normal UI saves from submitting deprecated lifecycle fields to `PUT /api/creators/:id/wacrm`.
 4. Remaining runtime DDL cleanup.
+   - Status: phase 2 removed service-time DDL from creator import, custom topic templates, media asset/cleanup, and training log paths; these paths now use schema readiness checks.
 5. `creator_id` profile/AI backfill.
+   - Status: phase 2 added nullable `creator_id` columns, local backfill, indexes, and forward writes for hot AI/profile paths.
 6. Log retention and archive policy.
+   - Status: phase 2 documented the initial retention/archive policy in `docs/MYSQL_OPTIMIZE_PHASE2_HANDOFF_20260427.md`.
 
 ## 7. Handoff Notes For The Next Agent
 
 - Stay on `codex/mysqloptimize`.
 - Do not set `ALLOW_LEGACY_LIFECYCLE_WRITES=1` unless intentionally testing a legacy migration path.
 - Do not drop `event_detection_cursor` or `event_detection_runs`.
-- Apply migrations 005, 006, and 007 in target environments before deploying services that require the managed tables.
+- Apply migrations 005 through 010 in target environments before deploying services that require the managed tables and new `creator_id` columns.
 - Keep Obsidian sync up to date for any design, runbook, migration, or handoff update.
 
 ## Obsidian Sync

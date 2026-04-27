@@ -221,7 +221,7 @@ async function getCreatorClientIds(tx, creatorId) {
     ]);
 }
 
-async function mergeClientMemory(tx, sourceClientId, targetClientId) {
+async function mergeClientMemory(tx, sourceClientId, targetClientId, targetCreatorId = null) {
     if (!sourceClientId || !targetClientId || sourceClientId === targetClientId) return;
     const sourceRows = await tx.prepare(`
         SELECT memory_type, memory_key, memory_value, source_record_id, confidence
@@ -237,9 +237,10 @@ async function mergeClientMemory(tx, sourceClientId, targetClientId) {
         `).get(targetClientId, row.memory_type, row.memory_key);
         if (!existing) {
             await tx.prepare(`
-                INSERT INTO client_memory (client_id, memory_type, memory_key, memory_value, source_record_id, confidence)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO client_memory (creator_id, client_id, memory_type, memory_key, memory_value, source_record_id, confidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             `).run(
+                targetCreatorId || null,
                 targetClientId,
                 row.memory_type,
                 row.memory_key,
@@ -254,20 +255,24 @@ async function mergeClientMemory(tx, sourceClientId, targetClientId) {
         const nextSourceRecordId = existing.source_record_id || row.source_record_id || null;
         await tx.prepare(`
             UPDATE client_memory
-            SET memory_value = ?, confidence = ?, source_record_id = ?, updated_at = CURRENT_TIMESTAMP
+            SET creator_id = COALESCE(creator_id, ?),
+                memory_value = ?,
+                confidence = ?,
+                source_record_id = ?,
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        `).run(nextValue, nextConfidence, nextSourceRecordId, existing.id);
+        `).run(targetCreatorId || null, nextValue, nextConfidence, nextSourceRecordId, existing.id);
     }
     await tx.prepare('DELETE FROM client_memory WHERE client_id = ?').run(sourceClientId);
 }
 
-async function mergeClientProfiles(tx, sourceClientId, targetClientId) {
+async function mergeClientProfiles(tx, sourceClientId, targetClientId, targetCreatorId = null) {
     if (!sourceClientId || !targetClientId || sourceClientId === targetClientId) return;
     const sourceRow = await tx.prepare('SELECT * FROM client_profiles WHERE client_id = ? LIMIT 1').get(sourceClientId);
     if (!sourceRow) return;
     const targetRow = await tx.prepare('SELECT * FROM client_profiles WHERE client_id = ? LIMIT 1').get(targetClientId);
     if (!targetRow) {
-        await tx.prepare('UPDATE client_profiles SET client_id = ? WHERE client_id = ?').run(targetClientId, sourceClientId);
+        await tx.prepare('UPDATE client_profiles SET creator_id = ?, client_id = ? WHERE client_id = ?').run(targetCreatorId || null, targetClientId, sourceClientId);
         return;
     }
 
@@ -282,36 +287,41 @@ async function mergeClientProfiles(tx, sourceClientId, targetClientId) {
     }
     if (updates.length > 0) {
         values.push(targetClientId);
-        await tx.prepare(`UPDATE client_profiles SET ${updates.join(', ')}, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?`).run(...values);
+        await tx.prepare(`UPDATE client_profiles SET creator_id = COALESCE(creator_id, ?), ${updates.join(', ')}, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?`).run(targetCreatorId || null, ...values);
+    } else if (targetCreatorId && !targetRow.creator_id) {
+        await tx.prepare('UPDATE client_profiles SET creator_id = ? WHERE client_id = ?').run(targetCreatorId, targetClientId);
     }
     await tx.prepare('DELETE FROM client_profiles WHERE client_id = ?').run(sourceClientId);
 }
 
-async function mergeClientTags(tx, sourceClientId, targetClientId) {
+async function mergeClientTags(tx, sourceClientId, targetClientId, targetCreatorId = null) {
     if (!sourceClientId || !targetClientId || sourceClientId === targetClientId) return;
     await tx.prepare(`
-        INSERT IGNORE INTO client_tags (client_id, tag, source, confidence, created_at)
-        SELECT ?, tag, source, confidence, created_at
+        INSERT IGNORE INTO client_tags (creator_id, client_id, tag, source, confidence, created_at)
+        SELECT ?, ?, tag, source, confidence, created_at
         FROM client_tags
         WHERE client_id = ?
-    `).run(targetClientId, sourceClientId);
+    `).run(targetCreatorId || null, targetClientId, sourceClientId);
+    if (targetCreatorId) {
+        await tx.prepare('UPDATE client_tags SET creator_id = COALESCE(creator_id, ?) WHERE client_id = ?').run(targetCreatorId, targetClientId);
+    }
     await tx.prepare('DELETE FROM client_tags WHERE client_id = ?').run(sourceClientId);
 }
 
-async function moveClientIdTable(tx, table, sourceClientId, targetClientId) {
+async function moveClientIdTable(tx, table, sourceClientId, targetClientId, targetCreatorId = null) {
     if (!sourceClientId || !targetClientId || sourceClientId === targetClientId) return;
-    await tx.prepare(`UPDATE ${table} SET client_id = ? WHERE client_id = ?`).run(targetClientId, sourceClientId);
+    await tx.prepare(`UPDATE ${table} SET creator_id = ?, client_id = ? WHERE client_id = ?`).run(targetCreatorId || null, targetClientId, sourceClientId);
 }
 
-async function mergeClientScopedData(tx, sourceClientIds = [], targetClientId) {
+async function mergeClientScopedData(tx, sourceClientIds = [], targetClientId, targetCreatorId = null) {
     const sourceList = unique(sourceClientIds).filter((item) => item !== targetClientId);
     for (const sourceClientId of sourceList) {
-        await mergeClientMemory(tx, sourceClientId, targetClientId);
-        await mergeClientProfiles(tx, sourceClientId, targetClientId);
-        await mergeClientTags(tx, sourceClientId, targetClientId);
-        await moveClientIdTable(tx, 'generation_log', sourceClientId, targetClientId);
-        await moveClientIdTable(tx, 'retrieval_snapshot', sourceClientId, targetClientId);
-        await moveClientIdTable(tx, 'sft_feedback', sourceClientId, targetClientId);
+        await mergeClientMemory(tx, sourceClientId, targetClientId, targetCreatorId);
+        await mergeClientProfiles(tx, sourceClientId, targetClientId, targetCreatorId);
+        await mergeClientTags(tx, sourceClientId, targetClientId, targetCreatorId);
+        await moveClientIdTable(tx, 'generation_log', sourceClientId, targetClientId, targetCreatorId);
+        await moveClientIdTable(tx, 'retrieval_snapshot', sourceClientId, targetClientId, targetCreatorId);
+        await moveClientIdTable(tx, 'sft_feedback', sourceClientId, targetClientId, targetCreatorId);
     }
 }
 
@@ -377,7 +387,7 @@ async function mergeDuplicateCreatorIntoCanonical({
         await moveEvents(tx, sourceCreatorId, targetCreatorId);
         await moveRoster(tx, sourceCreatorId, targetCreatorId);
         await moveLifecycleState(tx, sourceCreatorId, targetCreatorId);
-        await mergeClientScopedData(tx, unique([...sourceClientIds, source.wa_phone]), targetClientId);
+        await mergeClientScopedData(tx, unique([...sourceClientIds, source.wa_phone]), targetClientId, targetCreatorId);
 
         await upsertAliases(tx, targetCreatorId, [source.primary_name], 'legacy_primary_name', 1);
         await upsertAliases(tx, targetCreatorId, [source.wa_phone], 'wa_phone', 1);

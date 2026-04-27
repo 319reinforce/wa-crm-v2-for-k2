@@ -8,34 +8,23 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const { writeAudit } = require('../middleware/audit');
+const { assertManagedSchemaReady } = require('../services/schemaReadinessGuard');
 
 let tableEnsured = false;
 
 async function ensureCustomTopicTemplatesTable(db2) {
     if (tableEnsured) return;
-    await db2.prepare(`
-        CREATE TABLE IF NOT EXISTS custom_topic_templates (
-            id              INT AUTO_INCREMENT PRIMARY KEY,
-            label           VARCHAR(128) NOT NULL,
-            topic_group     VARCHAR(64) NOT NULL DEFAULT 'custom_topic',
-            intent_key      VARCHAR(64) NOT NULL DEFAULT 'custom_template',
-            scene_key       VARCHAR(64) NOT NULL DEFAULT 'follow_up',
-            template_text   TEXT NOT NULL,
-            media_items_json TEXT NULL,
-            owner_scope     VARCHAR(64) NOT NULL DEFAULT 'global',
-            created_by      VARCHAR(64) NULL,
-            is_active       TINYINT(1) DEFAULT 1,
-            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY uk_custom_topic_owner_label (owner_scope, label),
-            INDEX idx_ctt_active_updated (is_active, updated_at),
-            INDEX idx_ctt_owner (owner_scope)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `).run();
-    const mediaColumn = await db2.prepare(`SHOW COLUMNS FROM custom_topic_templates LIKE 'media_items_json'`).get();
-    if (!mediaColumn) {
-        await db2.prepare(`ALTER TABLE custom_topic_templates ADD COLUMN media_items_json TEXT NULL AFTER template_text`).run();
-    }
+    await assertManagedSchemaReady(db2, {
+        feature: 'Custom topic templates',
+        migration: 'server/migrations/008_template_media_training_tables.sql',
+        tables: ['custom_topic_templates'],
+        columns: {
+            custom_topic_templates: [
+                'id', 'label', 'topic_group', 'intent_key', 'scene_key', 'template_text',
+                'media_items_json', 'owner_scope', 'created_by', 'is_active', 'created_at', 'updated_at',
+            ],
+        },
+    });
     tableEnsured = true;
 }
 

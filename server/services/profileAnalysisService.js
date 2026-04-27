@@ -2,6 +2,7 @@ const db = require('../../db');
 const { publishSse } = require('./realtimeBus');
 const creatorCache = require('./creatorCache');
 const { rebuildReplyStrategyForClient } = require('./replyStrategyService');
+const { assertManagedSchemaReady } = require('./schemaReadinessGuard');
 
 const STRONG_SIGNAL_REGEX = /\b(how|can i|price|try)\b/i;
 const TRIGGER_THRESHOLD = 5;
@@ -233,12 +234,17 @@ function diffProfiles(oldProfile = null, newProfile = null) {
     return changed;
 }
 
-async function ensureStateRow(clientId) {
+async function ensureStateRow(clientId, creatorId = null) {
     await ensureProfileAnalysisSchema();
     const db2 = db.getDb();
     await db2.prepare(
-        'INSERT IGNORE INTO profile_analysis_state (client_id, pending_unanalyzed_count) VALUES (?, 0)'
-    ).run(clientId);
+        'INSERT IGNORE INTO profile_analysis_state (creator_id, client_id, pending_unanalyzed_count) VALUES (?, ?, 0)'
+    ).run(creatorId || null, clientId);
+    if (creatorId) {
+        await db2.prepare(
+            'UPDATE profile_analysis_state SET creator_id = COALESCE(creator_id, ?) WHERE client_id = ?'
+        ).run(creatorId, clientId);
+    }
 }
 
 async function ensureProfileAnalysisSchema() {
@@ -255,6 +261,16 @@ async function ensureProfileAnalysisSchema() {
     if (missing.length > 0) {
         throw new Error(`Profile analysis schema is missing ${missing.join(', ')}; run server/migrations/006_managed_runtime_tables.sql`);
     }
+    await assertManagedSchemaReady(db2, {
+        feature: 'Profile analysis creator linkage',
+        migration: 'server/migrations/009_ai_profile_creator_id_backfill.sql',
+        columns: {
+            profile_analysis_state: ['creator_id'],
+            client_profile_snapshots: ['creator_id'],
+            client_profile_change_events: ['creator_id'],
+            client_profiles: ['creator_id'],
+        },
+    });
 
     schemaEnsured = true;
 }
@@ -309,18 +325,19 @@ function snapshotRowToProfile(row) {
     };
 }
 
-async function insertSnapshot(clientId, profile, source = 'system') {
+async function insertSnapshot(clientId, profile, source = 'system', creatorId = null) {
     const db2 = db.getDb();
     const result = await db2.prepare(`
         INSERT INTO client_profile_snapshots
-        (client_id, frequency_level, frequency_conf, frequency_evidence,
+        (creator_id, client_id, frequency_level, frequency_conf, frequency_evidence,
          difficulty_level, difficulty_conf, difficulty_evidence,
          intent_level, intent_conf, intent_evidence,
          emotion_level, emotion_conf, emotion_evidence,
          motivation_positive, motivation_conf, motivation_evidence,
          pain_points, pain_conf, pain_evidence, summary, source)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
+        creatorId || null,
         clientId,
         profile.frequency.value, profile.frequency.confidence, profile.frequency.evidence,
         profile.difficulty.value, profile.difficulty.confidence, profile.difficulty.evidence,
@@ -334,7 +351,7 @@ async function insertSnapshot(clientId, profile, source = 'system') {
     return result.lastInsertRowid;
 }
 
-async function applySnapshotToClientProfile(clientId, snapshotId) {
+async function applySnapshotToClientProfile(clientId, snapshotId, creatorId = null) {
     const db2 = db.getDb();
     const snapshot = await db2.prepare(
         'SELECT summary, pain_points, motivation_positive FROM client_profile_snapshots WHERE id = ?'
@@ -342,12 +359,12 @@ async function applySnapshotToClientProfile(clientId, snapshotId) {
     if (!snapshot) return;
     const summary = snapshot.summary || '';
     const updated = await db2.prepare(
-        'UPDATE client_profiles SET summary = ?, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?'
-    ).run(summary, clientId);
+        'UPDATE client_profiles SET summary = ?, creator_id = COALESCE(creator_id, ?), last_updated = CURRENT_TIMESTAMP WHERE client_id = ?'
+    ).run(summary, creatorId || null, clientId);
     if (updated.changes === 0) {
         await db2.prepare(
-            'INSERT INTO client_profiles (client_id, summary) VALUES (?, ?)'
-        ).run(clientId, summary);
+            'INSERT INTO client_profiles (creator_id, client_id, summary) VALUES (?, ?, ?)'
+        ).run(creatorId || null, clientId, summary);
     }
 }
 
@@ -358,7 +375,7 @@ async function runProfileAnalysis({ clientId, triggerType = 'manual', triggerTex
         return { ok: false, reason: 'client_not_found' };
     }
 
-    await ensureStateRow(client.wa_phone);
+    await ensureStateRow(client.wa_phone, client.id);
     const messages = await fetchRecentMessages(client.id, 30);
     if (messages.length === 0) {
         return { ok: false, reason: 'no_messages' };
@@ -374,14 +391,15 @@ async function runProfileAnalysis({ clientId, triggerType = 'manual', triggerTex
 
     const oldSnapshot = await getLatestSnapshot(client.wa_phone);
     const changes = diffProfiles(oldSnapshot, normalized);
-    const newSnapshotId = await insertSnapshot(client.wa_phone, normalized, 'system');
+    const newSnapshotId = await insertSnapshot(client.wa_phone, normalized, 'system', client.id);
 
     const db2 = db.getDb();
     const eventResult = await db2.prepare(`
         INSERT INTO client_profile_change_events
-        (client_id, old_snapshot_id, new_snapshot_id, status, change_summary, trigger_type, trigger_text)
-        VALUES (?, ?, ?, 'pending', ?, ?, ?)
+        (creator_id, client_id, old_snapshot_id, new_snapshot_id, status, change_summary, trigger_type, trigger_text)
+        VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
     `).run(
+        client.id,
         client.wa_phone,
         oldSnapshot?.id || null,
         newSnapshotId,
@@ -421,7 +439,7 @@ async function registerIncomingMessages({ creatorId = null, clientId = null, ins
     const client = await getClientByIdOrPhone({ creatorId, clientId });
     if (!client) return { ok: false, reason: 'client_not_found' };
 
-    await ensureStateRow(client.wa_phone);
+    await ensureStateRow(client.wa_phone, client.id);
     const db2 = db.getDb();
     await db2.prepare(
         'UPDATE profile_analysis_state SET pending_unanalyzed_count = pending_unanalyzed_count + ?, updated_at = NOW() WHERE client_id = ?'
@@ -451,6 +469,12 @@ async function runFallbackAnalysisScan() {
     await db2.prepare(`
         INSERT IGNORE INTO profile_analysis_state (client_id, pending_unanalyzed_count)
         SELECT wa_phone, 0 FROM creators WHERE wa_phone IS NOT NULL AND wa_phone <> ''
+    `).run();
+    await db2.prepare(`
+        UPDATE profile_analysis_state pas
+        JOIN creators c ON c.wa_phone = pas.client_id
+        SET pas.creator_id = c.id
+        WHERE pas.creator_id IS NULL
     `).run();
     const rows = await db2.prepare(`
         SELECT pas.client_id
@@ -545,7 +569,7 @@ async function reviewChange({ changeEventId, action, reviewedBy = 'operator', no
             pain_points: { value: Array.isArray(edited?.pain_points?.value) ? edited.pain_points.value : parseJsonSafe(newSnap.pain_points, []), confidence: clampConfidence(edited?.pain_points?.confidence || newSnap.pain_conf), evidence: String(edited?.pain_points?.evidence || newSnap.pain_evidence || '') },
             summary: String(edited?.summary || newSnap.summary || ''),
         };
-        finalSnapshotId = await insertSnapshot(event.client_id, merged, 'manual');
+        finalSnapshotId = await insertSnapshot(event.client_id, merged, 'manual', event.creator_id || null);
         finalStatus = 'edited';
     }
 
@@ -557,7 +581,7 @@ async function reviewChange({ changeEventId, action, reviewedBy = 'operator', no
 
     let strategyRebuild = null;
     if (finalStatus === 'accepted' || finalStatus === 'edited') {
-        await applySnapshotToClientProfile(event.client_id, finalSnapshotId);
+        await applySnapshotToClientProfile(event.client_id, finalSnapshotId, event.creator_id || null);
         try {
             strategyRebuild = await rebuildReplyStrategyForClient({
                 clientId: event.client_id,

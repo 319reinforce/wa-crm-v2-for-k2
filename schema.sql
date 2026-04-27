@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS sft_memory (
 
 CREATE INDEX idx_sft_created ON sft_memory(created_at);
 CREATE INDEX idx_sft_status ON sft_memory(status);
-CREATE UNIQUE INDEX idx_sft_dedup ON sft_memory(client_id_hash, input_text_hash, human_output_hash, created_date);
+CREATE UNIQUE INDEX idx_sft_dedup ON sft_memory(client_id_hash, input_text_hash, human_output_hash, created_date, system_prompt_version);
 CREATE INDEX idx_sft_scene ON sft_memory(scene);
 CREATE INDEX idx_sft_client_hash ON sft_memory(client_id_hash);
 CREATE INDEX idx_sft_retrieval_snapshot ON sft_memory(retrieval_snapshot_id);
@@ -287,6 +287,7 @@ CREATE INDEX idx_sft_provider_model ON sft_memory(provider, model);
 -- ============================================================
 CREATE TABLE IF NOT EXISTS retrieval_snapshot (
     id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NULL COMMENT 'Nullable resolved creators.id for phone/client_id joins',
     client_id           VARCHAR(64),
     operator            VARCHAR(32),
     scene               VARCHAR(64) DEFAULT 'unknown',
@@ -300,6 +301,7 @@ CREATE TABLE IF NOT EXISTS retrieval_snapshot (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_rs_client_scene ON retrieval_snapshot(client_id, scene, created_at);
+CREATE INDEX idx_rs_creator_created ON retrieval_snapshot(creator_id, created_at);
 CREATE INDEX idx_rs_hash ON retrieval_snapshot(snapshot_hash);
 
 -- ============================================================
@@ -307,6 +309,7 @@ CREATE INDEX idx_rs_hash ON retrieval_snapshot(snapshot_hash);
 -- ============================================================
 CREATE TABLE IF NOT EXISTS generation_log (
     id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NULL COMMENT 'Nullable resolved creators.id for phone/client_id joins',
     client_id           VARCHAR(64),
     retrieval_snapshot_id BIGINT,
     provider            VARCHAR(32),
@@ -325,6 +328,7 @@ CREATE TABLE IF NOT EXISTS generation_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_gl_client_created ON generation_log(client_id, created_at);
+CREATE INDEX idx_gl_creator_created ON generation_log(creator_id, created_at);
 CREATE INDEX idx_gl_status_created ON generation_log(status, created_at);
 CREATE INDEX idx_gl_snapshot ON generation_log(retrieval_snapshot_id);
 
@@ -436,6 +440,7 @@ CREATE INDEX idx_media_send_asset ON media_send_log(media_asset_id);
 -- ============================================================
 CREATE TABLE IF NOT EXISTS sft_feedback (
     id              INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id      INT NULL COMMENT 'Nullable resolved creators.id for phone/client_id joins',
     client_id       VARCHAR(64) NOT NULL,
     feedback_type   VARCHAR(16) NOT NULL COMMENT "'skip'|'reject'|'edit'",
     input_text      TEXT,
@@ -450,6 +455,7 @@ CREATE TABLE IF NOT EXISTS sft_feedback (
 
 CREATE INDEX idx_feedback_type_scene ON sft_feedback(feedback_type, scene);
 CREATE INDEX idx_feedback_client ON sft_feedback(client_id);
+CREATE INDEX idx_feedback_creator ON sft_feedback(creator_id);
 CREATE INDEX idx_feedback_created ON sft_feedback(created_at);
 
 -- ============================================================
@@ -457,6 +463,7 @@ CREATE INDEX idx_feedback_created ON sft_feedback(created_at);
 -- ============================================================
 CREATE TABLE IF NOT EXISTS client_memory (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NULL COMMENT 'Nullable resolved creators.id for phone/client_id joins',
     client_id           VARCHAR(64) NOT NULL,
     memory_type         VARCHAR(32) NOT NULL COMMENT "'preference'|'decision'|'style'|'policy'",
     memory_key          VARCHAR(64),
@@ -469,6 +476,7 @@ CREATE TABLE IF NOT EXISTS client_memory (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_cm_client ON client_memory(client_id);
+CREATE INDEX idx_cm_creator ON client_memory(creator_id);
 CREATE INDEX idx_cm_memory_type ON client_memory(memory_type);
 
 -- ============================================================
@@ -566,6 +574,7 @@ CREATE INDEX idx_ctt_owner ON custom_topic_templates(owner_scope);
 -- ============================================================
 CREATE TABLE IF NOT EXISTS client_profiles (
     id                  INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id          INT NULL COMMENT 'Nullable resolved creators.id for phone/client_id joins',
     client_id           VARCHAR(64) NOT NULL UNIQUE,
     summary             TEXT,
     tags                JSON COMMENT 'JSON array',
@@ -577,6 +586,7 @@ CREATE TABLE IF NOT EXISTS client_profiles (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_cp_client ON client_profiles(client_id);
+CREATE INDEX idx_cp_creator ON client_profiles(creator_id);
 CREATE INDEX idx_cp_stage ON client_profiles(stage);
 
 -- ============================================================
@@ -584,6 +594,7 @@ CREATE INDEX idx_cp_stage ON client_profiles(stage);
 -- ============================================================
 CREATE TABLE IF NOT EXISTS profile_analysis_state (
     id                         INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id                 INT NULL COMMENT 'Nullable resolved creators.id for phone/client_id joins',
     client_id                  VARCHAR(64) NOT NULL UNIQUE,
     pending_unanalyzed_count   INT DEFAULT 0,
     last_profile_analyzed_at   DATETIME NULL,
@@ -593,6 +604,7 @@ CREATE TABLE IF NOT EXISTS profile_analysis_state (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_pas_pending ON profile_analysis_state(pending_unanalyzed_count);
+CREATE INDEX idx_pas_creator ON profile_analysis_state(creator_id);
 CREATE INDEX idx_pas_last_analyzed ON profile_analysis_state(last_profile_analyzed_at);
 
 -- ============================================================
@@ -600,6 +612,7 @@ CREATE INDEX idx_pas_last_analyzed ON profile_analysis_state(last_profile_analyz
 -- ============================================================
 CREATE TABLE IF NOT EXISTS client_profile_snapshots (
     id                   INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id           INT NULL COMMENT 'Nullable resolved creators.id for phone/client_id joins',
     client_id            VARCHAR(64) NOT NULL,
     frequency_level      VARCHAR(16) NULL,
     frequency_conf       INT DEFAULT 1,
@@ -625,12 +638,14 @@ CREATE TABLE IF NOT EXISTS client_profile_snapshots (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_cps_client ON client_profile_snapshots(client_id);
+CREATE INDEX idx_cps_creator ON client_profile_snapshots(creator_id);
 
 -- ============================================================
 -- Client Profile Change Events — 画像变更审核事件
 -- ============================================================
 CREATE TABLE IF NOT EXISTS client_profile_change_events (
     id              INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id      INT NULL COMMENT 'Nullable resolved creators.id for phone/client_id joins',
     client_id       VARCHAR(64) NOT NULL,
     old_snapshot_id INT NULL,
     new_snapshot_id INT NOT NULL,
@@ -646,12 +661,14 @@ CREATE TABLE IF NOT EXISTS client_profile_change_events (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_cpce_client_status ON client_profile_change_events(client_id, status);
+CREATE INDEX idx_cpce_creator_status ON client_profile_change_events(creator_id, status);
 
 -- ============================================================
 -- Client Tags — 动态标签
 -- ============================================================
 CREATE TABLE IF NOT EXISTS client_tags (
     id              INT AUTO_INCREMENT PRIMARY KEY,
+    creator_id      INT NULL COMMENT 'Nullable resolved creators.id for phone/client_id joins',
     client_id       VARCHAR(64) NOT NULL,
     tag             VARCHAR(64) NOT NULL COMMENT '如 "tone:formal"',
     source          VARCHAR(32) NOT NULL COMMENT "'ai_extracted'|'sft_feedback'|'keeper_update'|'manual'",
@@ -661,6 +678,7 @@ CREATE TABLE IF NOT EXISTS client_tags (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_ct_client ON client_tags(client_id);
+CREATE INDEX idx_ct_creator ON client_tags(creator_id);
 CREATE INDEX idx_ct_tag ON client_tags(tag);
 CREATE INDEX idx_ct_source ON client_tags(source);
 

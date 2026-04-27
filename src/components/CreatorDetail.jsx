@@ -150,6 +150,116 @@ function buildEditFormSnapshot(creator) {
   }
 }
 
+function normalizeBool(value) {
+  if (value === true) return true
+  if (value === false || value === null || value === undefined || value === '') return false
+  if (typeof value === 'number') return value !== 0
+  return ['1', 'true', 'yes', 'on', 'active', 'completed', 'paid', 'bound'].includes(String(value).trim().toLowerCase())
+}
+
+function fieldChanged(before = {}, after = {}, key) {
+  return String(before?.[key] ?? '') !== String(after?.[key] ?? '')
+}
+
+function buildCreatorLifecycleEventActions(initial = {}, current = {}) {
+  const actions = new Map()
+  const add = (event_key, event_type, status, meta = {}, trigger_text = '') => {
+    if (!event_key) return
+    const existing = actions.get(event_key)
+    if (existing && existing.status === 'completed') return
+    actions.set(event_key, {
+      event_key,
+      event_type,
+      status,
+      trigger_source: 'creator_detail_event_action',
+      trigger_text: trigger_text || `Creator detail lifecycle action: ${event_key}`,
+      meta: {
+        migration_source: 'creator_detail_lifecycle_editor',
+        ...meta,
+      },
+    })
+  }
+
+  if (fieldChanged(initial, current, 'ev_trial_active') && normalizeBool(current.ev_trial_active)) {
+    add('trial_7day', 'challenge', 'active', {}, 'Manual creator detail update marked 7-day trial active')
+  }
+
+  if (fieldChanged(initial, current, 'ev_monthly_started') && normalizeBool(current.ev_monthly_started)) {
+    add('monthly_challenge', 'challenge', 'active', {}, 'Manual creator detail update marked monthly challenge started')
+  }
+  if (fieldChanged(initial, current, 'ev_monthly_joined') && normalizeBool(current.ev_monthly_joined)) {
+    add('monthly_challenge', 'challenge', 'completed', {}, 'Manual creator detail update marked monthly challenge joined')
+  }
+  if (fieldChanged(initial, current, 'monthly_fee_status')) {
+    const status = String(current.monthly_fee_status || '').trim().toLowerCase()
+    if (['active', 'started', 'joined'].includes(status)) {
+      add('monthly_challenge', 'challenge', 'active', { monthly_fee_status: current.monthly_fee_status }, `Manual monthly fee status update: ${current.monthly_fee_status}`)
+    }
+    if (['paid', 'deducted', 'completed', 'settled'].includes(status)) {
+      add('monthly_challenge', 'challenge', 'completed', { monthly_fee_status: current.monthly_fee_status }, `Manual monthly fee status update: ${current.monthly_fee_status}`)
+    }
+  }
+
+  if (fieldChanged(initial, current, 'agency_bound') && normalizeBool(current.agency_bound)) {
+    add('agency_bound', 'agency', 'active', {}, 'Manual creator detail update marked agency bound')
+  }
+  if (fieldChanged(initial, current, 'ev_agency_bound') && normalizeBool(current.ev_agency_bound)) {
+    add('agency_bound', 'agency', 'active', {}, 'Manual creator detail update marked agency bound')
+  }
+
+  const gmvThresholds = [
+    ['ev_gmv_1k', 1000],
+    ['ev_gmv_2k', 2000],
+    ['ev_gmv_5k', 5000],
+    ['ev_gmv_10k', 10000],
+  ]
+  const changedThresholds = gmvThresholds
+    .filter(([key]) => fieldChanged(initial, current, key) && normalizeBool(current[key]))
+    .map(([, threshold]) => threshold)
+  const maxThreshold = changedThresholds.length ? Math.max(...changedThresholds) : 0
+  if (maxThreshold > 0) {
+    add('gmv_milestone', 'gmv', 'completed', { threshold: maxThreshold }, `Manual creator detail update marked GMV milestone ${maxThreshold}`)
+  }
+
+  if (fieldChanged(initial, current, 'ev_churned') && normalizeBool(current.ev_churned)) {
+    add('churned', 'termination', 'active', {}, 'Manual creator detail update marked creator churned')
+  }
+  if (fieldChanged(initial, current, 'beta_status') && String(current.beta_status || '').trim().toLowerCase() === 'churned') {
+    add('churned', 'termination', 'active', { beta_status: current.beta_status }, 'Manual beta status marked churned')
+  }
+  if (fieldChanged(initial, current, 'beta_status')) {
+    const betaStatus = String(current.beta_status || '').trim().toLowerCase()
+    if (['started', 'active', 'trial', 'trial_active', 'joined'].includes(betaStatus)) {
+      add('trial_7day', 'challenge', 'active', { beta_status: current.beta_status }, `Manual beta status update: ${current.beta_status}`)
+    }
+    if (['completed', 'finished', 'trial_completed'].includes(betaStatus)) {
+      add('trial_7day', 'challenge', 'completed', { beta_status: current.beta_status }, `Manual beta status update: ${current.beta_status}`)
+    }
+  }
+
+  return [...actions.values()]
+}
+
+async function submitCreatorLifecycleEventActions({ creatorId, owner, initial, current }) {
+  const actions = buildCreatorLifecycleEventActions(initial, current)
+  for (const action of actions) {
+    try {
+      await fetchJsonOrThrow(`${API_BASE}/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          creator_id: creatorId,
+          owner,
+          ...action,
+        }),
+      })
+    } catch (err) {
+      if (!/已有相同事件|existing/i.test(String(err?.message || ''))) throw err
+    }
+  }
+  return actions
+}
+
 // ====== Creator Detail Panel ======
 function CreatorDetail({
   creatorId,
@@ -478,18 +588,19 @@ function CreatorDetail({
           keeper_username: editForm.keeper_username,
         })
       })
-      // 更新 wa_crm_data + joinbrands_link + keeper_link（运营数据 & 事件标签）
+      await submitCreatorLifecycleEventActions({
+        creatorId,
+        owner: editForm.wa_owner || creator?.wa_owner || null,
+        initial: editFormInitial,
+        current: editForm,
+      })
+
+      // 更新非 lifecycle 运营数据。Lifecycle/event 状态走 /api/events，不再写旧字段。
       await fetchOkOrThrow(`${API_BASE}/creators/${creatorId}/wacrm`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          beta_status: editForm.beta_status,
           priority: editForm.priority,
-          agency_bound: parseInt(editForm.agency_bound),
-          video_count: parseInt(editForm.video_count) || 0,
-          video_target: parseInt(editForm.video_target) || 35,
-          monthly_fee_status: editForm.monthly_fee_status,
-          monthly_fee_amount: parseFloat(editForm.monthly_fee_amount) || 0,
           next_action: editForm.next_action || null,
           keeper_gmv: parseFloat(editForm.keeper_gmv) || 0,
           keeper_gmv30: parseFloat(editForm.keeper_gmv30) || 0,
@@ -501,14 +612,6 @@ function CreatorDetail({
           keeper_order_rate: editForm.keeper_order_rate || '',
           keeper_reg_time: parseInt(editForm.keeper_reg_time) || 0,
           keeper_activate_time: parseInt(editForm.keeper_activate_time) || 0,
-          ev_trial_active: !!editForm.ev_trial_active,
-          ev_monthly_started: !!editForm.ev_monthly_started,
-          ev_gmv_1k: !!editForm.ev_gmv_1k,
-          ev_gmv_2k: !!editForm.ev_gmv_2k,
-          ev_gmv_5k: !!editForm.ev_gmv_5k,
-          ev_gmv_10k: !!editForm.ev_gmv_10k,
-          ev_agency_bound: !!editForm.ev_agency_bound,
-          ev_churned: !!editForm.ev_churned,
         })
       })
       const refreshed = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}`)

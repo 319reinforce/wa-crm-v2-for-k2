@@ -454,14 +454,17 @@ async function applyStrategyMemory({ dbConn, clientId, selectedStrategy, strateg
         `).run(clientId, ...keysToDelete);
     }
 
+    const creator = await creatorCache.getCreatorByPhone(dbConn, clientId, 'id').catch(() => null);
     await dbConn.prepare(`
-        INSERT INTO client_memory (client_id, memory_type, memory_key, memory_value, confidence)
-        VALUES (?, 'strategy', ?, ?, ?)
+        INSERT INTO client_memory (creator_id, client_id, memory_type, memory_key, memory_value, confidence)
+        VALUES (?, ?, 'strategy', ?, ?, ?)
         ON DUPLICATE KEY UPDATE
+            creator_id = COALESCE(creator_id, VALUES(creator_id)),
             memory_value = VALUES(memory_value),
             confidence = VALUES(confidence),
             updated_at = NOW()
     `).run(
+        creator?.id || null,
         clientId,
         selectedStrategy.memory_key,
         memoryValue,

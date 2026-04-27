@@ -154,10 +154,10 @@ router.post('/client-memory', async (req, res) => {
         if (!clientScope.ok) return;
         await db2.prepare(`
             INSERT INTO client_memory
-            (client_id, memory_type, memory_key, memory_value, confidence, updated_at)
-            VALUES (?, ?, ?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE memory_value = VALUES(memory_value), confidence = VALUES(confidence), updated_at = NOW()
-        `).run(clientScope.clientId, memory_type, memory_key, memory_value, confidence);
+            (creator_id, client_id, memory_type, memory_key, memory_value, confidence, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE creator_id = COALESCE(creator_id, VALUES(creator_id)), memory_value = VALUES(memory_value), confidence = VALUES(confidence), updated_at = NOW()
+        `).run(clientScope.row?.id || null, clientScope.clientId, memory_type, memory_key, memory_value, confidence);
 
         await writeAudit('client_memory_update', 'client_memory', null, null, {
             client_id: clientScope.clientId, memory_type, memory_key, memory_value, confidence
@@ -271,15 +271,15 @@ router.put('/client-profile/:clientId', async (req, res) => {
         const nextTiktokData = Object.keys(tiktokData).length > 0 ? JSON.stringify(tiktokData) : null;
         const updated = await db2.prepare(`
             UPDATE client_profiles
-            SET summary = ?, tiktok_data = ?, last_updated = CURRENT_TIMESTAMP
+            SET creator_id = COALESCE(creator_id, ?), summary = ?, tiktok_data = ?, last_updated = CURRENT_TIMESTAMP
             WHERE client_id = ?
-        `).run(nextSummary, nextTiktokData, clientScope.clientId);
+        `).run(clientScope.row?.id || null, nextSummary, nextTiktokData, clientScope.clientId);
 
         if (updated.changes === 0) {
             await db2.prepare(`
-                INSERT INTO client_profiles (client_id, summary, tiktok_data)
-                VALUES (?, ?, ?)
-            `).run(clientScope.clientId, nextSummary, nextTiktokData);
+                INSERT INTO client_profiles (creator_id, client_id, summary, tiktok_data)
+                VALUES (?, ?, ?, ?)
+            `).run(clientScope.row?.id || null, clientScope.clientId, nextSummary, nextTiktokData);
         }
 
         await writeAudit('client_profile_update', 'client_profiles', clientId, null, {
@@ -315,10 +315,10 @@ router.put('/client-profiles/:clientId/tags', async (req, res) => {
         } else {
             const fullTag = tag.includes(':') ? tag : `${tag}:${value || 'true'}`;
             await db2.prepare(`
-                INSERT INTO client_tags (client_id, tag, source, confidence)
-                VALUES (?, ?, 'manual', ?)
-                ON DUPLICATE KEY UPDATE confidence = VALUES(confidence), tag = VALUES(tag)
-            `).run(clientScope.clientId, fullTag, confidence);
+                INSERT INTO client_tags (creator_id, client_id, tag, source, confidence)
+                VALUES (?, ?, ?, 'manual', ?)
+                ON DUPLICATE KEY UPDATE creator_id = COALESCE(creator_id, VALUES(creator_id)), confidence = VALUES(confidence), tag = VALUES(tag)
+            `).run(clientScope.row?.id || null, clientScope.clientId, fullTag, confidence);
         }
 
         res.json({ ok: true });
@@ -488,7 +488,7 @@ router.post('/profile-agent/event', async (req, res) => {
 
         const profile = await db2.prepare('SELECT id FROM client_profiles WHERE client_id = ?').get(clientScope.clientId);
         if (!profile) {
-            await db2.prepare('INSERT INTO client_profiles (client_id) VALUES (?)').run(clientScope.clientId);
+            await db2.prepare('INSERT INTO client_profiles (creator_id, client_id) VALUES (?, ?)').run(clientScope.row?.id || null, clientScope.clientId);
         }
 
         let tags_added = [];
@@ -507,11 +507,12 @@ router.post('/profile-agent/event', async (req, res) => {
         // Insert tags（重复时保留较高的 confidence）
         for (const { tag, source, confidence } of tags_added) {
             await db2.prepare(
-                'INSERT INTO client_tags (client_id, tag, source, confidence) ' +
-                'VALUES (?, ?, ?, ?) ' +
+                'INSERT INTO client_tags (creator_id, client_id, tag, source, confidence) ' +
+                'VALUES (?, ?, ?, ?, ?) ' +
                 'ON DUPLICATE KEY UPDATE ' +
+                'creator_id = COALESCE(creator_id, VALUES(creator_id)), ' +
                 'confidence = IF(VALUES(confidence) > confidence, VALUES(confidence), confidence)'
-            ).run(clientScope.clientId, tag, source, confidence || 2);
+            ).run(clientScope.row?.id || null, clientScope.clientId, tag, source, confidence || 2);
         }
 
         // 写入审计日志
