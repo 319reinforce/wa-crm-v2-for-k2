@@ -131,6 +131,19 @@ function hasCreatorSnapshotEvent(item = {}, eventKey = '') {
     return fields.some((field) => item[field] || item.joinbrands?.[field]);
 }
 
+function projectEventSnapshotCompatFlags(source = {}) {
+    const snapshotFlags = source.event_snapshot?.compat_ev_flags;
+    if (!snapshotFlags || typeof snapshotFlags !== 'object') return source;
+    const projected = { ...source };
+    const fields = new Set(Object.values(CREATOR_EVENT_FILTER_FIELD_MAP).flat());
+    for (const field of fields) {
+        if (Object.prototype.hasOwnProperty.call(snapshotFlags, field)) {
+            projected[field] = snapshotFlags[field] ? 1 : 0;
+        }
+    }
+    return projected;
+}
+
 function buildCreatorUpdateAuditPayload(payload) {
     const auditPayload = pickDefinedAuditFields(payload, CREATOR_UPDATE_AUDIT_FIELDS);
     if (auditPayload.wa_owner !== undefined) {
@@ -676,14 +689,14 @@ router.get('/', async (req, res) => {
                 nonblank_user_message_count,
                 ...item
             } = rawItem;
-            const normalized = {
+            const normalized = projectEventSnapshotCompatFlags({
                 ...item,
                 wa_phone: includeWaPhone ? item.wa_phone : undefined,
                 wa_owner: normalizeOperatorName(item.roster_operator, item.roster_operator) || item.wa_owner,
                 session_id: item.session_id || getSessionIdForOperator(item.roster_operator || item.wa_owner),
                 message_facts: messageFactsMap.get(Number(item.id)) || null,
                 event_snapshot: eventSnapshotsMap.get(Number(item.id)) || null,
-            };
+            });
             return attachLifecycle(normalized, eventsMap.get(Number(item.id)) || [], lifecycleOptions, {
                 includeEventLists: false,
             });
@@ -1242,11 +1255,11 @@ router.get('/:id', async (req, res) => {
             operational_facts: operationalFacts,
         };
         const eventSnapshot = eventSnapshotsMap.get(Number(creator.id)) || null;
-        const detail = attachLifecycle({
+        const detail = attachLifecycle(projectEventSnapshotCompatFlags({
             ...withOperationalFacts,
             message_facts: messageFactsMap.get(Number(creator.id)) || null,
             event_snapshot: eventSnapshot,
-        }, eventsMap.get(creator.id) || [], lifecycleOptions);
+        }), eventsMap.get(creator.id) || [], lifecycleOptions);
         const lifecycleSnapshot = await getLifecycleSnapshotRecord(dbConn, creator.id);
         res.json({
             ...detail,

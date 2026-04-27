@@ -813,7 +813,7 @@ function CreatorDetail({
   const displayCreator = buildCreatorDraftPreview(creator, editForm)
   const wacrm = displayCreator?.wacrm || {}
   const joinbrands = displayCreator?.joinbrands || {}
-  const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands)
+  const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands, displayCreator?.event_snapshot)
   const activeAgencyStrategy = !isAgencyBound
     ? resolveUnboundAgencyStrategy({
       clientMemory: clientProfile?.memory || [],

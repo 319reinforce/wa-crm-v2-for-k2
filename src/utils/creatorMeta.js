@@ -52,6 +52,22 @@ function hasFlag(...values) {
   return values.some(value => value === true || value === 1 || value === '1')
 }
 
+function getSnapshotFlags(creator) {
+  return creator?._full?.event_snapshot?.compat_ev_flags || creator?.event_snapshot?.compat_ev_flags || {}
+}
+
+function getEventFlagValue(creator, key) {
+  const flags = getSnapshotFlags(creator)
+  if (Object.prototype.hasOwnProperty.call(flags, key)) return hasFlag(flags[key])
+  return null
+}
+
+function hasEventFlag(creator, key, ...fallbackValues) {
+  const snapshotValue = getEventFlagValue(creator, key)
+  if (snapshotValue !== null) return snapshotValue
+  return hasFlag(...fallbackValues)
+}
+
 function getCreatorTrialPhaseMeta(creator) {
   const full = creator?._full || creator || {}
   const wacrm = full.wacrm || {}
@@ -60,12 +76,12 @@ function getCreatorTrialPhaseMeta(creator) {
   const flags = lifecycle?.flags || {}
   const betaStatus = String(wacrm.beta_status || flags.beta_status || creator?.beta_status || '').trim()
 
-  const trialActive = hasFlag(joinbrands.ev_trial_active, full.ev_trial_active, creator?.ev_trial_active)
-  const trialCompleted = hasFlag(joinbrands.ev_trial_7day, full.ev_trial_7day, creator?.ev_trial_7day, flags.trial_completed)
+  const trialActive = hasEventFlag(creator, 'ev_trial_active', joinbrands.ev_trial_active, full.ev_trial_active, creator?.ev_trial_active)
+  const trialCompleted = hasEventFlag(creator, 'ev_trial_7day', joinbrands.ev_trial_7day, full.ev_trial_7day, creator?.ev_trial_7day, flags.trial_completed)
     || betaStatus === 'completed'
-  const monthlyJoined = hasFlag(joinbrands.ev_monthly_joined, full.ev_monthly_joined, creator?.ev_monthly_joined)
-  const monthlyStarted = hasFlag(joinbrands.ev_monthly_started, full.ev_monthly_started, creator?.ev_monthly_started)
-  const monthlyInvited = hasFlag(joinbrands.ev_monthly_invited, full.ev_monthly_invited, creator?.ev_monthly_invited)
+  const monthlyJoined = hasEventFlag(creator, 'ev_monthly_joined', joinbrands.ev_monthly_joined, full.ev_monthly_joined, creator?.ev_monthly_joined)
+  const monthlyStarted = hasEventFlag(creator, 'ev_monthly_started', joinbrands.ev_monthly_started, full.ev_monthly_started, creator?.ev_monthly_started)
+  const monthlyInvited = hasEventFlag(creator, 'ev_monthly_invited', joinbrands.ev_monthly_invited, full.ev_monthly_invited, creator?.ev_monthly_invited)
 
   if (monthlyJoined) {
     return { key: 'monthly_joined', label: '月卡加入', color: '#008069', bg: 'rgba(0,168,132,0.12)' }
@@ -88,23 +104,23 @@ function getCreatorSignalBadges(creator) {
   const joinbrands = full.joinbrands || {}
   const badges = []
 
-  if (hasFlag(wacrm.agency_bound, joinbrands.ev_agency_bound, full.ev_agency_bound, creator?.agency_bound)) {
+  if (hasEventFlag(creator, 'ev_agency_bound', wacrm.agency_bound, joinbrands.ev_agency_bound, full.ev_agency_bound, creator?.agency_bound)) {
     badges.push({ key: 'agency_bound', label: 'Agency', color: '#008069', bg: 'rgba(0,168,132,0.12)' })
   } else if (getCreatorTrialPhaseMeta(creator)?.key?.startsWith('monthly')) {
     badges.push({ key: 'agency_next', label: '待绑 Agency', color: '#0f766e', bg: 'rgba(15,118,110,0.10)' })
   }
 
-  if (hasFlag(joinbrands.ev_gmv_10k, full.ev_gmv_10k, creator?.ev_gmv_10k)) {
+  if (hasEventFlag(creator, 'ev_gmv_10k', joinbrands.ev_gmv_10k, full.ev_gmv_10k, creator?.ev_gmv_10k)) {
     badges.push({ key: 'gmv_10k', label: 'GMV 10K', color: '#dc2626', bg: 'rgba(220,38,38,0.12)' })
-  } else if (hasFlag(joinbrands.ev_gmv_5k, full.ev_gmv_5k, creator?.ev_gmv_5k)) {
+  } else if (hasEventFlag(creator, 'ev_gmv_5k', joinbrands.ev_gmv_5k, full.ev_gmv_5k, creator?.ev_gmv_5k)) {
     badges.push({ key: 'gmv_5k', label: 'GMV 5K', color: '#ea580c', bg: 'rgba(234,88,12,0.12)' })
-  } else if (hasFlag(joinbrands.ev_gmv_2k, full.ev_gmv_2k, creator?.ev_gmv_2k)) {
+  } else if (hasEventFlag(creator, 'ev_gmv_2k', joinbrands.ev_gmv_2k, full.ev_gmv_2k, creator?.ev_gmv_2k)) {
     badges.push({ key: 'gmv_2k', label: 'GMV 2K', color: '#ea580c', bg: 'rgba(234,88,12,0.12)' })
-  } else if (hasFlag(joinbrands.ev_gmv_1k, full.ev_gmv_1k, creator?.ev_gmv_1k)) {
+  } else if (hasEventFlag(creator, 'ev_gmv_1k', joinbrands.ev_gmv_1k, full.ev_gmv_1k, creator?.ev_gmv_1k)) {
     badges.push({ key: 'gmv_1k', label: 'GMV 1K', color: '#d97706', bg: 'rgba(217,119,6,0.12)' })
   }
 
-  if (hasFlag(joinbrands.ev_churned, full.ev_churned, creator?.ev_churned)) {
+  if (hasEventFlag(creator, 'ev_churned', joinbrands.ev_churned, full.ev_churned, creator?.ev_churned)) {
     badges.push({ key: 'churned', label: '已流失', color: '#dc2626', bg: 'rgba(220,38,38,0.12)' })
   }
 
@@ -116,10 +132,12 @@ function getCreatorStatusMeta(creator) {
   const wacrm = full.wacrm || {}
   const joinbrands = full.joinbrands || {}
   const urgencyLevel = Number(wacrm.urgency_level || 0)
-  const isUrgent = wacrm.priority === 'urgent' || urgencyLevel >= 8 || !!joinbrands.ev_churned
+  const churned = hasEventFlag(creator, 'ev_churned', joinbrands.ev_churned, full.ev_churned, creator?.ev_churned)
+  const agencyBound = hasEventFlag(creator, 'ev_agency_bound', wacrm.agency_bound, joinbrands.ev_agency_bound, full.ev_agency_bound, creator?.agency_bound)
+  const isUrgent = wacrm.priority === 'urgent' || urgencyLevel >= 8 || churned
   const replyState = getCreatorReplyState(creator)
   const recentMessagesText = getCreatorMessages(creator).slice(-12).map(m => m?.text || '').join(' ').toLowerCase()
-  const isAgencyProspect = !isUrgent && !wacrm.agency_bound && !joinbrands.ev_agency_bound && (
+  const isAgencyProspect = !isUrgent && !agencyBound && (
     !!wacrm.agency_bound_at ||
     !!wacrm.agency_deadline ||
     /\b(agency|mcn|contract|sign|signed|binding|bound)\b/.test(recentMessagesText) ||

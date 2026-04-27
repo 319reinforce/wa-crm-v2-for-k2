@@ -9,6 +9,7 @@ function parseArgs(argv) {
         apply: false,
         policyKey: null,
         limit: null,
+        purge: false,
         includeDisabled: false,
     };
     for (const arg of argv) {
@@ -16,6 +17,8 @@ function parseArgs(argv) {
             args.apply = true;
         } else if (arg === '--dry-run') {
             args.apply = false;
+        } else if (arg === '--purge') {
+            args.purge = true;
         } else if (arg === '--include-disabled') {
             args.includeDisabled = true;
         } else if (arg.startsWith('--policy=')) {
@@ -34,13 +37,15 @@ function parseArgs(argv) {
 
 function printHelp() {
     console.log(`Usage:
-  node scripts/run-retention-archive-jobs.cjs [--dry-run] [--apply] [--policy=<key>] [--limit=<n>]
+  node scripts/run-retention-archive-jobs.cjs [--dry-run] [--apply] [--purge] [--policy=<key>] [--limit=<n>]
 
-Default mode is --dry-run. Dry-run reads candidates only and does not write archive refs or update media tiers.
+Default mode is --dry-run. Dry-run reads candidates and rollup groups only.
+Apply writes rollups and archive refs. --purge only works together with --apply and only for policies whose hard-delete window and safety rules allow it.
 
 Examples:
   node scripts/run-retention-archive-jobs.cjs --dry-run
   node scripts/run-retention-archive-jobs.cjs --apply --policy=media_assets_30d --limit=100
+  node scripts/run-retention-archive-jobs.cjs --apply --purge --policy=ai_usage_logs_180d --limit=100
 `);
 }
 
@@ -53,8 +58,9 @@ async function main() {
     const result = await runRetentionArchiveJobs(db.getDb(), {
         policyKey: args.policyKey,
         apply: args.apply,
+        purge: args.purge,
         limit: args.limit,
-        triggeredBy: args.apply ? 'script_apply' : 'script_dry_run',
+        triggeredBy: args.apply ? (args.purge ? 'script_apply_purge' : 'script_apply') : 'script_dry_run',
         includeDisabled: args.includeDisabled,
     });
     console.log(JSON.stringify(result, null, 2));

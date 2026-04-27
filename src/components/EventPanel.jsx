@@ -75,6 +75,18 @@ const EVENT_TYPE_LABELS = {
   second_touch: { label: '二次触达', color: '#0ea5e9', bg: 'rgba(14,165,233,0.15)' },
 }
 
+function getCreatorCompatEventFlag(creator, key) {
+  const flags = creator?.event_snapshot?.compat_ev_flags || creator?._full?.event_snapshot?.compat_ev_flags || {}
+  if (Object.prototype.hasOwnProperty.call(flags, key)) return !!flags[key]
+  return !!(creator?.joinbrands?.[key] || creator?._full?.joinbrands?.[key])
+}
+
+function getCreatorCompatEventFlagValue(creator, key) {
+  const flags = creator?.event_snapshot?.compat_ev_flags || creator?._full?.event_snapshot?.compat_ev_flags || {}
+  if (Object.prototype.hasOwnProperty.call(flags, key)) return !!flags[key]
+  return null
+}
+
 const STATUS_LABELS = {
   draft: { label: '待确认', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
   pending: { label: '待确认', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
@@ -145,12 +157,13 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
     end_at: '',
   })
   const selectedCreator = creators.find(c => String(c.id) === String(createForm.creator_id))
-  const selectedAgencyBound = Boolean(
-    selectedCreator?.wacrm?.agency_bound
-      ?? selectedCreator?._full?.wacrm?.agency_bound
-      ?? selectedCreator?.joinbrands?.ev_agency_bound
-      ?? selectedCreator?._full?.joinbrands?.ev_agency_bound
-  )
+  const selectedAgencySnapshotFlag = getCreatorCompatEventFlagValue(selectedCreator, 'ev_agency_bound')
+  const selectedAgencyBound = selectedCreator
+    ? selectedAgencySnapshotFlag ?? (
+      getCreatorCompatEventFlag(selectedCreator, 'ev_agency_bound')
+      || Boolean(selectedCreator?.wacrm?.agency_bound ?? selectedCreator?._full?.wacrm?.agency_bound)
+    )
+    : false
   const agencyOnlyKeys = new Set(['recall_pending', 'second_touch'])
   const createEventEntries = Object.entries(EVENT_TYPE_LABELS).filter(([key]) => {
     if (!selectedCreator) return true

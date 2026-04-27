@@ -81,7 +81,7 @@ export function buildRichContext({
     const wacrm = fullCreator?.wacrm || creator?.wacrm || client?.wacrm || {};
     const joinbrands = fullCreator?.joinbrands || creator?.joinbrands || {};
     const lifecycle = fullCreator?.lifecycle || creator?.lifecycle || null;
-    const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands);
+    const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands, fullCreator?.event_snapshot || creator?.event_snapshot);
     const agencyStrategy = !isAgencyBound
         ? resolveUnboundAgencyStrategy({ clientMemory, nextAction: wacrm?.next_action || '', strategies: agencyStrategies })
         : null;

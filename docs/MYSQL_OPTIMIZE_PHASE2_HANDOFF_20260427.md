@@ -121,7 +121,7 @@ Forward writes now populate `creator_id` in the hot paths for:
 
 | Legacy field | Forward owner |
 | --- | --- |
-| `joinbrands_link.ev_*` | Compatibility cache only. Forward writes go to `events`, `event_evidence`, and `creator_event_snapshot`. |
+| `joinbrands_link.ev_*` | Compatibility cache only. Forward writes go to `events`, `event_evidence`, and `creator_event_snapshot`; creator list/detail projection, kanban filters, CreatorDetail, EventPanel, and AI prompt helpers now prefer snapshot flags before this cache. |
 | `wa_crm_data.monthly_fee_status` | Derived from `monthly_challenge` event state. Normal UI writes should create/update events. |
 | `wa_crm_data.monthly_fee_amount` | Canonical forward owner is `event_billing_facts` with `billing_key='monthly_fee'`. |
 | `wa_crm_data.video_count` | Canonical forward owner is `event_progress_facts` with `progress_key='video_progress'`; period settlement still uses `event_periods.video_count`. |
@@ -141,22 +141,25 @@ Migration 011 adds the three fact tables and backfills existing `wa_crm_data` va
 
 | Data | Hot window | Archive / cold policy | Keep exceptions |
 | --- | --- | --- | --- |
-| `generation_log` | 90 days full detail | Mark archive refs after 90 days; no hard delete in this job. | rows linked from `sft_memory.generation_log_id` |
-| `retrieval_snapshot` | 90 days full context | Mark archive refs after 90 days; no hard delete in this job. | rows linked from `sft_memory.retrieval_snapshot_id` |
-| `ai_usage_logs` | 180 days raw | Mark archive refs after 180 days; daily rollup can be added later. | billing disputes / launch experiments |
+| `generation_log` | 90 days full detail | Mark archive refs after 90 days; `--apply --purge` may hard delete after 365 days if not linked to SFT. | rows linked from `sft_memory.generation_log_id` |
+| `retrieval_snapshot` | 90 days full context | Mark archive refs after 90 days; `--apply --purge` may hard delete after 365 days if not linked to SFT. | rows linked from `sft_memory.retrieval_snapshot_id` |
+| `ai_usage_logs` | 180 days raw | Roll up into `ai_usage_daily`, mark archive refs after 180 days, and allow hard delete after 730 days with `--apply --purge`. | billing disputes / launch experiments |
 | `audit_log` | 365+ days | Archive refs by record; never hard delete from this job. | security/admin actions |
-| `wa_messages` | 365 days in hot DB | Archive refs by creator/month follow-up; current job records archive refs only. | messages referenced by events, evidence, SFT, or active lifecycle state |
-| `wa_group_messages` | 180 days in hot DB | Archive refs by group/month follow-up; current job records archive refs only. | messages linked to creator evidence or incidents |
-| `media_assets` and files | existing default 30-day retention | `--apply` moves eligible hot active assets to `storage_tier='cold'` and writes archive refs; no file delete. | `cleanup_exemptions`, event/SFT references, active templates |
+| `wa_messages` | 365 days in hot DB | Roll up monthly creator/operator summaries into `message_archive_monthly_rollups` and record archive refs. Hard-delete window is 1095 days, but automated purge stays disabled until external archive verification exists. | messages referenced by events, evidence, SFT, or active lifecycle state |
+| `wa_group_messages` | 180 days in hot DB | Roll up monthly group/operator summaries into `message_archive_monthly_rollups` and record archive refs. Hard-delete window is 730 days, but automated purge stays disabled until external archive verification exists. | messages linked to creator evidence or incidents |
+| `media_assets` and files | existing default 30-day retention | `--apply` moves eligible hot active assets to `storage_tier='cold'` and writes archive refs. Hard-delete window is 90 days and remains owned by `mediaCleanupService`. | `cleanup_exemptions`, event/SFT references, active templates |
 
 Migration 011 seeds `data_retention_policies`, `data_retention_runs`, and `data_retention_archive_refs`. The runner is intentionally conservative:
 
 ```bash
 node scripts/run-retention-archive-jobs.cjs --dry-run
 node scripts/run-retention-archive-jobs.cjs --apply --policy=media_assets_30d --limit=100
+node scripts/run-retention-archive-jobs.cjs --apply --purge --policy=ai_usage_logs_180d --limit=100
 ```
 
-Dry-run does not write run records, archive refs, or media tier updates. Apply mode writes `data_retention_runs` plus `data_retention_archive_refs`; media apply only marks eligible assets cold.
+Migration 012 adds `message_archive_monthly_rollups`, updates `purge_after_days`, and turns on the rollup path for `ai_usage_logs`, `wa_messages`, and `wa_group_messages`.
+
+Dry-run does not write run records, rollups, archive refs, purge rows, or media tier updates. Apply mode writes rollups first, then `data_retention_runs` plus `data_retention_archive_refs`; media apply only marks eligible assets cold. `--purge` is separate from `--apply` and currently only deletes targets that have both a purge window and explicit service support.
 
 ## Verification
 
@@ -212,6 +215,16 @@ node scripts/run-retention-archive-jobs.cjs --dry-run --limit=5
 
 Result: migration 011 applied locally after a collation guard fix; analyzer reported 58 expected tables, 58 actual tables, no missing/extra tables, no column diffs, no index diffs, and no key findings. Retention dry-run returned all seven seeded policies with zero local candidates and no writes.
 
+Migration 012 local verification after 011:
+
+```bash
+npm run db:migrate:sql -- server/migrations/012_retention_rollups_and_purge_windows.sql
+node scripts/analyze-schema-state.js
+node scripts/run-retention-archive-jobs.cjs --dry-run --limit=5
+```
+
+Result: migration 012 applied locally; analyzer reported 59 expected tables, 59 actual tables, no missing/extra tables, no column diffs, no index diffs, and no key findings. Retention dry-run returned `ai_usage_daily` rollup preview, `message_archive_monthly_rollups` previews for `wa_messages` / `wa_group_messages`, explicit `purge_after_days`, and no local candidates.
+
 ## Staging/Prod Runbook
 
 Run with the target DB env loaded. For non-local DB hosts, confirm intent explicitly:
@@ -224,7 +237,8 @@ CONFIRM_REMOTE_MIGRATION=1 npm run db:migrate:sql -- \
   server/migrations/008_template_media_training_tables.sql \
   server/migrations/009_ai_profile_creator_id_backfill.sql \
   server/migrations/010_schema_index_backfill.sql \
-  server/migrations/011_billing_progress_deadline_retention.sql
+  server/migrations/011_billing_progress_deadline_retention.sql \
+  server/migrations/012_retention_rollups_and_purge_windows.sql
 
 node scripts/analyze-schema-state.js
 node scripts/run-retention-archive-jobs.cjs --dry-run
@@ -242,12 +256,12 @@ If the lifecycle schema or SQL migrations have not been applied, expected startu
 
 ## Remaining Work
 
-1. Run the 005-011 migration sequence against staging and production once DB env access is available.
+1. Run the 005-012 migration sequence against staging and production once DB env access is available.
 2. Restart staging/prod after migration and confirm startup event derived-data recompute logs.
 3. Verify `POST /api/events/cancel-by-key` plus `POST /api/creators/:id/operational-facts` in staging/prod with CreatorDetail edits.
-4. Run retention dry-run in staging/prod and review candidate samples before any `--apply`.
-5. Add daily/monthly aggregate jobs for `ai_usage_logs`, `wa_messages`, and `wa_group_messages` after archive ref counts are validated.
-6. After a verification window, remove read dependence on `joinbrands_link.ev_*` and narrow deprecated lifecycle fields in `wa_crm_data`.
+4. Run retention dry-run in staging/prod and review rollup/candidate samples before any `--apply`.
+5. After a verification window, continue removing server-side reads from `joinbrands_link.ev_*` and deprecated `wa_crm_data` fields; current list/detail reads, kanban filters, CreatorDetail/EventPanel agency checks, and AI prompt helpers now prefer `creator_event_snapshot` and operational facts.
+6. Add external archive storage verification before enabling automated hard deletes for `wa_messages` / `wa_group_messages`.
 
 ## Obsidian Sync
 

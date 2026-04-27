@@ -25,7 +25,7 @@ Status: Active
 - [[notes/2026-04-27-baileys-session-direction|Baileys Session Direction]]
 - [[notes/2026-04-27-database-schema-optimization-plan|Database Schema Optimization Plan]]
 - [[notes/2026-04-27-mysql-optimize-handoff|MySQL Optimize Handoff]]
-- [[notes/2026-04-27-mysql-optimize-phase2-handoff|MySQL Optimize Phase 2 Handoff, Operational Facts, And Retention]]
+- [[notes/2026-04-27-mysql-optimize-phase2-handoff|MySQL Optimize Phase 2 Handoff, Operational Facts, Retention Rollups]]
 - [[notes/2026-04-25-event-lifecycle-data-model|Event Lifecycle Data Model]]
 - [[notes/2026-04-27-event-decision-table-current|Event Decision Table Current]]
 - [[notes/2026-04-25-event-lifecycle-handoff|Event Lifecycle Handoff]]

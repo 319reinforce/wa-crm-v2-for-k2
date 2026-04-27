@@ -73,7 +73,7 @@ export function buildTopicContext({ topic, creator, activeEvents, clientMemory, 
     const lifecycle = fullCreator?.lifecycle || creator?.lifecycle || null;
     const owner = creator?.wa_owner || '未知';
     const stage = lifecycle?.stage_label || lifecycle?.stage_key || wacrm.beta_status || '未知';
-    const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands);
+    const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands, fullCreator?.event_snapshot || creator?.event_snapshot);
     const strategy = !isAgencyBound
         ? resolveUnboundAgencyStrategy({ clientMemory, nextAction: wacrm?.next_action || '', strategies: agencyStrategies })
         : null;
