@@ -3,12 +3,12 @@
  * 所有已认证用户都可读(DB admin/operator + env token 都可见,信息不敏感)
  *
  * 数据源(全部 union 去重):
- *   1. 静态 roster(含手机号/alias 的固定成员,source=static)
- *   2. users.operator_name        — 管理员绑定过的 owner
- *   3. creators.wa_owner          — 达人身上实际在用的 owner
- *   4. wa_sessions.owner          — WhatsApp 账号绑定的 owner
+ *   1. users.operator_name        — 管理员绑定过的 owner
+ *   2. creators.wa_owner          — 达人身上实际在用的 owner
+ *   3. wa_sessions.owner          — WhatsApp 账号绑定的 owner
  *
- * 静态 roster 在前,其它来源作为 dynamic 追加,按 name zh-CN 排序。
+ * server/config/operatorRoster.js 只用于补充静态成员的展示信息/别名归一化,
+ * 不再把本地固定名单当作前端 owner 默认选项。
  */
 const express = require('express');
 const db = require('../../db');
@@ -33,12 +33,9 @@ async function fetchDistinctNames(sql, label) {
 
 router.get('/', async (req, res) => {
     try {
-        const staticRoster = getOperatorRoster().map((item) => ({
-            operator: item.operator,
-            real_name: item.real_name,
-            wa_note: item.wa_note,
-            source: 'static',
-        }));
+        const staticByLower = new Map(
+            getOperatorRoster().map((item) => [String(item.operator || '').toLowerCase(), item])
+        );
 
         const [userNames, creatorOwners, sessionOwners] = await Promise.all([
             fetchDistinctNames(
@@ -63,9 +60,7 @@ router.get('/', async (req, res) => {
 
         // case-insensitive 去重，避免 DB 里混进 'jiawei' / 'Jiawei' 时前端
         // 看到两个 operator 选项。key 用 lowercase，value 保留首次见到的原始
-        // 大小写（display_name），merge 所有 sources。静态 roster 的 key 也
-        // 参与 case-insensitive 对比，防止 DB 中 'beau' 小写跟静态 'Beau' 重复。
-        const staticKeys = new Set(staticRoster.map((item) => String(item.operator).toLowerCase()));
+        // 大小写（display_name），merge 所有 sources。
         const dynamicMap = new Map(); // lowercase key -> { display, sources:Set }
         for (const [list, src] of [
             [userNames, 'users'],
@@ -74,7 +69,6 @@ router.get('/', async (req, res) => {
         ]) {
             for (const name of list) {
                 const key = String(name).toLowerCase();
-                if (staticKeys.has(key)) continue;
                 const existing = dynamicMap.get(key);
                 if (existing) {
                     existing.sources.add(src);
@@ -85,16 +79,19 @@ router.get('/', async (req, res) => {
         }
 
         const dynamicItems = [...dynamicMap.values()]
-            .map(({ display, sources }) => ({
-                operator: display,
-                real_name: null,
-                wa_note: null,
-                source: 'dynamic',
-                seen_in: [...sources],
-            }))
+            .map(({ display, sources }) => {
+                const staticMeta = staticByLower.get(String(display).toLowerCase()) || {};
+                return {
+                    operator: staticMeta.operator || display,
+                    real_name: staticMeta.real_name || null,
+                    wa_note: staticMeta.wa_note || null,
+                    source: 'dynamic',
+                    seen_in: [...sources],
+                };
+            })
             .sort((a, b) => String(a.operator).localeCompare(String(b.operator), 'zh-CN'));
 
-        res.json({ ok: true, data: [...staticRoster, ...dynamicItems] });
+        res.json({ ok: true, data: dynamicItems });
     } catch (err) {
         console.error('GET /api/operator-roster error:', err);
         res.status(500).json({ error: err.message });

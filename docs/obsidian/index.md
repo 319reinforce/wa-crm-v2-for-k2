@@ -18,6 +18,8 @@ Status: Active
 - [[notes/2026-04-26-active-event-detection-handoff|Active Event Detection Handoff]]
 - [[notes/2026-04-25-v1-layout-handoff|V1 Layout Handoff]]
 - [[notes/2026-04-25-worktree-remediation-plan|Worktree Remediation Plan]]
+- [[notes/2026-04-26-creator-import-welcome-handoff|Creator Import Welcome Handoff]]
+- [[notes/2026-04-26-template-custom-topic-handoff|Template Custom Topic Handoff]]
 
 ## Historical Backfills
 

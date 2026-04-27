@@ -97,6 +97,7 @@ const LIST_PANEL_MIN_WIDTH = 260
 const LIST_PANEL_MAX_WIDTH = 500
 const DESKTOP_PRIMARY_TABS = [
   { key: 'creators', label: '消息', subtitle: '达人对话与跟进' },
+  { key: 'contacts', label: '联系人', subtitle: '新增、导入、解绑与恢复' },
   { key: 'finance', label: '财务', subtitle: '月费与 Keeper 指标' },
   { key: 'events', label: '事件', subtitle: '事件判断与回顾' },
   { key: 'strategy', label: '策略', subtitle: '生命周期与策略配置' },
@@ -107,6 +108,7 @@ const DESKTOP_PRIMARY_TABS = [
 ]
 const WORKSPACE_META = {
   creators: { title: '消息工作台', subtitle: '以聊天为中心推进达人转化、跟进与维护。' },
+  contacts: { title: '联系人管理', subtitle: '集中管理达人新增、批量导入、owner 归属和解绑恢复。' },
   finance: { title: '财务面板', subtitle: '按达人查看月费、GMV、订单与 Keeper 指标。' },
   events: { title: '事件面板', subtitle: '集中处理事件判定、回填和时间线检查。' },
   strategy: { title: '策略配置', subtitle: '统一管理生命周期规则与未绑定 Agency 策略。' },
@@ -179,6 +181,7 @@ function App() {
   const [eventReturnContext, setEventReturnContext] = useState(null)
   const [eventPanelRestoreState, setEventPanelRestoreState] = useState(null)
   const [batchApplyingOption0, setBatchApplyingOption0] = useState(false)
+  const [batchTogglingActive, setBatchTogglingActive] = useState(false)
   const [unreadCounts, setUnreadCounts] = useState({}) // creatorId -> unread count
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [tagsVisible, setTagsVisible] = useState(true)
@@ -186,7 +189,7 @@ function App() {
   const [manualOpen, setManualOpen] = useState(false)
   const [manualSaving, setManualSaving] = useState(false)
   const [manualError, setManualError] = useState('')
-  const [manualForm, setManualForm] = useState({ name: '', phone: '', owner: lockedOwner || 'Yiyun' })
+  const [manualForm, setManualForm] = useState({ name: '', phone: '', owner: lockedOwner || '' })
   const [manualCheckLoading, setManualCheckLoading] = useState(false)
   const [manualCheck, setManualCheck] = useState(null)
   const [manualMode, setManualMode] = useState('single') // 'single' | 'bulk'
@@ -194,6 +197,9 @@ function App() {
   const [bulkSaving, setBulkSaving] = useState(false)
   const [bulkResults, setBulkResults] = useState(null)
   const [bulkError, setBulkError] = useState('')
+  const [bulkSendWelcome, setBulkSendWelcome] = useState(false)
+  const [bulkWelcomeText, setBulkWelcomeText] = useState('')
+  const [bulkWelcomeTemplateKey, setBulkWelcomeTemplateKey] = useState('welcome')
   const creatorsCacheRef = useRef(new Map())
   const queryBootstrapDoneRef = useRef(false)
 
@@ -692,19 +698,30 @@ function App() {
     setEventReturnContext(null)
   }, [eventReturnContext])
 
+  const suggestedManualOwner = useMemo(() => {
+    if (ownerLocked) return lockedOwner || ''
+    if (filterOwner && filterOwner !== '') return filterOwner
+    if (selectedCreator?.wa_owner) return selectedCreator.wa_owner
+    const statOwner = Object.keys(stats?.by_owner || {}).find(Boolean)
+    if (statOwner) return statOwner
+    const creatorOwner = creators.map(c => c.wa_owner).find(Boolean)
+    if (creatorOwner) return creatorOwner
+    return sessionOwners.find(Boolean) || ''
+  }, [creators, filterOwner, lockedOwner, ownerLocked, selectedCreator?.wa_owner, sessionOwners, stats])
+
   const openManualModal = useCallback(() => {
-    const suggestedOwner = ownerLocked
-      ? lockedOwner
-      : (filterOwner && filterOwner !== '' ? filterOwner : (selectedCreator?.wa_owner || 'Yiyun'))
-    setManualForm({ name: '', phone: '', owner: suggestedOwner })
+    setManualForm({ name: '', phone: '', owner: suggestedManualOwner })
     setManualCheck(null)
     setManualError('')
     setManualMode('single')
     setBulkText('')
     setBulkResults(null)
     setBulkError('')
+    setBulkSendWelcome(false)
+    setBulkWelcomeText('')
+    setBulkWelcomeTemplateKey('welcome')
     setManualOpen(true)
-  }, [filterOwner, lockedOwner, ownerLocked, selectedCreator?.wa_owner])
+  }, [suggestedManualOwner])
 
   const closeManualModal = useCallback(() => {
     if (manualSaving || bulkSaving) return
@@ -719,16 +736,35 @@ function App() {
       setBulkError('请先粘贴至少一行数据')
       return
     }
+    const owner = (manualForm.owner || '').trim()
+    if (!owner) {
+      setBulkError('请先选择负责人')
+      return
+    }
+    if (bulkSendWelcome && !bulkWelcomeText.trim()) {
+      setBulkError('请先填写欢迎消息')
+      return
+    }
     setBulkSaving(true)
     setBulkError('')
     setBulkResults(null)
     try {
-      const payload = {
+      const payload = bulkSendWelcome ? {
         rows: parsedRows.map(r => ({ name: r.name, phone: r.phone })),
-        owner: manualForm.owner || 'Yiyun',
+        owner,
+        source: 'csv-import',
+        send_welcome: true,
+        welcome_template_key: bulkWelcomeTemplateKey || 'welcome',
+        welcome_text: bulkWelcomeText.trim(),
+      } : {
+        rows: parsedRows.map(r => ({ name: r.name, phone: r.phone })),
+        owner,
         source: 'csv-import',
       }
-      const result = await fetchJsonOrThrow(`${API_BASE}/creators/import`, {
+      const endpoint = bulkSendWelcome
+        ? `${API_BASE}/creator-import-batches`
+        : `${API_BASE}/creators/import`
+      const result = await fetchJsonOrThrow(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -740,7 +776,7 @@ function App() {
     } finally {
       setBulkSaving(false)
     }
-  }, [manualForm.owner, loadData])
+  }, [bulkSendWelcome, bulkWelcomeTemplateKey, bulkWelcomeText, manualForm.owner, loadData])
 
   useEffect(() => {
     if (!manualOpen) return
@@ -772,11 +808,11 @@ function App() {
     const payload = {
       primary_name: (manualForm.name || '').trim(),
       wa_phone: (manualForm.phone || '').trim(),
-      wa_owner: manualForm.owner || 'Yiyun',
+      wa_owner: (manualForm.owner || '').trim(),
       source: 'manual',
     }
-    if (!payload.primary_name || !payload.wa_phone) {
-      setManualError('请填写达人姓名和手机号')
+    if (!payload.primary_name || !payload.wa_phone || !payload.wa_owner) {
+      setManualError('请填写达人姓名、手机号和负责人')
       return
     }
     setManualSaving(true)
@@ -891,6 +927,41 @@ function App() {
     }
   }, [loadData, selectedCreator, selectedVisibleCreatorIds])
 
+  const applyBatchActiveChange = useCallback(async () => {
+    if (selectedVisibleCreatorIds.length === 0) return
+    const owner = ownerLocked ? lockedOwner : filterOwner
+    if (!owner) {
+      window.alert('请先选择一个 owner 后再批量解绑/恢复')
+      return
+    }
+    const action = showInactive ? 'rebind' : 'unbind'
+    const verb = action === 'rebind' ? '恢复绑定' : '解绑'
+    const confirmed = window.confirm(`确认${verb}当前选中的 ${selectedVisibleCreatorIds.length} 位达人？\n\n该操作只会影响 ${owner} 名下联系人；历史消息和事件数据会保留。`)
+    if (!confirmed) return
+    setBatchTogglingActive(true)
+    try {
+      const result = await fetchJsonOrThrow(`${API_BASE}/creators/batch-active`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner,
+          action,
+          creator_ids: selectedVisibleCreatorIds,
+        }),
+      })
+      if (selectedCreator?.id && selectedVisibleCreatorIds.includes(selectedCreator.id)) {
+        setSelectedCreator(null)
+      }
+      setSelectedCreatorIds([])
+      await loadData()
+      window.alert(`已${verb} ${result?.updated_count || 0} 位达人`)
+    } catch (e) {
+      window.alert(e.message || `批量${verb}失败`)
+    } finally {
+      setBatchTogglingActive(false)
+    }
+  }, [filterOwner, loadData, lockedOwner, ownerLocked, selectedCreator?.id, selectedVisibleCreatorIds, showInactive])
+
   const toggleSelectAllVisible = useCallback(() => {
     if (visibleCreatorIds.length === 0) return
     setSelectedCreatorIds(prev => {
@@ -1004,6 +1075,12 @@ function App() {
           bulkSaving={bulkSaving}
           bulkResults={bulkResults}
           bulkError={bulkError}
+          bulkSendWelcome={bulkSendWelcome}
+          onBulkSendWelcomeChange={setBulkSendWelcome}
+          bulkWelcomeText={bulkWelcomeText}
+          onBulkWelcomeTextChange={setBulkWelcomeText}
+          bulkWelcomeTemplateKey={bulkWelcomeTemplateKey}
+          onBulkWelcomeTemplateKeyChange={setBulkWelcomeTemplateKey}
           availableOwners={ownerOptions}
         />
       </>
@@ -1149,16 +1226,65 @@ function App() {
                 <span style={{ marginLeft: 4 }}>刷新</span>
               </button>
               <button
-                onClick={openManualModal}
+                onClick={() => setActiveTab('contacts')}
                 className="px-4 py-2 rounded-full text-sm font-semibold text-white transition-all"
                 style={{ background: WA.teal }}
               >
-                新增达人
+                联系人管理
               </button>
             </div>
           </div>
 
           <div className="flex-1 min-h-0 flex gap-1.5 overflow-hidden">
+            {activeTab === 'contacts' ? (
+              <ContactManagementPage
+                ownerLocked={ownerLocked}
+                lockedOwner={lockedOwner}
+                ownerOptions={ownerOptions.filter(Boolean)}
+                owner={manualForm.owner || ''}
+                onOwnerChange={(value) => {
+                  setManualForm(prev => ({ ...prev, owner: value }))
+                  if (!ownerLocked) setFilterOwner(value)
+                }}
+                search={search}
+                onSearchChange={setSearch}
+                showInactive={showInactive}
+                onShowInactiveChange={setShowInactive}
+                creators={filteredCreators}
+                selectedCreatorIds={selectedCreatorIds}
+                selectedVisibleCount={selectedVisibleCount}
+                allVisibleSelected={allVisibleSelected}
+                toggleSelectAllVisible={toggleSelectAllVisible}
+                clearSelectedCreators={clearSelectedCreators}
+                toggleCreatorSelection={toggleCreatorSelection}
+                onOpenCreator={(creator) => {
+                  handleSelectCreator(creator)
+                  setActiveTab('creators')
+                }}
+                applyBatchActiveChange={applyBatchActiveChange}
+                batchTogglingActive={batchTogglingActive}
+                form={manualForm}
+                onFormChange={setManualForm}
+                onSave={saveManualCreator}
+                saving={manualSaving}
+                checkLoading={manualCheckLoading}
+                checkResult={manualCheck}
+                error={manualError}
+                bulkText={bulkText}
+                onBulkTextChange={setBulkText}
+                onBulkSubmit={submitBulkImport}
+                bulkSaving={bulkSaving}
+                bulkResults={bulkResults}
+                bulkError={bulkError}
+                bulkSendWelcome={bulkSendWelcome}
+                onBulkSendWelcomeChange={setBulkSendWelcome}
+                bulkWelcomeText={bulkWelcomeText}
+                onBulkWelcomeTextChange={setBulkWelcomeText}
+                bulkWelcomeTemplateKey={bulkWelcomeTemplateKey}
+                onBulkWelcomeTemplateKeyChange={setBulkWelcomeTemplateKey}
+              />
+            ) : (
+            <>
             <div
               className="docs-panel shrink-0 flex flex-col overflow-hidden"
               style={{
@@ -1380,11 +1506,22 @@ function App() {
                     )}
                     <button
                       onClick={applyBatchLifecycleOption0}
-                      disabled={selectedVisibleCount === 0 || batchApplyingOption0}
+                      disabled={showInactive || selectedVisibleCount === 0 || batchApplyingOption0 || batchTogglingActive}
                       className="px-3 py-1.5 rounded-full text-xs font-semibold text-white disabled:opacity-50"
                       style={{ background: batchApplyingOption0 ? '#9ca3af' : WA.teal }}
                     >
                       {batchApplyingOption0 ? '写入中...' : `批量写入 Option0${selectedVisibleCount > 0 ? ` (${selectedVisibleCount})` : ''}`}
+                    </button>
+                    <button
+                      onClick={applyBatchActiveChange}
+                      disabled={selectedVisibleCount === 0 || batchApplyingOption0 || batchTogglingActive || (!ownerLocked && !filterOwner)}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold text-white disabled:opacity-50"
+                      style={{ background: batchTogglingActive ? '#9ca3af' : (showInactive ? WA.teal : '#dc2626') }}
+                      title={!ownerLocked && !filterOwner ? '请先选择一个 owner' : undefined}
+                    >
+                      {batchTogglingActive
+                        ? '处理中...'
+                        : `${showInactive ? '批量恢复' : '批量解绑'}${selectedVisibleCount > 0 ? ` (${selectedVisibleCount})` : ''}`}
                     </button>
                   </div>
                 </div>
@@ -1596,7 +1733,8 @@ function App() {
                 </div>
               )}
             </div>
-
+            </>
+            )}
           </div>
         </div>
       </div>
@@ -1686,8 +1824,419 @@ function App() {
         bulkSaving={bulkSaving}
         bulkResults={bulkResults}
         bulkError={bulkError}
+        bulkSendWelcome={bulkSendWelcome}
+        onBulkSendWelcomeChange={setBulkSendWelcome}
+        bulkWelcomeText={bulkWelcomeText}
+        onBulkWelcomeTextChange={setBulkWelcomeText}
+        bulkWelcomeTemplateKey={bulkWelcomeTemplateKey}
+        onBulkWelcomeTemplateKeyChange={setBulkWelcomeTemplateKey}
         availableOwners={ownerOptions}
       />
+    </div>
+  )
+}
+
+function ContactManagementPage({
+  ownerLocked,
+  lockedOwner,
+  ownerOptions,
+  owner,
+  onOwnerChange,
+  search,
+  onSearchChange,
+  showInactive,
+  onShowInactiveChange,
+  creators,
+  selectedCreatorIds,
+  selectedVisibleCount,
+  allVisibleSelected,
+  toggleSelectAllVisible,
+  clearSelectedCreators,
+  toggleCreatorSelection,
+  onOpenCreator,
+  applyBatchActiveChange,
+  batchTogglingActive,
+  form,
+  onFormChange,
+  onSave,
+  saving,
+  checkLoading,
+  checkResult,
+  error,
+  bulkText,
+  onBulkTextChange,
+  onBulkSubmit,
+  bulkSaving,
+  bulkResults,
+  bulkError,
+  bulkSendWelcome,
+  onBulkSendWelcomeChange,
+  bulkWelcomeText,
+  onBulkWelcomeTextChange,
+  bulkWelcomeTemplateKey,
+  onBulkWelcomeTemplateKeyChange,
+}) {
+  const [mode, setMode] = useState('single')
+  const parsedBulkRows = useMemo(() => parseBulkCreatorRows(bulkText), [bulkText])
+  const validBulkRows = useMemo(() => parsedBulkRows.filter(r => r.valid), [parsedBulkRows])
+  const samePhone = checkResult?.conflicts?.same_phone || []
+  const sameName = checkResult?.conflicts?.same_name || []
+  const hasPhoneConflict = samePhone.length > 0
+  const hasNameConflict = sameName.length > 0
+
+  const managerOwnerOptions = (() => {
+    const merged = new Set()
+    for (const item of ownerOptions || []) if (item) merged.add(item)
+    if (owner) merged.add(owner)
+    if (form?.owner) merged.add(form.owner)
+    if (lockedOwner) merged.add(lockedOwner)
+    return [...merged]
+  })()
+
+  return (
+    <div className="flex-1 min-w-0 docs-panel overflow-hidden flex flex-col" style={{ background: WA.shellPanelStrong }}>
+      <div className="shrink-0 px-6 py-5 border-b" style={{ borderColor: WA.shellBorder }}>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="docs-kicker">Contacts</div>
+            <div className="text-[28px] leading-none font-semibold" style={{ color: WA.textDark }}>联系人管理</div>
+            <div className="text-sm mt-2" style={{ color: WA.textMuted }}>
+              新增、批量导入、按 owner 解绑或恢复达人联系人。
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="px-3 py-2 rounded-full text-xs font-medium" style={{ background: WA.shellPanelMuted, color: WA.textMuted }}>
+              当前: <span style={{ color: WA.textDark }}>{owner || '未选择 owner'}</span>
+            </div>
+            <div className="px-3 py-2 rounded-full text-xs font-medium" style={{ background: WA.shellPanelMuted, color: WA.textMuted }}>
+              列表: <span style={{ color: WA.textDark }}>{creators.length}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto docs-scrollbar p-5" style={{ background: WA.shellPanel }}>
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(420px,520px)_1fr] gap-5 items-start">
+          <div className="space-y-4">
+            <div className="docs-panel-strong p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="docs-kicker">Owner</div>
+                  <div className="text-sm font-semibold mt-1" style={{ color: WA.textDark }}>负责人范围</div>
+                </div>
+                <select
+                  value={owner}
+                  onChange={e => onOwnerChange?.(e.target.value)}
+                  disabled={ownerLocked}
+                  className="px-3 py-2 rounded-xl border text-sm focus:outline-none min-w-40"
+                  style={{ borderColor: WA.borderLight, color: WA.textDark, background: ownerLocked ? WA.lightBg : WA.white }}
+                >
+                  {!ownerLocked && !owner && <option value="">请选择 owner</option>}
+                  {ownerLocked ? (
+                    <option value={lockedOwner}>{lockedOwner}</option>
+                  ) : managerOwnerOptions.map(item => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2 overflow-x-auto docs-scrollbar pb-1">
+                {managerOwnerOptions.map(item => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => !ownerLocked && onOwnerChange?.(item)}
+                    className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold"
+                    style={{
+                      background: owner === item ? WA.shellActive : WA.white,
+                      color: owner === item ? WA.textDark : WA.textMuted,
+                      border: `1px solid ${owner === item ? WA.shellBorderStrong : WA.borderLight}`,
+                      opacity: ownerLocked ? 0.9 : 1,
+                    }}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="docs-panel-strong p-4 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="docs-kicker">Create</div>
+                  <div className="text-sm font-semibold mt-1" style={{ color: WA.textDark }}>
+                    {mode === 'bulk' ? '批量导入联系人' : '新增单个联系人'}
+                  </div>
+                </div>
+                <div className="inline-flex rounded-full p-1" style={{ background: WA.shellPanelMuted }}>
+                  {[
+                    { key: 'single', label: '单个' },
+                    { key: 'bulk', label: '批量' },
+                  ].map(item => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setMode(item.key)}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold"
+                      style={{
+                        background: mode === item.key ? WA.white : 'transparent',
+                        color: mode === item.key ? WA.textDark : WA.textMuted,
+                        border: `1px solid ${mode === item.key ? WA.borderLight : 'transparent'}`,
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {mode === 'bulk' ? (
+                <BulkImportSection
+                  ownerLocked={ownerLocked}
+                  lockedOwner={lockedOwner}
+                  ownerOptions={managerOwnerOptions}
+                  owner={owner}
+                  onOwnerChange={onOwnerChange}
+                  text={bulkText}
+                  onTextChange={onBulkTextChange}
+                  parsedRows={parsedBulkRows}
+                  validRows={validBulkRows}
+                  onSubmit={() => onBulkSubmit && onBulkSubmit(validBulkRows)}
+                  saving={bulkSaving}
+                  results={bulkResults}
+                  error={bulkError}
+                  sendWelcome={bulkSendWelcome}
+                  onSendWelcomeChange={onBulkSendWelcomeChange}
+                  welcomeText={bulkWelcomeText}
+                  onWelcomeTextChange={onBulkWelcomeTextChange}
+                  welcomeTemplateKey={bulkWelcomeTemplateKey}
+                  onWelcomeTemplateKeyChange={onBulkWelcomeTemplateKeyChange}
+                  onClose={() => setMode('single')}
+                />
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <label className="md:col-span-2 text-xs space-y-1">
+                      <span style={{ color: WA.textMuted }}>达人姓名</span>
+                      <input
+                        value={form.name}
+                        onChange={e => onFormChange(prev => ({ ...prev, name: e.target.value }))}
+                        placeholder="如：Katie"
+                        className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                        style={{ borderColor: WA.borderLight, color: WA.textDark }}
+                      />
+                    </label>
+                    <label className="text-xs space-y-1">
+                      <span style={{ color: WA.textMuted }}>负责人</span>
+                      <select
+                        value={form.owner}
+                        onChange={e => onFormChange(prev => ({ ...prev, owner: e.target.value }))}
+                        disabled={ownerLocked}
+                        className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                        style={{ borderColor: WA.borderLight, color: WA.textDark, background: ownerLocked ? WA.lightBg : WA.white }}
+                      >
+                        {ownerLocked ? (
+                          <option value={lockedOwner}>{lockedOwner}</option>
+                        ) : (
+                          <>
+                            {!form.owner && <option value="">请选择负责人</option>}
+                            {managerOwnerOptions.map(item => (
+                              <option key={item} value={item}>{item}</option>
+                            ))}
+                          </>
+                        )}
+                      </select>
+                    </label>
+                    <label className="md:col-span-3 text-xs space-y-1">
+                      <span style={{ color: WA.textMuted }}>WhatsApp 手机号</span>
+                      <input
+                        value={form.phone}
+                        onChange={e => onFormChange(prev => ({ ...prev, phone: e.target.value }))}
+                        placeholder="如：+1 (318) 701-2419"
+                        className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                        style={{ borderColor: WA.borderLight, color: WA.textDark }}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-xl border p-3 text-xs space-y-2" style={{ borderColor: WA.borderLight, background: WA.lightBg }}>
+                    {checkLoading ? (
+                      <div style={{ color: WA.textMuted }}>去重检查中...</div>
+                    ) : checkResult?.ok === false ? (
+                      <div style={{ color: '#ef4444' }}>去重检查失败：{checkResult.error || 'unknown error'}</div>
+                    ) : (
+                      <>
+                        <div style={{ color: hasPhoneConflict ? '#ef4444' : '#10b981' }}>
+                          同号检查：{hasPhoneConflict ? `发现 ${samePhone.length} 条重复（将复用现有达人）` : '未发现重复手机号'}
+                        </div>
+                        <div style={{ color: hasNameConflict ? '#f59e0b' : WA.textMuted }}>
+                          重名检查：{hasNameConflict ? `发现 ${sameName.length} 条相似姓名` : '未发现相似姓名'}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {error && (
+                    <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>
+                      {error}
+                    </div>
+                  )}
+
+                  <div className="flex justify-end">
+                    <button
+                      onClick={onSave}
+                      disabled={saving || !form.name?.trim() || !form.phone?.trim() || !form.owner?.trim()}
+                      className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                      style={{ background: WA.teal }}
+                    >
+                      {saving ? '保存中...' : '保存并建档'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="docs-panel-strong overflow-hidden">
+            <div className="p-4 border-b space-y-3" style={{ borderColor: WA.shellBorder }}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="docs-kicker">Directory</div>
+                  <div className="text-lg font-semibold mt-1" style={{ color: WA.textDark }}>
+                    {showInactive ? '已解绑联系人' : '活跃联系人'}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onShowInactiveChange(false)}
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold"
+                    style={{
+                      background: !showInactive ? WA.shellActive : WA.white,
+                      color: !showInactive ? WA.textDark : WA.textMuted,
+                      border: `1px solid ${!showInactive ? WA.shellBorderStrong : WA.borderLight}`,
+                    }}
+                  >
+                    活跃
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onShowInactiveChange(true)}
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold"
+                    style={{
+                      background: showInactive ? WA.shellActive : WA.white,
+                      color: showInactive ? WA.textDark : WA.textMuted,
+                      border: `1px solid ${showInactive ? WA.shellBorderStrong : WA.borderLight}`,
+                    }}
+                  >
+                    已解绑
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 px-3.5 py-2.5 rounded-2xl" style={{ background: WA.white, border: `1px solid ${WA.borderLight}` }}>
+                <span style={{ color: WA.textMuted }}>🔍</span>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => onSearchChange?.(e.target.value)}
+                  placeholder="搜索姓名、电话、Keeper..."
+                  className="flex-1 bg-transparent text-sm focus:outline-none"
+                  style={{ color: WA.textDark }}
+                />
+                {search && <button onClick={() => onSearchChange?.('')} style={{ color: WA.textMuted }}>✕</button>}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-xs" style={{ color: WA.textMuted }}>
+                  <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAllVisible} />
+                  <span>全选当前 {creators.length} 位</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  {selectedVisibleCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearSelectedCreators}
+                      className="px-2.5 py-1.5 rounded-full text-xs font-medium"
+                      style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
+                    >
+                      清空
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={applyBatchActiveChange}
+                    disabled={selectedVisibleCount === 0 || batchTogglingActive || (!ownerLocked && !owner)}
+                    className="px-3 py-1.5 rounded-full text-xs font-semibold text-white disabled:opacity-50"
+                    style={{ background: batchTogglingActive ? '#9ca3af' : (showInactive ? WA.teal : '#dc2626') }}
+                  >
+                    {batchTogglingActive
+                      ? '处理中...'
+                      : `${showInactive ? '批量恢复' : '批量解绑'}${selectedVisibleCount > 0 ? ` (${selectedVisibleCount})` : ''}`}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="max-h-[calc(100vh-320px)] overflow-y-auto docs-scrollbar">
+              {creators.length === 0 ? (
+                <div className="py-16 text-center text-sm" style={{ color: WA.textMuted }}>没有找到联系人</div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr style={{ color: WA.textMuted, background: WA.shellPanelMuted }}>
+                      <th className="text-left px-4 py-3 font-medium w-10"></th>
+                      <th className="text-left px-4 py-3 font-medium">联系人</th>
+                      <th className="text-left px-4 py-3 font-medium">owner</th>
+                      <th className="text-left px-4 py-3 font-medium">消息</th>
+                      <th className="text-left px-4 py-3 font-medium">状态</th>
+                      <th className="text-right px-4 py-3 font-medium">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {creators.map(creator => (
+                      <tr key={creator.id} className="border-t" style={{ borderColor: WA.borderLight }}>
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedCreatorIds.includes(creator.id)}
+                            onChange={() => toggleCreatorSelection?.(creator.id)}
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-semibold" style={{ color: WA.textDark }}>{creator.primary_name || 'Unknown'}</div>
+                          <div className="text-xs font-mono mt-1" style={{ color: WA.textMuted }}>{creator.wa_phone || '-'}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="px-2 py-1 rounded-full text-xs font-semibold" style={{ background: WA.shellAccentSoft, color: WA.teal }}>
+                            {creator.wa_owner || '-'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3" style={{ color: WA.textMuted }}>{creator.msg_count || 0}</td>
+                        <td className="px-4 py-3">
+                          <span className="px-2 py-1 rounded-full text-xs font-semibold" style={{
+                            background: showInactive ? 'rgba(220,38,38,0.08)' : 'rgba(0,168,132,0.10)',
+                            color: showInactive ? '#dc2626' : WA.teal,
+                          }}>
+                            {showInactive ? '已解绑' : '活跃'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => onOpenCreator?.(creator)}
+                            className="px-3 py-1.5 rounded-full text-xs font-semibold"
+                            style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
+                          >
+                            打开
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1758,6 +2307,12 @@ function ManualCreatorModal({
   bulkSaving,
   bulkResults,
   bulkError,
+  bulkSendWelcome,
+  onBulkSendWelcomeChange,
+  bulkWelcomeText,
+  onBulkWelcomeTextChange,
+  bulkWelcomeTemplateKey,
+  onBulkWelcomeTemplateKeyChange,
   availableOwners,
 }) {
   const { owners: rosterOwners } = useOperatorRoster()
@@ -1827,7 +2382,7 @@ function ManualCreatorModal({
             ownerLocked={ownerLocked}
             lockedOwner={lockedOwner}
             ownerOptions={ownerOptions}
-            owner={form?.owner || 'Yiyun'}
+            owner={form?.owner || ''}
             onOwnerChange={(value) => onFormChange(prev => ({ ...prev, owner: value }))}
             text={bulkText}
             onTextChange={onBulkTextChange}
@@ -1837,6 +2392,12 @@ function ManualCreatorModal({
             saving={bulkSaving}
             results={bulkResults}
             error={bulkError}
+            sendWelcome={bulkSendWelcome}
+            onSendWelcomeChange={onBulkSendWelcomeChange}
+            welcomeText={bulkWelcomeText}
+            onWelcomeTextChange={onBulkWelcomeTextChange}
+            welcomeTemplateKey={bulkWelcomeTemplateKey}
+            onWelcomeTemplateKeyChange={onBulkWelcomeTemplateKeyChange}
             onClose={onClose}
           />
         ) : (
@@ -1864,9 +2425,12 @@ function ManualCreatorModal({
               {ownerLocked ? (
                 <option value={lockedOwner}>{lockedOwner}</option>
               ) : (
-                ownerOptions.map(owner => (
-                  <option key={owner} value={owner}>{owner}</option>
-                ))
+                <>
+                  {!form.owner && <option value="">请选择负责人</option>}
+                  {ownerOptions.map(owner => (
+                    <option key={owner} value={owner}>{owner}</option>
+                  ))}
+                </>
               )}
             </select>
           </label>
@@ -1927,7 +2491,7 @@ function ManualCreatorModal({
           </button>
           <button
             onClick={onSave}
-            disabled={saving || !form.name?.trim() || !form.phone?.trim()}
+            disabled={saving || !form.name?.trim() || !form.phone?.trim() || !form.owner?.trim()}
             className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
             style={{ background: WA.teal }}
           >
@@ -1955,6 +2519,12 @@ function BulkImportSection({
   saving,
   results,
   error,
+  sendWelcome,
+  onSendWelcomeChange,
+  welcomeText,
+  onWelcomeTextChange,
+  welcomeTemplateKey,
+  onWelcomeTemplateKeyChange,
   onClose,
 }) {
   const total = parsedRows.length
@@ -1962,6 +2532,79 @@ function BulkImportSection({
   const invalidCount = total - validCount
   const summary = results?.summary
   const summaryRows = results?.results || []
+  const [templates, setTemplates] = useState([])
+  const [templateLoading, setTemplateLoading] = useState(false)
+  const [templateError, setTemplateError] = useState('')
+  const [templateSaving, setTemplateSaving] = useState(false)
+  const selectedTemplateKey = welcomeTemplateKey || 'welcome'
+
+  useEffect(() => {
+    if (!sendWelcome || !owner) {
+      setTemplates([])
+      setTemplateError('')
+      return
+    }
+    let cancelled = false
+    const load = async () => {
+      setTemplateLoading(true)
+      setTemplateError('')
+      try {
+        const params = new URLSearchParams({ owner })
+        const data = await fetchJsonOrThrow(`${API_BASE}/creator-import-batches/outreach-templates?${params.toString()}`)
+        if (cancelled) return
+        const rows = Array.isArray(data?.templates) ? data.templates : []
+        setTemplates(rows)
+        const preferred = rows.find(t => t.template_key === selectedTemplateKey) || rows.find(t => t.template_key === 'welcome') || rows[0]
+        if (preferred) {
+          onWelcomeTemplateKeyChange?.(preferred.template_key || 'welcome')
+          if (!welcomeText?.trim()) onWelcomeTextChange?.(preferred.body || '')
+        }
+      } catch (e) {
+        if (!cancelled) setTemplateError(e.message || '模板加载失败')
+      } finally {
+        if (!cancelled) setTemplateLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [owner, sendWelcome])
+
+  const selectedTemplate = templates.find(t => t.template_key === selectedTemplateKey) || null
+
+  const applySelectedTemplate = useCallback((key) => {
+    const next = templates.find(t => t.template_key === key)
+    onWelcomeTemplateKeyChange?.(key || 'welcome')
+    if (next?.body) onWelcomeTextChange?.(next.body)
+  }, [templates, onWelcomeTemplateKeyChange, onWelcomeTextChange])
+
+  const saveWelcomeTemplate = useCallback(async () => {
+    if (!owner || !welcomeText?.trim()) return
+    setTemplateSaving(true)
+    setTemplateError('')
+    try {
+      const data = await fetchJsonOrThrow(`${API_BASE}/creator-import-batches/outreach-templates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner,
+          template_key: selectedTemplateKey || 'welcome',
+          label: selectedTemplate?.label || 'Welcome',
+          body: welcomeText.trim(),
+          is_active: true,
+        }),
+      })
+      const saved = data?.template
+      setTemplates(prev => {
+        const rest = prev.filter(t => t.template_key !== saved?.template_key)
+        return saved ? [saved, ...rest] : prev
+      })
+      if (saved?.template_key) onWelcomeTemplateKeyChange?.(saved.template_key)
+    } catch (e) {
+      setTemplateError(e.message || '模板保存失败')
+    } finally {
+      setTemplateSaving(false)
+    }
+  }, [owner, onWelcomeTemplateKeyChange, selectedTemplate?.label, selectedTemplateKey, welcomeText])
 
   return (
     <div className="space-y-4">
@@ -1978,9 +2621,12 @@ function BulkImportSection({
             {ownerLocked ? (
               <option value={lockedOwner}>{lockedOwner}</option>
             ) : (
-              ownerOptions.map(o => (
-                <option key={o} value={o}>{o}</option>
-              ))
+              <>
+                {!owner && <option value="">请选择负责人</option>}
+                {ownerOptions.map(o => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </>
             )}
           </select>
         </label>
@@ -2001,6 +2647,82 @@ function BulkImportSection({
           style={{ borderColor: WA.borderLight, color: WA.textDark }}
         />
       </label>
+
+      <div className="rounded-xl border p-3 space-y-3" style={{ borderColor: WA.borderLight, background: WA.lightBg }}>
+        <div className="space-y-1">
+          <label className="flex items-center gap-2 text-xs" style={{ color: WA.textDark }}>
+            <input
+              type="checkbox"
+              checked={!!sendWelcome}
+              onChange={e => onSendWelcomeChange?.(e.target.checked)}
+              disabled={saving}
+            />
+            <span className="font-semibold">发送欢迎消息</span>
+            <span
+              className="px-2 py-0.5 rounded-full text-[11px]"
+              style={{
+                color: sendWelcome ? WA.teal : WA.textMuted,
+                background: sendWelcome ? 'rgba(15,118,110,0.10)' : WA.white,
+                border: `1px solid ${sendWelcome ? 'rgba(15,118,110,0.18)' : WA.borderLight}`,
+              }}
+            >
+              {sendWelcome ? '已开启' : '已关闭'}
+            </span>
+          </label>
+          <div className="text-[11px]" style={{ color: WA.textMuted }}>
+            关闭时只导入/绑定 owner，不发送消息，适合已经手动欢迎过但还未入库的历史达人。
+          </div>
+        </div>
+        {sendWelcome && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-end">
+              <label className="text-xs space-y-1 block">
+                <span style={{ color: WA.textMuted }}>模板池</span>
+                <select
+                  value={selectedTemplateKey}
+                  onChange={e => applySelectedTemplate(e.target.value)}
+                  disabled={saving || templateLoading}
+                  className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                  style={{ borderColor: WA.borderLight, color: WA.textDark, background: WA.white }}
+                >
+                  {!templates.some(t => t.template_key === 'welcome') && (
+                    <option value="welcome">{templateLoading ? '加载模板中...' : 'Welcome 默认模板'}</option>
+                  )}
+                  {templates.map(t => (
+                    <option key={t.id || t.template_key} value={t.template_key}>
+                      {t.label || t.template_key}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={saveWelcomeTemplate}
+                disabled={saving || templateSaving || !owner || !welcomeText?.trim()}
+                className="px-3 py-2 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
+                style={{ background: WA.teal }}
+              >
+                {templateSaving ? '保存中...' : '保存为模板'}
+              </button>
+            </div>
+            <label className="text-xs space-y-1 block">
+              <span style={{ color: WA.textMuted }}>欢迎消息</span>
+              <textarea
+                value={welcomeText}
+                onChange={e => onWelcomeTextChange?.(e.target.value)}
+                rows={4}
+                disabled={saving}
+                placeholder="Hi! This is Jiawei from Moras. I’m reaching out to help with onboarding and creator support."
+                className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                style={{ borderColor: WA.borderLight, color: WA.textDark, background: WA.white }}
+              />
+            </label>
+            {templateError && (
+              <div className="text-xs" style={{ color: '#ef4444' }}>{templateError}</div>
+            )}
+          </>
+        )}
+      </div>
 
       {total > 0 && (
         <div className="rounded-xl border" style={{ borderColor: WA.borderLight }}>
@@ -2047,6 +2769,9 @@ function BulkImportSection({
             <span style={{ color: '#0284c7' }}>复用 {summary.reused}</span>
             <span style={{ color: '#f59e0b' }}>跳过 {summary.skipped}</span>
             <span style={{ color: summary.errors > 0 ? '#ef4444' : WA.textMuted }}>失败 {summary.errors}</span>
+            {summary.welcome_queued !== undefined && (
+              <span style={{ color: '#0284c7' }}>欢迎队列 {summary.welcome_queued}</span>
+            )}
           </div>
           {(summary.skipped > 0 || summary.errors > 0) && (
             <div className="max-h-40 overflow-y-auto space-y-1 pt-1">
@@ -2078,7 +2803,7 @@ function BulkImportSection({
         </button>
         <button
           onClick={onSubmit}
-          disabled={saving || validCount === 0}
+          disabled={saving || validCount === 0 || !owner || (sendWelcome && !welcomeText?.trim())}
           className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
           style={{ background: WA.teal }}
         >

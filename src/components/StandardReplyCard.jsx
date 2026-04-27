@@ -20,11 +20,16 @@ export default function StandardReplyCard({
     onSaveTemplate = null,
     onUpdateTemplate = null,
     onSend = null,
+    onSendMedia = null,
     compactMobile = false,
     deckHeight = null,
 }) {
     const [expanded, setExpanded] = useState(false);
     const showAlternatives = expanded && Array.isArray(alternatives) && alternatives.length > 0;
+    const mediaItems = Array.isArray(slot?.media_items) ? slot.media_items : [];
+    const hasText = Boolean(slot?.text);
+    const hasMedia = mediaItems.length > 0;
+    const hasContent = hasText || hasMedia;
     const canUpdateTemplate = Boolean(
         slot?.custom_template_id
         || /^operator-custom-topic::\d+$/.test(String(slot?.section_id || ''))
@@ -89,9 +94,11 @@ export default function StandardReplyCard({
                     />
                 )}
 
-                {!loading && !error && slot?.text && (
+                {!loading && !error && hasContent && (
                     <div className="space-y-2">
-                        <div className="whitespace-pre-wrap break-words">{slot.text}</div>
+                        {hasText && (
+                            <div className="whitespace-pre-wrap break-words">{slot.text}</div>
+                        )}
                         {slot?.title && (
                             <div className="text-[11px]" style={{ color: WA.textMuted }}>
                                 {slot.title}
@@ -110,41 +117,55 @@ export default function StandardReplyCard({
                                 ))}
                             </div>
                         )}
-                        {Array.isArray(slot?.media_items) && slot.media_items.length > 0 && (
+                        {hasMedia && (
                             <div className="grid grid-cols-2 gap-2">
-                                {slot.media_items.slice(0, 4).map((item, index) => (
-                                    <a
+                                {mediaItems.slice(0, 4).map((item, index) => (
+                                    <div
                                         key={`${item.url || item.media_asset_id || index}`}
-                                        href={item.url || '#'}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="block rounded-lg overflow-hidden"
+                                        className="rounded-lg overflow-hidden"
                                         style={{ border: `1px solid ${WA.borderLight}`, background: WA.white }}
                                     >
-                                        {item.url ? (
-                                            <img
-                                                src={item.url}
-                                                alt={item.label || 'template image'}
-                                                className="w-full h-20 object-cover"
-                                            />
-                                        ) : (
-                                            <div className="h-20 flex items-center justify-center text-[11px]" style={{ color: WA.textMuted }}>
-                                                {item.label || '对应图片'}
-                                            </div>
-                                        )}
+                                        <a
+                                            href={item.url || item.file_url || '#'}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="block"
+                                        >
+                                            {item.url || item.file_url ? (
+                                                <img
+                                                    src={item.url || item.file_url}
+                                                    alt={item.label || 'template image'}
+                                                    className="w-full h-20 object-cover"
+                                                />
+                                            ) : (
+                                                <div className="h-20 flex items-center justify-center text-[11px]" style={{ color: WA.textMuted }}>
+                                                    {item.label || '对应图片'}
+                                                </div>
+                                            )}
+                                        </a>
                                         {(item.label || item.note) && (
                                             <div className="px-2 py-1 text-[10px] truncate" style={{ color: WA.textMuted }}>
                                                 {item.label || item.note}
                                             </div>
                                         )}
-                                    </a>
+                                        {onSendMedia && (item.url || item.file_url) && (
+                                            <button
+                                                type="button"
+                                                onClick={() => onSendMedia(item, slot)}
+                                                className="w-full px-2 py-1.5 text-[11px] font-semibold"
+                                                style={{ color: accent, borderTop: `1px solid ${WA.borderLight}`, background: 'rgba(255,255,255,0.78)' }}
+                                            >
+                                                单独发送图片
+                                            </button>
+                                        )}
+                                    </div>
                                 ))}
                             </div>
                         )}
                     </div>
                 )}
 
-                {!loading && !error && !slot?.text && (
+                {!loading && !error && !hasContent && (
                     <EmptyState onRetry={onRetry} message={placeholder} />
                 )}
 
@@ -182,7 +203,7 @@ export default function StandardReplyCard({
                         {expanded ? '收起备选' : `展开备选 (${alternatives.length})`}
                     </button>
                 )}
-                {slot?.text && onEdit && (
+                {hasText && onEdit && (
                     <button
                         onClick={() => onEdit(slot.text, slot)}
                         className="px-3 py-2 rounded-full text-[12px] font-semibold"
@@ -195,7 +216,7 @@ export default function StandardReplyCard({
                         在输入框编辑
                     </button>
                 )}
-                {slot?.text && templateActionHandler && (
+                {hasContent && templateActionHandler && (
                     <button
                         onClick={() => templateActionHandler(slot)}
                         className="px-3 py-2 rounded-full text-[12px] font-semibold"
@@ -208,7 +229,7 @@ export default function StandardReplyCard({
                         更新模板
                     </button>
                 )}
-                {slot?.text && onSend && (
+                {hasText && onSend && (
                     <button
                         onClick={() => onSend(slot.text, slot)}
                         className="px-3 py-2 rounded-full text-[12px] font-semibold text-white"
