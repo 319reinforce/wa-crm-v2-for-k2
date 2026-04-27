@@ -11,6 +11,8 @@ const {
   rebuildCreatorEventSnapshot,
 } = require('./creatorEventSnapshotService');
 
+const REQUIRED_EVENT_DETECTION_TABLES = ['event_detection_cursor', 'event_detection_runs'];
+
 function toTimestampMs(value = null) {
   if (value === null || value === undefined || value === '') return 0;
   const numeric = Number(value);
@@ -63,71 +65,18 @@ async function tableExists(dbConn, tableName) {
   return Number(row?.count || 0) > 0;
 }
 
-async function indexExists(dbConn, tableName, indexName) {
-  const row = await dbConn.prepare(`
-    SELECT COUNT(*) AS count
-    FROM information_schema.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = ?
-      AND INDEX_NAME = ?
-  `).get(tableName, indexName);
-  return Number(row?.count || 0) > 0;
-}
-
-async function addIndexIfMissing(dbConn, tableName, indexName, ddl) {
-  if (await indexExists(dbConn, tableName, indexName)) return false;
-  await dbConn.prepare(ddl).run();
-  return true;
-}
-
 async function ensureActiveEventDetectionSchema(dbConn) {
-  await dbConn.prepare(`
-    CREATE TABLE IF NOT EXISTS event_detection_cursor (
-      creator_id              INT PRIMARY KEY,
-      status                  VARCHAR(24) NOT NULL DEFAULT 'idle',
-      pending_reason          VARCHAR(64),
-      pending_from_message_id BIGINT NULL,
-      pending_from_timestamp  BIGINT NULL,
-      last_message_id         BIGINT NULL,
-      last_message_timestamp  BIGINT NULL,
-      last_detected_at        DATETIME NULL,
-      last_run_id             BIGINT NULL,
-      attempt_count           INT NOT NULL DEFAULT 0,
-      last_error              TEXT,
-      updated_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      created_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT fk_event_detection_cursor_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `).run();
-
-  await dbConn.prepare(`
-    CREATE TABLE IF NOT EXISTS event_detection_runs (
-      id             BIGINT AUTO_INCREMENT PRIMARY KEY,
-      creator_id     INT NOT NULL,
-      mode           VARCHAR(32) NOT NULL,
-      provider       VARCHAR(32) NOT NULL,
-      status         VARCHAR(24) NOT NULL DEFAULT 'running',
-      dry_run        TINYINT(1) NOT NULL DEFAULT 1,
-      from_message_id BIGINT NULL,
-      to_message_id   BIGINT NULL,
-      from_timestamp  BIGINT NULL,
-      to_timestamp    BIGINT NULL,
-      scanned_messages INT NOT NULL DEFAULT 0,
-      candidate_count  INT NOT NULL DEFAULT 0,
-      written_count    INT NOT NULL DEFAULT 0,
-      skipped_count    INT NOT NULL DEFAULT 0,
-      error_count      INT NOT NULL DEFAULT 0,
-      error_message    TEXT,
-      config_json      JSON,
-      started_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      completed_at     DATETIME NULL,
-      CONSTRAINT fk_event_detection_run_creator FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `).run();
-
-  await addIndexIfMissing(dbConn, 'event_detection_cursor', 'idx_event_detection_cursor_status', 'CREATE INDEX idx_event_detection_cursor_status ON event_detection_cursor(status, updated_at)');
-  await addIndexIfMissing(dbConn, 'event_detection_cursor', 'idx_event_detection_cursor_pending_ts', 'CREATE INDEX idx_event_detection_cursor_pending_ts ON event_detection_cursor(pending_from_timestamp)');
-  await addIndexIfMissing(dbConn, 'event_detection_runs', 'idx_event_detection_runs_creator_time', 'CREATE INDEX idx_event_detection_runs_creator_time ON event_detection_runs(creator_id, started_at)');
+  const rows = await dbConn.prepare(`
+    SELECT TABLE_NAME AS table_name
+    FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME IN (${REQUIRED_EVENT_DETECTION_TABLES.map(() => '?').join(', ')})
+  `).all(...REQUIRED_EVENT_DETECTION_TABLES);
+  const existing = new Set(rows.map((row) => row.table_name));
+  const missing = REQUIRED_EVENT_DETECTION_TABLES.filter((table) => !existing.has(table));
+  if (missing.length > 0) {
+    throw new Error(`Active event detection schema is missing ${missing.join(', ')}; run server/migrations/005_active_event_detection_queue.sql`);
+  }
 
   return {
     cursor: await tableExists(dbConn, 'event_detection_cursor'),

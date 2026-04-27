@@ -11,6 +11,9 @@ const { filterShortWindowDuplicates, toTimestampMs } = require('./server/service
 const {
     enqueueCreatorEventDetection,
 } = require('./server/services/activeEventDetectionService');
+const {
+    assertLegacyLifecycleWritesAllowed,
+} = require('./server/services/legacyLifecycleWriteGuard');
 
 const DB_CONFIG = {
     host: process.env.DB_HOST || '127.0.0.1',
@@ -271,6 +274,7 @@ async function getOrCreateWacrm(creatorId) {
 }
 
 async function updateWacrm(creatorId, updates) {
+    assertLegacyLifecycleWritesAllowed(updates, { includeJoinbrands: false });
     const allowed = [
         'priority', 'next_action', 'event_score', 'urgency_level',
         'monthly_fee_status', 'monthly_fee_amount', 'monthly_fee_deducted',

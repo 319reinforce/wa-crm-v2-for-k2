@@ -12,16 +12,16 @@ This plan defines a cleaner target model and a staged migration path. It does no
 
 ## 2. Current Findings
 
-Static `schema.sql` defines 42 tables.
+Before the first implementation pass, static `schema.sql` defined 42 tables.
 
 The local MySQL database currently has 49 tables. `scripts/analyze-schema-state.js` reported no missing schema tables, but found 7 actual tables that are not in `schema.sql`:
 
 | Table | Rows | Current status | Recommendation |
 | --- | ---: | --- | --- |
-| `client_profile_change_events` | 166 | Runtime-created by `profileAnalysisService` | Add to `schema.sql` and a migration, or retire with the profile review workflow. |
+| `client_profile_change_events` | 166 | Runtime-created by `profileAnalysisService` | Add to `schema.sql` and migration. |
 | `client_profile_snapshots` | 166 | Runtime-created by `profileAnalysisService` | Add to `schema.sql`; this is profile history, not current profile state. |
-| `event_detection_cursor` | 2 | Exists in DB, no current code reference found | Treat as orphaned until a worker owner is identified; archive/drop candidate after backup. |
-| `event_detection_runs` | 4 | Exists in DB, no current code reference found | Treat as orphaned run history; archive/drop candidate after backup. |
+| `event_detection_cursor` | 2 | Owned by `activeEventDetectionService`; enqueue path is called from message ingestion/repair. | Add to `schema.sql` and migration; do not archive. |
+| `event_detection_runs` | 4 | Owned by `activeEventDetectionService`; records detection runs. | Add to `schema.sql` and migration; do not archive. |
 | `profile_analysis_state` | 250 | Runtime-created by `profileAnalysisService` | Add to `schema.sql`; use as profile analysis work queue state. |
 | `wa_group_chats` | 56 | Runtime-created by `groupMessageService` | Add to `schema.sql`; this is active WA group data. |
 | `wa_group_messages` | 3184 | Runtime-created by `groupMessageService` | Add to `schema.sql`; this is active WA group data. |
@@ -35,7 +35,17 @@ Other structural issues:
 - Many AI/profile tables still use `client_id` as an external identifier. New work should prefer `creator_id` internally and keep external ids scoped, hashed, or compatibility-only.
 - Some services still create tables at runtime. Schema creation belongs in `schema.sql` and explicit migrations.
 
-Note: `scripts/analyze-schema-state.js` currently reports `wa_sessions` missing column `CASE`. That is a parser false positive caused by the generated column expression in `schema.sql`, not an actual table drift finding.
+Implementation update:
+
+- `schema.sql` now includes all 7 managed runtime tables.
+- `event_detection_cursor` and `event_detection_runs` are covered by `server/migrations/005_active_event_detection_queue.sql`.
+- `server/migrations/006_managed_runtime_tables.sql` covers WA group tables and profile analysis tables, so fresh environments can converge without relying on service-time DDL.
+- After rebasing onto latest Gitea `origin/main`, `server/migrations/007_creator_import_tables.sql` covers `operator_outreach_templates`, `creator_import_batches`, and `creator_import_items`, which latest `schema.sql` already defines.
+- `groupMessageService`, `profileAnalysisService`, and `activeEventDetectionService` now check for managed tables instead of creating them at runtime.
+- `event_detection_cursor` and `event_detection_runs` were not archived because an active owner was found.
+- `scripts/analyze-schema-state.js` was updated so generated column expressions do not create the false `CASE` column finding.
+- Legacy lifecycle writes to `joinbrands_link.ev_*` and lifecycle-related `wa_crm_data` fields are blocked by default. Temporary migration writes require `ALLOW_LEGACY_LIFECYCLE_WRITES=1`.
+- A second implementation pass added `lifecycleEventWriteService` and migrated mappable `PUT /api/creators/:id/wacrm` lifecycle payloads into canonical `events` plus `event_evidence` writes. Unmapped amount/progress fields remain protected until their canonical owner is defined.
 
 ## 3. Target Table Roles
 
@@ -47,8 +57,8 @@ Every table should have exactly one primary role:
 | Derived snapshot | Rebuildable current-state projection | `creator_event_snapshot`, `creator_lifecycle_snapshot`, `ai_usage_daily` |
 | Compatibility cache | Temporary API/backward-compatibility output | `joinbrands_link.ev_*`, legacy parts of `wa_crm_data` |
 | Operational log | Append-heavy audit, generation, usage, job, or sync history | `generation_log`, `retrieval_snapshot`, `audit_log`, `ai_usage_logs` |
-| Work queue/state | Current progress marker for background processing | `profile_analysis_state`, potential event detection cursor |
-| Archive candidate | Unused, empty, superseded, or no current code owner | `manual_match`, orphaned `event_detection_*` if confirmed unused |
+| Work queue/state | Current progress marker for background processing | `profile_analysis_state`, `event_detection_cursor` |
+| Archive candidate | Unused, empty, superseded, or no current code owner | `manual_match` |
 
 The key rule: snapshots and compatibility caches must never become hidden write targets for new business facts.
 
@@ -241,15 +251,19 @@ Acceptance:
 
 ### Phase 1: Restore Schema Source Of Truth
 
+Status: implemented in the first mysql optimize pass.
+
 Actions:
 
-- Add the 5 active runtime-created tables to `schema.sql` and a migration:
+- Add the 7 managed runtime-created tables to `schema.sql` and a migration:
   - `wa_group_chats`
   - `wa_group_messages`
   - `profile_analysis_state`
   - `client_profile_snapshots`
   - `client_profile_change_events`
-- Decide whether `event_detection_cursor` and `event_detection_runs` still have an owner. If not, archive/drop after backup.
+  - `event_detection_cursor`
+  - `event_detection_runs`
+- Identify `activeEventDetectionService` as the owner for `event_detection_cursor` and `event_detection_runs`; do not archive them.
 - Remove runtime table creation from services once migrations are present.
 - Fix `scripts/analyze-schema-state.js` parser so generated columns do not produce the `CASE` false positive.
 
@@ -326,7 +340,7 @@ Actions:
 - After one verification window, remove deprecated readers.
 - Rename or replace `wa_crm_data` with a narrower work-state table only after all APIs are migrated.
 - Drop or archive `manual_match` if it remains empty.
-- Drop or archive orphaned `event_detection_*` tables if no owner is found.
+- Keep `event_detection_cursor` and `event_detection_runs` while `activeEventDetectionService` owns them; revisit only if that service contract is removed.
 
 Acceptance:
 
@@ -335,23 +349,25 @@ Acceptance:
 
 ## 7. Immediate Next PRs
 
-Recommended order:
+Recommended order after the first implementation pass:
 
-1. Schema source-of-truth PR:
-   - Add runtime-created active tables to `schema.sql`.
-   - Add a migration.
-   - Fix schema analyzer false positive.
-2. Legacy write freeze PR:
-   - Add helper functions and warnings around `joinbrands_link.ev_*` and `wa_crm_data` lifecycle writes.
-   - Update docs/comments so new code writes events first.
-3. Creator id backfill PR:
-   - Add `creator_id` columns to AI/profile tables.
-   - Backfill safely.
-   - Update profile/memory/generation readers to prefer `creator_id`.
-4. CRM fact migration PR:
-   - Move event-like writes from `wa_crm_data` and `joinbrands_link.ev_*` into `events`.
-   - Rebuild snapshots.
-5. Retention PR:
+1. Migration application and schema convergence PR:
+   - Apply migrations 005, 006, and 007 in target environments.
+   - Verify `node scripts/analyze-schema-state.js` reports no drift.
+2. Event-fact write helper plus backend `wacrm` route migration:
+   - Convert lifecycle edits into `events` plus `event_evidence`.
+   - Rebuild event/lifecycle snapshots after writes.
+3. Frontend creator detail edit migration:
+   - Stop normal UI forms from submitting deprecated lifecycle fields.
+   - Handle `legacy_lifecycle_writes_frozen` responses clearly.
+4. Remaining runtime DDL cleanup:
+   - Classify creator import, custom topic, media, and training DDL paths.
+   - Remove creator import service-time DDL after migration 007 is deployed everywhere.
+   - Move request/runtime DDL into migrations where needed.
+5. `creator_id` profile/AI backfill:
+   - Add nullable `creator_id` columns.
+   - Backfill and update new writes to prefer internal creator identity.
+6. Retention PR:
    - Add archive/rollup policy and scripts for generation/retrieval/usage logs.
 
 ## 8. Verification Checklist
