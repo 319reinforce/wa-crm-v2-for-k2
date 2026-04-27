@@ -19,6 +19,7 @@
 const db = require('../../db');
 const path = require('path');
 const fs = require('fs');
+const { assertManagedSchemaReady } = require('./schemaReadinessGuard');
 
 const RETENTION_DAYS = parseInt(process.env.MEDIA_RETENTION_DAYS || '30', 10);
 const PURGE_AFTER_DAYS = parseInt(process.env.MEDIA_PURGE_AFTER_DAYS || '7', 10);
@@ -33,11 +34,16 @@ function getRetentionCutoff() {
 
 async function ensureSchema() {
     const conn = db.getDb();
-    // Schema is already in schema.sql; but we ensure indexes exist
-    await conn.prepare(`
-        CREATE INDEX IF NOT EXISTS idx_media_assets_deleted_at
-        ON media_assets(deleted_at)
-    `).run().catch(() => {}); // Ignore if already exists
+    await assertManagedSchemaReady(conn, {
+        feature: 'Media cleanup',
+        migration: 'server/migrations/008_template_media_training_tables.sql',
+        tables: ['media_assets', 'cleanup_jobs', 'cleanup_exemptions'],
+        columns: {
+            media_assets: ['id', 'storage_tier', 'status', 'created_at', 'deleted_at', 'cleanup_job_id', 'file_path', 'storage_key', 'storage_provider', 'mime_type', 'file_size'],
+            cleanup_jobs: ['id', 'job_type', 'retention_days', 'status', 'total_candidates', 'candidates_checked', 'candidates_deleted', 'candidates_skipped', 'started_at', 'completed_at', 'triggered_by', 'triggered_by_user', 'note', 'error_message'],
+            cleanup_exemptions: ['id', 'media_asset_id', 'exempted_by', 'exemption_reason', 'exempted_at', 'expires_at', 'created_at'],
+        },
+    });
 }
 
 async function startCleanupJob(jobType, retentionDays, triggeredBy, triggeredByUser, note) {

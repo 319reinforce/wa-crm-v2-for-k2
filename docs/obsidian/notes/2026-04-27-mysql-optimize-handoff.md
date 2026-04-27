@@ -43,8 +43,9 @@ The first MySQL optimize implementation pass moved active runtime-created schema
 
 ## Follow-Up Items
 
-- Apply and verify migrations 005, 006, and 007 in target environments.
-- Finish frontend edit flow migration so normal UI does not submit deprecated lifecycle fields.
-- Decide canonical handling for still-protected amount/progress fields such as `monthly_fee_amount`, `video_count`, and `video_target`.
-- Continue runtime DDL cleanup for creator import, custom topic, media, and training paths; migration 007 now covers creator import tables, but service-time DDL still needs removal after rollout.
-- Plan `creator_id` backfill for profile and AI tables.
+- Apply and verify migrations 005 through 010 in target environments.
+- Phase 2 moved CreatorDetail positive lifecycle edits to event-first writes.
+- Phase 2 removed service-time DDL from creator import, custom topic, media, and training paths.
+- Phase 2 added `creator_id` backfill and forward writes for profile and AI tables.
+- Canonical handling is still needed for protected amount/progress/deadline fields such as `monthly_fee_amount`, `video_count`, `video_target`, and `agency_deadline`.
+- See `docs/MYSQL_OPTIMIZE_PHASE2_HANDOFF_20260427.md` for the latest verification and retention policy.

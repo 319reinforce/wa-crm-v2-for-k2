@@ -8,6 +8,12 @@ const REPLY_PIPELINE_VERSION = 'reply_generation_v2';
 const DEFAULT_MINIMAX_BASE = 'https://minimax.a7m.com.cn';
 const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.7-highspeed';
 
+async function resolveCreatorIdForClient(db2, clientId) {
+    if (!clientId) return null;
+    const row = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ? LIMIT 1').get(clientId);
+    return row?.id || null;
+}
+
 function resolveMinimaxMessagesUrl(rawBase) {
     const input = String(rawBase || '').trim() || DEFAULT_MINIMAX_BASE;
     try {
@@ -211,11 +217,13 @@ function extractCandidateOpt2Text(payload) {
 async function writeRetrievalSnapshot(snapshot) {
     try {
         const db2 = db.getDb();
+        const creatorId = await resolveCreatorIdForClient(db2, snapshot.client_id);
         const result = await db2.prepare(`
             INSERT INTO retrieval_snapshot
-            (client_id, operator, scene, system_prompt_version, snapshot_hash, grounding_json, topic_context, rich_context, conversation_summary)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (creator_id, client_id, operator, scene, system_prompt_version, snapshot_hash, grounding_json, topic_context, rich_context, conversation_summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
+            creatorId,
             snapshot.client_id || null,
             snapshot.operator || null,
             snapshot.scene || 'unknown',
@@ -236,11 +244,13 @@ async function writeRetrievalSnapshot(snapshot) {
 async function writeGenerationLog(log) {
     try {
         const db2 = db.getDb();
+        const creatorId = await resolveCreatorIdForClient(db2, log.client_id);
         const result = await db2.prepare(`
             INSERT INTO generation_log
-            (client_id, retrieval_snapshot_id, provider, model, route, ab_bucket, scene, operator, temperature_json, message_count, prompt_version, latency_ms, status, error_message)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (creator_id, client_id, retrieval_snapshot_id, provider, model, route, ab_bucket, scene, operator, temperature_json, message_count, prompt_version, latency_ms, status, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
+            creatorId,
             log.client_id || null,
             log.retrieval_snapshot_id || null,
             log.provider || null,

@@ -108,12 +108,12 @@ async function refreshProfileSummary(clientId) {
 
         if (summary) {
             const updated = await db2.prepare(
-                'UPDATE client_profiles SET summary = ?, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?'
-            ).run(summary, clientId);
+                'UPDATE client_profiles SET creator_id = COALESCE(creator_id, ?), summary = ?, last_updated = CURRENT_TIMESTAMP WHERE client_id = ?'
+            ).run(creator.id, summary, clientId);
             if (updated.changes === 0) {
                 await db2.prepare(
-                    'INSERT INTO client_profiles (client_id, summary) VALUES (?, ?)'
-                ).run(clientId, summary);
+                    'INSERT INTO client_profiles (creator_id, client_id, summary) VALUES (?, ?, ?)'
+                ).run(creator.id, clientId, summary);
             }
         }
     } catch (err) {

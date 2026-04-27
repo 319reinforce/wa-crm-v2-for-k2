@@ -21,6 +21,12 @@ const SFT_STRUCTURED_METADATA_FIELDS = [
 
 let sftMemoryColumnSetPromise = null;
 
+async function resolveCreatorIdForClient(db2, clientId) {
+    if (!clientId) return null;
+    const row = await db2.prepare('SELECT id FROM creators WHERE wa_phone = ? LIMIT 1').get(clientId);
+    return row?.id || null;
+}
+
 function validateHumanOutput(humanOutput) {
     const trimmed = (humanOutput || '').trim();
     if (trimmed.length < 3) return { valid: false, error: 'human_output too short (< 3 chars)' };
@@ -444,10 +450,11 @@ async function createSftFeedback({ client_id, feedback_type, input_text, opt1, o
         throw err;
     }
     const db2 = db.getDb();
+    const creatorId = await resolveCreatorIdForClient(db2, client_id);
     const result = await db2.prepare(`
-        INSERT INTO sft_feedback (client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail, reject_reason)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(client_id || null, feedback_type, input_text || null, opt1 || null, opt2 || null, final_output || null, scene || null, detail || null, reject_reason || null);
+        INSERT INTO sft_feedback (creator_id, client_id, feedback_type, input_text, opt1, opt2, final_output, scene, detail, reject_reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(creatorId, client_id || null, feedback_type, input_text || null, opt1 || null, opt2 || null, final_output || null, scene || null, detail || null, reject_reason || null);
     return { ok: true, id: result.lastInsertRowid };
 }
 

@@ -1211,20 +1211,23 @@ router.get('/:id', async (req, res) => {
         if (lockedOwner && !matchesOwnerScope(req, creator.wa_owner)) {
             return sendOwnerScopeForbidden(res, lockedOwner);
         }
-        const [assignment, eventsMap, lifecycleOptions, messageAggregate] = await Promise.all([
+        const [assignment, eventsMap, lifecycleOptions, messageAggregate, eventSnapshotsMap] = await Promise.all([
             getAssignmentByCreatorId(creator.id),
             getLifecycleEventsMap(dbConn, [creator.id]),
             getLifecycleRuntimeOptions(dbConn),
             fetchCreatorMessageAggregate(dbConn, creator.id),
+            fetchCreatorEventSnapshotsMap(dbConn, [creator.id]),
         ]);
         const messageFactsMap = await fetchCreatorMessageFactsMap(dbConn, [{
             ...creator,
             ...messageAggregate,
         }]);
         const withAssignment = applyAssignmentToCreator(creator, assignment);
+        const eventSnapshot = eventSnapshotsMap.get(Number(creator.id)) || null;
         const detail = attachLifecycle({
             ...withAssignment,
             message_facts: messageFactsMap.get(Number(creator.id)) || null,
+            event_snapshot: eventSnapshot,
         }, eventsMap.get(creator.id) || [], lifecycleOptions);
         const lifecycleSnapshot = await getLifecycleSnapshotRecord(dbConn, creator.id);
         res.json({

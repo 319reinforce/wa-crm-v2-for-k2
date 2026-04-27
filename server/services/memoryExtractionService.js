@@ -31,6 +31,14 @@ function getPool() {
 }
 const VERBOSE_LOGS = process.env.LOG_VERBOSE === 'true';
 
+async function resolveCreatorId(pool, clientId) {
+    const [rows] = await pool.execute(
+        'SELECT id FROM creators WHERE wa_phone = ? LIMIT 1',
+        [clientId]
+    );
+    return rows[0]?.id || null;
+}
+
 function maskClientId(clientId) {
     const value = String(clientId || '');
     const digits = value.replace(/\D/g, '');
@@ -191,10 +199,11 @@ Trigger type: ${triggerType}`;
 async function upsertMemory(memory, clientId, _conn = null, overwriteOnHigherConfidence = false) {
     const { memory_type, memory_key, memory_value, confidence = 1, source_record_id = null } = memory;
     const pool = getPool();
+    const creatorId = await resolveCreatorId(pool, clientId);
 
     // 先查询是否存在
     const [existing] = await pool.execute(
-        'SELECT id, confidence FROM client_memory WHERE client_id = ? AND memory_type = ? AND memory_key = ?',
+        'SELECT id, creator_id, confidence FROM client_memory WHERE client_id = ? AND memory_type = ? AND memory_key = ?',
         [clientId, memory_type, memory_key]
     );
 
@@ -202,18 +211,24 @@ async function upsertMemory(memory, clientId, _conn = null, overwriteOnHigherCon
         const old = existing[0];
         if (overwriteOnHigherConfidence && confidence > old.confidence) {
             await pool.execute(
-                'UPDATE client_memory SET memory_value = ?, confidence = ?, source_record_id = COALESCE(?, source_record_id), updated_at = NOW() WHERE id = ?',
-                [memory_value, confidence, source_record_id, old.id]
+                'UPDATE client_memory SET creator_id = COALESCE(creator_id, ?), memory_value = ?, confidence = ?, source_record_id = COALESCE(?, source_record_id), updated_at = NOW() WHERE id = ?',
+                [creatorId, memory_value, confidence, source_record_id, old.id]
             );
             return { inserted: false, duplicate: false, overwritten: true };
+        }
+        if (creatorId && !old.creator_id) {
+            await pool.execute(
+                'UPDATE client_memory SET creator_id = ? WHERE id = ?',
+                [creatorId, old.id]
+            );
         }
         return { inserted: false, duplicate: true, overwritten: false };
     }
 
     await pool.execute(
-        `INSERT INTO client_memory (client_id, memory_type, memory_key, memory_value, confidence, source_record_id)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [clientId, memory_type, memory_key, memory_value, confidence, source_record_id]
+        `INSERT INTO client_memory (creator_id, client_id, memory_type, memory_key, memory_value, confidence, source_record_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [creatorId, clientId, memory_type, memory_key, memory_value, confidence, source_record_id]
     );
     return { inserted: true, duplicate: false, overwritten: false };
 }

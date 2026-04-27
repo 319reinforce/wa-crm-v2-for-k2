@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const db = require('../../db');
+const { assertManagedSchemaReady } = require('./schemaReadinessGuard');
 
 let mediaCompressionService = null;
 try {
@@ -120,51 +121,24 @@ function toPublicUrl(storageKey) {
 async function ensureMediaSchema() {
     if (schemaEnsured) return;
     const db2 = db.getDb();
-    await db2.prepare(`
-        CREATE TABLE IF NOT EXISTS media_assets (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            creator_id INT NULL,
-            operator VARCHAR(32) NULL,
-            uploaded_by VARCHAR(64) NULL,
-            storage_provider VARCHAR(16) NOT NULL DEFAULT 'local',
-            storage_key VARCHAR(255) NOT NULL,
-            file_path TEXT NULL,
-            file_url TEXT NULL,
-            file_name VARCHAR(255) NOT NULL,
-            mime_type VARCHAR(64) NOT NULL,
-            file_size BIGINT NOT NULL,
-            sha256_hash VARCHAR(64) NOT NULL,
-            status VARCHAR(16) NOT NULL DEFAULT 'active',
-            meta_json JSON NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_media_assets_creator (creator_id),
-            INDEX idx_media_assets_status (status),
-            INDEX idx_media_assets_hash (sha256_hash)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `).run();
-    await db2.prepare(`
-        CREATE TABLE IF NOT EXISTS media_send_log (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            media_asset_id BIGINT NOT NULL,
-            creator_id INT NULL,
-            phone VARCHAR(32) NOT NULL,
-            session_id VARCHAR(64) NULL,
-            operator VARCHAR(32) NULL,
-            caption TEXT NULL,
-            status VARCHAR(16) NOT NULL DEFAULT 'pending',
-            error_message TEXT NULL,
-            wa_message_id VARCHAR(255) NULL,
-            routed_session_id VARCHAR(64) NULL,
-            routed_operator VARCHAR(32) NULL,
-            sent_by VARCHAR(64) NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            sent_at DATETIME NULL,
-            INDEX idx_media_send_creator (creator_id, created_at),
-            INDEX idx_media_send_status (status, created_at),
-            INDEX idx_media_send_media_asset (media_asset_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `).run();
+    await assertManagedSchemaReady(db2, {
+        feature: 'Media asset',
+        migration: 'server/migrations/008_template_media_training_tables.sql',
+        tables: ['media_assets', 'media_send_log'],
+        columns: {
+            media_assets: [
+                'id', 'creator_id', 'operator', 'uploaded_by', 'storage_provider', 'storage_key',
+                'file_path', 'file_url', 'file_name', 'mime_type', 'file_size', 'sha256_hash',
+                'status', 'storage_tier', 'original_size', 'compressed_at', 'deleted_at',
+                'cleanup_job_id', 'meta_json', 'created_at', 'updated_at',
+            ],
+            media_send_log: [
+                'id', 'media_asset_id', 'creator_id', 'phone', 'session_id', 'operator',
+                'caption', 'status', 'error_message', 'wa_message_id', 'routed_session_id',
+                'routed_operator', 'sent_by', 'created_at', 'sent_at',
+            ],
+        },
+    });
     schemaEnsured = true;
 }
 
