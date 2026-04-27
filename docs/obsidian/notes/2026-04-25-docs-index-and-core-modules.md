@@ -25,7 +25,7 @@ The documentation set now has a top-level index and a module overview for the ma
 - `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` is the active documentation cleanup record.
 - `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` holds the consolidated pre-2026-04-20 review/security/runtime/event history.
 - `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` owns the report/runtime artifact boundary and LightRAG removal decision.
-- `docs/DOCS_INDEX.md` is intentionally slimmed to current entry points; older handoffs now live under `docs/archive/handoffs/`.
+- `docs/DOCS_INDEX.md` is intentionally slimmed to current entry points; older handoffs were removed after their useful decisions were retained in Obsidian.
 - Latest event/lifecycle progress is linked through `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`.
 - Creator bulk import, owner welcome template pool, and standard welcome-message publish progress is linked through `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md`.
 - Older review and cleanup docs were removed from active navigation after consolidation; use the archive only for historical rationale.

@@ -53,9 +53,9 @@ Implementation:
 | --- | --- | --- | --- |
 | `reports/active-event-detection-1072-keyword-20260426.json` | Active event dry-run evidence | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Keep until active-event rollout closes; then summarize and delete. |
 | `reports/active-event-detection-1087-keyword-20260426.json` | Active event dry-run evidence | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Keep until active-event rollout closes; then summarize and delete. |
-| `reports/event-lifecycle-top-creators-20260425-local.json` | Lifecycle backfill evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/archive/handoffs/EVENT_LIFECYCLE_HANDOFF_20260425.md` | Keep while those handoffs are active; later archive summary only. |
+| `reports/event-lifecycle-top-creators-20260425-local.json` | Lifecycle backfill evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/obsidian/notes/2026-04-25-event-lifecycle-handoff.md` | Keep while those handoffs are active; later archive summary only. |
 | `reports/event-lifecycle-top-creators-20260425-minimax.json` | Lifecycle LLM comparison evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` | Keep while lifecycle backfill is under review; later delete after summary. |
-| `reports/tier2-compat-event-audit-20260425.json` | Compatibility audit evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/archive/handoffs/WORKTREE_REMEDIATION_PLAN_20260425.md` | Keep until compatibility audit is superseded by schema cleanup. |
+| `reports/tier2-compat-event-audit-20260425.json` | Compatibility audit evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/obsidian/notes/2026-04-25-worktree-remediation-plan.md` | Keep until compatibility audit is superseded by schema cleanup. |
 | `reports/dirty-data-cleanup-20260416.sql` | Historical SQL output | No active docs should execute it directly. | Removed; conclusions live in `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` and the schema optimization plan. |
 | `docs/exports/lifecycle-*.{csv,md}` | Historical lifecycle exports | No active docs should depend on them. | Removed because they predate the current lifecycle model and contained raw phone values. |
 
@@ -93,7 +93,7 @@ Before merging any cleanup PR:
 
 ```bash
 git diff --check
-rg -n "LightRAG|reports/.*202604|docs/exports|dirty-data-cleanup|docs/wa/.*state" AGENTS.md BOT_INTEGRATION.md CLAUDE.md DEPLOY.md docs scripts server src reports || true
+rg -n "LightRAG|reports/.*202604|docs/exports|dirty-data-cleanup|docs/wa/.*state" AGENTS.md BOT_INTEGRATION.md DEPLOY.md docs scripts server src reports || true
 git ls-files LightRAG reports docs/exports docs/rag/observation-reports docs/wa
 git status --short --branch
 ```

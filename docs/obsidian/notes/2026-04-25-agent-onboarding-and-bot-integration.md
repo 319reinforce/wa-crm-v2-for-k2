@@ -31,7 +31,7 @@ Agent onboarding now points new agents to the documentation index, core module o
 ## Source
 
 - `AGENTS.md`
-- `CLAUDE.md`
+- `AGENTS.md`
 - `BOT_INTEGRATION.md`
 - `docs/DOCS_INDEX.md`
 - `docs/CORE_MODULES_OVERVIEW.md`

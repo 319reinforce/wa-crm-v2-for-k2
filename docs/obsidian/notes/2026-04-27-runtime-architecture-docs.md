@@ -24,7 +24,6 @@ The active runtime architecture docs are spread across AI reply generation, SFT/
 - SFT/RLHF pipeline: `docs/SFT_RLHF_PIPELINE.md`
 - RLHF operator onboarding: `docs/RLHF_ONBOARDING.md`
 - WA session control design: `docs/WA_SESSIONS_DESIGN.md`
-- WA session design review: `docs/WA_SESSIONS_DESIGN_REVIEW.md`
 - Baileys rollout runbook: `docs/BAILEYS_ROLLOUT.md`
 - SSE hardening: `docs/SSE_HARDENING.md`
 - Core module index: `docs/CORE_MODULES_OVERVIEW.md`

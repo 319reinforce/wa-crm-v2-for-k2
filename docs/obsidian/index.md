@@ -11,6 +11,7 @@ Status: Active
 - [[notes/2026-04-27-document-retention-audit|Documentation Retention Audit]]
 - [[notes/2026-04-27-rag-knowledge-source-docs|RAG Knowledge Source Docs]]
 - [[notes/2026-04-27-runtime-artifact-cleanup-plan|Runtime Artifact Cleanup Plan]]
+- [[notes/2026-04-27-deep-doc-cleanup|Deep Doc Cleanup]]
 
 ## Implementation Baselines
 

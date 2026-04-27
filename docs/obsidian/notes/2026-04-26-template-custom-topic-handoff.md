@@ -3,7 +3,7 @@ title: Template Custom Topic Handoff
 date: 2026-04-26
 project: wa-crm-v2
 type: handoff
-source_path: docs/archive/handoffs/TEMPLATE_CUSTOM_TOPIC_HANDOFF_20260424.md
+source_path: docs/obsidian/notes/2026-04-26-template-custom-topic-handoff.md
 status: active
 tags:
   - wa-crm-v2
@@ -29,7 +29,7 @@ WA CRM v2 custom topic templates now support independent image assets. A saved t
 
 ## Source
 
-- Source document: `docs/archive/handoffs/TEMPLATE_CUSTOM_TOPIC_HANDOFF_20260424.md`
+- Source document was removed during deep doc cleanup; this note is the retained summary.
 - Main code paths:
   - `server/routes/customTopicTemplates.js`
   - `server/services/localRuleRetrievalService.js`

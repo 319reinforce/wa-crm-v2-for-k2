@@ -637,7 +637,7 @@ router.get('/status', async (req, res) => {
 // POST /api/wa/sessions/:sessionId/driver — 异步切换 WA driver (wwebjs ↔ baileys)
 // admin-only：WhatsApp driver 切换会强制重扫 QR，破坏性强，service/owner token 一律拒。
 // 返回 202 + command_id，真正工作在后台跑。客户端用 GET .../commands/:cmdId 轮询进度。
-// 这样避免同步 30s 卡死撞 CF 524 / nginx 60s 超时（见 WA_SESSIONS_DESIGN_REVIEW §HIGH-4）。
+// 这样避免同步 30s 卡死撞 CF 524 / nginx 60s 超时（见 WA sessions runtime cleanup notes）。
 const DRIVER_SWITCH_STOP_POLL_MAX_MS = 30000;
 const DRIVER_SWITCH_STOP_POLL_INTERVAL_MS = 1000;
 

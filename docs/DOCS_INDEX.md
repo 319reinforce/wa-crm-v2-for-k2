@@ -44,10 +44,6 @@ Read in this order:
 | Document | Purpose |
 | --- | --- |
 | `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md` | Batch creator import, dynamic owners, owner welcome template pool, and standard welcome-message publish handoff. |
-| `docs/FRONTEND_LAYOUT_REFACTOR.md` | Frontend layout refactor background. |
-| `docs/FRONTEND_LOAD_OPTIMIZATION_20260423.md` | Frontend load optimization notes. |
-| `docs/VIEWER_ROLE_20260423.md` | Viewer role behavior notes. |
-
 ## Current RAG And Knowledge Source Docs
 
 | Document | Purpose |
@@ -70,9 +66,9 @@ Read in this order:
 | `docs/RECENT_BRANCH_DOC_MAPPING_20260427.md` | Recent Gitea branch, PR, archive tag, and handoff/Obsidian mapping. |
 | `docs/obsidian/index.md` | Obsidian memory note index. |
 
-## Archived Handoffs
+## Deleted Historical Handoffs
 
-Old handoffs that are useful for archaeology but should not be treated as current entry points live under `docs/archive/handoffs/`. Prefer the active docs above unless a task explicitly needs historical rollout context.
+Old handoffs that were more than half stale against current branch direction were removed from `docs/archive/handoffs/`. Their useful decisions are preserved in Obsidian notes and current branch mapping docs.
 
 ## Runtime Artifact Boundary
 

@@ -1,7 +1,7 @@
 # SSE 链路加固说明
 
 > 适用范围：`GET /api/events/subscribe`（SSE 推送） + 前端 `src/App.jsx` 中的 `EventSource` 订阅
-> 最后更新：2026-04-22（分支 `0420claude`）
+> 最后更新：2026-04-22
 
 ---
 

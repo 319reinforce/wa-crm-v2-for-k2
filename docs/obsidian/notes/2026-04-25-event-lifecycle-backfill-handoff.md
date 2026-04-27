@@ -29,7 +29,7 @@ The 2026-04-25 event lifecycle backfill landed the event fact columns, evidence 
 
 - Source document: `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`
 - PRD: `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md`
-- Earlier handoff archive: `docs/archive/handoffs/EVENT_LIFECYCLE_HANDOFF_20260425.md`
+- Earlier handoff source was removed during deep doc cleanup; keep this Obsidian note as the historical summary.
 
 ## Verification
 

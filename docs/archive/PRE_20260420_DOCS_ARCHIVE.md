@@ -109,7 +109,7 @@ The pre-4/20 RAG work established:
 The old `EVENT_SYSTEM` documents were duplicate legacy notes. The current event/lifecycle entry points are:
 
 - `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md`
-- `docs/archive/handoffs/EVENT_LIFECYCLE_HANDOFF_20260425.md`
+- `docs/obsidian/notes/2026-04-25-event-lifecycle-handoff.md`
 - `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`
 - `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md`
 
