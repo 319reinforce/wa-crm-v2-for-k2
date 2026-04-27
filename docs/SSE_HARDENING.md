@@ -155,3 +155,9 @@ handle /api/events/* {
 
 - `Last-Event-ID` 断点续传：需要 `sseBus.broadcast` 为每条事件发 `id:` 行 + 后端维护 ring buffer，前端重连时通过 `EventSource` 自动带回最后一个 id；当前广播体量不大，故暂不做
 - 多进程水平扩展：`sseBus` 目前是进程内 `Set`，多个 Node 实例之间不共享订阅。若要上横向扩容，可接 Redis pub/sub 作为总线，或走 SSE gateway（如 Mercure）
+
+## Obsidian Sync
+
+- Status: synced
+- Note: `docs/obsidian/notes/2026-04-27-sse-and-deployment-current.md`
+- Index: `docs/obsidian/index.md`

@@ -11,12 +11,13 @@ Read in this order:
 
 1. `AGENTS.md` - agent entry guide and working rules.
 2. `BOT_INTEGRATION.md` - API and integration quick reference.
-3. `docs/CORE_MODULES_OVERVIEW.md` - current module map.
-4. `docs/AI_REPLY_GENERATION_SYSTEM.md` - current reply generation, Experience Router, and SFT capture entry points.
-5. `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md` - schema ownership, compatibility cleanup, and migration order.
-6. `docs/OBSIDIAN_MEMORY_STANDARD.md` - Obsidian memory and sync standard.
-7. `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` - documentation retention and pre-2026-04-20 cleanup record.
-8. `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` - reports, runtime artifacts, and external vendor boundary.
+3. `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md` - latest agent-facing state, active-doc coverage, and legacy boundary.
+4. `docs/CORE_MODULES_OVERVIEW.md` - current module map.
+5. `docs/AI_REPLY_GENERATION_SYSTEM.md` - current reply generation, Experience Router, and SFT capture entry points.
+6. `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md` - schema ownership, compatibility cleanup, and migration order.
+7. `docs/OBSIDIAN_MEMORY_STANDARD.md` - Obsidian memory and sync standard.
+8. `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` - documentation retention and pre-2026-04-20 cleanup record.
+9. `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` - reports, runtime artifacts, and external vendor boundary.
 
 ## Current Product And Runtime Docs
 
@@ -27,6 +28,7 @@ Read in this order:
 | `docs/WA_SESSIONS_DESIGN.md` | WA multi-session design and IPC/volume planning. |
 | `docs/BAILEYS_ROLLOUT.md` | Baileys driver rollout and risk notes. |
 | `docs/SSE_HARDENING.md` | SSE transport hardening. |
+| `DEPLOY.md` | Baileys-oriented deployment baseline. |
 
 ## Current Event And Lifecycle Docs
 
@@ -60,6 +62,7 @@ Read in this order:
 | `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` | Runtime artifact, report, and external vendor cleanup baseline. |
 | `docs/RECENT_BRANCH_DOC_MAPPING_20260427.md` | Recent Gitea branch, PR, archive tag, and handoff/Obsidian mapping. |
 | `docs/obsidian/index.md` | Obsidian memory note index. |
+| `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md` | Latest agent-facing coverage matrix. |
 
 ## Deleted Historical Handoffs
 
@@ -79,5 +82,5 @@ The old root `SFT_PROJECT.md`, `docs/SFT_RLHF_PIPELINE.md`, and `docs/RLHF_ONBOA
 ## Obsidian Sync
 
 - Status: synced
-- Note: `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md`
+- Note: `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md`, `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md`
 - Index: `docs/obsidian/index.md`

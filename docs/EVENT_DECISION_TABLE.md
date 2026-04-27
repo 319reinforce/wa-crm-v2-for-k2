@@ -41,3 +41,9 @@ OpenAI 二次核对统一输出：
 3. 必须引用 `evidence_message_ids`。
 4. `status` 由对话语义决定，不能硬猜。
 5. `source_anchor` 优先使用 `message_id`，其次 `message_hash`，再其次 `timestamp`。
+
+## Obsidian Sync
+
+- Status: synced
+- Note: `docs/obsidian/notes/2026-04-27-event-decision-table-current.md`
+- Index: `docs/obsidian/index.md`

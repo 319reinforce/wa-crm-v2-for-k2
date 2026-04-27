@@ -26,3 +26,9 @@ The unit tests verify that:
 - Referenced sources cover the case scene.
 - Evidence terms exist in the expected source documents.
 - A simple lexical scorer ranks the expected source first for each case.
+
+## Obsidian Sync
+
+- Status: synced
+- Note: `docs/obsidian/notes/2026-04-27-rag-knowledge-source-docs.md`
+- Index: `docs/obsidian/index.md`
