@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 开始一轮 RAG 观测窗口（默认用于 24h 真实业务观测）
+ * 开始一轮检索观测窗口（默认用于 24h 真实业务观测）
  *
  * 用法:
  *   npm run rag:obs:start
@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../db');
 
-const MARKER_PATH = process.env.RAG_OBS_MARKER_PATH || 'docs/rag/observation-window.json';
+const MARKER_PATH = process.env.RAG_OBS_MARKER_PATH || 'data/runtime-state/retrieval-observation-window.json';
 
 function nowIso() {
     return new Date().toISOString();
@@ -43,7 +43,7 @@ async function main() {
     ensureDir(absPath);
     fs.writeFileSync(absPath, JSON.stringify(marker, null, 2) + '\n');
 
-    console.log('[rag-observation] started');
+    console.log('[retrieval-observation] started');
     console.log(`- marker: ${MARKER_PATH}`);
     console.log(`- started_at: ${marker.started_at}`);
     console.log(`- generation_log_max_id: ${marker.baseline.generation_log_max_id}`);
@@ -53,7 +53,7 @@ async function main() {
 }
 
 main().catch((err) => {
-    console.error('[start-rag-observation] fatal:', err.message);
+    console.error('[start-retrieval-observation] fatal:', err.message);
     db.closeDb().catch(() => {});
     process.exit(1);
 });

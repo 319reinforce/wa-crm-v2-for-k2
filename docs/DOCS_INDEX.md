@@ -42,16 +42,13 @@ Read in this order:
 | Document | Purpose |
 | --- | --- |
 | `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md` | Batch creator import, dynamic owners, owner welcome template pool, and standard welcome-message publish handoff. |
-## Current RAG And Knowledge Source Docs
+## Transitional Knowledge Sources
 
 | Document | Purpose |
 | --- | --- |
-| `docs/rag/KNOWLEDGE_SOURCE_STANDARD.md` | Knowledge source authoring and sync standard. |
-| `docs/rag/OPENAI_RAG_RUNBOOK.md` | OpenAI hosted RAG runbook. |
-| `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md` | Deterministic local rule retrieval design. |
-| `docs/rag/LOCAL_RULE_IMPLEMENTATION_20260420.md` | Local rule retrieval implementation notes. |
-| `docs/rag/APRIL_DOC_CONFIG_MAPPING_20260420.md` | April SOP/config mapping. |
-| `docs/rag/knowledge-manifest.json` | Active knowledge-source manifest. |
+| `docs/rag/knowledge-manifest.json` | Legacy manifest still read by current local-rule code. Not the future architecture. |
+| `docs/rag/sources/` | Legacy SOP/policy source files retained until profile/skill memory replaces this path. |
+| `docs/obsidian/notes/2026-04-27-profile-skill-memory-direction.md` | Future direction: per-user Markdown profile memory instead of heavy RAG. |
 
 ## Cleanup, Archive, And Memory
 

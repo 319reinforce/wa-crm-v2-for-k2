@@ -25,7 +25,7 @@ These findings are still useful as background, but they should not compete with 
 - `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md`
 - `docs/AI_REPLY_GENERATION_SYSTEM.md`
 - `docs/AI_REPLY_GENERATION_SYSTEM.md`
-- `docs/rag/KNOWLEDGE_SOURCE_STANDARD.md`
+- `docs/obsidian/notes/2026-04-27-rag-knowledge-source-docs.md`
 
 ## Consolidated Source Documents
 
@@ -94,15 +94,15 @@ The reply-generation refactor established the current shape:
 - `sft_memory` gained generation tracking fields.
 - Current implementation guidance lives in `docs/AI_REPLY_GENERATION_SYSTEM.md` and current server code.
 
-### RAG And Local Rules
+### Historical RAG And Local Rules
 
 The pre-4/20 RAG work established:
 
-- Knowledge sources should live under `docs/rag/sources/`.
-- `docs/rag/knowledge-manifest.json` controls source metadata and status.
-- Deterministic local rule retrieval is important for small, policy-heavy source sets.
+- Knowledge sources were previously organized under `docs/rag/sources/` and `docs/rag/knowledge-manifest.json`.
+- Deterministic local rule retrieval was used as a lighter alternative to vector RAG.
+- The current future direction is per-user Markdown profile memory / skill memory rather than expanding RAG.
 - Old runtime `.env`/provider state from 2026-04-16 is not current and must not be treated as rollout guidance.
-- `docs/rag/SESSION_SUMMARY_20260420.md` duplicated `docs/rag/LOCAL_RULE_IMPLEMENTATION_20260420.md`, so only the implementation doc remains active.
+- The old RAG implementation/design docs were later removed from active docs; retained context lives in Obsidian.
 
 ### Event System Docs
 

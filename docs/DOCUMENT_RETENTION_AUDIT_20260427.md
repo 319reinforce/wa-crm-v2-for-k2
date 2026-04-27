@@ -12,7 +12,7 @@ Reviewed:
 
 - Root project docs: `AGENTS.md`, `BOT_INTEGRATION.md`, `DEPLOY.md`.
 - Top-level `docs/*.md`.
-- `docs/rag/*.md`, `docs/rag/sources/*.md`, `docs/rag/templates/*.md`, and shadow-case README.
+- transitional `docs/rag/knowledge-manifest.json`, `docs/rag/sources/*.md`, and shadow-case fixtures.
 - Existing `docs/obsidian/notes/*.md`.
 
 Not treated as deletion candidates in this pass:
@@ -33,7 +33,7 @@ Use these as the active entry points for future development:
 | Event/lifecycle | `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md`, `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Existing dated event/lifecycle notes under `docs/obsidian/notes/`; older handoffs were removed from `docs/archive/handoffs/` |
 | Contact import and templates | `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md` | `2026-04-26-creator-import-welcome-handoff.md`, `2026-04-26-template-custom-topic-handoff.md` |
 | Runtime architecture | `docs/AI_REPLY_GENERATION_SYSTEM.md`, `docs/WA_SESSIONS_DESIGN.md`, `docs/BAILEYS_ROLLOUT.md`, `docs/SSE_HARDENING.md` | `docs/obsidian/notes/2026-04-27-runtime-architecture-docs.md` |
-| RAG / knowledge source | `docs/rag/KNOWLEDGE_SOURCE_STANDARD.md`, `docs/rag/OPENAI_RAG_RUNBOOK.md`, `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`, `docs/rag/LOCAL_RULE_IMPLEMENTATION_20260420.md`, `docs/rag/knowledge-manifest.json`, approved files in `docs/rag/sources/` | `docs/obsidian/notes/2026-04-27-rag-knowledge-source-docs.md` |
+| Knowledge source / profile memory | `docs/rag/knowledge-manifest.json`, approved files in `docs/rag/sources/`, and future per-user Markdown profile notes | `docs/obsidian/notes/2026-04-27-rag-knowledge-source-docs.md`, `docs/obsidian/notes/2026-04-27-profile-skill-memory-direction.md` |
 | Branch and archive mapping | `docs/RECENT_BRANCH_DOC_MAPPING_20260427.md` | `docs/obsidian/notes/2026-04-27-recent-branch-doc-mapping.md` |
 | Runtime artifact cleanup | `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md`, `docs/archive/reports/REPORTS_INDEX_20260427.md` | `docs/obsidian/notes/2026-04-27-runtime-artifact-cleanup-plan.md` |
 | Pre-2026-04-20 archive | `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` | `docs/obsidian/notes/2026-04-27-pre-20260420-docs-archive.md` |
@@ -74,16 +74,14 @@ The archive preserves the parts that still matter:
 - Destructive cleanup safety: avoid deleting runtime state or user data without explicit confirmation; preserve migration/audit context.
 - Reply generation/SFT context: keep the shift toward `replyGenerationService`, Experience Router, generation metadata, and SFT feedback, but use current AI/SFT docs for implementation.
 - Event docs: legacy event requirements were replaced by lifecycle fact/status/backfill docs and active event detection handoff.
-- RAG/runtime notes: old provider state was archived; current RAG source of truth is the knowledge standard, OpenAI RAG runbook, local rule design/implementation, and manifest.
+- RAG/runtime notes: old provider state was archived; RAG runbooks/design docs were removed from active docs. The future direction is per-user Markdown profile memory / skill memory, with the manifest retained only while code still reads it.
 - Dirty-data finding: `joinbrands_link` may be empty in some environments; verify with current DB before assuming event filters are broken.
 
 ## Retained Historical Docs
 
 Some older docs remain active because they still describe live behavior:
 
-- `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`
-- `docs/rag/LOCAL_RULE_IMPLEMENTATION_20260420.md`
-- `docs/rag/APRIL_DOC_CONFIG_MAPPING_20260420.md`
+- `docs/obsidian/notes/2026-04-27-profile-skill-memory-direction.md`
 - `docs/EVENT_DECISION_TABLE.md`
 
 These are not automatically current authorities; use `docs/DOCS_INDEX.md` to decide whether they are background or an active module reference.

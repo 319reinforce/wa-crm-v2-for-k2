@@ -6,7 +6,7 @@ Scope: `reports/`, runtime exports, local generated artifacts, and removed exter
 
 ## 1. Goal
 
-This plan separates source-controlled product knowledge from generated runtime artifacts. It also records the decision to remove the old `LightRAG` gitlink and keep future RAG work on the current local-rule/OpenAI hosted RAG path.
+This plan separates source-controlled product knowledge from generated runtime artifacts. It also records the decision to remove the old `LightRAG` gitlink and avoid expanding the heavy RAG path. The remaining manifest-backed local-rule files are transitional until profile/skill memory replaces them.
 
 The cleanup must not affect the parallel MySQL optimization branch. Execute this work from a clean branch or isolated worktree based on the documentation cleanup branch.
 
@@ -17,7 +17,7 @@ The cleanup must not affect the parallel MySQL optimization branch. Execute this
 | `docs/` | Keep active standards, PRDs, handoffs, runbooks, Obsidian notes, and compact archives. | Avoid putting raw generated evidence in the active docs path. |
 | `reports/` | Short-lived generated output. Keep only if a handoff needs reproducible evidence. | Prefer a compact index summary over raw report history. |
 | `docs/exports/` | Removed from active source control. | Existing lifecycle exports were dated 2026-04-14, contained raw phone values, and should not guide current lifecycle behavior. |
-| `docs/rag/observation-reports/` | Generated observation output. Ignore generated files; keep `.gitkeep` only. | The report directory is already ignored in `.gitignore`. |
+| `reports/retrieval-observation/` | Generated retrieval observation output. | Ignored; do not place observation output under `docs/rag/`. |
 | `docs/wa/*state.json` | Removed from active source control. | Runtime state now belongs under ignored `data/runtime-state/`. |
 | `data/` | Local runtime data only. | Keep ignored. Remove `.DS_Store` when found. |
 | `data/runtime-state/` | Local mutable runtime cursors and state. | Ignored; scripts may recreate files here. |
@@ -34,11 +34,7 @@ Reasons:
 
 - The repository had a gitlink at `LightRAG` but no `.gitmodules` mapping, which made it a broken half-submodule.
 - Local checkout size was about 102 MB and mostly external vendor code, tests, and docs.
-- Current WA CRM RAG direction is documented in:
-  - `docs/rag/KNOWLEDGE_SOURCE_STANDARD.md`
-  - `docs/rag/OPENAI_RAG_RUNBOOK.md`
-  - `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`
-  - `docs/rag/LOCAL_RULE_IMPLEMENTATION_20260420.md`
+- Current WA CRM direction is to avoid expanding the heavy RAG path. The remaining manifest-backed local rule files are transitional until profile/skill memory replaces them.
 - The project will not adopt the LightRAG solution path.
 
 Implementation:
@@ -104,6 +100,7 @@ Expected:
 - `git ls-files docs/exports docs/wa` returns no tracked runtime/export artifacts.
 - Active entry docs do not point at LightRAG.
 - Report references remain only as regeneration commands or summarized historical evidence.
+- `git ls-files docs/rag/observation-reports` returns no tracked generated-output placeholders.
 - No schema/server/mysql optimize files are touched by this cleanup.
 
 ## Obsidian Sync

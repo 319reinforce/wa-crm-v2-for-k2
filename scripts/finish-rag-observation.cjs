@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 结束并导出 RAG 观测报告
+ * 结束并导出检索观测报告
  *
  * 用法:
  *   npm run rag:obs:finish
@@ -13,8 +13,8 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../db');
 
-const MARKER_PATH = process.env.RAG_OBS_MARKER_PATH || 'docs/rag/observation-window.json';
-const REPORT_DIR = process.env.RAG_OBS_REPORT_DIR || 'docs/rag/observation-reports';
+const MARKER_PATH = process.env.RAG_OBS_MARKER_PATH || 'data/runtime-state/retrieval-observation-window.json';
+const REPORT_DIR = process.env.RAG_OBS_REPORT_DIR || 'reports/retrieval-observation';
 const FORMAL_LAUNCH_MARKER_PATH = process.env.FORMAL_LAUNCH_MARKER_PATH || 'data/runtime-state/formal-launch-window.json';
 
 function parseArgs() {

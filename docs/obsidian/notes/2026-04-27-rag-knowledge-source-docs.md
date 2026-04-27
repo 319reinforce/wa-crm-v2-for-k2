@@ -1,10 +1,10 @@
 ---
-title: RAG Knowledge Source Docs
+title: Historical RAG Knowledge Source Docs
 date: 2026-04-27
 project: wa-crm-v2
 type: standard
 source_path: docs/DOCUMENT_RETENTION_AUDIT_20260427.md
-status: active
+status: historical
 tags:
   - wa-crm-v2
   - memory
@@ -12,21 +12,15 @@ tags:
   - knowledge-source
 ---
 
-# RAG Knowledge Source Docs
+# Historical RAG Knowledge Source Docs
 
 ## Summary
 
-The active RAG and knowledge-source docs are still useful, but several dated notes are historical. Future agents should start from the standard, manifest, and active approved sources rather than old runtime alignment notes.
+The RAG and knowledge-source docs are now historical. The heavy RAG path is no longer the desired direction for WA CRM v2; future work should prefer per-user Markdown profile memory / skill memory. The manifest and source files under `docs/rag/` are retained only while current code still reads them.
 
 ## Active References
 
-- Knowledge source standard: `docs/rag/KNOWLEDGE_SOURCE_STANDARD.md`
-- OpenAI hosted RAG runbook: `docs/rag/OPENAI_RAG_RUNBOOK.md`
-- Local rule retrieval design: `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`
-- Local rule retrieval implementation: `docs/rag/LOCAL_RULE_IMPLEMENTATION_20260420.md`
-- April SOP mapping: `docs/rag/APRIL_DOC_CONFIG_MAPPING_20260420.md`
 - Manifest: `docs/rag/knowledge-manifest.json`
-- Templates: `docs/rag/templates/POLICY_TEMPLATE.md`, `docs/rag/templates/SOP_TEMPLATE.md`
 - Shadow cases: `docs/rag/shadow-cases/local-rule-shadow-cases.json`
 
 ## Active Source Set
@@ -47,12 +41,13 @@ Historical source:
 ## Current Boundaries
 
 - LightRAG is not part of the WA CRM v2 RAG path. The broken `LightRAG` gitlink was removed and local LightRAG checkouts should stay outside source control.
-- Hard policy and SOP changes should go through `knowledge-manifest.json`.
-- Do not inject draft/deprecated sources into production retrieval unless explicitly requested.
-- Local rule retrieval remains important because `server/services/localRuleRetrievalService.js` is active and template/media behavior depends on its output.
+- Do not expand the RAG document set.
+- Do not add new OpenAI/vector RAG runbooks unless the product direction changes again.
+- Local rule retrieval remains transitional because `server/services/localRuleRetrievalService.js` still reads the manifest.
+- Future profile personalization should be designed around per-user Markdown profile files and skill-style retrieval.
 - The old RAG session summary and 2026-04-16 runtime alignment note were consolidated into `docs/archive/PRE_20260420_DOCS_ARCHIVE.md`.
 - Use current provider/runtime configuration and the active RAG docs above before changing retrieval behavior.
 
 ## Cleanup Reminder
 
-Before deleting RAG docs, run a filename reference search and verify `knowledge-manifest.json` does not point to the removed file.
+Before deleting the remaining manifest/source files, update or remove the code paths that read them.
