@@ -24,7 +24,8 @@ Phase 2 continues the database cleanup after PR #84. It adds managed migration c
 - Target environments now need migrations 005 through 010 before deploying this code.
 - `joinbrands_link.ev_*` and lifecycle fields in `wa_crm_data` remain compatibility/read paths, not normal write targets.
 - CreatorDetail positive lifecycle edits should create canonical `events` rows.
-- CreatorDetail clear/cancel lifecycle edits should use `POST /api/events/cancel-by-key`, cancel canonical event rows, rebuild lifecycle/snapshot state, and never write deprecated lifecycle fields back to false/null.
+- CreatorDetail clear/cancel lifecycle edits now use `POST /api/events/cancel-by-key`, cancel canonical event rows, rebuild lifecycle/snapshot state, and never write deprecated lifecycle fields back to false/null.
+- Creator detail responses expose `event_snapshot`, and positive `POST /api/events` writes rebuild `creator_event_snapshot` so the UI can prefer canonical flags over deprecated compatibility columns.
 - `monthly_fee_amount`, video progress fields, and agency deadline fields stay frozen until billing/progress/deadline ownership is implemented.
 - AI/profile tables now carry nullable `creator_id` for stable joins and future cleanup.
 
@@ -34,6 +35,7 @@ Phase 2 continues the database cleanup after PR #84. It adds managed migration c
 - Local migrations 005-010 were applied with `scripts/apply-sql-migrations.cjs`.
 - `node scripts/analyze-schema-state.js` reported 52 expected tables, 52 actual tables, no missing/extra tables, no column diffs, no index diffs, and no key findings.
 - Runtime DDL grep over `server/services`, `server/routes`, and `server/workers` returned no normal path matches.
+- Canonical event cancel/clear patch verification: `npm test` passed, and `node scripts/analyze-schema-state.js` again reported no table/column/index drift.
 
 ## Source Document
 
@@ -42,7 +44,7 @@ Phase 2 continues the database cleanup after PR #84. It adds managed migration c
 ## Follow-Up Items
 
 - Run migrations 005-010 in staging/prod once DB env access is available.
-- Add `POST /api/events/cancel-by-key` and wire CreatorDetail clear/cancel actions to it.
+- Verify `POST /api/events/cancel-by-key` in staging/prod with CreatorDetail clear/cancel actions.
 - Add canonical write APIs for billing/progress/deadline fields.
 - Implement retention/archive jobs for generation/retrieval logs and media after policy approval.
 - Remove read dependence on deprecated compatibility fields after a verification window.

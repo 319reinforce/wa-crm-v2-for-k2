@@ -112,6 +112,11 @@ function normalizePortraitForSave(source = null) {
 
 function buildEditFormSnapshot(creator) {
   const jb = creator?.joinbrands || {}
+  const snapshotFlags = creator?.event_snapshot?.compat_ev_flags || null
+  const eventFlag = (key) => {
+    if (snapshotFlags && Object.prototype.hasOwnProperty.call(snapshotFlags, key)) return !!snapshotFlags[key]
+    return !!jb[key]
+  }
   const w = creator?.wacrm || {}
   const k = creator?.keeper || {}
   return {
@@ -137,16 +142,16 @@ function buildEditFormSnapshot(creator) {
     keeper_order_rate: k.keeper_order_rate || '',
     keeper_reg_time: k.keeper_reg_time || 0,
     keeper_activate_time: k.keeper_activate_time || 0,
-    ev_trial_active: !!jb.ev_trial_active,
-    ev_monthly_started: !!jb.ev_monthly_started,
-    ev_monthly_joined: !!jb.ev_monthly_joined,
+    ev_trial_active: eventFlag('ev_trial_active'),
+    ev_monthly_started: eventFlag('ev_monthly_started'),
+    ev_monthly_joined: eventFlag('ev_monthly_joined'),
     ev_whatsapp_shared: !!jb.ev_whatsapp_shared,
-    ev_gmv_1k: !!jb.ev_gmv_1k,
-    ev_gmv_2k: !!jb.ev_gmv_2k,
-    ev_gmv_5k: !!jb.ev_gmv_5k,
-    ev_gmv_10k: !!jb.ev_gmv_10k,
-    ev_agency_bound: !!jb.ev_agency_bound,
-    ev_churned: !!jb.ev_churned,
+    ev_gmv_1k: eventFlag('ev_gmv_1k'),
+    ev_gmv_2k: eventFlag('ev_gmv_2k'),
+    ev_gmv_5k: eventFlag('ev_gmv_5k'),
+    ev_gmv_10k: eventFlag('ev_gmv_10k'),
+    ev_agency_bound: eventFlag('ev_agency_bound'),
+    ev_churned: eventFlag('ev_churned'),
   }
 }
 
@@ -161,13 +166,34 @@ function fieldChanged(before = {}, after = {}, key) {
   return String(before?.[key] ?? '') !== String(after?.[key] ?? '')
 }
 
+function normalizeLifecycleText(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+const TRIAL_ACTIVE_STATUSES = new Set(['started', 'active', 'trial', 'trial_active', 'joined'])
+const TRIAL_COMPLETED_STATUSES = new Set(['completed', 'finished', 'trial_completed'])
+const TRIAL_CLEAR_STATUSES = new Set(['', 'not_introduced', 'introduced', 'pending', 'none'])
+const MONTHLY_ACTIVE_STATUSES = new Set(['active', 'started', 'joined'])
+const MONTHLY_COMPLETED_STATUSES = new Set(['paid', 'deducted', 'completed', 'settled'])
+const MONTHLY_CLEAR_STATUSES = new Set(['', 'pending', 'unpaid', 'not_started', 'overdue', 'none'])
+
+function getGmvThreshold(source = {}) {
+  if (normalizeBool(source.ev_gmv_10k)) return 10000
+  if (normalizeBool(source.ev_gmv_5k)) return 5000
+  if (normalizeBool(source.ev_gmv_2k)) return 2000
+  if (normalizeBool(source.ev_gmv_1k)) return 1000
+  return 0
+}
+
 function buildCreatorLifecycleEventActions(initial = {}, current = {}) {
-  const actions = new Map()
-  const add = (event_key, event_type, status, meta = {}, trigger_text = '') => {
+  const creates = new Map()
+  const clears = new Map()
+  const addCreate = (event_key, event_type, status, meta = {}, trigger_text = '') => {
     if (!event_key) return
-    const existing = actions.get(event_key)
+    const existing = creates.get(event_key)
     if (existing && existing.status === 'completed') return
-    actions.set(event_key, {
+    creates.set(event_key, {
+      action: 'create',
       event_key,
       event_type,
       status,
@@ -179,32 +205,76 @@ function buildCreatorLifecycleEventActions(initial = {}, current = {}) {
       },
     })
   }
+  const addClear = (event_key, reason, meta = {}) => {
+    if (!event_key) return
+    clears.set(event_key, {
+      action: 'cancel',
+      event_key,
+      reason,
+      trigger_source: 'creator_detail_event_clear',
+      meta: {
+        migration_source: 'creator_detail_lifecycle_editor',
+        ...meta,
+      },
+    })
+  }
 
   if (fieldChanged(initial, current, 'ev_trial_active') && normalizeBool(current.ev_trial_active)) {
-    add('trial_7day', 'challenge', 'active', {}, 'Manual creator detail update marked 7-day trial active')
+    addCreate('trial_7day', 'challenge', 'active', {}, 'Manual creator detail update marked 7-day trial active')
+  }
+  if (fieldChanged(initial, current, 'ev_trial_active') && normalizeBool(initial.ev_trial_active) && !normalizeBool(current.ev_trial_active)) {
+    addClear('trial_7day', 'Manual creator detail update cleared 7-day trial active', {
+      cleared_field: 'ev_trial_active',
+    })
   }
 
   if (fieldChanged(initial, current, 'ev_monthly_started') && normalizeBool(current.ev_monthly_started)) {
-    add('monthly_challenge', 'challenge', 'active', {}, 'Manual creator detail update marked monthly challenge started')
+    addCreate('monthly_challenge', 'challenge', 'active', {}, 'Manual creator detail update marked monthly challenge started')
+  }
+  if (fieldChanged(initial, current, 'ev_monthly_started') && normalizeBool(initial.ev_monthly_started) && !normalizeBool(current.ev_monthly_started)) {
+    addClear('monthly_challenge', 'Manual creator detail update cleared monthly challenge started', {
+      cleared_field: 'ev_monthly_started',
+    })
   }
   if (fieldChanged(initial, current, 'ev_monthly_joined') && normalizeBool(current.ev_monthly_joined)) {
-    add('monthly_challenge', 'challenge', 'completed', {}, 'Manual creator detail update marked monthly challenge joined')
+    addCreate('monthly_challenge', 'challenge', 'completed', {}, 'Manual creator detail update marked monthly challenge joined')
+  }
+  if (fieldChanged(initial, current, 'ev_monthly_joined') && normalizeBool(initial.ev_monthly_joined) && !normalizeBool(current.ev_monthly_joined)) {
+    addClear('monthly_challenge', 'Manual creator detail update cleared monthly challenge joined', {
+      cleared_field: 'ev_monthly_joined',
+    })
   }
   if (fieldChanged(initial, current, 'monthly_fee_status')) {
-    const status = String(current.monthly_fee_status || '').trim().toLowerCase()
-    if (['active', 'started', 'joined'].includes(status)) {
-      add('monthly_challenge', 'challenge', 'active', { monthly_fee_status: current.monthly_fee_status }, `Manual monthly fee status update: ${current.monthly_fee_status}`)
+    const status = normalizeLifecycleText(current.monthly_fee_status)
+    if (MONTHLY_ACTIVE_STATUSES.has(status)) {
+      addCreate('monthly_challenge', 'challenge', 'active', { monthly_fee_status: current.monthly_fee_status }, `Manual monthly fee status update: ${current.monthly_fee_status}`)
     }
-    if (['paid', 'deducted', 'completed', 'settled'].includes(status)) {
-      add('monthly_challenge', 'challenge', 'completed', { monthly_fee_status: current.monthly_fee_status }, `Manual monthly fee status update: ${current.monthly_fee_status}`)
+    if (MONTHLY_COMPLETED_STATUSES.has(status)) {
+      addCreate('monthly_challenge', 'challenge', 'completed', { monthly_fee_status: current.monthly_fee_status }, `Manual monthly fee status update: ${current.monthly_fee_status}`)
+    }
+    if (MONTHLY_CLEAR_STATUSES.has(status)) {
+      addClear('monthly_challenge', `Manual monthly fee status cleared monthly challenge: ${current.monthly_fee_status || 'empty'}`, {
+        cleared_field: 'monthly_fee_status',
+        monthly_fee_status: current.monthly_fee_status,
+      })
     }
   }
 
   if (fieldChanged(initial, current, 'agency_bound') && normalizeBool(current.agency_bound)) {
-    add('agency_bound', 'agency', 'active', {}, 'Manual creator detail update marked agency bound')
+    addCreate('agency_bound', 'agency', 'active', {}, 'Manual creator detail update marked agency bound')
+  }
+  if (fieldChanged(initial, current, 'agency_bound') && normalizeBool(initial.agency_bound) && !normalizeBool(current.agency_bound)) {
+    addClear('agency_bound', 'Manual creator detail update cleared agency bound', {
+      cleared_field: 'agency_bound',
+    })
   }
   if (fieldChanged(initial, current, 'ev_agency_bound') && normalizeBool(current.ev_agency_bound)) {
-    add('agency_bound', 'agency', 'active', {}, 'Manual creator detail update marked agency bound')
+    addCreate('agency_bound', 'agency', 'active', {}, 'Manual creator detail update marked agency bound')
+  }
+  if (fieldChanged(initial, current, 'ev_agency_bound') && normalizeBool(initial.ev_agency_bound) && !normalizeBool(current.ev_agency_bound)) {
+    addClear('agency_bound', 'Manual creator detail update cleared agency bound', {
+      cleared_field: 'ev_agency_bound',
+    })
   }
 
   const gmvThresholds = [
@@ -213,48 +283,71 @@ function buildCreatorLifecycleEventActions(initial = {}, current = {}) {
     ['ev_gmv_5k', 5000],
     ['ev_gmv_10k', 10000],
   ]
-  const changedThresholds = gmvThresholds
-    .filter(([key]) => fieldChanged(initial, current, key) && normalizeBool(current[key]))
-    .map(([, threshold]) => threshold)
-  const maxThreshold = changedThresholds.length ? Math.max(...changedThresholds) : 0
+  const gmvChanged = gmvThresholds.some(([key]) => fieldChanged(initial, current, key))
+  if (gmvChanged && getGmvThreshold(initial) > 0) {
+    addClear('gmv_milestone', 'Manual creator detail update cleared GMV milestone state', {
+      cleared_field: 'gmv_threshold',
+      previous_threshold: getGmvThreshold(initial),
+    })
+  }
+  const maxThreshold = gmvChanged ? getGmvThreshold(current) : 0
   if (maxThreshold > 0) {
-    add('gmv_milestone', 'gmv', 'completed', { threshold: maxThreshold }, `Manual creator detail update marked GMV milestone ${maxThreshold}`)
+    addCreate('gmv_milestone', 'gmv', 'completed', { threshold: maxThreshold }, `Manual creator detail update marked GMV milestone ${maxThreshold}`)
   }
 
   if (fieldChanged(initial, current, 'ev_churned') && normalizeBool(current.ev_churned)) {
-    add('churned', 'termination', 'active', {}, 'Manual creator detail update marked creator churned')
+    addCreate('churned', 'termination', 'active', {}, 'Manual creator detail update marked creator churned')
   }
-  if (fieldChanged(initial, current, 'beta_status') && String(current.beta_status || '').trim().toLowerCase() === 'churned') {
-    add('churned', 'termination', 'active', { beta_status: current.beta_status }, 'Manual beta status marked churned')
+  if (fieldChanged(initial, current, 'ev_churned') && normalizeBool(initial.ev_churned) && !normalizeBool(current.ev_churned)) {
+    addClear('churned', 'Manual creator detail update cleared creator churned state', {
+      cleared_field: 'ev_churned',
+    })
+  }
+  if (fieldChanged(initial, current, 'beta_status') && normalizeLifecycleText(current.beta_status) === 'churned') {
+    addCreate('churned', 'termination', 'active', { beta_status: current.beta_status }, 'Manual beta status marked churned')
+  }
+  if (fieldChanged(initial, current, 'beta_status') && normalizeLifecycleText(initial.beta_status) === 'churned' && normalizeLifecycleText(current.beta_status) !== 'churned') {
+    addClear('churned', `Manual beta status cleared churned state: ${current.beta_status || 'empty'}`, {
+      cleared_field: 'beta_status',
+      beta_status: current.beta_status,
+    })
   }
   if (fieldChanged(initial, current, 'beta_status')) {
-    const betaStatus = String(current.beta_status || '').trim().toLowerCase()
-    if (['started', 'active', 'trial', 'trial_active', 'joined'].includes(betaStatus)) {
-      add('trial_7day', 'challenge', 'active', { beta_status: current.beta_status }, `Manual beta status update: ${current.beta_status}`)
+    const betaStatus = normalizeLifecycleText(current.beta_status)
+    if (TRIAL_ACTIVE_STATUSES.has(betaStatus)) {
+      addCreate('trial_7day', 'challenge', 'active', { beta_status: current.beta_status }, `Manual beta status update: ${current.beta_status}`)
     }
-    if (['completed', 'finished', 'trial_completed'].includes(betaStatus)) {
-      add('trial_7day', 'challenge', 'completed', { beta_status: current.beta_status }, `Manual beta status update: ${current.beta_status}`)
+    if (TRIAL_COMPLETED_STATUSES.has(betaStatus)) {
+      addCreate('trial_7day', 'challenge', 'completed', { beta_status: current.beta_status }, `Manual beta status update: ${current.beta_status}`)
+    }
+    if (TRIAL_CLEAR_STATUSES.has(betaStatus)) {
+      addClear('trial_7day', `Manual beta status cleared trial state: ${current.beta_status || 'empty'}`, {
+        cleared_field: 'beta_status',
+        beta_status: current.beta_status,
+      })
     }
   }
 
-  return [...actions.values()]
+  return [...clears.values(), ...creates.values()]
 }
 
 async function submitCreatorLifecycleEventActions({ creatorId, owner, initial, current }) {
   const actions = buildCreatorLifecycleEventActions(initial, current)
   for (const action of actions) {
     try {
-      await fetchJsonOrThrow(`${API_BASE}/events`, {
+      const { action: actionType, ...eventAction } = action
+      const isCancel = actionType === 'cancel'
+      await fetchJsonOrThrow(`${API_BASE}/events${isCancel ? '/cancel-by-key' : ''}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           creator_id: creatorId,
-          owner,
-          ...action,
+          ...(isCancel ? {} : { owner }),
+          ...eventAction,
         }),
       })
     } catch (err) {
-      if (!/已有相同事件|existing/i.test(String(err?.message || ''))) throw err
+      if (action.action !== 'create' || !/已有相同事件|existing/i.test(String(err?.message || ''))) throw err
     }
   }
   return actions
@@ -1138,13 +1231,14 @@ function CreatorDetail({
           <div className="flex items-center gap-2">
             <span className="text-xs w-24 shrink-0" style={{ color: WA.textMuted }}>挑战阶段</span>
             <select
-              value={editForm.ev_trial_active ? 'active' : (editForm.ev_monthly_started ? 'monthly' : 'none')}
+              value={editForm.ev_trial_active ? 'active' : ((editForm.ev_monthly_started || editForm.ev_monthly_joined) ? 'monthly' : 'none')}
               onChange={e => {
                 const v = e.target.value
                 setEditForm(f => ({
                   ...f,
                   ev_trial_active: v === 'active',
                   ev_monthly_started: v === 'monthly',
+                  ev_monthly_joined: false,
                 }))
               }}
               className="flex-1 text-xs px-3 py-2 rounded-xl border"

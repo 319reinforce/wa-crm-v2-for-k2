@@ -1,7 +1,8 @@
 /**
  * Events routes
  * GET /api/events, GET /api/events/:id, POST /api/events, PATCH /api/events/:id,
- * DELETE /api/events/:id, POST /api/events/detect, GET /api/events/:id/periods,
+ * DELETE /api/events/:id, POST /api/events/cancel-by-key,
+ * POST /api/events/detect, GET /api/events/:id/periods,
  * POST /api/events/:id/judge, POST /api/events/gmv-check,
  * GET /api/events/summary/:creatorId, GET /api/events/policy/:owner/:eventKey
  */
@@ -276,6 +277,34 @@ function buildEventMetaPayload(inputMeta, {
     };
   }
   return nextMeta;
+}
+
+function getRequestActor(req) {
+  const auth = req?.auth || {};
+  return auth.owner || auth.username || auth.token_principal || 'manual';
+}
+
+function buildCancellationMeta(existingMeta, inputMeta, {
+  actor = 'manual',
+  reason = 'manual_clear',
+  triggerSource = 'manual_event_clear',
+  cancelledAt = new Date().toISOString(),
+} = {}) {
+  const safeExisting = existingMeta && typeof existingMeta === 'object' && !Array.isArray(existingMeta)
+    ? existingMeta
+    : {};
+  const safeInput = parseEventMeta(inputMeta);
+  return {
+    ...safeExisting,
+    ...safeInput,
+    cancellation: {
+      ...(safeExisting.cancellation && typeof safeExisting.cancellation === 'object' ? safeExisting.cancellation : {}),
+      reason,
+      cancelled_at: cancelledAt,
+      cancelled_by: actor,
+      trigger_source: triggerSource,
+    },
+  };
 }
 
 function scoreEventEvidenceMessage(message, event, phrases, tokens) {
@@ -586,6 +615,160 @@ router.post('/detection/run', async (req, res) => {
   }
 });
 
+// POST /api/events/cancel-by-key
+router.post('/cancel-by-key', async (req, res) => {
+  try {
+    const db2 = db.getDb();
+    const creatorId = Number(req.body?.creator_id || 0);
+    const eventKey = String(req.body?.event_key || '').trim();
+    const reason = String(req.body?.reason || 'manual_clear').trim().slice(0, 240) || 'manual_clear';
+    const triggerSource = String(req.body?.trigger_source || 'manual_event_clear').trim().slice(0, 120) || 'manual_event_clear';
+    const inputMeta = parseEventMeta(req.body?.meta);
+
+    if (!Number.isFinite(creatorId) || creatorId <= 0 || !eventKey) {
+      return res.status(400).json({ ok: false, error: 'creator_id and event_key required' });
+    }
+    if (!isCanonicalLifecycleEventKey(eventKey)) {
+      return res.status(400).json({ ok: false, error: `event_key is not canonical lifecycle event: ${eventKey}` });
+    }
+
+    const creator = await ensureCreatorAccess(req, res, creatorId);
+    if (!creator) return;
+
+    const beforeLifecycle = await evaluateCreatorLifecycle(db2, creatorId)
+      .then((ret) => ret?.lifecycle || null)
+      .catch(() => null);
+
+    const clearableEvents = await db2.prepare(`
+      SELECT *
+      FROM events
+      WHERE creator_id = ?
+        AND event_key = ?
+        AND status IN ('active', 'completed', 'draft', 'pending')
+      ORDER BY FIELD(status, 'active', 'completed', 'draft', 'pending'), id DESC
+    `).all(creatorId, eventKey);
+
+    const actor = getRequestActor(req);
+    const cancelledAt = new Date().toISOString();
+    const beforeAudit = clearableEvents.map((event) => ({
+      id: event.id,
+      event_key: event.event_key,
+      status: event.status,
+      event_state: event.event_state,
+      lifecycle_effect: event.lifecycle_effect,
+      meta: parseEventMeta(event.meta),
+    }));
+
+    if (clearableEvents.length > 0) {
+      await db2.transaction(async (txDb) => {
+        for (const event of clearableEvents) {
+          const nextMeta = buildCancellationMeta(parseEventMeta(event.meta), inputMeta, {
+            actor,
+            reason,
+            triggerSource,
+            cancelledAt,
+          });
+          await txDb.prepare(`
+            UPDATE events
+            SET status = 'cancelled',
+                event_state = 'cancelled',
+                canonical_event_key = COALESCE(canonical_event_key, event_key),
+                lifecycle_effect = 'none',
+                end_at = COALESCE(end_at, CURRENT_TIMESTAMP),
+                meta = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(JSON.stringify(nextMeta), event.id);
+        }
+      });
+    }
+
+    const updatedEvents = clearableEvents.length > 0
+      ? await db2.prepare(`
+          SELECT id, creator_id, event_key, event_type, owner, status, event_state,
+                 lifecycle_effect, end_at, updated_at, meta
+          FROM events
+          WHERE id IN (${clearableEvents.map(() => '?').join(', ')})
+          ORDER BY FIELD(status, 'cancelled'), id DESC
+        `).all(...clearableEvents.map((event) => event.id))
+      : [];
+
+    await writeAudit('event_cancel_by_key', 'events', `${creatorId}:${eventKey}`, beforeAudit, {
+      creator_id: creatorId,
+      event_key: eventKey,
+      cancelled_count: updatedEvents.length,
+      events: updatedEvents.map((event) => ({
+        id: event.id,
+        status: event.status,
+        event_state: event.event_state,
+        lifecycle_effect: event.lifecycle_effect,
+      })),
+      reason,
+      trigger_source: triggerSource,
+    }, req);
+
+    const persistedLifecycle = await persistLifecycleForCreator(db2, creatorId, {
+      triggerType: 'event_cancel_by_key',
+      triggerId: updatedEvents[0]?.id || null,
+      triggerSource: 'events',
+    }).catch(() => null);
+    const afterLifecycle = persistedLifecycle?.lifecycle || await getLifecycleSnapshotByCreatorId(creatorId).catch(() => null);
+    const eventSnapshot = await rebuildCreatorEventSnapshot(db2, creatorId).catch((e) => ({
+      ok: false,
+      error: e.message,
+    }));
+    const lifecycleChanged = !!(
+      beforeLifecycle?.stage_key &&
+      afterLifecycle?.stage_key &&
+      beforeLifecycle.stage_key !== afterLifecycle.stage_key
+    );
+    let strategyRebuild = null;
+    if (lifecycleChanged) {
+      try {
+        strategyRebuild = await rebuildReplyStrategyForCreator({
+          creatorId,
+          trigger: 'lifecycle_change_event_cancel_by_key',
+          allowSoftAdjust: false,
+        });
+      } catch (e) {
+        strategyRebuild = { ok: false, reason: e.message };
+      }
+      await writeAudit('lifecycle_stage_transition', 'creators', creatorId, {
+        stage: beforeLifecycle?.stage_key || null,
+      }, {
+        stage: afterLifecycle?.stage_key || null,
+        lifecycle_before: beforeLifecycle?.stage_key || null,
+        lifecycle_after: afterLifecycle?.stage_key || null,
+        lifecycle_changed: true,
+        trigger: 'event_cancel_by_key',
+        event_ids: updatedEvents.map((event) => event.id),
+        event_key: eventKey,
+      }, req);
+    }
+
+    res.json({
+      ok: true,
+      event_key: eventKey,
+      cancelled_count: updatedEvents.length,
+      cancelled_events: updatedEvents.map((event) => ({
+        id: event.id,
+        status: event.status,
+        event_state: event.event_state,
+        lifecycle_effect: event.lifecycle_effect,
+      })),
+      noop: updatedEvents.length === 0,
+      lifecycle_before: beforeLifecycle?.stage_key || null,
+      lifecycle_after: afterLifecycle?.stage_key || null,
+      lifecycle_changed: lifecycleChanged,
+      reply_strategy: strategyRebuild,
+      event_snapshot: eventSnapshot,
+    });
+  } catch (err) {
+    console.error('POST /api/events/cancel-by-key error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/events/:id
 router.get('/:id', async (req, res) => {
   try {
@@ -685,6 +868,10 @@ router.post('/', async (req, res) => {
       triggerSource: 'events',
     }).catch(() => null);
     const afterLifecycle = persistedLifecycle?.lifecycle || await getLifecycleSnapshotByCreatorId(Number(creator_id)).catch(() => null);
+    const eventSnapshot = await rebuildCreatorEventSnapshot(db2, Number(creator_id)).catch((e) => ({
+      ok: false,
+      error: e.message,
+    }));
     const lifecycleChanged = !!(
       beforeLifecycle?.stage_key &&
       afterLifecycle?.stage_key &&
@@ -721,6 +908,7 @@ router.post('/', async (req, res) => {
       lifecycle_after: afterLifecycle?.stage_key || null,
       lifecycle_changed: lifecycleChanged,
       reply_strategy: strategyRebuild,
+      event_snapshot: eventSnapshot,
     });
   } catch (err) {
     console.error('POST /api/events error:', err);
