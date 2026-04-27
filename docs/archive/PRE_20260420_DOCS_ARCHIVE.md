@@ -24,7 +24,7 @@ These findings are still useful as background, but they should not compete with 
 - `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md`
 - `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md`
 - `docs/AI_REPLY_GENERATION_SYSTEM.md`
-- `docs/SFT_RLHF_PIPELINE.md`
+- `docs/AI_REPLY_GENERATION_SYSTEM.md`
 - `docs/rag/KNOWLEDGE_SOURCE_STANDARD.md`
 
 ## Consolidated Source Documents
@@ -92,7 +92,7 @@ The reply-generation refactor established the current shape:
 - `server/services/replyGenerationService.js` orchestrates provider routing, prompt construction, retrieval snapshots, and generation logs.
 - Legacy `/api/minimax` and `/api/experience/route` became compatibility entrypoints.
 - `sft_memory` gained generation tracking fields.
-- Current implementation guidance lives in `docs/AI_REPLY_GENERATION_SYSTEM.md` and `docs/SFT_RLHF_PIPELINE.md`.
+- Current implementation guidance lives in `docs/AI_REPLY_GENERATION_SYSTEM.md` and current server code.
 
 ### RAG And Local Rules
 

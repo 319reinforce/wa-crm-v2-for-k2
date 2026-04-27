@@ -3,8 +3,8 @@ title: SFT Project Baseline
 date: 2026-04-16
 project: wa-crm-v2
 type: status
-source_path: SFT_PROJECT.md
-status: active
+source_path: docs/obsidian/notes/2026-04-16-sft-project-baseline.md
+status: historical
 tags:
   - wa-crm-v2
   - sft
@@ -15,7 +15,7 @@ tags:
 
 ## Summary
 
-`SFT_PROJECT.md` remains the deep project reference for SFT, Experience Router, profile memory, and generation tracking. It now explicitly marks `data/*.json` as historical and points memory sync to Obsidian.
+The former root `SFT_PROJECT.md` was removed from source control during the 2026-04-27 deep cleanup because it mixed useful SFT concepts with obsolete `server.js`, SQLite-era, and early RLHF rollout instructions. This note is the retained historical baseline.
 
 ## Key Decisions
 
@@ -26,7 +26,8 @@ tags:
 
 ## Source
 
-- Source document: `SFT_PROJECT.md`
+- Original source document removed: `SFT_PROJECT.md`
+- Current entry point: `docs/AI_REPLY_GENERATION_SYSTEM.md`
 
 ## Verification
 
@@ -34,4 +35,4 @@ tags:
 
 ## Follow-Ups
 
-- Reconcile older SFT rollout sections with the current `replyGenerationService` path when the next SFT doc pass happens.
+- Rebuild any future SFT reference from current code paths rather than restoring the removed long-form document.

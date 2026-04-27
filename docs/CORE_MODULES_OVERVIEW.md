@@ -51,7 +51,6 @@ Responsibilities:
 
 Current docs:
 
-- `SFT_PROJECT.md`
 - `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md`
 - `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` for historical SQLite/legacy cleanup only
 
@@ -111,7 +110,6 @@ Responsibilities:
 Current docs:
 
 - `docs/AI_REPLY_GENERATION_SYSTEM.md`
-- `docs/SFT_RLHF_PIPELINE.md`
 - `docs/obsidian/notes/2026-04-27-runtime-architecture-docs.md`
 - `docs/obsidian/notes/2026-04-16-reply-generation-refactor-memory.md` for historical refactor context
 - `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`
@@ -136,9 +134,8 @@ Responsibilities:
 
 Current docs:
 
-- `SFT_PROJECT.md`
-- `docs/SFT_RLHF_PIPELINE.md`
-- `docs/RLHF_ONBOARDING.md`
+- `docs/AI_REPLY_GENERATION_SYSTEM.md`
+- `docs/obsidian/notes/2026-04-16-sft-project-baseline.md` for historical SFT baseline context
 
 ## 6. Profile, Client Memory, And Tags
 
@@ -159,8 +156,8 @@ Responsibilities:
 
 Current docs:
 
-- `SFT_PROJECT.md`
 - `docs/rag/LOCAL_RULE_RETRIEVAL_DESIGN_20260420.md`
+- `docs/obsidian/notes/2026-04-16-sft-project-baseline.md` for historical profile/memory context
 
 ## 7. Event, Lifecycle, And V1 Board
 

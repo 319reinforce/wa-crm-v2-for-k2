@@ -188,10 +188,10 @@ Conclusion: the visible 2026-04-16 recognition section is mainly an import/detec
 
 Dry-runs used local keyword detection only, starting from `2026-04-16T00:00:00+08:00`.
 
-| Creator | Local creator id | Scanned messages | Candidates | Written | Report |
+| Creator | Local creator id | Scanned messages | Candidates | Written | Evidence |
 | --- | ---: | ---: | ---: | ---: | --- |
-| Noelia(elkingdomi1) | 1072 | 1 | 0 | 0 | `reports/active-event-detection-1072-keyword-20260426.json` |
-| Jessica(614jessicam) | 1087 | 2 | 0 | 0 | `reports/active-event-detection-1087-keyword-20260426.json` |
+| Noelia(elkingdomi1) | 1072 | 1 | 0 | 0 | Summary retained here; raw JSON removed from source control. |
+| Jessica(614jessicam) | 1087 | 2 | 0 | 0 | Summary retained here; raw JSON removed from source control. |
 
 Interpretation:
 
@@ -255,7 +255,7 @@ node scripts/run-active-event-detection.cjs --creator=1072 --since=2026-04-16T00
 node scripts/run-active-event-detection.cjs --creator=1087 --since=2026-04-16T00:00:00+08:00 --provider=keyword --message-limit=120 --output=reports/active-event-detection-1087-keyword-20260426.json
 ```
 
-The two dry-run commands used the local configured MySQL database and did not write event candidates.
+The two dry-run commands used the local configured MySQL database and did not write event candidates. The output paths are regeneration examples only; generated JSON should stay under ignored `reports/`.
 
 ## Known Caveats
 

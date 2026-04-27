@@ -51,11 +51,11 @@ Implementation:
 
 | File | Type | Current references | Recommendation |
 | --- | --- | --- | --- |
-| `reports/active-event-detection-1072-keyword-20260426.json` | Active event dry-run evidence | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Keep until active-event rollout closes; then summarize and delete. |
-| `reports/active-event-detection-1087-keyword-20260426.json` | Active event dry-run evidence | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Keep until active-event rollout closes; then summarize and delete. |
-| `reports/event-lifecycle-top-creators-20260425-local.json` | Lifecycle backfill evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/obsidian/notes/2026-04-25-event-lifecycle-handoff.md` | Keep while those handoffs are active; later archive summary only. |
-| `reports/event-lifecycle-top-creators-20260425-minimax.json` | Lifecycle LLM comparison evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` | Keep while lifecycle backfill is under review; later delete after summary. |
-| `reports/tier2-compat-event-audit-20260425.json` | Compatibility audit evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/obsidian/notes/2026-04-25-worktree-remediation-plan.md` | Keep until compatibility audit is superseded by schema cleanup. |
+| `reports/active-event-detection-1072-keyword-20260426.json` | Active event dry-run evidence | Summary retained in `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Removed from source control; regenerate locally if needed. |
+| `reports/active-event-detection-1087-keyword-20260426.json` | Active event dry-run evidence | Summary retained in `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Removed from source control; regenerate locally if needed. |
+| `reports/event-lifecycle-top-creators-20260425-local.json` | Lifecycle backfill evidence | Summary retained in `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` | Removed from source control; regenerate locally if needed. |
+| `reports/event-lifecycle-top-creators-20260425-minimax.json` | Lifecycle LLM comparison evidence | Summary retained in `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` | Removed from source control; regenerate locally if needed. |
+| `reports/tier2-compat-event-audit-20260425.json` | Compatibility audit evidence | Summary retained in `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` | Removed from source control; regenerate locally if needed. |
 | `reports/dirty-data-cleanup-20260416.sql` | Historical SQL output | No active docs should execute it directly. | Removed; conclusions live in `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` and the schema optimization plan. |
 | `docs/exports/lifecycle-*.{csv,md}` | Historical lifecycle exports | No active docs should depend on them. | Removed because they predate the current lifecycle model and contained raw phone values. |
 
@@ -66,12 +66,12 @@ Implementation:
 - Remove the broken `LightRAG` gitlink.
 - Ignore `LightRAG/`.
 - Delete `.DS_Store` files from `docs/`, `reports/`, `data/`, `public/`, and local vendor directories when present.
-- Keep tracked report files that are still referenced by active handoffs.
+- Remove tracked report files once their conclusions are summarized in handoffs, archive indexes, or Obsidian.
 - Remove pre-2026-04-20 exports/reports that contain raw phone values or executable cleanup SQL after summarizing them in archive/Obsidian.
 
 ### Phase B: Report Slimming
 
-- For each tracked report, write a short summary in the owning handoff or an archive index.
+- For each report that must be regenerated, write it under ignored `reports/` or an explicit one-off output path.
 - Replace raw report links in active docs with summary text when rollout decisions no longer require the original output.
 - Delete raw JSON/SQL reports after references are removed.
 
@@ -93,7 +93,7 @@ Before merging any cleanup PR:
 
 ```bash
 git diff --check
-rg -n "LightRAG|reports/.*202604|docs/exports|dirty-data-cleanup|docs/wa/.*state" AGENTS.md BOT_INTEGRATION.md DEPLOY.md docs scripts server src reports || true
+rg -n "LightRAG|reports/.*202604|docs/exports|dirty-data-cleanup|docs/wa/.*state" AGENTS.md BOT_INTEGRATION.md DEPLOY.md docs scripts server src || true
 git ls-files LightRAG reports docs/exports docs/rag/observation-reports docs/wa
 git status --short --branch
 ```
@@ -103,7 +103,7 @@ Expected:
 - `git ls-files LightRAG` returns no tracked files.
 - `git ls-files docs/exports docs/wa` returns no tracked runtime/export artifacts.
 - Active entry docs do not point at LightRAG.
-- Report references remain only in owning handoffs, archive docs, or scripts that generate new reports.
+- Report references remain only as regeneration commands or summarized historical evidence.
 - No schema/server/mysql optimize files are touched by this cleanup.
 
 ## Obsidian Sync

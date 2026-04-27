@@ -3,19 +3,13 @@
 Date: 2026-04-27
 Status: Active report inventory
 
-This index tracks generated reports that still exist in source control and records which pre-2026-04-20 report/export artifacts were removed. Reports are evidence, not active requirements. Active implementation guidance should live in PRDs, runbooks, handoffs, or Obsidian notes.
+This index tracks generated reports and records which report/export artifacts were removed. Reports are evidence, not active requirements. Active implementation guidance should live in PRDs, runbooks, handoffs, or Obsidian notes.
 
 ## Current Tracked Reports
 
-| Report | Purpose | Referenced by | Can delete? | Sensitive data |
-| --- | --- | --- | --- | --- |
-| `reports/active-event-detection-1072-keyword-20260426.json` | Dry-run evidence for active event detection on one creator. | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Later, after active-event rollout records final verification. | Low: creator id/name and aggregate counts; no raw phone or message text found. |
-| `reports/active-event-detection-1087-keyword-20260426.json` | Dry-run evidence for active event detection on one creator. | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Later, after active-event rollout records final verification. | Low: creator id/name and aggregate counts; no raw phone or message text found. |
-| `reports/event-lifecycle-top-creators-20260425-local.json` | Lifecycle backfill local-keyword comparison evidence. | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` | Later, after lifecycle backfill summary is folded into current event docs. | Medium: creator ids/names and message-id samples; no raw phone or full message text found. |
-| `reports/event-lifecycle-top-creators-20260425-minimax.json` | Lifecycle backfill LLM comparison evidence. | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` | Later, after LLM comparison evidence is no longer needed. | Medium: creator ids/names and message-id samples; no raw phone or full message text found. |
-| `reports/tier2-compat-event-audit-20260425.json` | Compatibility audit for tier-2 event evidence quality. | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` | Later, after schema/event compatibility cleanup supersedes it. | Medium: aggregate event evidence plus reason strings; no raw phone found. |
+None. Generated report JSON is no longer tracked after the 2026-04-27 deep cleanup. Keep summaries in owning handoffs or Obsidian, and regenerate raw evidence locally when needed.
 
-## Removed Pre-2026-04-20 Artifacts
+## Removed Report Artifacts
 
 | Removed artifact | Purpose | Referenced by | Why removed | Sensitive data |
 | --- | --- | --- | --- | --- |
@@ -23,6 +17,11 @@ This index tracks generated reports that still exist in source control and recor
 | `docs/exports/lifecycle-wa-mainline-2026-04-14.csv` | Historical lifecycle export. | No active source should depend on it. | Pre-current lifecycle model and contains raw phone values. | High: raw phone values and creator names. |
 | `docs/exports/lifecycle-referral-overlay-2026-04-14.csv` | Historical referral overlay export. | No active source should depend on it. | Pre-current lifecycle model and contains raw phone values. | High: raw phone values and creator names. |
 | `docs/exports/lifecycle-wa-audit-2026-04-14.md` | Historical lifecycle audit summary. | No active source should depend on it. | Superseded by lifecycle PRD/backfill docs and Obsidian notes. | Medium: creator names and lifecycle status. |
+| `reports/active-event-detection-1072-keyword-20260426.json` | Active-event dry-run evidence. | Summary retained in `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md`. | Removed after summary was retained. | Low: creator id/name and aggregate counts. |
+| `reports/active-event-detection-1087-keyword-20260426.json` | Active-event dry-run evidence. | Summary retained in `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md`. | Removed after summary was retained. | Low: creator id/name and aggregate counts. |
+| `reports/event-lifecycle-top-creators-20260425-local.json` | Lifecycle backfill local-keyword comparison evidence. | Summary retained in `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`. | Removed after summary was retained. | Medium: creator ids/names and message-id samples. |
+| `reports/event-lifecycle-top-creators-20260425-minimax.json` | Lifecycle backfill LLM comparison evidence. | Summary retained in `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`. | Removed after summary was retained. | Medium: creator ids/names and message-id samples. |
+| `reports/tier2-compat-event-audit-20260425.json` | Compatibility audit for tier-2 event evidence quality. | Summary retained in `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`. | Removed after summary was retained. | Medium: aggregate event evidence plus reason strings. |
 
 ## Policy
 

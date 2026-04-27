@@ -267,7 +267,6 @@ whatsapp-mgr/
 ├── .env.example        # 环境变量模板
 ├── AGENTS.md           # AI Agent 入口
 ├── BOT_INTEGRATION.md  # API 集成说明
-├── SFT_PROJECT.md      # SFT 训练系统说明
 ├── docs/DOCS_INDEX.md  # 当前文档索引；历史 review/security 见 docs/archive/
 └── DEPLOY.md           # 本文档
 ```
