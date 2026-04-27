@@ -16,9 +16,10 @@ Read in this order:
 5. `docs/AI_REPLY_GENERATION_SYSTEM.md` - current reply generation, Experience Router, and SFT capture entry points.
 6. `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md` - schema ownership, compatibility cleanup, and migration order.
 7. `docs/MYSQL_OPTIMIZE_PHASE2_HANDOFF_20260427.md` - latest managed migration, creator_id backfill, lifecycle edit migration, and retention policy handoff.
-8. `docs/OBSIDIAN_MEMORY_STANDARD.md` - Obsidian memory and sync standard.
-9. `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` - documentation retention and pre-2026-04-20 cleanup record.
-10. `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` - reports, runtime artifacts, and external vendor boundary.
+8. `docs/MYSQL_OPTIMIZE_PROD_ROLLOUT_HANDOFF_20260427.md` - production rollout confirmation for startup rebuild and explicit DB migrations.
+9. `docs/OBSIDIAN_MEMORY_STANDARD.md` - Obsidian memory and sync standard.
+10. `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` - documentation retention and pre-2026-04-20 cleanup record.
+11. `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` - reports, runtime artifacts, and external vendor boundary.
 
 ## Current Product And Runtime Docs
 
@@ -28,6 +29,7 @@ Read in this order:
 | `docs/DATABASE_SCHEMA_OPTIMIZATION_PLAN_20260427.md` | Database schema ownership, compatibility cleanup, and staged optimization plan. |
 | `docs/MYSQL_OPTIMIZE_HANDOFF_20260427.md` | MySQL optimize implementation report, verification notes, and future development plan. |
 | `docs/MYSQL_OPTIMIZE_PHASE2_HANDOFF_20260427.md` | Phase 2 managed migrations, runtime DDL cleanup, CreatorDetail event-first migration, creator_id backfill, and retention policy. |
+| `docs/MYSQL_OPTIMIZE_PROD_ROLLOUT_HANDOFF_20260427.md` | Production rollout confirmation: startup derived-data rebuild behavior, explicit migration requirement, and Chinese handoff summary. |
 | `docs/AI_REPLY_GENERATION_SYSTEM.md` | AI reply generation architecture, topic detection, provider routing, and generation tracking. |
 | `docs/WA_SESSIONS_DESIGN.md` | WA multi-session design and IPC/volume planning. |
 | `docs/BAILEYS_ROLLOUT.md` | Baileys driver rollout and risk notes. |
@@ -86,5 +88,5 @@ The old root `SFT_PROJECT.md`, `docs/SFT_RLHF_PIPELINE.md`, and `docs/RLHF_ONBOA
 ## Obsidian Sync
 
 - Status: synced
-- Note: `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md`, `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-phase2-handoff.md`
+- Note: `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md`, `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-phase2-handoff.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-prod-rollout-handoff.md`
 - Index: `docs/obsidian/index.md`

@@ -1,0 +1,129 @@
+# MySQL 优化上线 Handoff：历史重算与线上 Schema 应用确认
+
+Date: 2026-04-27
+Branch: `codex/mysqloptimize-autorecompute-events`
+Status: 上线前交接说明
+
+## 标题
+
+MySQL 优化上线 Handoff：历史重算与线上 Schema 应用确认
+
+## 描述
+
+本文用于交接 `codex/mysqloptimize-autorecompute-events` 分支上线前后的数据库行为，重点回答两个问题：
+
+1. 线上服务上线并重启后，是否会对历史事件派生数据做 rebuild。
+2. 线上数据库结构是否会被本次修改自动应用，还是需要单独执行 migration。
+
+结论先写在这里：代码上线后会自动尝试重算历史派生状态，但前提是目标库已经具备所需 schema；线上数据库结构不会被 API 进程自动修改，必须由拥有线上数据库权限的操作人或部署流水线显式执行 SQL migrations。
+
+## 1. 线上上线后是否会对历史 rebuild
+
+会，但这里的 rebuild 是“派生状态重算”，不是“重新扫描历史聊天并重新抽取事件”。
+
+服务启动后，`server/index.cjs` 会调用 `startStartupEventDerivedDataRecompute(db.getDb())`。默认情况下，只要没有设置 `STARTUP_EVENT_RECOMPUTE_ENABLED=0/false/no/off`，启动任务会异步执行。
+
+启动 rebuild 会做这些事：
+
+- 检查事件、生命周期、兼容快照相关表和关键列是否存在。
+- 按 `creators.id` 分批遍历历史达人。
+- 基于现有 `events` 表里的 active/completed canonical events 重建 `creator_event_snapshot`。
+- 重新评估并写入 `creator_lifecycle_snapshot`。
+- 读取新的 operational facts 表，包括 `event_billing_facts`、`event_progress_facts`、`event_deadline_facts`，用于金额、进度、deadline 的归属投影。
+- `writeTransition=false`，因此启动重算不会批量写入 lifecycle transition 历史噪音。
+
+启动 rebuild 不会做这些事：
+
+- 不会自动执行 SQL migration。
+- 不会创建缺失表或缺失列。
+- 不会把所有历史 WA 消息重新跑一遍 AI/Minimax 事件抽取。
+- 不会自动硬删除或归档历史消息。
+- 不会修改旧 `joinbrands_link.ev_*` 或 `wa_crm_data` deprecated lifecycle 字段作为新的写入来源。
+
+如果目标库 schema 尚未准备好，服务会跳过 rebuild 并继续启动，预期日志形态是：
+
+```text
+[Startup][EventDerivedData] skip recompute: schema missing <missing tables/columns>; run lifecycle migration plus SQL migrations 004-010 first
+```
+
+如果目标库 schema 已准备好，API 重启后预期日志形态是：
+
+```text
+[Startup][EventDerivedData] recompute done: processed=<n>, snapshots=<n>, lifecycles=<n>, duration_ms=<ms>
+```
+
+可选控制项：
+
+- `STARTUP_EVENT_RECOMPUTE_ENABLED=false`：临时关闭启动 rebuild。
+- `STARTUP_EVENT_RECOMPUTE_BATCH_SIZE=<n>`：调整分批大小，默认 50，最大 500。
+- `STARTUP_EVENT_RECOMPUTE_MAX_CREATORS=<n>`：限制本次启动最多处理多少达人，可用于 staging/prod canary。
+
+如果需要“重新从历史聊天内容抽取 canonical events”，那是单独的 backfill/AI 抽取任务，不属于本次 API 启动 rebuild。当前 package 里保留的相关入口是 `npm run events:recompute:minimax`，上线时不应把它误认为默认启动任务。
+
+## 2. 线上数据库结构是否会应用修改
+
+不会自动应用。`schema.sql` 是主 schema/source of truth，适合新环境或完整初始化；已有 staging/prod 数据库必须显式执行 migration 才会拿到这次表、列、索引和种子策略更新。
+
+本分支涉及的目标环境 migration 顺序是：
+
+```bash
+CONFIRM_REMOTE_MIGRATION=1 npm run db:migrate:sql -- \
+  server/migrations/005_active_event_detection_queue.sql \
+  server/migrations/006_managed_runtime_tables.sql \
+  server/migrations/007_creator_import_tables.sql \
+  server/migrations/008_template_media_training_tables.sql \
+  server/migrations/009_ai_profile_creator_id_backfill.sql \
+  server/migrations/010_schema_index_backfill.sql \
+  server/migrations/011_billing_progress_deadline_retention.sql \
+  server/migrations/012_retention_rollups_and_purge_windows.sql \
+  server/migrations/013_retention_external_archive_checks.sql
+```
+
+`scripts/apply-sql-migrations.cjs` 对非本地 DB_HOST 有保护：如果目标不是 `127.0.0.1`、`localhost`、`::1` 或 `mysql`，必须设置 `CONFIRM_REMOTE_MIGRATION=1` 或传 `--allow-remote`，否则脚本会拒绝执行。这是为了避免误打线上库。
+
+我这里没有、也不会要求你提供 staging/prod 数据库凭据。因此当前仓库内能确认的是：
+
+- 本地 MySQL 已验证 migration 005-013。
+- 本地 schema analyzer 已验证期望表、实际表、列、索引一致。
+- staging/prod 仍需要由你或部署流水线在目标 DB env 下执行 migration。
+- 只有 migration 执行成功并重启 API 后，线上启动 rebuild 才会真正处理线上历史达人。
+
+## 3. 推荐上线顺序
+
+1. 在 staging/prod 执行数据库备份或确认回滚点。
+2. 加载目标环境 DB env。
+3. 按顺序执行 migration 005-013。
+4. 执行 `node scripts/analyze-schema-state.js`，期望无 missing table、extra table、column diff、index diff。
+5. 执行 `node scripts/run-retention-archive-jobs.cjs --dry-run`，只看归档/清理预览，不做 apply。
+6. 部署本分支代码。
+7. 重启 API 服务，观察 `[Startup][EventDerivedData] recompute done` 或 schema skip 日志。
+8. 验证 CreatorDetail、EventPanel、stats、V1 board、reporting 的旧字段读取依赖是否仍能通过 snapshot/facts fallback 正常展示。
+
+## 4. 本次上线后应该看到的行为
+
+- 正向事件创建继续走 canonical `events`。
+- 取消/清除事件状态走 canonical event cancel API，不再写旧 lifecycle 字段。
+- 金额、进度、deadline 写入 `event_billing_facts`、`event_progress_facts`、`event_deadline_facts`。
+- 列表、详情、stats、V1 board、reporting、lifecycle persistence、merge service 更优先读 `creator_event_snapshot` 和 operational facts。
+- WA 1:1/group messages 的硬删除被外部归档校验 gate 阻止，直到 `data_retention_external_archive_checks` 存在 verified 且覆盖 cutoff 的记录。
+
+## 5. 风险和回滚边界
+
+- 如果 migration 未执行，API 可以启动，但启动 rebuild 会跳过，依赖新表的写入接口可能返回 schema readiness 错误。
+- 如果启动 rebuild 对线上压力过大，可以先设置 `STARTUP_EVENT_RECOMPUTE_MAX_CREATORS` 做 canary，或设置 `STARTUP_EVENT_RECOMPUTE_ENABLED=false` 临时关闭。
+- 旧 deprecated 字段仍保留为兼容读 fallback，不建议在验证窗口结束前删除列。
+- WA 消息硬删除必须先完成外部归档校验；没有 manifest sha256 和覆盖 cutoff 的 verified 记录时，不应执行 `--apply --purge`。
+
+## 6. 仍需继续的工作
+
+1. staging/prod 真实执行 migration 005-013。
+2. migration 后在 staging/prod 跑 schema analyzer。
+3. 重启 API 并确认启动 rebuild 日志。
+4. 完成验证窗口后，继续缩小旧 `joinbrands_link.ev_*` 和 `wa_crm_data` deprecated 字段读取依赖。
+5. 对历史聊天重新抽取 canonical events 如确实需要，应单独设计 backfill 窗口、成本控制和人工抽样校验。
+
+## Obsidian Sync
+
+- Status: synced
+- Note: `docs/obsidian/notes/2026-04-27-mysql-optimize-prod-rollout-handoff.md`
+- Index: `docs/obsidian/index.md`
