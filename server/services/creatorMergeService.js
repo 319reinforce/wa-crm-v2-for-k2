@@ -2,12 +2,10 @@ const db = require('../../db');
 const { normalizeOperatorName } = require('../utils/operator');
 const creatorCache = require('./creatorCache');
 const { purgeCreatorMessagesMatchingGroups } = require('./groupMessageService');
+const { rebuildCreatorEventSnapshot } = require('./creatorEventSnapshotService');
 
 const WACRM_COLUMNS = [
-    'priority', 'next_action', 'event_score', 'urgency_level', 'monthly_fee_status',
-    'monthly_fee_amount', 'monthly_fee_deducted', 'beta_status', 'beta_cycle_start',
-    'beta_program_type', 'agency_bound', 'agency_bound_at', 'agency_deadline',
-    'video_count', 'video_target', 'video_last_checked',
+    'priority', 'next_action', 'event_score', 'urgency_level',
 ];
 
 const KEEPER_COLUMNS = [
@@ -18,10 +16,7 @@ const KEEPER_COLUMNS = [
 
 const JOINBRANDS_COLUMNS = [
     'creator_name_jb', 'jb_gmv', 'jb_status', 'jb_priority', 'jb_next_action', 'last_message',
-    'days_since_msg', 'invite_code_jb', 'ev_joined', 'ev_ready_sent', 'ev_trial_7day',
-    'ev_trial_active', 'ev_monthly_started', 'ev_monthly_invited', 'ev_monthly_joined',
-    'ev_whatsapp_shared', 'ev_gmv_1k', 'ev_gmv_2k', 'ev_gmv_5k', 'ev_gmv_10k',
-    'ev_agency_bound', 'ev_churned', 'last_synced',
+    'days_since_msg', 'invite_code_jb', 'last_synced',
 ];
 
 const ROSTER_COLUMNS = [
@@ -198,6 +193,35 @@ async function moveLifecycleState(tx, sourceCreatorId, targetCreatorId) {
     } catch (err) {
         if (!isMissingTableError(err, 'creator_lifecycle_transition')) throw err;
     }
+}
+
+async function moveOneToOneCreatorState(tx, table, sourceCreatorId, targetCreatorId) {
+    try {
+        const sourceRow = await tx.prepare(`SELECT * FROM ${table} WHERE creator_id = ? LIMIT 1`).get(sourceCreatorId);
+        const targetRow = await tx.prepare(`SELECT * FROM ${table} WHERE creator_id = ? LIMIT 1`).get(targetCreatorId);
+        if (sourceRow && !targetRow) {
+            await tx.prepare(`UPDATE ${table} SET creator_id = ? WHERE creator_id = ?`).run(targetCreatorId, sourceCreatorId);
+        } else if (sourceRow && targetRow) {
+            await tx.prepare(`DELETE FROM ${table} WHERE creator_id = ?`).run(sourceCreatorId);
+        }
+    } catch (err) {
+        if (!isMissingTableError(err, table)) throw err;
+    }
+}
+
+async function moveManyCreatorRows(tx, table, sourceCreatorId, targetCreatorId) {
+    try {
+        await tx.prepare(`UPDATE ${table} SET creator_id = ? WHERE creator_id = ?`).run(targetCreatorId, sourceCreatorId);
+    } catch (err) {
+        if (!isMissingTableError(err, table)) throw err;
+    }
+}
+
+async function moveCanonicalDerivedFacts(tx, sourceCreatorId, targetCreatorId) {
+    await moveOneToOneCreatorState(tx, 'creator_event_snapshot', sourceCreatorId, targetCreatorId);
+    await moveManyCreatorRows(tx, 'event_billing_facts', sourceCreatorId, targetCreatorId);
+    await moveManyCreatorRows(tx, 'event_progress_facts', sourceCreatorId, targetCreatorId);
+    await moveManyCreatorRows(tx, 'event_deadline_facts', sourceCreatorId, targetCreatorId);
 }
 
 async function getCreatorClientIds(tx, creatorId) {
@@ -387,6 +411,8 @@ async function mergeDuplicateCreatorIntoCanonical({
         await moveEvents(tx, sourceCreatorId, targetCreatorId);
         await moveRoster(tx, sourceCreatorId, targetCreatorId);
         await moveLifecycleState(tx, sourceCreatorId, targetCreatorId);
+        await moveCanonicalDerivedFacts(tx, sourceCreatorId, targetCreatorId);
+        await rebuildCreatorEventSnapshot(tx, targetCreatorId);
         await mergeClientScopedData(tx, unique([...sourceClientIds, source.wa_phone]), targetClientId, targetCreatorId);
 
         await upsertAliases(tx, targetCreatorId, [source.primary_name], 'legacy_primary_name', 1);

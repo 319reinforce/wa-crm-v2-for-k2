@@ -1,7 +1,7 @@
 const db = require('../../db');
 const { assertManagedSchemaReady } = require('./schemaReadinessGuard');
 
-const MIGRATION_PATH = 'server/migrations/011_billing_progress_deadline_retention.sql';
+const MIGRATION_PATH = 'server/migrations/013_retention_external_archive_checks.sql';
 const DEFAULT_SAMPLE_SIZE = 20;
 
 const RETENTION_TARGETS = Object.freeze({
@@ -36,12 +36,16 @@ const RETENTION_TARGETS = Object.freeze({
         dateColumns: ['created_at'],
         action: 'archive_mark',
         rollup: 'wa_messages_monthly',
+        hardDeleteAllowed: true,
+        externalArchiveRequired: true,
     },
     wa_group_messages: {
         idColumn: 'id',
         dateColumns: ['created_at'],
         action: 'archive_mark',
         rollup: 'wa_group_messages_monthly',
+        hardDeleteAllowed: true,
+        externalArchiveRequired: true,
     },
     media_assets: {
         idColumn: 'id',
@@ -98,6 +102,7 @@ async function ensureRetentionSchema(dbConn = db.getDb()) {
             'data_retention_policies',
             'data_retention_runs',
             'data_retention_archive_refs',
+            'data_retention_external_archive_checks',
             'ai_usage_daily',
             'message_archive_monthly_rollups',
         ],
@@ -116,6 +121,11 @@ async function ensureRetentionSchema(dbConn = db.getDb()) {
             data_retention_archive_refs: [
                 'id', 'policy_key', 'run_id', 'table_name', 'record_id',
                 'action', 'record_created_at', 'archived_at', 'meta_json',
+            ],
+            data_retention_external_archive_checks: [
+                'id', 'policy_key', 'table_name', 'archive_uri', 'manifest_sha256',
+                'covered_before', 'record_count', 'status', 'checked_by',
+                'checked_at', 'expires_at', 'meta_json',
             ],
             ai_usage_daily: [
                 'date', 'purpose', 'provider_config_id', 'model',
@@ -177,6 +187,7 @@ function resolveTarget(policy) {
         mediaTierCold: !!target.mediaTierCold,
         rollup: target.rollup || null,
         hardDeleteAllowed: !!target.hardDeleteAllowed,
+        externalArchiveRequired: !!target.externalArchiveRequired,
     };
 }
 
@@ -495,6 +506,7 @@ async function applyArchiveRefs(dbConn, policy, target, rows, runId) {
                     archive_after_days: policy.archive_after_days,
                     purge_after_days: policy.purge_after_days || null,
                     hard_delete_supported: target.hardDeleteAllowed,
+                    external_archive_required: requiresExternalArchiveVerification(policy, target),
                 }),
             );
 
@@ -514,6 +526,67 @@ async function applyArchiveRefs(dbConn, policy, target, rows, runId) {
         }
     }
     return { archived, errors };
+}
+
+function requiresExternalArchiveVerification(policy, target) {
+    return !!(target.externalArchiveRequired || policy.config?.hard_delete_requires_external_archive);
+}
+
+async function getExternalArchiveVerification(dbConn, policy, target, cutoff) {
+    if (!requiresExternalArchiveVerification(policy, target)) {
+        return {
+            required: false,
+            verified: true,
+            check: null,
+            skipped_reason: null,
+        };
+    }
+    if (!cutoff) {
+        return {
+            required: true,
+            verified: false,
+            check: null,
+            skipped_reason: 'purge_cutoff_not_available',
+        };
+    }
+    const row = await dbConn.prepare(`
+        SELECT id, policy_key, table_name, archive_uri, manifest_sha256,
+               covered_before, record_count, status, checked_by, checked_at,
+               expires_at, meta_json
+        FROM data_retention_external_archive_checks
+        WHERE BINARY policy_key = BINARY ?
+          AND BINARY table_name = BINARY ?
+          AND status = 'verified'
+          AND manifest_sha256 IS NOT NULL
+          AND manifest_sha256 <> ''
+          AND covered_before >= ?
+          AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+        ORDER BY covered_before DESC, checked_at DESC, id DESC
+        LIMIT 1
+    `).get(policy.policy_key, target.tableName, cutoff);
+    if (!row) {
+        return {
+            required: true,
+            verified: false,
+            check: null,
+            skipped_reason: 'external_archive_verification_required',
+        };
+    }
+    return {
+        required: true,
+        verified: true,
+        check: {
+            id: row.id,
+            archive_uri: row.archive_uri,
+            manifest_sha256: row.manifest_sha256 || null,
+            covered_before: row.covered_before,
+            record_count: Number(row.record_count || 0),
+            checked_by: row.checked_by || null,
+            checked_at: row.checked_at || null,
+            expires_at: row.expires_at || null,
+        },
+        skipped_reason: null,
+    };
 }
 
 function buildPurgeCandidateQuery(policy, target, limit) {
@@ -548,15 +621,26 @@ function buildPurgeCandidateQuery(policy, target, limit) {
 
 async function listPurgeCandidates(dbConn, policy, target, limit) {
     if (!policy.purge_after_days || !target.hardDeleteAllowed || policy.config?.no_hard_delete) {
+        const cutoff = policy.purge_after_days ? cutoffForDays(policy.purge_after_days) : null;
         return {
-            cutoff: policy.purge_after_days ? cutoffForDays(policy.purge_after_days) : null,
+            cutoff,
             rows: [],
             skipped_reason: !policy.purge_after_days
                 ? 'purge_window_not_configured'
                 : (!target.hardDeleteAllowed ? 'hard_delete_not_supported_for_target' : 'policy_no_hard_delete'),
+            external_archive: await getExternalArchiveVerification(dbConn, policy, target, cutoff),
         };
     }
     const cutoff = cutoffForDays(policy.purge_after_days);
+    const externalArchive = await getExternalArchiveVerification(dbConn, policy, target, cutoff);
+    if (externalArchive.required && !externalArchive.verified) {
+        return {
+            cutoff,
+            rows: [],
+            skipped_reason: externalArchive.skipped_reason,
+            external_archive: externalArchive,
+        };
+    }
     const safeLimit = parsePositiveInt(limit, policy.batch_size || 500, { min: 1, max: 10000 });
     const sql = buildPurgeCandidateQuery(policy, target, safeLimit);
     const rows = await dbConn.prepare(sql).all(cutoff, policy.policy_key, target.tableName, target.action);
@@ -564,6 +648,7 @@ async function listPurgeCandidates(dbConn, policy, target, limit) {
         cutoff,
         rows: rows || [],
         skipped_reason: null,
+        external_archive: externalArchive,
     };
 }
 
@@ -609,8 +694,11 @@ async function runPolicy(dbConn, policy, {
         purge_requested: !!purge,
         purge_cutoff: purgeCandidates.cutoff,
         purge_after_days: policy.purge_after_days || null,
-        purge_supported: target.hardDeleteAllowed && !policy.config?.no_hard_delete,
+        purge_supported: target.hardDeleteAllowed
+            && !policy.config?.no_hard_delete
+            && !(purgeCandidates.external_archive?.required && !purgeCandidates.external_archive?.verified),
         purge_skipped_reason: purgeCandidates.skipped_reason,
+        external_archive: purgeCandidates.external_archive || null,
         candidate_count: rows.length,
         sample: rows.slice(0, Math.max(0, Math.min(Number(sampleSize) || DEFAULT_SAMPLE_SIZE, 100))),
         rollup: rollupPreview,
@@ -690,14 +778,72 @@ async function runRetentionArchiveJobs(dbConn = db.getDb(), {
     };
 }
 
+async function recordExternalArchiveVerification(dbConn = db.getDb(), {
+    policyKey,
+    archiveUri,
+    manifestSha256 = null,
+    coveredBefore,
+    recordCount = 0,
+    checkedBy = 'script',
+    expiresAt = null,
+    meta = {},
+} = {}) {
+    await ensureRetentionSchema(dbConn);
+    if (!policyKey) throw new Error('policyKey is required');
+    if (!archiveUri) throw new Error('archiveUri is required');
+    if (!manifestSha256) throw new Error('manifestSha256 is required');
+    if (!coveredBefore) throw new Error('coveredBefore is required');
+    const [policy] = await listPolicies(dbConn, { policyKey, includeDisabled: true });
+    if (!policy) throw new Error(`Retention policy not found: ${policyKey}`);
+    const target = resolveTarget(policy);
+    if (!requiresExternalArchiveVerification(policy, target)) {
+        throw new Error(`Retention policy ${policyKey} does not require external archive verification`);
+    }
+    const coveredBeforeSql = toSqlDatetime(coveredBefore);
+    if (!coveredBeforeSql) throw new Error(`Invalid coveredBefore: ${coveredBefore}`);
+    const expiresAtSql = expiresAt ? toSqlDatetime(expiresAt) : null;
+    if (expiresAt && !expiresAtSql) throw new Error(`Invalid expiresAt: ${expiresAt}`);
+    const result = await dbConn.prepare(`
+        INSERT INTO data_retention_external_archive_checks (
+            policy_key, table_name, archive_uri, manifest_sha256,
+            covered_before, record_count, status, checked_by,
+            expires_at, meta_json
+        ) VALUES (?, ?, ?, ?, ?, ?, 'verified', ?, ?, ?)
+    `).run(
+        policy.policy_key,
+        target.tableName,
+        String(archiveUri).slice(0, 1024),
+        manifestSha256 ? String(manifestSha256).slice(0, 128) : null,
+        coveredBeforeSql,
+        Math.max(0, Math.trunc(Number(recordCount) || 0)),
+        checkedBy ? String(checkedBy).slice(0, 128) : null,
+        expiresAtSql,
+        JSON.stringify(meta || {}),
+    );
+    return {
+        ok: true,
+        id: result.lastInsertRowid || null,
+        policy_key: policy.policy_key,
+        table_name: target.tableName,
+        archive_uri: String(archiveUri).slice(0, 1024),
+        manifest_sha256: manifestSha256 || null,
+        covered_before: coveredBeforeSql,
+        record_count: Math.max(0, Math.trunc(Number(recordCount) || 0)),
+        checked_by: checkedBy || null,
+        expires_at: expiresAtSql,
+    };
+}
+
 module.exports = {
     RETENTION_TARGETS,
     ensureRetentionSchema,
     listPolicies,
     runRetentionArchiveJobs,
+    recordExternalArchiveVerification,
     _private: {
         cutoffForDays,
         parsePositiveInt,
         resolveTarget,
+        requiresExternalArchiveVerification,
     },
 };

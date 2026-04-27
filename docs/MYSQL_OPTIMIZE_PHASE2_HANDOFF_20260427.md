@@ -159,7 +159,29 @@ node scripts/run-retention-archive-jobs.cjs --apply --purge --policy=ai_usage_lo
 
 Migration 012 adds `message_archive_monthly_rollups`, updates `purge_after_days`, and turns on the rollup path for `ai_usage_logs`, `wa_messages`, and `wa_group_messages`.
 
-Dry-run does not write run records, rollups, archive refs, purge rows, or media tier updates. Apply mode writes rollups first, then `data_retention_runs` plus `data_retention_archive_refs`; media apply only marks eligible assets cold. `--purge` is separate from `--apply` and currently only deletes targets that have both a purge window and explicit service support.
+Migration 013 adds `data_retention_external_archive_checks`. `wa_messages` and `wa_group_messages` now have hard-delete windows in policy, but purge candidate enumeration is blocked unless a verified external archive check covers the purge cutoff:
+
+```bash
+node scripts/run-retention-archive-jobs.cjs \
+  --verify-external-archive \
+  --policy=wa_messages_365d \
+  --archive-uri=s3://bucket/wa_messages/ \
+  --manifest-sha256=<sha256> \
+  --covered-before=2023-04-28 \
+  --record-count=100000
+```
+
+Dry-run does not write run records, rollups, archive refs, purge rows, or media tier updates. Apply mode writes rollups first, then `data_retention_runs` plus `data_retention_archive_refs`; media apply only marks eligible assets cold. `--purge` is separate from `--apply` and currently only deletes targets that have a purge window, explicit service support, and any required external archive verification.
+
+## Deprecated Read Dependency Reduction
+
+The following paths now prefer canonical snapshots/facts before deprecated compatibility columns:
+
+- `server/routes/stats.js`: event counts and beta grouping prefer `creator_event_snapshot.compat_ev_flags_json`; unmapped legacy-only fields such as `ev_whatsapp_shared` remain fallback-only.
+- `server/routes/v1Board.js`: V1 board rows project `creator_event_snapshot` plus `event_billing_facts`, `event_progress_facts`, and `event_deadline_facts` before building lifecycle/events payloads.
+- `server/services/lifecyclePersistenceService.js`: lifecycle evaluation projects snapshot flags and operational facts before calling `buildLifecycle`.
+- `server/services/creatorMergeService.js`: duplicate merge no longer copies deprecated lifecycle/fact columns into an existing target; canonical event snapshot and operational facts move with the canonical creator.
+- `scripts/export-final-roster-full.js`: exported lifecycle flags and operational amount/progress/deadline fields prefer canonical data.
 
 ## Verification
 
@@ -225,6 +247,17 @@ node scripts/run-retention-archive-jobs.cjs --dry-run --limit=5
 
 Result: migration 012 applied locally; analyzer reported 59 expected tables, 59 actual tables, no missing/extra tables, no column diffs, no index diffs, and no key findings. Retention dry-run returned `ai_usage_daily` rollup preview, `message_archive_monthly_rollups` previews for `wa_messages` / `wa_group_messages`, explicit `purge_after_days`, and no local candidates.
 
+Migration 013 local verification:
+
+```bash
+npm run db:migrate:sql -- server/migrations/013_retention_external_archive_checks.sql
+node scripts/analyze-schema-state.js
+node scripts/run-retention-archive-jobs.cjs --dry-run --policy=wa_messages_365d --limit=5
+node scripts/run-retention-archive-jobs.cjs --dry-run --policy=wa_group_messages_180d --limit=5
+```
+
+Result: migration 013 applied locally; analyzer reported 60 expected tables, 60 actual tables, no missing/extra tables, no column diffs, no index diffs, and no key findings. Both WA message dry-runs returned `purge_supported=false` with `external_archive_verification_required`, while monthly rollup previews still worked.
+
 ## Staging/Prod Runbook
 
 Run with the target DB env loaded. For non-local DB hosts, confirm intent explicitly:
@@ -238,7 +271,8 @@ CONFIRM_REMOTE_MIGRATION=1 npm run db:migrate:sql -- \
   server/migrations/009_ai_profile_creator_id_backfill.sql \
   server/migrations/010_schema_index_backfill.sql \
   server/migrations/011_billing_progress_deadline_retention.sql \
-  server/migrations/012_retention_rollups_and_purge_windows.sql
+  server/migrations/012_retention_rollups_and_purge_windows.sql \
+  server/migrations/013_retention_external_archive_checks.sql
 
 node scripts/analyze-schema-state.js
 node scripts/run-retention-archive-jobs.cjs --dry-run
@@ -256,12 +290,12 @@ If the lifecycle schema or SQL migrations have not been applied, expected startu
 
 ## Remaining Work
 
-1. Run the 005-012 migration sequence against staging and production once DB env access is available.
+1. Run the 005-013 migration sequence against staging and production once DB env access is available.
 2. Restart staging/prod after migration and confirm startup event derived-data recompute logs.
 3. Verify `POST /api/events/cancel-by-key` plus `POST /api/creators/:id/operational-facts` in staging/prod with CreatorDetail edits.
 4. Run retention dry-run in staging/prod and review rollup/candidate samples before any `--apply`.
-5. After a verification window, continue removing server-side reads from `joinbrands_link.ev_*` and deprecated `wa_crm_data` fields; current list/detail reads, kanban filters, CreatorDetail/EventPanel agency checks, and AI prompt helpers now prefer `creator_event_snapshot` and operational facts.
-6. Add external archive storage verification before enabling automated hard deletes for `wa_messages` / `wa_group_messages`.
+5. After a verification window, continue removing remaining compatibility reads from `server/routes/creators.js`, `replyStrategyService`, retrieval/profile prompt context, and historical export scripts that still intentionally use old fields as fallback.
+6. Before any WA message hard delete, write and review `data_retention_external_archive_checks` records for both `wa_messages_365d` and `wa_group_messages_180d`; do not run `--apply --purge` for WA messages until the external archive URI, manifest sha256, record counts, and cutoff are verified.
 
 ## Obsidian Sync
 

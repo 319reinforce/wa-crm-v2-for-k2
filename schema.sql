@@ -468,6 +468,27 @@ CREATE UNIQUE INDEX uk_retention_archive_ref ON data_retention_archive_refs(poli
 CREATE INDEX idx_retention_archive_run ON data_retention_archive_refs(run_id);
 CREATE INDEX idx_retention_archive_table_time ON data_retention_archive_refs(table_name, archived_at);
 
+CREATE TABLE IF NOT EXISTS data_retention_external_archive_checks (
+    id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+    policy_key        VARCHAR(64) NOT NULL,
+    table_name        VARCHAR(64) NOT NULL,
+    archive_uri       VARCHAR(1024) NOT NULL,
+    manifest_sha256   VARCHAR(128) NULL,
+    covered_before    DATETIME NOT NULL,
+    record_count      BIGINT NOT NULL DEFAULT 0,
+    status            VARCHAR(32) NOT NULL DEFAULT 'verified',
+    checked_by        VARCHAR(128) NULL,
+    checked_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at        DATETIME NULL,
+    meta_json         JSON NULL,
+    CONSTRAINT fk_retention_external_archive_policy
+        FOREIGN KEY (policy_key) REFERENCES data_retention_policies(policy_key) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_retention_external_archive_policy ON data_retention_external_archive_checks(policy_key, table_name, status);
+CREATE INDEX idx_retention_external_archive_covered ON data_retention_external_archive_checks(table_name, covered_before);
+CREATE INDEX idx_retention_external_archive_expires ON data_retention_external_archive_checks(expires_at);
+
 CREATE TABLE IF NOT EXISTS message_archive_monthly_rollups (
     id                       BIGINT AUTO_INCREMENT PRIMARY KEY,
     table_name               VARCHAR(64) NOT NULL,
@@ -503,8 +524,8 @@ INSERT INTO data_retention_policies (
 ('retrieval_snapshot_90d', 'retrieval_snapshot', 'created_at', 90, 90, 365, 'reference_only', 500, 1, JSON_OBJECT('keep_if_linked_table', 'sft_memory', 'keep_if_linked_column', 'retrieval_snapshot_id')),
 ('ai_usage_logs_180d', 'ai_usage_logs', 'created_at', 180, 180, 730, 'daily_rollup_then_reference', 1000, 1, JSON_OBJECT('rollup_table', 'ai_usage_daily')),
 ('audit_log_365d', 'audit_log', 'created_at', 365, 365, NULL, 'monthly_archive_reference', 500, 1, JSON_OBJECT('no_delete', true)),
-('wa_messages_365d', 'wa_messages', 'created_at', 365, 365, 1095, 'creator_month_reference', 500, 1, JSON_OBJECT('keep_event_evidence', true, 'rollup_table', 'message_archive_monthly_rollups', 'hard_delete_requires_external_archive', true)),
-('wa_group_messages_180d', 'wa_group_messages', 'created_at', 180, 180, 730, 'group_month_reference', 500, 1, JSON_OBJECT('keep_creator_evidence', true, 'rollup_table', 'message_archive_monthly_rollups', 'hard_delete_requires_external_archive', true)),
+('wa_messages_365d', 'wa_messages', 'created_at', 365, 365, 1095, 'creator_month_reference', 500, 1, JSON_OBJECT('keep_event_evidence', true, 'rollup_table', 'message_archive_monthly_rollups', 'hard_delete_requires_external_archive', true, 'external_archive_verification_table', 'data_retention_external_archive_checks')),
+('wa_group_messages_180d', 'wa_group_messages', 'created_at', 180, 180, 730, 'group_month_reference', 500, 1, JSON_OBJECT('keep_creator_evidence', true, 'rollup_table', 'message_archive_monthly_rollups', 'hard_delete_requires_external_archive', true, 'external_archive_verification_table', 'data_retention_external_archive_checks')),
 ('media_assets_30d', 'media_assets', 'created_at', 30, 30, 90, 'media_tier_cold', 250, 1, JSON_OBJECT('respect_cleanup_exemptions', true, 'hard_delete_owned_by_media_cleanup_service', true))
 ON DUPLICATE KEY UPDATE
     table_name = VALUES(table_name),

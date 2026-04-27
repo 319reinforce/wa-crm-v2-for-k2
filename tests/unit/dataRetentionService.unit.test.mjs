@@ -19,7 +19,7 @@ test('retention target exposes rollup and purge capability for ai usage logs', (
   assert.equal(target.action, 'archive_mark');
 });
 
-test('retention target keeps wa message purge unsupported even with a window', () => {
+test('retention target gates wa message purge behind external archive verification', () => {
   const target = _private.resolveTarget({
     policy_key: 'wa_messages_365d',
     table_name: 'wa_messages',
@@ -27,7 +27,11 @@ test('retention target keeps wa message purge unsupported even with a window', (
   });
 
   assert.equal(target.rollup, 'wa_messages_monthly');
-  assert.equal(target.hardDeleteAllowed, false);
+  assert.equal(target.hardDeleteAllowed, true);
+  assert.equal(target.externalArchiveRequired, true);
+  assert.equal(_private.requiresExternalArchiveVerification({
+    config: { hard_delete_requires_external_archive: true },
+  }, target), true);
 });
 
 test('retention identifier validation rejects unsupported table names', () => {

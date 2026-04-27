@@ -12,6 +12,39 @@ const {
 } = require('../services/operatorRosterService');
 const { aggregateEventStats } = require('../services/eventLifecycleFacts');
 
+function snapshotFlagExpr(field, fallbackExpr = '0') {
+    const safeField = String(field || '').replace(/[^a-zA-Z0-9_]/g, '');
+    const jsonPath = `$.${safeField}`;
+    return `
+        CASE
+            WHEN ces.compat_ev_flags_json IS NOT NULL
+             AND JSON_CONTAINS_PATH(ces.compat_ev_flags_json, 'one', '${jsonPath}') = 1
+            THEN CASE
+                WHEN JSON_UNQUOTE(JSON_EXTRACT(ces.compat_ev_flags_json, '${jsonPath}')) IN ('true', '1') THEN 1
+                ELSE 0
+            END
+            ELSE COALESCE(${fallbackExpr}, 0)
+        END
+    `;
+}
+
+function eventCountExpr(field, fallbackExpr = null) {
+    return `SUM(${snapshotFlagExpr(field, fallbackExpr || `j.${field}`)}) as ${field}`;
+}
+
+function betaStatusExpr() {
+    return `
+        CASE
+            WHEN ${snapshotFlagExpr('ev_churned', '0')} = 1 THEN 'churned'
+            WHEN ${snapshotFlagExpr('ev_monthly_joined', '0')} = 1
+              OR ${snapshotFlagExpr('ev_trial_7day', '0')} = 1 THEN 'completed'
+            WHEN ${snapshotFlagExpr('ev_monthly_started', '0')} = 1
+              OR ${snapshotFlagExpr('ev_trial_active', '0')} = 1 THEN 'active'
+            ELSE COALESCE(wc.beta_status, 'unknown')
+        END
+    `;
+}
+
 // GET /api/stats — 统计接口
 router.get('/stats', async (req, res) => {
     try {
@@ -64,13 +97,17 @@ router.get('/stats', async (req, res) => {
                 GROUP BY ${rosterOnly ? 'ocr.operator' : 'c.wa_owner'}
             `).all(...scopeParams),
             db2.prepare(`
-                SELECT COALESCE(wc.beta_status, 'unknown') as beta_status, COUNT(*) as count
-                FROM wa_crm_data wc
-                INNER JOIN creators c ON c.id = wc.creator_id
-                ${rosterJoin}
-                WHERE c.is_active = 1
-                ${scopeWhere}
-                GROUP BY wc.beta_status
+                SELECT beta_status, COUNT(*) as count
+                FROM (
+                    SELECT c.id, ${betaStatusExpr()} as beta_status
+                    FROM creators c
+                    LEFT JOIN wa_crm_data wc ON wc.creator_id = c.id
+                    LEFT JOIN creator_event_snapshot ces ON ces.creator_id = c.id
+                    ${rosterJoin}
+                    WHERE c.is_active = 1
+                    ${scopeWhere}
+                ) grouped_beta
+                GROUP BY beta_status
             `).all(...scopeParams),
             db2.prepare(`
                 SELECT COALESCE(wc.priority, 'unknown') as priority, COUNT(*) as count
@@ -83,20 +120,22 @@ router.get('/stats', async (req, res) => {
             `).all(...scopeParams),
             db2.prepare(`
                 SELECT
-                    SUM(j.ev_joined) as ev_joined,
-                    SUM(j.ev_ready_sent) as ev_ready_sent,
-                    SUM(j.ev_trial_7day) as ev_trial_7day,
-                    SUM(j.ev_monthly_started) as ev_monthly_started,
-                    SUM(j.ev_monthly_joined) as ev_monthly_joined,
-                    SUM(j.ev_whatsapp_shared) as ev_whatsapp_shared,
-                    SUM(j.ev_gmv_1k) as ev_gmv_1k,
-                    SUM(j.ev_gmv_2k) as ev_gmv_2k,
-                    SUM(j.ev_gmv_5k) as ev_gmv_5k,
-                    SUM(j.ev_gmv_10k) as ev_gmv_10k,
-                    SUM(j.ev_agency_bound) as ev_agency_bound,
-                    SUM(j.ev_churned) as ev_churned
-                FROM joinbrands_link j
-                INNER JOIN creators c ON c.id = j.creator_id
+                    SUM(COALESCE(j.ev_joined, 0)) as ev_joined,
+                    SUM(COALESCE(j.ev_ready_sent, 0)) as ev_ready_sent,
+                    ${eventCountExpr('ev_trial_7day')},
+                    SUM(COALESCE(j.ev_monthly_invited, 0)) as ev_monthly_invited,
+                    ${eventCountExpr('ev_monthly_started')},
+                    ${eventCountExpr('ev_monthly_joined')},
+                    SUM(COALESCE(j.ev_whatsapp_shared, 0)) as ev_whatsapp_shared,
+                    ${eventCountExpr('ev_gmv_1k')},
+                    ${eventCountExpr('ev_gmv_2k')},
+                    ${eventCountExpr('ev_gmv_5k')},
+                    ${eventCountExpr('ev_gmv_10k')},
+                    ${eventCountExpr('ev_agency_bound')},
+                    ${eventCountExpr('ev_churned')}
+                FROM creators c
+                LEFT JOIN joinbrands_link j ON j.creator_id = c.id
+                LEFT JOIN creator_event_snapshot ces ON ces.creator_id = c.id
                 ${rosterJoin}
                 WHERE c.is_active = 1
                 ${scopeWhere}

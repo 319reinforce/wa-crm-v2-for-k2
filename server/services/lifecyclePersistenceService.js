@@ -11,6 +11,24 @@ const {
     canEventDriveLifecycle,
     normalizeLifecycleEventRow,
 } = require('./eventLifecycleFacts');
+const { fetchCreatorEventSnapshotsMap } = require('./creatorEventSnapshotService');
+const {
+    getLatestOperationalFactsForCreator,
+    projectOperationalFactsOntoWacrm,
+} = require('./operationalFactService');
+
+const SNAPSHOT_COMPAT_FIELDS = [
+    'ev_trial_7day',
+    'ev_trial_active',
+    'ev_monthly_started',
+    'ev_monthly_joined',
+    'ev_gmv_1k',
+    'ev_gmv_2k',
+    'ev_gmv_5k',
+    'ev_gmv_10k',
+    'ev_agency_bound',
+    'ev_churned',
+];
 
 function parseJsonSafe(value, fallback = null) {
     if (value === null || value === undefined) return fallback;
@@ -72,11 +90,15 @@ async function fetchCreatorFacts(dbConn, creatorId) {
             wc.beta_status,
             wc.beta_program_type,
             wc.monthly_fee_status,
+            wc.monthly_fee_amount,
             wc.monthly_fee_deducted,
             wc.agency_bound,
+            wc.agency_bound_at,
+            wc.agency_deadline,
             wc.next_action,
             wc.video_count,
             wc.video_target,
+            wc.video_last_checked,
             j.ev_joined,
             j.ev_ready_sent,
             j.ev_trial_7day,
@@ -116,6 +138,40 @@ async function fetchLifecycleEvents(dbConn, creatorId, statuses = ['active', 'co
         .filter((row) => canEventDriveLifecycle(row));
 }
 
+function projectSnapshotFlagsOntoCreator(source = {}, snapshot = null) {
+    const flags = snapshot?.compat_ev_flags || {};
+    if (!flags || typeof flags !== 'object') return source;
+    const projected = { ...source };
+    for (const field of SNAPSHOT_COMPAT_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(flags, field)) {
+            projected[field] = flags[field] ? 1 : 0;
+        }
+    }
+    return projected;
+}
+
+function projectOperationalFactsOntoCreator(source = {}, facts = null) {
+    if (!facts || facts.schema_ready === false) return source;
+    const projectedWacrm = projectOperationalFactsOntoWacrm({
+        monthly_fee_amount: source.monthly_fee_amount,
+        monthly_fee_status: source.monthly_fee_status,
+        video_count: source.video_count,
+        video_target: source.video_target,
+        video_last_checked: source.video_last_checked,
+        agency_deadline: source.agency_deadline,
+    }, facts);
+    const hasProjected = (field) => Object.prototype.hasOwnProperty.call(projectedWacrm || {}, field);
+    return {
+        ...source,
+        monthly_fee_amount: hasProjected('monthly_fee_amount') ? projectedWacrm.monthly_fee_amount : source.monthly_fee_amount,
+        monthly_fee_status: hasProjected('monthly_fee_status') ? projectedWacrm.monthly_fee_status : source.monthly_fee_status,
+        video_count: hasProjected('video_count') ? projectedWacrm.video_count : source.video_count,
+        video_target: hasProjected('video_target') ? projectedWacrm.video_target : source.video_target,
+        video_last_checked: hasProjected('video_last_checked') ? projectedWacrm.video_last_checked : source.video_last_checked,
+        agency_deadline: hasProjected('agency_deadline') ? projectedWacrm.agency_deadline : source.agency_deadline,
+    };
+}
+
 function toLifecycleInput(source = {}, events = []) {
     return {
         ...source,
@@ -125,11 +181,15 @@ function toLifecycleInput(source = {}, events = []) {
             beta_status: source.beta_status,
             beta_program_type: source.beta_program_type,
             monthly_fee_status: source.monthly_fee_status,
+            monthly_fee_amount: source.monthly_fee_amount,
             monthly_fee_deducted: source.monthly_fee_deducted,
             agency_bound: source.agency_bound,
+            agency_bound_at: source.agency_bound_at,
+            agency_deadline: source.agency_deadline,
             next_action: source.next_action,
             video_count: source.video_count,
             video_target: source.video_target,
+            video_last_checked: source.video_last_checked,
         },
         joinbrands: {
             ev_joined: source.ev_joined,
@@ -157,17 +217,26 @@ function toLifecycleInput(source = {}, events = []) {
 }
 
 async function evaluateCreatorLifecycle(dbConn, creatorId) {
-    const [creator, events, lifecycleOptions] = await Promise.all([
+    const [creator, events, lifecycleOptions, eventSnapshotsMap, operationalFacts] = await Promise.all([
         fetchCreatorFacts(dbConn, creatorId),
         fetchLifecycleEvents(dbConn, creatorId),
         getLifecycleRuntimeOptions(dbConn),
+        fetchCreatorEventSnapshotsMap(dbConn, [creatorId]),
+        getLatestOperationalFactsForCreator(dbConn, creatorId).catch(() => null),
     ]);
     if (!creator) return null;
 
     const messageFacts = await fetchCreatorMessageFacts(dbConn, creator);
+    const eventSnapshot = eventSnapshotsMap.get(Number(creatorId)) || null;
+    const projectedCreator = projectOperationalFactsOntoCreator(
+        projectSnapshotFlagsOntoCreator(creator, eventSnapshot),
+        operationalFacts,
+    );
     const creatorWithFacts = {
-        ...creator,
+        ...projectedCreator,
         message_facts: messageFacts,
+        event_snapshot: eventSnapshot,
+        operational_facts: operationalFacts,
     };
 
     const lifecycle = buildLifecycle(toLifecycleInput(creatorWithFacts, events), lifecycleOptions);

@@ -103,6 +103,105 @@ function parseJsonSafe(raw, fallback = null) {
   }
 }
 
+const SNAPSHOT_COMPAT_FIELDS = [
+  'ev_trial_7day',
+  'ev_trial_active',
+  'ev_monthly_started',
+  'ev_monthly_joined',
+  'ev_gmv_1k',
+  'ev_gmv_2k',
+  'ev_gmv_5k',
+  'ev_gmv_10k',
+  'ev_agency_bound',
+  'ev_churned',
+];
+
+function projectSnapshotFlagsOntoRow(row = {}, flags = {}) {
+  const projected = { ...row };
+  for (const field of SNAPSHOT_COMPAT_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(flags || {}, field)) {
+      projected[field] = flags[field] ? 1 : 0;
+    }
+  }
+  return projected;
+}
+
+function projectOperationalFactsOntoRow(row = {}, facts = {}) {
+  const projected = { ...row };
+  const monthlyFee = facts.billing?.monthly_fee;
+  if (monthlyFee) {
+    if (monthlyFee.amount !== null && monthlyFee.amount !== undefined) projected.monthly_fee_amount = Number(monthlyFee.amount);
+    if (monthlyFee.billing_status) projected.monthly_fee_status = monthlyFee.billing_status;
+  }
+  const videoProgress = facts.progress?.video_progress;
+  if (videoProgress) {
+    if (videoProgress.video_count !== null && videoProgress.video_count !== undefined) projected.video_count = Number(videoProgress.video_count);
+    if (videoProgress.video_target !== null && videoProgress.video_target !== undefined) projected.video_target = Number(videoProgress.video_target);
+    if (videoProgress.last_checked_at) projected.video_last_checked = videoProgress.last_checked_at;
+  }
+  const agencyDeadline = facts.deadlines?.agency_deadline;
+  if (agencyDeadline) {
+    projected.agency_deadline = agencyDeadline.deadline_at || null;
+  }
+  return projected;
+}
+
+function mapLatestFacts(rows = [], keyField) {
+  const result = new Map();
+  for (const row of rows || []) {
+    const creatorId = Number(row.creator_id);
+    if (!Number.isFinite(creatorId)) continue;
+    const key = row[keyField] || 'default';
+    if (!result.has(creatorId)) result.set(creatorId, {});
+    const bucket = result.get(creatorId);
+    if (!bucket[key]) bucket[key] = row;
+  }
+  return result;
+}
+
+async function loadOperationalFactsForCreatorIds(conn, placeholders, ids) {
+  const empty = new Map();
+  if (!ids.length) return empty;
+  try {
+    const [billingRows] = await conn.query(
+      `SELECT creator_id, billing_key, amount, currency, billing_status, effective_at, created_at
+       FROM event_billing_facts
+       WHERE creator_id IN (${placeholders})
+       ORDER BY creator_id ASC, created_at DESC, id DESC`,
+      ids
+    );
+    const [progressRows] = await conn.query(
+      `SELECT creator_id, progress_key, video_count, video_target, last_checked_at, observed_at, created_at
+       FROM event_progress_facts
+       WHERE creator_id IN (${placeholders})
+       ORDER BY creator_id ASC, observed_at DESC, created_at DESC, id DESC`,
+      ids
+    );
+    const [deadlineRows] = await conn.query(
+      `SELECT creator_id, deadline_key, deadline_at, status, created_at
+       FROM event_deadline_facts
+       WHERE creator_id IN (${placeholders})
+       ORDER BY creator_id ASC, created_at DESC, id DESC`,
+      ids
+    );
+    const billingMap = mapLatestFacts(billingRows, 'billing_key');
+    const progressMap = mapLatestFacts(progressRows, 'progress_key');
+    const deadlineMap = mapLatestFacts(deadlineRows, 'deadline_key');
+    const result = new Map();
+    for (const id of ids) {
+      result.set(Number(id), {
+        billing: billingMap.get(Number(id)) || {},
+        progress: progressMap.get(Number(id)) || {},
+        deadlines: deadlineMap.get(Number(id)) || {},
+      });
+    }
+    return result;
+  } catch (err) {
+    if (String(err?.message || '').match(/event_(billing|progress|deadline)_facts|doesn't exist|no such table/i)) return empty;
+    throw err;
+  }
+}
+
 function clampConfidence(value, fallback = 2) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
@@ -760,6 +859,25 @@ async function loadBaseData() {
       },
     ]));
 
+    let eventSnapshotRows = [];
+    try {
+      const [rows] = await conn.query(
+        `SELECT creator_id, compat_ev_flags_json
+         FROM creator_event_snapshot
+         WHERE creator_id IN (${placeholders})`,
+        ids
+      );
+      eventSnapshotRows = rows;
+    } catch (err) {
+      if (!String(err?.message || '').includes('creator_event_snapshot')) throw err;
+    }
+    const eventCompatFlagsByCreatorId = new Map(eventSnapshotRows.map((row) => [
+      Number(row.creator_id),
+      parseJsonSafe(row.compat_ev_flags_json, {}) || {},
+    ]));
+
+    const operationalFactsByCreatorId = await loadOperationalFactsForCreatorIds(conn, placeholders, ids);
+
     let transitionRows = [];
     try {
       const [rows] = await conn.query(
@@ -803,7 +921,11 @@ async function loadBaseData() {
       });
     }
 
-    const creators = creatorRows.map(row => {
+    const creators = creatorRows.map(rawRow => {
+      const row = projectOperationalFactsOntoRow(
+        projectSnapshotFlagsOntoRow(rawRow, eventCompatFlagsByCreatorId.get(Number(rawRow.id)) || {}),
+        operationalFactsByCreatorId.get(Number(rawRow.id)) || {}
+      );
       const stats = msgStatMap.get(row.id) || { msg_count: 0, last_active: null };
       const messages = messagesByCreatorId.get(row.id) || [];
 
@@ -1004,7 +1126,11 @@ async function loadBaseData() {
     const creatorByPhone = new Map(creators.map(c => [c.phone, c]));
     const creatorById = new Map(creators.map(c => [c.id, c]));
 
-    const joinbrands = creatorRows.map(row => {
+    const joinbrands = creatorRows.map(rawRow => {
+      const row = projectOperationalFactsOntoRow(
+        projectSnapshotFlagsOntoRow(rawRow, eventCompatFlagsByCreatorId.get(Number(rawRow.id)) || {}),
+        operationalFactsByCreatorId.get(Number(rawRow.id)) || {}
+      );
       if (!row.creator_name_jb) return null;
       const creator = creatorById.get(row.id) || creatorByPhone.get(row.wa_phone);
       const waMessages = creator?.messages || [];
