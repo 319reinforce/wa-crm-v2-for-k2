@@ -56,17 +56,6 @@ function getDbConfig() {
     };
 }
 
-function assertRemoteMigrationConfirmed(config) {
-    const localHosts = new Set(['127.0.0.1', 'localhost', '::1', 'mysql']);
-    const host = String(config.host || '').trim().toLowerCase();
-    if (localHosts.has(host)) return;
-    if (envFlag('CONFIRM_REMOTE_MIGRATION', false)) return;
-    throw new Error(
-        `Refusing startup migration for non-local DB_HOST=${config.host}. ` +
-        'Set CONFIRM_REMOTE_MIGRATION=1 only after backup/rollout approval.',
-    );
-}
-
 function runNodeScript(args, env = process.env) {
     const result = spawnSync(process.execPath, args, {
         cwd: process.cwd(),
@@ -104,13 +93,12 @@ async function withMysqlMigrationLock(config, fn) {
 }
 
 async function main() {
-    if (!envFlag('DB_MIGRATE_ON_STARTUP', false)) {
-        console.log('[startup-migrations] disabled; set DB_MIGRATE_ON_STARTUP=true to run before app startup');
+    if (!envFlag('DB_MIGRATE_ON_STARTUP', true)) {
+        console.log('[startup-migrations] disabled by DB_MIGRATE_ON_STARTUP=false');
         return;
     }
 
     const config = getDbConfig();
-    assertRemoteMigrationConfirmed(config);
     const files = parseMigrationFiles();
     if (files.length === 0) {
         console.log('[startup-migrations] no migration files configured');
@@ -121,7 +109,7 @@ async function main() {
     console.log(`[startup-migrations] files=${files.map((file) => path.relative(process.cwd(), path.resolve(file))).join(', ')}`);
 
     await withMysqlMigrationLock(config, async () => {
-        const status = runNodeScript(['scripts/apply-sql-migrations.cjs', ...files]);
+        const status = runNodeScript(['scripts/apply-sql-migrations.cjs', '--allow-remote', ...files]);
         if (status !== 0) {
             throw new Error(`apply-sql-migrations exited with status ${status}`);
         }

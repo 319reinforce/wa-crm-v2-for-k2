@@ -54,22 +54,18 @@ Create or migrate the MySQL schema from `schema.sql` and server migrations:
 mysql -h "$DB_HOST" -u "$DB_USER" -p "$DB_NAME" < schema.sql
 ```
 
-For container deployments, the image entrypoint can run the managed migration sequence before the Node process starts:
+For container deployments, the image entrypoint runs the managed migration sequence before the Node process starts. Startup runs `server/migrations/005_active_event_detection_queue.sql` through `server/migrations/013_retention_external_archive_checks.sql` under a MySQL named lock, then starts `node server/index.cjs`.
+
+To skip startup migration intentionally:
 
 ```bash
-DB_MIGRATE_ON_STARTUP=true
+DB_MIGRATE_ON_STARTUP=false
 ```
 
-When enabled, startup runs `server/migrations/005_active_event_detection_queue.sql` through `server/migrations/013_retention_external_archive_checks.sql` under a MySQL named lock, then starts `node server/index.cjs`. For older environments that never received the event/lifecycle base migration, also set:
+For older environments that never received the event/lifecycle base migration, also set:
 
 ```bash
 DB_MIGRATION_INCLUDE_004=true
-```
-
-For non-local database hosts, keep the explicit remote safety confirmation:
-
-```bash
-CONFIRM_REMOTE_MIGRATION=1
 ```
 
 Optional verification after the startup migration:
@@ -95,7 +91,7 @@ Keep these out of source control:
 
 Docker deployment should persist MySQL data, Baileys auth, and media assets. Chromium is not part of the future deployment requirement once WWeb compatibility is removed.
 
-The Docker image uses `scripts/docker-entrypoint.sh`. By default it logs that startup migrations are disabled. Set `DB_MIGRATE_ON_STARTUP=true` on the app container to apply the managed migration sequence on every image/container restart. The migration SQL must remain idempotent because this path is intentionally repeatable.
+The Docker image uses `scripts/docker-entrypoint.sh`. It applies the managed migration sequence on every image/container restart unless `DB_MIGRATE_ON_STARTUP=false` is set. The migration SQL must remain idempotent because this path is intentionally repeatable.
 
 ## Useful Docs
 
