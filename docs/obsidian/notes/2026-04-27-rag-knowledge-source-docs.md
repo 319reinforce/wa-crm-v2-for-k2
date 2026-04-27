@@ -46,6 +46,7 @@ Historical source:
 
 ## Current Boundaries
 
+- LightRAG is not part of the WA CRM v2 RAG path. The broken `LightRAG` gitlink was removed and local LightRAG checkouts should stay outside source control.
 - Hard policy and SOP changes should go through `knowledge-manifest.json`.
 - Do not inject draft/deprecated sources into production retrieval unless explicitly requested.
 - Local rule retrieval remains important because `server/services/localRuleRetrievalService.js` is active and template/media behavior depends on its output.
