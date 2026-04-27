@@ -33,7 +33,7 @@ wa-crm-v2/
     └── WAMessageComposer.jsx    # 消息编辑器（含 Scene 检测 + AI 生成）
 
 必读文档（按顺序）：
-1. CLAUDE.md → 项目全貌、核心模块、禁止事项
+1. AGENTS.md → 项目全貌、核心模块、禁止事项
 2. BOT_INTEGRATION.md → API 端点速查、数据库表
 3. SFT_PROJECT.md → SFT 语料系统、Experience Router、Scene 11 类
 4. docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md → 当前事件/生命周期数据模型

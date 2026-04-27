@@ -1,7 +1,6 @@
 # WA Sessions Manager — 设计文档
 
 > 状态：Draft v2（已吸收 code review 意见）
-> 关联：`docs/WA_SESSIONS_DESIGN_REVIEW.md`
 > 作者：AI Agent + 运维
 > 目标读者：后端 / 前端 / 运维
 > 范围：Web UI 多 owner WA session 管理；MVP 聚焦扫码、登出、重启、清空四个动作。
@@ -268,7 +267,7 @@ function deriveSessionState(raw) { /* ... */ }
 
 ### 7.1 必须抽出独立模块（阻断点）
 
-`waCrawler.cjs` 目前约 517 行，已经接近 CLAUDE.md "file <800 lines" 红线。**禁止**直接在 `waCrawler.cjs` 的 `processSessionCommands` 里 open-code 三个新分支。必须抽出：
+`waCrawler.cjs` 目前已经较大。**禁止**直接在 `waCrawler.cjs` 的 `processSessionCommands` 里 open-code 三个新分支。必须抽出：
 
 ```
 server/services/sessionCommandProcessor.js
@@ -529,13 +528,13 @@ wa-crawler-beau:
 
 ### 10.4 Volume 迁移 runbook（保留 Beau 登录，一次性改名）
 
-> 按 k2lab-test-environment-maintenance skill 的 "安全改文件" 与 "执行留痕" 规则执行，所有命令进日志。
+> 按当前运维变更标准执行：先备份、再改配置、最后验证；所有命令进日志。
 
 **前置**：所有相关容器停机；备份当前 volume 快照。
 
 ```bash
-# 0) 初始化日志（按 skill）
-source /root/claude-ops-logs/.session
+# 0) 初始化日志
+source /root/ops-logs/.session
 
 # 1) 停相关容器
 cd /home/dev/moras-composer/system
@@ -562,7 +561,7 @@ docker run --rm \
   alpine sh -c 'cp -a /src/session-3000/. /dst/session-beau/ && ls -la /dst'
 log_cmd "cp session-3000 -> session-beau" "保留 Beau 登录态" "ok"
 
-# 5) 改 compose（严格按 skill tmp + 校验 + 原子替换流程）
+# 5) 改 compose（tmp + 校验 + 原子替换流程）
 #    - wa-crm 加 DISABLE_WA_SERVICE/DISABLE_WA_WORKER=true
 #    - 挂 wa_crm_ipc 到 wa-crm
 #    - 新增 wa-crawler-beau/yiyun/jiawen/youke 四个 service
@@ -581,7 +580,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 # 8) 回滚（若 beau session 迁移失败）
 #    docker compose down && docker volume rm wa_crm_session_beau
-#    docker compose 回退到上一版 compose（用 skill 里的 .bak 原子恢复）
+#    docker compose 回退到上一版 compose（用 .bak 原子恢复）
 #    docker compose up -d wa-crm（恢复旧行为）
 ```
 
@@ -625,7 +624,7 @@ Playwright：
 4. 对 `ready` 行点"登出" → Modal → 输入 sid（clear_auth 流）→ 202 → 轮询 poll_url → toast 成功
 5. owner-locked token 看不到其它人的行；看不到 "清空 session" 按钮
 
-### 11.4 CLAUDE.md 自验证清单
+### 11.4 自验证清单
 
 - [ ] 新 endpoints 遵循 REST 规范（/sessions/:sid/:action）
 - [ ] 所有数据库查询使用预处理语句（本次无 SQL 改动）
@@ -685,5 +684,4 @@ Playwright：
 - `server/routes/wa.js` — 现有 WA 路由集合
 - `ecosystem.wa-crawlers.config.cjs` — 4 个默认 owner 的 crawler 模板
 - `DEPLOY.md` — 多 session 抓取章节
-- `CLAUDE.md` — 项目级 Agent 编排入口
-- `docs/WA_SESSIONS_DESIGN_REVIEW.md` — code review 报告
+- `AGENTS.md` — 项目级 Agent 入口

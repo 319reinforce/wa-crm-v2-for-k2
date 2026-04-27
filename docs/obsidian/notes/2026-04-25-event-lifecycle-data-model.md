@@ -27,7 +27,7 @@ The event system is being separated into definitions, facts, evidence, and lifec
 ## Source
 
 - PRD: `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md`
-- Handoff: `docs/EVENT_LIFECYCLE_HANDOFF_20260425.md`
+- Handoff source was removed during deep doc cleanup; keep this Obsidian note as the historical summary.
 - Backfill handoff: `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`
 
 ## Verification

@@ -3,7 +3,7 @@ title: Worktree Remediation Plan
 date: 2026-04-25
 project: wa-crm-v2
 type: decision
-source_path: docs/WORKTREE_REMEDIATION_PLAN_20260425.md
+source_path: docs/obsidian/notes/2026-04-25-worktree-remediation-plan.md
 status: active
 tags:
   - wa-crm-v2
@@ -26,7 +26,7 @@ The current dirty worktree should be split into documentation, event lifecycle d
 
 ## Source
 
-- Source document: `docs/WORKTREE_REMEDIATION_PLAN_20260425.md`
+- Source document was removed during deep doc cleanup; this note is the retained summary.
 
 ## Verification
 

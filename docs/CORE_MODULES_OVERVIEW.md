@@ -82,7 +82,6 @@ Responsibilities:
 Current docs:
 
 - `docs/WA_SESSIONS_DESIGN.md`
-- `docs/WA_SESSIONS_DESIGN_REVIEW.md`
 - `docs/BAILEYS_ROLLOUT.md`
 - `docs/SSE_HARDENING.md`
 
@@ -191,9 +190,7 @@ Responsibilities:
 Current docs:
 
 - `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md`
-- `docs/EVENT_LIFECYCLE_HANDOFF_20260425.md`
 - `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`
-- `docs/LIFECYCLE_REFACTOR_PRD.md`
 - `docs/EVENT_DECISION_TABLE.md`
 
 Latest progress:
@@ -252,10 +249,8 @@ Responsibilities:
 
 Current docs:
 
-- `docs/V1_LAYOUT_HANDOFF_20260425.md`
-- `docs/V1_LAYOUT_FOLLOWUP_HANDOFF_20260425.md`
-- `docs/FRONTEND_LAYOUT_REFACTOR.md`
-- `docs/FRONTEND_LOAD_OPTIMIZATION_20260423.md`
+- `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md`
+- `docs/DOCS_INDEX.md`
 
 ## Highest-Risk Active Areas
 

@@ -2,7 +2,7 @@
 
 > 本文档供其他 AI Agent 阅读学习使用
 > 更新时间：2026-04-16（回复生成主链路重构 + SFT generation tracking 正式列）
-> 前置文档：`CLAUDE.md`（项目入口）、`BOT_INTEGRATION.md`（API 速查）、`docs/OBSIDIAN_MEMORY_STANDARD.md`（记忆同步标准）
+> 前置文档：`AGENTS.md`（项目入口）、`BOT_INTEGRATION.md`（API 速查）、`docs/OBSIDIAN_MEMORY_STANDARD.md`（记忆同步标准）
 
 ---
 

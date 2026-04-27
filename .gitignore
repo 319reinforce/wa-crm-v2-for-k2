@@ -2,6 +2,7 @@ node_modules/
 LightRAG/
 public/assets/
 data/*.json
+data/runtime-state/
 .wa_ipc/
 *.db
 *.db-shm
@@ -19,6 +20,7 @@ docs/rag/.openai-vector-sync-state.json
 docs/rag/observation-window.json
 docs/rag/observation-reports/*
 !docs/rag/observation-reports/.gitkeep
+reports/lifecycle-exports/
 data/media-assets/
 backups/
 
@@ -33,4 +35,4 @@ docs/
 !docs/rag/sources/policy-trial-pack-v1.md
 !docs/rag/sources/playbook-yiyun-onboarding-and-payment-apr-2026-v1.md
 !docs/rag/sources/faq-moras-product-mechanics-and-support-apr-2026-v1.md
-.claude/settings.local.json
+.claude/

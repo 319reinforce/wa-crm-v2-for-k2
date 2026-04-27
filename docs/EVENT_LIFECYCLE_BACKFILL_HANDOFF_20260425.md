@@ -10,7 +10,7 @@ This session continued the event/lifecycle optimization work and completed the l
 Repository artifacts added or updated:
 
 - `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md`
-- `docs/EVENT_LIFECYCLE_HANDOFF_20260425.md`
+- `docs/obsidian/notes/2026-04-25-event-lifecycle-handoff.md`
 - `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`
 - `docs/sql/event_lifecycle_audit_20260425.sql`
 - `server/migrations/004_event_lifecycle_fact_model.sql`
@@ -198,8 +198,7 @@ Notes:
 
 Files checked:
 
-- `docs/V1_LAYOUT_HANDOFF_20260425.md`
-- `docs/V1_LAYOUT_FOLLOWUP_HANDOFF_20260425.md`
+- `docs/obsidian/notes/2026-04-25-v1-layout-handoff.md`
 
 Remote conflict check:
 

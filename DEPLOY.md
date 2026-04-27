@@ -265,7 +265,7 @@ whatsapp-mgr/
 ├── Dockerfile          # Docker 镜像
 ├── .env                # 环境变量（不上传 git）
 ├── .env.example        # 环境变量模板
-├── CLAUDE.md           # AI Agent 入口
+├── AGENTS.md           # AI Agent 入口
 ├── BOT_INTEGRATION.md  # API 集成说明
 ├── SFT_PROJECT.md      # SFT 训练系统说明
 ├── docs/DOCS_INDEX.md  # 当前文档索引；历史 review/security 见 docs/archive/

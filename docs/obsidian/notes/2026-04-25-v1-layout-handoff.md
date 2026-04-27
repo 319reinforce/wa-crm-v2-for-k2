@@ -3,7 +3,7 @@ title: V1 Layout Handoff
 date: 2026-04-25
 project: wa-crm-v2
 type: handoff
-source_path: docs/V1_LAYOUT_HANDOFF_20260425.md
+source_path: docs/obsidian/notes/2026-04-25-v1-layout-handoff.md
 status: active
 tags:
   - wa-crm-v2
@@ -25,8 +25,7 @@ The V1/V2 layout handoffs capture front-end navigation, finance tab, lifecycle p
 
 ## Source
 
-- Primary source: `docs/V1_LAYOUT_HANDOFF_20260425.md`
-- Follow-up source: `docs/V1_LAYOUT_FOLLOWUP_HANDOFF_20260425.md`
+- Primary and follow-up source documents were removed during deep doc cleanup; this note is the retained summary.
 
 ## Verification
 

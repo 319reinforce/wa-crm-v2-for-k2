@@ -16,10 +16,11 @@ The cleanup must not affect the parallel MySQL optimization branch. Execute this
 | --- | --- | --- |
 | `docs/` | Keep active standards, PRDs, handoffs, runbooks, Obsidian notes, and compact archives. | Avoid putting raw generated evidence in the active docs path. |
 | `reports/` | Short-lived generated output. Keep only if a handoff needs reproducible evidence. | Prefer a compact index summary over raw report history. |
-| `docs/exports/` | Historical export evidence. Archive or regenerate from scripts; do not treat as source of truth. | Existing lifecycle exports are dated 2026-04-14 and should not guide current lifecycle behavior. |
+| `docs/exports/` | Removed from active source control. | Existing lifecycle exports were dated 2026-04-14, contained raw phone values, and should not guide current lifecycle behavior. |
 | `docs/rag/observation-reports/` | Generated observation output. Ignore generated files; keep `.gitkeep` only. | The report directory is already ignored in `.gitignore`. |
-| `docs/wa/*state.json` | Runtime state, not normative docs. | Move to runtime state storage if it keeps changing. |
+| `docs/wa/*state.json` | Removed from active source control. | Runtime state now belongs under ignored `data/runtime-state/`. |
 | `data/` | Local runtime data only. | Keep ignored. Remove `.DS_Store` when found. |
+| `data/runtime-state/` | Local mutable runtime cursors and state. | Ignored; scripts may recreate files here. |
 | `backups/` | Local backup output only. | Keep ignored and out of commits. |
 | `public/assets/` | Build output. | Keep ignored. |
 | `public/sop-assets/` | Product SOP image assets. | Keep tracked while templates reference them. |
@@ -52,10 +53,11 @@ Implementation:
 | --- | --- | --- | --- |
 | `reports/active-event-detection-1072-keyword-20260426.json` | Active event dry-run evidence | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Keep until active-event rollout closes; then summarize and delete. |
 | `reports/active-event-detection-1087-keyword-20260426.json` | Active event dry-run evidence | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | Keep until active-event rollout closes; then summarize and delete. |
-| `reports/event-lifecycle-top-creators-20260425-local.json` | Lifecycle backfill evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/EVENT_LIFECYCLE_HANDOFF_20260425.md` | Keep while those handoffs are active; later archive summary only. |
+| `reports/event-lifecycle-top-creators-20260425-local.json` | Lifecycle backfill evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/obsidian/notes/2026-04-25-event-lifecycle-handoff.md` | Keep while those handoffs are active; later archive summary only. |
 | `reports/event-lifecycle-top-creators-20260425-minimax.json` | Lifecycle LLM comparison evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` | Keep while lifecycle backfill is under review; later delete after summary. |
-| `reports/tier2-compat-event-audit-20260425.json` | Compatibility audit evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/WORKTREE_REMEDIATION_PLAN_20260425.md` | Keep until compatibility audit is superseded by schema cleanup. |
-| `reports/dirty-data-cleanup-20260416.sql` | Historical SQL output | No active docs should execute it directly. | Move conclusion into archive, then delete or move to `docs/archive/sql/` with a non-executable warning. |
+| `reports/tier2-compat-event-audit-20260425.json` | Compatibility audit evidence | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/obsidian/notes/2026-04-25-worktree-remediation-plan.md` | Keep until compatibility audit is superseded by schema cleanup. |
+| `reports/dirty-data-cleanup-20260416.sql` | Historical SQL output | No active docs should execute it directly. | Removed; conclusions live in `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` and the schema optimization plan. |
+| `docs/exports/lifecycle-*.{csv,md}` | Historical lifecycle exports | No active docs should depend on them. | Removed because they predate the current lifecycle model and contained raw phone values. |
 
 ## 5. Cleanup Phases
 
@@ -65,6 +67,7 @@ Implementation:
 - Ignore `LightRAG/`.
 - Delete `.DS_Store` files from `docs/`, `reports/`, `data/`, `public/`, and local vendor directories when present.
 - Keep tracked report files that are still referenced by active handoffs.
+- Remove pre-2026-04-20 exports/reports that contain raw phone values or executable cleanup SQL after summarizing them in archive/Obsidian.
 
 ### Phase B: Report Slimming
 
@@ -74,8 +77,8 @@ Implementation:
 
 ### Phase C: Runtime State Boundary
 
-- Move mutable state files out of `docs/` if they keep changing.
-- Keep `docs/wa/beau-nightly-role-heartbeat-state.json` marked as runtime state until a proper `data/runtime-state/` path exists.
+- Move mutable state files out of `docs/`.
+- `scripts/beau-nightly-role-heartbeat.cjs` now writes to `data/runtime-state/beau-nightly-role-heartbeat-state.json` by default. Override with `BEAU_HEARTBEAT_STATE_PATH` if needed.
 - Ensure `data/`, `backups/`, and generated observation reports remain ignored.
 
 ### Phase D: Docs Index Slimming
@@ -90,7 +93,7 @@ Before merging any cleanup PR:
 
 ```bash
 git diff --check
-rg -n "LightRAG|reports/.*202604|docs/exports|dirty-data-cleanup" AGENTS.md BOT_INTEGRATION.md CLAUDE.md DEPLOY.md docs scripts server src reports || true
+rg -n "LightRAG|reports/.*202604|docs/exports|dirty-data-cleanup|docs/wa/.*state" AGENTS.md BOT_INTEGRATION.md DEPLOY.md docs scripts server src reports || true
 git ls-files LightRAG reports docs/exports docs/rag/observation-reports docs/wa
 git status --short --branch
 ```
@@ -98,6 +101,7 @@ git status --short --branch
 Expected:
 
 - `git ls-files LightRAG` returns no tracked files.
+- `git ls-files docs/exports docs/wa` returns no tracked runtime/export artifacts.
 - Active entry docs do not point at LightRAG.
 - Report references remain only in owning handoffs, archive docs, or scripts that generate new reports.
 - No schema/server/mysql optimize files are touched by this cleanup.
