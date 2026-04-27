@@ -115,7 +115,9 @@ export function resolveUnboundAgencyStrategy({ clientMemory = [], nextAction = '
   return effectiveStrategies[0] || null;
 }
 
-export function isAgencyBoundStatus(wacrm = {}, joinbrands = {}) {
+export function isAgencyBoundStatus(wacrm = {}, joinbrands = {}, eventSnapshot = null) {
+  const flags = eventSnapshot?.compat_ev_flags || eventSnapshot || {};
+  const hasSnapshotAgencyFlag = Object.prototype.hasOwnProperty.call(flags, 'ev_agency_bound');
+  if (hasSnapshotAgencyFlag) return !!flags.ev_agency_bound;
   return !!(wacrm?.agency_bound || joinbrands?.ev_agency_bound);
 }
-

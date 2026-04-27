@@ -57,6 +57,48 @@ const PORTRAIT_FIELD_CONFIG = [
   },
 ]
 
+const OPERATIONAL_FACT_FIELDS = [
+  'monthly_fee_amount',
+  'video_count',
+  'video_target',
+  'video_last_checked',
+  'agency_deadline',
+]
+
+function normalizeFactValue(value) {
+  if (value === null || value === undefined) return ''
+  return String(value).trim()
+}
+
+function normalizeFactNumber(value, fallback = 0) {
+  if (value === null || value === undefined || value === '') return fallback
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+
+function buildOperationalFactPayload(initial = {}, current = {}) {
+  const payload = {}
+  const setIfChanged = (field, value) => {
+    if (normalizeFactValue(initial[field]) !== normalizeFactValue(value)) {
+      payload[field] = value
+    }
+  }
+
+  setIfChanged('monthly_fee_amount', normalizeFactNumber(current.monthly_fee_amount, 0))
+  setIfChanged('video_count', Math.trunc(normalizeFactNumber(current.video_count, 0)))
+  setIfChanged('video_target', Math.trunc(normalizeFactNumber(current.video_target, 35)))
+  if (Object.prototype.hasOwnProperty.call(current, 'video_last_checked')) {
+    setIfChanged('video_last_checked', current.video_last_checked || null)
+  }
+  if (Object.prototype.hasOwnProperty.call(current, 'agency_deadline')) {
+    setIfChanged('agency_deadline', current.agency_deadline || null)
+  }
+
+  return Object.fromEntries(
+    Object.entries(payload).filter(([field]) => OPERATIONAL_FACT_FIELDS.includes(field))
+  )
+}
+
 function buildPortraitDraft(source = null) {
   const input = (source && typeof source === 'object') ? source : {}
   return {
@@ -129,8 +171,10 @@ function buildEditFormSnapshot(creator) {
     agency_bound: w.agency_bound ? '1' : '0',
     video_count: w.video_count || 0,
     video_target: w.video_target || 35,
+    video_last_checked: w.video_last_checked || '',
     monthly_fee_status: w.monthly_fee_status || 'pending',
     monthly_fee_amount: w.monthly_fee_amount || 0,
+    agency_deadline: w.agency_deadline || '',
     next_action: w.next_action || '',
     keeper_gmv: k.keeper_gmv || 0,
     keeper_gmv30: k.keeper_gmv30 || 0,
@@ -415,16 +459,7 @@ function CreatorDetail({
       const data = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}`)
       setCreator(data)
       onCreatorUpdated?.(data)
-      setEditForm({
-        primary_name: data.primary_name || '',
-        wa_phone: data.wa_phone || '',
-        wa_owner: data.wa_owner || '',
-        keeper_username: data.keeper_username || '',
-        beta_status: data.wacrm?.beta_status || 'not_introduced',
-        priority: data.wacrm?.priority || 'normal',
-        agency_bound: data.wacrm?.agency_bound ? '1' : '0',
-        video_count: data.wacrm?.video_count || 0,
-      })
+      setEditForm(buildEditFormSnapshot(data))
     } catch (_) {
       // ignore, keep current creator state
     } finally {
@@ -670,6 +705,9 @@ function CreatorDetail({
   const handleEditSave = async () => {
     setEditSaving(true)
     try {
+      const initialForSave = Object.keys(editFormInitial || {}).length > 0
+        ? editFormInitial
+        : buildEditFormSnapshot(creator)
       // 更新 creators 表（基本信息）
       await fetchOkOrThrow(`${API_BASE}/creators/${creatorId}`, {
         method: 'PUT',
@@ -684,9 +722,18 @@ function CreatorDetail({
       await submitCreatorLifecycleEventActions({
         creatorId,
         owner: editForm.wa_owner || creator?.wa_owner || null,
-        initial: editFormInitial,
+        initial: initialForSave,
         current: editForm,
       })
+
+      const operationalFactPayload = buildOperationalFactPayload(initialForSave, editForm)
+      if (Object.keys(operationalFactPayload).length > 0) {
+        await fetchOkOrThrow(`${API_BASE}/creators/${creatorId}/operational-facts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(operationalFactPayload)
+        })
+      }
 
       // 更新非 lifecycle 运营数据。Lifecycle/event 状态走 /api/events，不再写旧字段。
       await fetchOkOrThrow(`${API_BASE}/creators/${creatorId}/wacrm`, {
@@ -766,7 +813,7 @@ function CreatorDetail({
   const displayCreator = buildCreatorDraftPreview(creator, editForm)
   const wacrm = displayCreator?.wacrm || {}
   const joinbrands = displayCreator?.joinbrands || {}
-  const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands)
+  const isAgencyBound = isAgencyBoundStatus(wacrm, joinbrands, displayCreator?.event_snapshot)
   const activeAgencyStrategy = !isAgencyBound
     ? resolveUnboundAgencyStrategy({
       clientMemory: clientProfile?.memory || [],

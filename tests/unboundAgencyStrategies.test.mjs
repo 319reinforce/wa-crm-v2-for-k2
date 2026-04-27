@@ -92,4 +92,7 @@ test('isAgencyBoundStatus returns true if either wacrm or joinbrands is bound', 
   assert.equal(isAgencyBoundStatus({ agency_bound: 1 }, {}), true);
   assert.equal(isAgencyBoundStatus({}, { ev_agency_bound: 1 }), true);
   assert.equal(isAgencyBoundStatus({ agency_bound: 0 }, { ev_agency_bound: 0 }), false);
+  assert.equal(isAgencyBoundStatus({}, { ev_agency_bound: 1 }, { compat_ev_flags: { ev_agency_bound: 0 } }), false);
+  assert.equal(isAgencyBoundStatus({}, { ev_agency_bound: 0 }, { compat_ev_flags: { ev_agency_bound: 1 } }), true);
+  assert.equal(isAgencyBoundStatus({ agency_bound: 1 }, { ev_agency_bound: 1 }, { compat_ev_flags: { ev_agency_bound: 0 } }), false);
 });

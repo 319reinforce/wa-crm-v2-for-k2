@@ -46,6 +46,12 @@ const {
     buildLifecycleEventRequestsFromLegacyPayload,
     writeLifecycleEventFactsFromLegacyPayload,
 } = require('../services/lifecycleEventWriteService');
+const {
+    buildOperationalFactRequestsFromLegacyPayload,
+    writeOperationalFactsFromLegacyPayload,
+    getLatestOperationalFactsForCreator,
+    projectOperationalFactsOntoWacrm,
+} = require('../services/operationalFactService');
 
 function normalizeManualPhone(value) {
     return String(value || '').replace(/\D/g, '').trim();
@@ -123,6 +129,19 @@ function hasCreatorSnapshotEvent(item = {}, eventKey = '') {
     const snapshotFlags = item.event_snapshot?.compat_ev_flags || {};
     if (fields.some((field) => snapshotFlags[field])) return true;
     return fields.some((field) => item[field] || item.joinbrands?.[field]);
+}
+
+function projectEventSnapshotCompatFlags(source = {}) {
+    const snapshotFlags = source.event_snapshot?.compat_ev_flags;
+    if (!snapshotFlags || typeof snapshotFlags !== 'object') return source;
+    const projected = { ...source };
+    const fields = new Set(Object.values(CREATOR_EVENT_FILTER_FIELD_MAP).flat());
+    for (const field of fields) {
+        if (Object.prototype.hasOwnProperty.call(snapshotFlags, field)) {
+            projected[field] = snapshotFlags[field] ? 1 : 0;
+        }
+    }
+    return projected;
 }
 
 function buildCreatorUpdateAuditPayload(payload) {
@@ -670,14 +689,14 @@ router.get('/', async (req, res) => {
                 nonblank_user_message_count,
                 ...item
             } = rawItem;
-            const normalized = {
+            const normalized = projectEventSnapshotCompatFlags({
                 ...item,
                 wa_phone: includeWaPhone ? item.wa_phone : undefined,
                 wa_owner: normalizeOperatorName(item.roster_operator, item.roster_operator) || item.wa_owner,
                 session_id: item.session_id || getSessionIdForOperator(item.roster_operator || item.wa_owner),
                 message_facts: messageFactsMap.get(Number(item.id)) || null,
                 event_snapshot: eventSnapshotsMap.get(Number(item.id)) || null,
-            };
+            });
             return attachLifecycle(normalized, eventsMap.get(Number(item.id)) || [], lifecycleOptions, {
                 includeEventLists: false,
             });
@@ -1211,24 +1230,36 @@ router.get('/:id', async (req, res) => {
         if (lockedOwner && !matchesOwnerScope(req, creator.wa_owner)) {
             return sendOwnerScopeForbidden(res, lockedOwner);
         }
-        const [assignment, eventsMap, lifecycleOptions, messageAggregate, eventSnapshotsMap] = await Promise.all([
+        const [assignment, eventsMap, lifecycleOptions, messageAggregate, eventSnapshotsMap, operationalFacts] = await Promise.all([
             getAssignmentByCreatorId(creator.id),
             getLifecycleEventsMap(dbConn, [creator.id]),
             getLifecycleRuntimeOptions(dbConn),
             fetchCreatorMessageAggregate(dbConn, creator.id),
             fetchCreatorEventSnapshotsMap(dbConn, [creator.id]),
+            getLatestOperationalFactsForCreator(dbConn, creator.id).catch((err) => ({
+                schema_ready: false,
+                error: err.message,
+                billing: {},
+                progress: {},
+                deadlines: {},
+            })),
         ]);
         const messageFactsMap = await fetchCreatorMessageFactsMap(dbConn, [{
             ...creator,
             ...messageAggregate,
         }]);
         const withAssignment = applyAssignmentToCreator(creator, assignment);
-        const eventSnapshot = eventSnapshotsMap.get(Number(creator.id)) || null;
-        const detail = attachLifecycle({
+        const withOperationalFacts = {
             ...withAssignment,
+            wacrm: projectOperationalFactsOntoWacrm(withAssignment.wacrm, operationalFacts),
+            operational_facts: operationalFacts,
+        };
+        const eventSnapshot = eventSnapshotsMap.get(Number(creator.id)) || null;
+        const detail = attachLifecycle(projectEventSnapshotCompatFlags({
+            ...withOperationalFacts,
             message_facts: messageFactsMap.get(Number(creator.id)) || null,
             event_snapshot: eventSnapshot,
-        }, eventsMap.get(creator.id) || [], lifecycleOptions);
+        }), eventsMap.get(creator.id) || [], lifecycleOptions);
         const lifecycleSnapshot = await getLifecycleSnapshotRecord(dbConn, creator.id);
         res.json({
             ...detail,
@@ -1238,6 +1269,49 @@ router.get('/:id', async (req, res) => {
     } catch (err) {
         console.error('Error fetching creator:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/creators/:id/operational-facts — 金额/进度/deadline canonical facts
+router.post('/:id/operational-facts', async (req, res) => {
+    try {
+        const creatorId = parseInt(req.params.id, 10);
+        const creator = await ensureCreatorAccess(req, res, creatorId, 'id, wa_owner');
+        if (!creator) return;
+        const plan = buildOperationalFactRequestsFromLegacyPayload(req.body);
+        if (plan.requests.length === 0) {
+            return res.status(400).json({
+                ok: false,
+                error: 'No operational fact fields to update',
+                handled_fields: plan.handledFields,
+            });
+        }
+
+        const result = await db.getDb().transaction(async (txDb) => (
+            await writeOperationalFactsFromLegacyPayload(txDb, {
+                creatorId,
+                owner: creator.wa_owner,
+                payload: req.body,
+                actor: req.auth?.username || req.user?.name || null,
+            })
+        ));
+
+        await writeAudit('creator_operational_fact_update', 'multi', creatorId, null, {
+            updated: result.updatedFields,
+            handled_fields: result.handledFields,
+            fact_writes: result.factWrites,
+            migration_path: 'event_billing_facts + event_progress_facts + event_deadline_facts',
+        }, req);
+
+        res.json({
+            ok: true,
+            updated: result.updatedFields,
+            handled_fields: result.handledFields,
+            fact_writes: result.factWrites,
+        });
+    } catch (err) {
+        console.error('POST /api/creators/:id/operational-facts error:', err);
+        res.status(500).json({ ok: false, error: err.message });
     }
 });
 
@@ -1358,21 +1432,29 @@ router.put('/:id/wacrm', async (req, res) => {
         const legacyMigrationPlan = !allowLegacyLifecycleWrites
             ? buildLifecycleEventRequestsFromLegacyPayload(req.body)
             : { eventRequests: [], ignoredFields: [], unmappedFields: [] };
-        if (blockedLegacyFields.length > 0 && !allowLegacyLifecycleWrites && legacyMigrationPlan.unmappedFields.length > 0) {
+        const operationalFactPlan = !allowLegacyLifecycleWrites
+            ? buildOperationalFactRequestsFromLegacyPayload(req.body)
+            : { requests: [], handledFields: [] };
+        const unhandledUnmappedFields = legacyMigrationPlan.unmappedFields.filter(
+            (field) => !operationalFactPlan.handledFields.includes(field)
+        );
+        if (blockedLegacyFields.length > 0 && !allowLegacyLifecycleWrites && unhandledUnmappedFields.length > 0) {
             await writeAudit('legacy_lifecycle_write_blocked', 'multi', creatorId, null, {
-                blocked_fields: legacyMigrationPlan.unmappedFields,
+                blocked_fields: unhandledUnmappedFields,
                 mappable_fields: legacyMigrationPlan.eventRequests.flatMap((item) => item.fields || []),
+                operational_fact_fields: operationalFactPlan.handledFields,
                 ignored_fields: legacyMigrationPlan.ignoredFields,
-                migration_path: 'write events/event_evidence first, then rebuild creator_event_snapshot and creator_lifecycle_snapshot',
+                migration_path: 'write events/event_evidence and operational fact tables, then rebuild derived snapshots',
             }, req).catch(() => {});
             return res.status(409).json({
                 ok: false,
                 code: 'legacy_lifecycle_writes_frozen',
                 error: 'Some legacy lifecycle fields do not yet have a canonical event-fact migration path.',
-                blocked_fields: legacyMigrationPlan.unmappedFields,
+                blocked_fields: unhandledUnmappedFields,
                 mappable_fields: legacyMigrationPlan.eventRequests.flatMap((item) => item.fields || []),
+                operational_fact_fields: operationalFactPlan.handledFields,
                 ignored_fields: legacyMigrationPlan.ignoredFields,
-                migration_path: 'events + event_evidence + snapshot rebuild',
+                migration_path: 'events + operational fact tables + snapshot rebuild',
             });
         }
         const beforeLifecycle = await evaluateCreatorLifecycle(db.getDb(), creatorId)
@@ -1381,12 +1463,18 @@ router.put('/:id/wacrm', async (req, res) => {
         const {
             updatedFields,
             lifecycleEventWrites,
+            operationalFactWrites,
             ignoredLegacyFields,
         } = await db.getDb().transaction(async (txDb) => {
             const nextUpdatedFields = [];
             let eventWriteResult = {
                 eventWrites: [],
                 ignoredFields: [],
+            };
+            let operationalFactResult = {
+                factWrites: [],
+                handledFields: [],
+                updatedFields: [],
             };
 
             if (blockedLegacyFields.length > 0 && !allowLegacyLifecycleWrites) {
@@ -1397,6 +1485,15 @@ router.put('/:id/wacrm', async (req, res) => {
                     actor: req.auth?.username || req.user?.name || null,
                 });
                 nextUpdatedFields.push(...eventWriteResult.updatedFields);
+            }
+            if (operationalFactPlan.requests.length > 0 && !allowLegacyLifecycleWrites) {
+                operationalFactResult = await writeOperationalFactsFromLegacyPayload(txDb, {
+                    creatorId,
+                    owner: creator.wa_owner,
+                    payload: req.body,
+                    actor: req.auth?.username || req.user?.name || null,
+                });
+                nextUpdatedFields.push(...operationalFactResult.updatedFields);
             }
 
             const wacrmFields = [];
@@ -1494,6 +1591,7 @@ router.put('/:id/wacrm', async (req, res) => {
             return {
                 updatedFields: nextUpdatedFields,
                 lifecycleEventWrites: eventWriteResult.eventWrites,
+                operationalFactWrites: operationalFactResult.factWrites,
                 ignoredLegacyFields: eventWriteResult.ignoredFields,
             };
         });
@@ -1556,6 +1654,7 @@ router.put('/:id/wacrm', async (req, res) => {
             lifecycle_changed: lifecycleChanged,
             reply_strategy: strategyRebuild,
             event_writes: lifecycleEventWrites,
+            operational_fact_writes: operationalFactWrites,
             event_snapshot: eventSnapshot,
             ignored_legacy_fields: ignoredLegacyFields,
         });

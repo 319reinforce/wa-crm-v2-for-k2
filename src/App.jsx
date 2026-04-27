@@ -59,13 +59,17 @@ function normalizeCreatorEventSnapshot(snapshot = null) {
   }
 }
 
+function getCreatorEventFlag(creator, key) {
+  const snapshot = normalizeCreatorEventSnapshot(creator?.event_snapshot || creator?._full?.event_snapshot)
+  const snapshotFlags = snapshot?.compat_ev_flags || {}
+  if (Object.prototype.hasOwnProperty.call(snapshotFlags, key)) return !!snapshotFlags[key]
+  return !!(creator?._full?.joinbrands?.[key] || creator?.joinbrands?.[key] || creator?.[key])
+}
+
 function creatorMatchesEventFilter(creator, filterEvent) {
   if (!filterEvent) return true
   const evKeys = EVENT_FILTER_FIELD_MAP[filterEvent] || [`ev_${filterEvent}`]
-  const snapshot = normalizeCreatorEventSnapshot(creator?.event_snapshot || creator?._full?.event_snapshot)
-  const snapshotFlags = snapshot?.compat_ev_flags || {}
-  if (evKeys.some(key => snapshotFlags[key])) return true
-  return evKeys.some(key => creator?._full?.joinbrands?.[key] || creator?.joinbrands?.[key] || creator?.[key])
+  return evKeys.some(key => getCreatorEventFlag(creator, key))
 }
 
 const LIFECYCLE_FILTER_OPTIONS = [
@@ -88,9 +92,9 @@ const LIFECYCLE_BADGE_META = {
 const KANBAN_COLUMNS = [
   { key: 'new', label: '🆕 新建', color: '#94a3b8', filter: c => !c.msg_count },
   { key: 'active', label: '🔥 活跃', color: '#10b981', filter: c => c.msg_count > 5 },
-  { key: 'trial', label: '⏳ 试用中', color: '#3b82f6', filter: c => c.ev_trial_active },
-  { key: 'monthly', label: '💎 月卡', color: '#8b5cf6', filter: c => c.ev_monthly_started || c.ev_monthly_joined },
-  { key: 'churned', label: '⚠️ 流失', color: '#ef4444', filter: c => c.ev_churned },
+  { key: 'trial', label: '⏳ 试用中', color: '#3b82f6', filter: c => getCreatorEventFlag(c, 'ev_trial_active') },
+  { key: 'monthly', label: '💎 月卡', color: '#8b5cf6', filter: c => getCreatorEventFlag(c, 'ev_monthly_started') || getCreatorEventFlag(c, 'ev_monthly_joined') },
+  { key: 'churned', label: '⚠️ 流失', color: '#ef4444', filter: c => getCreatorEventFlag(c, 'ev_churned') },
 ]
 
 const LIST_PANEL_MIN_WIDTH = 260
@@ -2978,40 +2982,49 @@ function shouldShowUnread(creator) {
   return !creator?.ev_replied
 }
 
-function flattenJoinbrandsFlags(joinbrands = {}) {
+function flattenJoinbrandsFlags(joinbrands = {}, eventSnapshot = null) {
+  const snapshotFlags = normalizeCreatorEventSnapshot(eventSnapshot)?.compat_ev_flags || {}
+  const flag = (key) => {
+    if (Object.prototype.hasOwnProperty.call(snapshotFlags, key)) return !!snapshotFlags[key]
+    return !!joinbrands[key]
+  }
   return {
-    ev_trial_7day: !!joinbrands.ev_trial_7day,
-    ev_trial_active: !!joinbrands.ev_trial_active,
-    ev_monthly_invited: !!joinbrands.ev_monthly_invited,
-    ev_monthly_started: !!joinbrands.ev_monthly_started,
-    ev_monthly_joined: !!joinbrands.ev_monthly_joined,
+    ev_trial_7day: flag('ev_trial_7day'),
+    ev_trial_active: flag('ev_trial_active'),
+    ev_monthly_invited: flag('ev_monthly_invited'),
+    ev_monthly_started: flag('ev_monthly_started'),
+    ev_monthly_joined: flag('ev_monthly_joined'),
     ev_whatsapp_shared: !!joinbrands.ev_whatsapp_shared,
-    ev_gmv_1k: !!joinbrands.ev_gmv_1k,
-    ev_gmv_2k: !!joinbrands.ev_gmv_2k,
-    ev_gmv_5k: !!joinbrands.ev_gmv_5k,
-    ev_gmv_10k: !!joinbrands.ev_gmv_10k,
-    ev_agency_bound: !!joinbrands.ev_agency_bound,
-    ev_churned: !!joinbrands.ev_churned,
+    ev_gmv_1k: flag('ev_gmv_1k'),
+    ev_gmv_2k: flag('ev_gmv_2k'),
+    ev_gmv_5k: flag('ev_gmv_5k'),
+    ev_gmv_10k: flag('ev_gmv_10k'),
+    ev_agency_bound: flag('ev_agency_bound'),
+    ev_churned: flag('ev_churned'),
   }
 }
 
 function buildCreatorListFull(detail = {}) {
+  const eventSnapshot = normalizeCreatorEventSnapshot(detail.event_snapshot)
   const joinbrands = {
     ...(detail.joinbrands || {}),
+    ...flattenJoinbrandsFlags({
+      ...(detail.joinbrands || {}),
+      ev_trial_7day: detail.ev_trial_7day ?? detail.joinbrands?.ev_trial_7day,
+      ev_trial_active: detail.ev_trial_active ?? detail.joinbrands?.ev_trial_active,
+      ev_monthly_invited: detail.ev_monthly_invited ?? detail.joinbrands?.ev_monthly_invited,
+      ev_monthly_started: detail.ev_monthly_started ?? detail.joinbrands?.ev_monthly_started,
+      ev_monthly_joined: detail.ev_monthly_joined ?? detail.joinbrands?.ev_monthly_joined,
+      ev_gmv_1k: detail.ev_gmv_1k ?? detail.joinbrands?.ev_gmv_1k,
+      ev_gmv_2k: detail.ev_gmv_2k ?? detail.joinbrands?.ev_gmv_2k,
+      ev_gmv_5k: detail.ev_gmv_5k ?? detail.joinbrands?.ev_gmv_5k,
+      ev_gmv_10k: detail.ev_gmv_10k ?? detail.joinbrands?.ev_gmv_10k,
+      ev_agency_bound: detail.ev_agency_bound ?? detail.joinbrands?.ev_agency_bound,
+      ev_churned: detail.ev_churned ?? detail.joinbrands?.ev_churned,
+    }, eventSnapshot),
     ev_joined: detail.ev_joined ?? detail.joinbrands?.ev_joined,
     ev_ready_sent: detail.ev_ready_sent ?? detail.joinbrands?.ev_ready_sent,
-    ev_trial_7day: detail.ev_trial_7day ?? detail.joinbrands?.ev_trial_7day,
-    ev_trial_active: detail.ev_trial_active ?? detail.joinbrands?.ev_trial_active,
-    ev_monthly_invited: detail.ev_monthly_invited ?? detail.joinbrands?.ev_monthly_invited,
-    ev_monthly_started: detail.ev_monthly_started ?? detail.joinbrands?.ev_monthly_started,
-    ev_monthly_joined: detail.ev_monthly_joined ?? detail.joinbrands?.ev_monthly_joined,
     ev_whatsapp_shared: detail.ev_whatsapp_shared ?? detail.joinbrands?.ev_whatsapp_shared,
-    ev_gmv_1k: detail.ev_gmv_1k ?? detail.joinbrands?.ev_gmv_1k,
-    ev_gmv_2k: detail.ev_gmv_2k ?? detail.joinbrands?.ev_gmv_2k,
-    ev_gmv_5k: detail.ev_gmv_5k ?? detail.joinbrands?.ev_gmv_5k,
-    ev_gmv_10k: detail.ev_gmv_10k ?? detail.joinbrands?.ev_gmv_10k,
-    ev_agency_bound: detail.ev_agency_bound ?? detail.joinbrands?.ev_agency_bound,
-    ev_churned: detail.ev_churned ?? detail.joinbrands?.ev_churned,
   }
 
   const wacrm = {
@@ -3037,7 +3050,7 @@ function buildCreatorListFull(detail = {}) {
     joinbrands,
     wacrm,
     keeper,
-    event_snapshot: normalizeCreatorEventSnapshot(detail.event_snapshot),
+    event_snapshot: eventSnapshot,
   }
 }
 
