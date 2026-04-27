@@ -44,6 +44,7 @@ Implementation update:
 - `event_detection_cursor` and `event_detection_runs` were not archived because an active owner was found.
 - `scripts/analyze-schema-state.js` was updated so generated column expressions do not create the false `CASE` column finding.
 - Legacy lifecycle writes to `joinbrands_link.ev_*` and lifecycle-related `wa_crm_data` fields are blocked by default. Temporary migration writes require `ALLOW_LEGACY_LIFECYCLE_WRITES=1`.
+- A second implementation pass added `lifecycleEventWriteService` and migrated mappable `PUT /api/creators/:id/wacrm` lifecycle payloads into canonical `events` plus `event_evidence` writes. Unmapped amount/progress fields remain protected until their canonical owner is defined.
 
 ## 3. Target Table Roles
 

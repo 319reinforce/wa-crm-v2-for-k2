@@ -25,6 +25,8 @@ The first MySQL optimize implementation pass moved active runtime-created schema
 - Runtime services now check for required tables and fail with migration guidance.
 - `joinbrands_link.ev_*` and lifecycle-related `wa_crm_data` fields are deprecated compatibility state.
 - Direct legacy lifecycle writes are blocked unless `ALLOW_LEGACY_LIFECYCLE_WRITES=1` is set for controlled migration work.
+- Second pass added a backend canonical event write helper and migrated mappable `PUT /api/creators/:id/wacrm` lifecycle payloads into `events` plus `event_evidence`.
+- Unmapped lifecycle fields remain protected instead of being silently written to deprecated columns.
 
 ## Source Document
 
@@ -33,7 +35,8 @@ The first MySQL optimize implementation pass moved active runtime-created schema
 ## Verification Notes
 
 - `npm test` passed smoke, build, and unit suite.
-- `npm run test:unit` passed.
+- `npm run test:unit` passed: 35 pass, 3 skipped.
+- `node --test tests/unit/lifecycleEventWriteService.unit.test.mjs tests/creatorListFields.test.mjs` passed after the backend route migration.
 - Relevant `node --check` commands passed.
 - `git diff --check` passed.
 - `node scripts/analyze-schema-state.js` reports 49 actual tables, 49 expected tables, no missing tables, no extra tables, and no column diffs.
@@ -41,7 +44,7 @@ The first MySQL optimize implementation pass moved active runtime-created schema
 ## Follow-Up Items
 
 - Apply and verify migrations 005 and 006 in target environments.
-- Replace `PUT /api/creators/:id/wacrm` lifecycle edits with canonical event fact writes.
-- Update frontend edit flows so normal UI does not submit deprecated lifecycle fields.
+- Finish frontend edit flow migration so normal UI does not submit deprecated lifecycle fields.
+- Decide canonical handling for still-protected amount/progress fields such as `monthly_fee_amount`, `video_count`, and `video_target`.
 - Continue runtime DDL cleanup for creator import, custom topic, media, and training paths.
 - Plan `creator_id` backfill for profile and AI tables.

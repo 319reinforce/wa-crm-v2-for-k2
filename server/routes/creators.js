@@ -36,11 +36,16 @@ const {
 } = require('../services/eventLifecycleFacts');
 const {
     fetchCreatorEventSnapshotsMap,
+    rebuildCreatorEventSnapshot,
 } = require('../services/creatorEventSnapshotService');
 const {
     findLegacyLifecycleFields,
     isLegacyLifecycleWriteAllowed,
 } = require('../services/legacyLifecycleWriteGuard');
+const {
+    buildLifecycleEventRequestsFromLegacyPayload,
+    writeLifecycleEventFactsFromLegacyPayload,
+} = require('../services/lifecycleEventWriteService');
 
 function normalizeManualPhone(value) {
     return String(value || '').replace(/\D/g, '').trim();
@@ -1246,34 +1251,60 @@ router.put('/:id/wacrm', async (req, res) => {
         const creator = await ensureCreatorAccess(req, res, creatorId, 'id, wa_owner');
         if (!creator) return;
         const blockedLegacyFields = findLegacyLifecycleFields(req.body);
-        if (blockedLegacyFields.length > 0 && !isLegacyLifecycleWriteAllowed()) {
+        const allowLegacyLifecycleWrites = isLegacyLifecycleWriteAllowed();
+        const legacyMigrationPlan = !allowLegacyLifecycleWrites
+            ? buildLifecycleEventRequestsFromLegacyPayload(req.body)
+            : { eventRequests: [], ignoredFields: [], unmappedFields: [] };
+        if (blockedLegacyFields.length > 0 && !allowLegacyLifecycleWrites && legacyMigrationPlan.unmappedFields.length > 0) {
             await writeAudit('legacy_lifecycle_write_blocked', 'multi', creatorId, null, {
-                blocked_fields: blockedLegacyFields,
+                blocked_fields: legacyMigrationPlan.unmappedFields,
+                mappable_fields: legacyMigrationPlan.eventRequests.flatMap((item) => item.fields || []),
+                ignored_fields: legacyMigrationPlan.ignoredFields,
                 migration_path: 'write events/event_evidence first, then rebuild creator_event_snapshot and creator_lifecycle_snapshot',
             }, req).catch(() => {});
             return res.status(409).json({
                 ok: false,
                 code: 'legacy_lifecycle_writes_frozen',
-                error: 'Legacy lifecycle fields are frozen; write canonical event facts instead.',
-                blocked_fields: blockedLegacyFields,
+                error: 'Some legacy lifecycle fields do not yet have a canonical event-fact migration path.',
+                blocked_fields: legacyMigrationPlan.unmappedFields,
+                mappable_fields: legacyMigrationPlan.eventRequests.flatMap((item) => item.fields || []),
+                ignored_fields: legacyMigrationPlan.ignoredFields,
                 migration_path: 'events + event_evidence + snapshot rebuild',
             });
         }
         const beforeLifecycle = await evaluateCreatorLifecycle(db.getDb(), creatorId)
             .then((ret) => ret?.lifecycle || null)
             .catch(() => null);
-        const { updatedFields } = await db.getDb().transaction(async (txDb) => {
+        const {
+            updatedFields,
+            lifecycleEventWrites,
+            ignoredLegacyFields,
+        } = await db.getDb().transaction(async (txDb) => {
             const nextUpdatedFields = [];
+            let eventWriteResult = {
+                eventWrites: [],
+                ignoredFields: [],
+            };
+
+            if (blockedLegacyFields.length > 0 && !allowLegacyLifecycleWrites) {
+                eventWriteResult = await writeLifecycleEventFactsFromLegacyPayload(txDb, {
+                    creatorId,
+                    owner: creator.wa_owner,
+                    payload: req.body,
+                    actor: req.auth?.username || req.user?.name || null,
+                });
+                nextUpdatedFields.push(...eventWriteResult.updatedFields);
+            }
 
             const wacrmFields = [];
             const wacrmValues = [];
-            if (beta_status !== undefined) { wacrmFields.push('beta_status = ?'); wacrmValues.push(beta_status); }
+            if (allowLegacyLifecycleWrites && beta_status !== undefined) { wacrmFields.push('beta_status = ?'); wacrmValues.push(beta_status); }
             if (priority !== undefined) { wacrmFields.push('priority = ?'); wacrmValues.push(priority); }
-            if (agency_bound !== undefined) { wacrmFields.push('agency_bound = ?'); wacrmValues.push(agency_bound); }
-            if (video_count !== undefined) { wacrmFields.push('video_count = ?'); wacrmValues.push(video_count); }
-            if (video_target !== undefined) { wacrmFields.push('video_target = ?'); wacrmValues.push(video_target); }
-            if (monthly_fee_status !== undefined) { wacrmFields.push('monthly_fee_status = ?'); wacrmValues.push(monthly_fee_status); }
-            if (monthly_fee_amount !== undefined) { wacrmFields.push('monthly_fee_amount = ?'); wacrmValues.push(monthly_fee_amount); }
+            if (allowLegacyLifecycleWrites && agency_bound !== undefined) { wacrmFields.push('agency_bound = ?'); wacrmValues.push(agency_bound); }
+            if (allowLegacyLifecycleWrites && video_count !== undefined) { wacrmFields.push('video_count = ?'); wacrmValues.push(video_count); }
+            if (allowLegacyLifecycleWrites && video_target !== undefined) { wacrmFields.push('video_target = ?'); wacrmValues.push(video_target); }
+            if (allowLegacyLifecycleWrites && monthly_fee_status !== undefined) { wacrmFields.push('monthly_fee_status = ?'); wacrmValues.push(monthly_fee_status); }
+            if (allowLegacyLifecycleWrites && monthly_fee_amount !== undefined) { wacrmFields.push('monthly_fee_amount = ?'); wacrmValues.push(monthly_fee_amount); }
             if (next_action !== undefined) { wacrmFields.push('next_action = ?'); wacrmValues.push(next_action); }
 
             if (wacrmFields.length > 0) {
@@ -1289,18 +1320,18 @@ router.put('/:id/wacrm', async (req, res) => {
 
             const jbFields = [];
             const jbValues = [];
-            if (ev_trial_active !== undefined) {
+            if (allowLegacyLifecycleWrites && ev_trial_active !== undefined) {
                 const activeValue = ev_trial_active ? 1 : 0;
                 jbFields.push('ev_trial_7day = ?', 'ev_trial_active = ?');
                 jbValues.push(activeValue, activeValue);
             }
-            if (ev_monthly_started !== undefined) { jbFields.push('ev_monthly_started = ?'); jbValues.push(ev_monthly_started ? 1 : 0); }
-            if (ev_gmv_1k !== undefined) { jbFields.push('ev_gmv_1k = ?'); jbValues.push(ev_gmv_1k ? 1 : 0); }
-            if (ev_gmv_2k !== undefined) { jbFields.push('ev_gmv_2k = ?'); jbValues.push(ev_gmv_2k ? 1 : 0); }
-            if (ev_gmv_5k !== undefined) { jbFields.push('ev_gmv_5k = ?'); jbValues.push(ev_gmv_5k ? 1 : 0); }
-            if (ev_gmv_10k !== undefined) { jbFields.push('ev_gmv_10k = ?'); jbValues.push(ev_gmv_10k ? 1 : 0); }
-            if (ev_agency_bound !== undefined) { jbFields.push('ev_agency_bound = ?'); jbValues.push(ev_agency_bound ? 1 : 0); }
-            if (ev_churned !== undefined) { jbFields.push('ev_churned = ?'); jbValues.push(ev_churned ? 1 : 0); }
+            if (allowLegacyLifecycleWrites && ev_monthly_started !== undefined) { jbFields.push('ev_monthly_started = ?'); jbValues.push(ev_monthly_started ? 1 : 0); }
+            if (allowLegacyLifecycleWrites && ev_gmv_1k !== undefined) { jbFields.push('ev_gmv_1k = ?'); jbValues.push(ev_gmv_1k ? 1 : 0); }
+            if (allowLegacyLifecycleWrites && ev_gmv_2k !== undefined) { jbFields.push('ev_gmv_2k = ?'); jbValues.push(ev_gmv_2k ? 1 : 0); }
+            if (allowLegacyLifecycleWrites && ev_gmv_5k !== undefined) { jbFields.push('ev_gmv_5k = ?'); jbValues.push(ev_gmv_5k ? 1 : 0); }
+            if (allowLegacyLifecycleWrites && ev_gmv_10k !== undefined) { jbFields.push('ev_gmv_10k = ?'); jbValues.push(ev_gmv_10k ? 1 : 0); }
+            if (allowLegacyLifecycleWrites && ev_agency_bound !== undefined) { jbFields.push('ev_agency_bound = ?'); jbValues.push(ev_agency_bound ? 1 : 0); }
+            if (allowLegacyLifecycleWrites && ev_churned !== undefined) { jbFields.push('ev_churned = ?'); jbValues.push(ev_churned ? 1 : 0); }
 
             if (jbFields.length > 0) {
                 const jbColumns = jbFields.map(f => f.split(' = ')[0]);
@@ -1335,7 +1366,9 @@ router.put('/:id/wacrm', async (req, res) => {
                 nextUpdatedFields.push(...kFields.map(f => 'k.' + f.split(' = ')[0]));
             }
 
-            const creatorPhone = await creatorCache.getCreator(txDb, creatorId, 'wa_phone');
+            const creatorPhone = allowLegacyLifecycleWrites
+                ? await creatorCache.getCreator(txDb, creatorId, 'wa_phone')
+                : null;
             if (creatorPhone && creatorPhone.wa_phone) {
                 const clientId = String(creatorPhone.wa_phone);
                 if (ev_trial_active) {
@@ -1355,11 +1388,20 @@ router.put('/:id/wacrm', async (req, res) => {
                 }
             }
 
-            return { updatedFields: nextUpdatedFields };
+            return {
+                updatedFields: nextUpdatedFields,
+                lifecycleEventWrites: eventWriteResult.eventWrites,
+                ignoredLegacyFields: eventWriteResult.ignoredFields,
+            };
         });
 
         if (updatedFields.length === 0) {
             return res.status(400).json({ error: 'No fields to update' });
+        }
+
+        let eventSnapshot = null;
+        if (lifecycleEventWrites.length > 0) {
+            eventSnapshot = await rebuildCreatorEventSnapshot(db.getDb(), creatorId).catch(() => null);
         }
 
         const persistedLifecycle = await persistLifecycleForCreator(db.getDb(), creatorId, {
@@ -1410,6 +1452,9 @@ router.put('/:id/wacrm', async (req, res) => {
             lifecycle_after: afterLifecycle?.stage_key || null,
             lifecycle_changed: lifecycleChanged,
             reply_strategy: strategyRebuild,
+            event_writes: lifecycleEventWrites,
+            event_snapshot: eventSnapshot,
+            ignored_legacy_fields: ignoredLegacyFields,
         });
     } catch (err) {
         console.error('PUT /api/creators/:id/wacrm error:', err);

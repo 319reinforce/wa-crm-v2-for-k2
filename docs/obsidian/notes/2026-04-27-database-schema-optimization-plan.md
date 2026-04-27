@@ -45,6 +45,7 @@ The WA CRM v2 database had 49 actual MySQL tables while `schema.sql` defined 42 
 - `server/migrations/006_managed_runtime_tables.sql` covers WA group tables and profile analysis tables.
 - Post-implementation schema check on local MySQL reports 49 actual tables, 49 expected tables, and no missing/extra/column diffs.
 - Runtime DDL was removed from `groupMessageService`, `profileAnalysisService`, and `activeEventDetectionService`; these services now fail clearly if the migration has not been run.
+- Second pass added backend canonical lifecycle event writes for mappable `wacrm` legacy payloads while keeping unmapped amount/progress fields protected.
 
 ## Follow-Up Items
 
