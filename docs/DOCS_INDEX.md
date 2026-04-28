@@ -1,6 +1,6 @@
 # WA CRM v2 Documentation Index
 
-Date: 2026-04-27
+Date: 2026-04-28
 Status: Active
 
 This is the compact entry point for current project documentation. It intentionally avoids listing every historical handoff or generated report. Use Obsidian and `docs/archive/` for history.
@@ -18,9 +18,10 @@ Read in this order:
 7. `docs/DATABASE_STRUCTURE_FUTURE_OPTIMIZATION_HANDOFF_20260427.md` - future database optimization roadmap after startup migration rollout.
 8. `docs/MYSQL_OPTIMIZE_PHASE2_HANDOFF_20260427.md` - latest managed migration, creator_id backfill, lifecycle edit migration, and retention policy handoff.
 9. `docs/MYSQL_OPTIMIZE_PROD_ROLLOUT_HANDOFF_20260427.md` - production rollout confirmation for startup rebuild and explicit DB migrations.
-10. `docs/OBSIDIAN_MEMORY_STANDARD.md` - Obsidian memory and sync standard.
-11. `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` - documentation retention and pre-2026-04-20 cleanup record.
-12. `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` - reports, runtime artifacts, and external vendor boundary.
+10. `docs/WANGYOUKE_PHONE_NORMALIZATION_TRANSLATION_HANDOFF_20260428.md` - WangYouKe phone normalization, startup rebuild, Baileys sync compatibility, and translation fallback handoff.
+11. `docs/OBSIDIAN_MEMORY_STANDARD.md` - Obsidian memory and sync standard.
+12. `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` - documentation retention and pre-2026-04-20 cleanup record.
+13. `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` - reports, runtime artifacts, and external vendor boundary.
 
 ## Current Product And Runtime Docs
 
@@ -35,6 +36,7 @@ Read in this order:
 | `docs/AI_REPLY_GENERATION_SYSTEM.md` | AI reply generation architecture, topic detection, provider routing, and generation tracking. |
 | `docs/WA_SESSIONS_DESIGN.md` | WA multi-session design and IPC/volume planning. |
 | `docs/BAILEYS_ROLLOUT.md` | Baileys driver rollout and risk notes. |
+| `docs/WANGYOUKE_PHONE_NORMALIZATION_TRANSLATION_HANDOFF_20260428.md` | WangYouKe phone normalization, startup rebuild, Baileys sync compatibility, and translation fallback repair. |
 | `docs/SSE_HARDENING.md` | SSE transport hardening. |
 | `DEPLOY.md` | Baileys-oriented deployment baseline. |
 
@@ -90,5 +92,5 @@ The old root `SFT_PROJECT.md`, `docs/SFT_RLHF_PIPELINE.md`, and `docs/RLHF_ONBOA
 ## Obsidian Sync
 
 - Status: synced
-- Note: `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md`, `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-phase2-handoff.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-prod-rollout-handoff.md`, `docs/obsidian/notes/2026-04-27-database-structure-future-optimization-handoff.md`
+- Note: `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md`, `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-phase2-handoff.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-prod-rollout-handoff.md`, `docs/obsidian/notes/2026-04-27-database-structure-future-optimization-handoff.md`, `docs/obsidian/notes/2026-04-28-wangyouke-phone-normalization-translation-handoff.md`
 - Index: `docs/obsidian/index.md`
