@@ -61,3 +61,19 @@ test('windowed replace safety blocks possibly truncated raw slices by default', 
   assert.equal(allowedComplete.safe, true)
   assert.equal(forced.safe, true)
 })
+
+test('normalize raw messages preserves native ids and baileys proto driver for anchors', () => {
+  const normalized = repairService._private.normalizeRawMessages([
+    {
+      role: 'me',
+      text: 'hello',
+      timestamp: 1776696900000,
+      message_id: 'BAE123',
+      proto_driver: 'baileys',
+    },
+  ])
+
+  assert.equal(normalized.length, 1)
+  assert.equal(normalized[0].message_id, 'BAE123')
+  assert.equal(normalized[0].proto_driver, 'baileys')
+})

@@ -473,6 +473,16 @@ async function sendRoutedMedia({
     };
 }
 
+function buildAuditSourceMeta(rawResult) {
+    if (!rawResult || !rawResult.baileys_history_fetch && rawResult.baileys_buffer_count === undefined) return null;
+    return {
+        driver: rawResult.baileys_history_fetch || rawResult.baileys_buffer_count !== undefined ? 'baileys' : 'unknown',
+        baileys_buffer_count: rawResult.baileys_buffer_count ?? null,
+        baileys_buffer_only: rawResult.baileys_buffer_only ?? null,
+        baileys_history_fetch: rawResult.baileys_history_fetch || null,
+    };
+}
+
 async function getRoutedStatus({ all = false, session_id = null, operator = null, creator_id = null } = {}) {
     if (all) {
         const sessions = getSessionRegistry().map(buildSessionStatus);
@@ -595,6 +605,7 @@ async function reconcileRoutedContact({
         wa_phone: creatorRow.wa_phone,
         fetched_raw_count: Array.isArray(rawResult.messages) ? rawResult.messages.length : 0,
         reconciliation: summary,
+        audit_source: buildAuditSourceMeta(rawResult),
         routed_session_id: resolved.session_id,
         routed_operator: resolved.operator,
     };
@@ -665,6 +676,7 @@ async function syncRoutedContact({
         wa_phone: creatorRow.wa_phone,
         fetched_raw_count: Array.isArray(rawResult.messages) ? rawResult.messages.length : 0,
         synchronization: summary,
+        audit_source: buildAuditSourceMeta(rawResult),
         routed_session_id: resolved.session_id,
         routed_operator: resolved.operator,
     };
@@ -808,6 +820,7 @@ async function replaceRoutedContact({
         replacement: summary,
         forced: !!force,
         delete_all: !!delete_all,
+        audit_source: buildAuditSourceMeta(rawResult),
         routed_session_id: resolved.session_id,
         routed_operator: resolved.operator,
     };

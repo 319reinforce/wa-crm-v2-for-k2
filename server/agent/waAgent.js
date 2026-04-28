@@ -30,6 +30,8 @@ const {
     getClient,
     getDriver,
     getDriverName,
+    onDriverEvent,
+    offDriverEvent,
 } = require('../services/waService');
 const {
     start: startWaWorker,
@@ -60,6 +62,14 @@ const WA_SESSION_ID = String(process.env.WA_SESSION_ID || '').trim();
 const WA_API_BASE = process.env.WA_API_BASE || 'http://127.0.0.1:3000';
 const AGENT_TAG = `${WA_OWNER}/${WA_SESSION_ID}`;
 const HEARTBEAT_INTERVAL_MS = parseInt(process.env.WA_AGENT_HEARTBEAT_MS || '5000', 10);
+const BAILEYS_AUDIT_HISTORY_WAIT_MS = Math.max(
+    1000,
+    parseInt(process.env.WA_BAILEYS_AUDIT_HISTORY_WAIT_MS || '8000', 10) || 8000
+);
+const BAILEYS_AUDIT_HISTORY_IDLE_MS = Math.max(
+    500,
+    parseInt(process.env.WA_BAILEYS_AUDIT_HISTORY_IDLE_MS || '1500', 10) || 1500
+);
 
 const DIRECT_CHAT_SUFFIXES = ['@c.us', '@lid'];
 
@@ -202,6 +212,91 @@ async function handleSendMedia(payload = {}) {
     };
 }
 
+function mapBaileysIncomingToAuditMessage(message, targetDigits = '') {
+    if (!message || message.isGroup || message.unresolvedLid) return null;
+    const chatDigits = normalizePhoneDigits(message.chatId || message.from || '');
+    if (targetDigits && chatDigits && chatDigits !== targetDigits) return null;
+    const text = String(message.text || '').trim();
+    if (!text && !message.media) return null;
+    return {
+        role: message.fromMe ? 'me' : 'user',
+        text,
+        timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now(),
+        message_id: message.id || null,
+        proto_driver: message.protoDriver || 'baileys',
+    };
+}
+
+function dedupeAuditMessages(messages = []) {
+    const seen = new Set();
+    const out = [];
+    for (const message of messages || []) {
+        if (!message) continue;
+        const key = message.message_id
+            ? `id:${message.message_id}`
+            : `rt:${message.role || ''}\u0000${message.text || ''}\u0000${message.timestamp || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(message);
+    }
+    return out.sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
+}
+
+function createBaileysHistoryCollector({ driver, targetDigits, limit }) {
+    const collected = [];
+    let settled = false;
+    let timeoutId = null;
+    let idleId = null;
+    let resolvePromise = null;
+
+    const cleanup = () => {
+        try { offDriverEvent('history_set', onHistorySet); } catch (_) {}
+        if (timeoutId) clearTimeout(timeoutId);
+        if (idleId) clearTimeout(idleId);
+        timeoutId = null;
+        idleId = null;
+    };
+    const finish = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (resolvePromise) resolvePromise(dedupeAuditMessages(collected));
+    };
+    const armIdle = () => {
+        if (idleId) clearTimeout(idleId);
+        idleId = setTimeout(finish, BAILEYS_AUDIT_HISTORY_IDLE_MS);
+        if (typeof idleId.unref === 'function') idleId.unref();
+    };
+    const onHistorySet = (payload = {}) => {
+        const rawMessages = Array.isArray(payload.messages) ? payload.messages : [];
+        if (rawMessages.length === 0) return;
+        Promise.resolve()
+            .then(async () => {
+                for (const rawMsg of rawMessages) {
+                    const normalized = await driver.normalizeRawMessage(rawMsg).catch(() => null);
+                    const mapped = mapBaileysIncomingToAuditMessage(normalized, targetDigits);
+                    if (mapped) collected.push(mapped);
+                    if (collected.length >= limit) break;
+                }
+                if (collected.length >= limit) finish();
+                else if (collected.length > 0) armIdle();
+            })
+            .catch(() => {});
+    };
+
+    const promise = new Promise((resolve) => {
+        resolvePromise = resolve;
+        onDriverEvent('history_set', onHistorySet);
+        timeoutId = setTimeout(finish, BAILEYS_AUDIT_HISTORY_WAIT_MS);
+        if (typeof timeoutId.unref === 'function') timeoutId.unref();
+    });
+
+    return {
+        wait: () => promise,
+        cancel: () => finish(),
+    };
+}
+
 async function fetchAuditMessagesViaBaileys(phone, limit, creatorId) {
     // Baileys 同步两条路：
     //   1. ring buffer（_msgBuffer，driver 启动后看到的 ≤200 条/JID live 消息）→ 立即返回
@@ -232,25 +327,25 @@ async function fetchAuditMessagesViaBaileys(phone, limit, creatorId) {
     } catch (error) {
         return { ok: false, error: error.message || String(error) };
     }
+    const bufferMessages = dedupeAuditMessages(
+        (buffered || [])
+            .map((m) => mapBaileysIncomingToAuditMessage(m, normalizedTarget))
+            .filter(Boolean)
+    );
 
     // 2. fetchMessageHistory（异步触发）— 需 anchor key
     let historyFetchAsync = null;
+    let historyMessages = [];
     if (creatorId && typeof driver.fetchMessageHistory === 'function') {
         try {
-            // 用最旧的 baileys 消息作 anchor（向更早历史回溯）。
-            // 没有 baileys 行就用最旧的任何 wa_messages 行 fallback。
-            let anchor = await db.getDb().prepare(
+            // 用最旧的 Baileys-keyed 消息作 anchor（向更早历史回溯）。
+            // 不能使用 WWeb 旧 message_id 伪装 Baileys key；两套 id 形状不同，
+            // 传错会导致 WA 服务端无响应或返回不可用历史。
+            const anchor = await db.getDb().prepare(
                 "SELECT timestamp, wa_message_id, role FROM wa_messages " +
                 "WHERE creator_id = ? AND proto_driver = 'baileys' AND wa_message_id IS NOT NULL " +
                 "ORDER BY timestamp ASC LIMIT 1"
             ).get(creatorId);
-            if (!anchor) {
-                anchor = await db.getDb().prepare(
-                    "SELECT timestamp, wa_message_id, role FROM wa_messages " +
-                    "WHERE creator_id = ? AND wa_message_id IS NOT NULL " +
-                    "ORDER BY timestamp ASC LIMIT 1"
-                ).get(creatorId);
-            }
             if (anchor?.wa_message_id) {
                 const jid = toBaileysJid(phoneE164, 'baileys');
                 const oldestKey = {
@@ -259,20 +354,28 @@ async function fetchAuditMessagesViaBaileys(phone, limit, creatorId) {
                     fromMe: anchor.role === 'me',
                 };
                 const tsMs = Number(anchor.timestamp) || Date.now();
-                // 不 await — 让 audit handler 立刻回前端，结果异步从 history_set 落库
-                driver.fetchMessageHistory(safeLimit, oldestKey, tsMs).catch((err) => {
-                    console.warn(`[waAgent:${AGENT_TAG}] fetchMessageHistory(creator=${creatorId}): ${err.message}`);
-                });
+                const collector = typeof driver.normalizeRawMessage === 'function'
+                    ? createBaileysHistoryCollector({ driver, targetDigits: normalizedTarget, limit: safeLimit })
+                    : null;
+                const requestedSessionId = await driver.fetchMessageHistory(safeLimit, oldestKey, tsMs);
+                if (requestedSessionId && collector) {
+                    historyMessages = await collector.wait();
+                } else if (collector) {
+                    collector.cancel();
+                }
                 historyFetchAsync = {
-                    requested: true,
+                    requested: !!requestedSessionId,
+                    session_id: requestedSessionId || null,
                     anchor_message_id: anchor.wa_message_id,
                     anchor_timestamp: tsMs,
                     count: safeLimit,
+                    waited_ms: requestedSessionId ? BAILEYS_AUDIT_HISTORY_WAIT_MS : 0,
+                    collected_count: historyMessages.length,
                 };
             } else {
                 historyFetchAsync = {
                     requested: false,
-                    reason: 'no anchor message in DB (need at least one received message first)',
+                    reason: 'no baileys anchor message in DB (need one baileys-keyed message first)',
                 };
             }
         } catch (anchorErr) {
@@ -281,16 +384,14 @@ async function fetchAuditMessagesViaBaileys(phone, limit, creatorId) {
         }
     }
 
+    const messages = dedupeAuditMessages([...bufferMessages, ...historyMessages]).slice(-safeLimit);
+
     return {
         ok: true,
         phone: normalizedTarget,
         name: 'Unknown',
-        messages: (buffered || []).map((m) => ({
-            role: m.fromMe ? 'me' : 'user',
-            text: m.text || '',
-            timestamp: typeof m.timestamp === 'number' ? m.timestamp : Date.now(),
-            message_id: m.id || null,
-        })),
+        messages,
+        baileys_buffer_count: bufferMessages.length,
         baileys_buffer_only: !historyFetchAsync?.requested,
         baileys_history_fetch: historyFetchAsync,
     };

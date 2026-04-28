@@ -48,6 +48,7 @@ const auditLogUserFieldsMigration = require('../migrate-audit-log-user-fields');
 const waMessageIdMigration = require('../migrate-wa-message-id');
 const waMessagesMediaMigration = require('../migrate-wa-messages-media');
 const waMessagesProtoMigration = require('../migrate-wa-messages-proto');
+const waLidMappingsMigration = require('../migrate-wa-lid-mappings');
 const mediaLifecycleMigration = require('../migrate-media-lifecycle');
 const waDriverMigration = require('../migrate-wa-sessions-driver');
 const aiProviderConfigMigration = require('../migrate-ai-provider-config');
@@ -469,9 +470,10 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
             await auditLogUserFieldsMigration.run({ silent: true });
             await waMessagesMediaMigration.run({ silent: true });
             await waMessagesProtoMigration.run({ silent: true });
-            console.log('[Startup] users/auth + media + proto migration done');
+            await waLidMappingsMigration.run({ silent: true });
+            console.log('[Startup] users/auth + media + proto + lid mapping migration done');
         } catch (err) {
-            console.error('[Startup] users/auth + media migration failed:', err.message);
+            console.error('[Startup] users/auth + media/lid migration failed:', err.message);
             throw err;
         }
 

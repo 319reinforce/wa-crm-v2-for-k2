@@ -6,6 +6,8 @@
  */
 
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const { getDb } = require('../db');
 const { getClient, waitForReady, stop: stopWaService, getResolvedOwner, getDriverName, onDriverEvent, getDriver } = require('./services/waService');
 const protoStore = require('./services/messageProtoStore');
@@ -28,6 +30,7 @@ const {
     enqueueCreatorEventDetection,
 } = require('./services/activeEventDetectionService');
 const { extractWaMessageId } = require('./utils/waMessageId');
+const { phoneHash: hashPhoneForReport } = require('./services/waLidMappingService');
 
 // Optional-require for message cache (perf-cache branch). No-op when not present.
 let invalidateMessageCache = () => {};
@@ -92,6 +95,14 @@ function parsePollIntervalMs(rawValue) {
     return Math.max(15 * 1000, parsed);
 }
 
+function parseBaileysBackfillIntervalMs(rawValue) {
+    const raw = String(rawValue || '').trim();
+    if (raw === '0') return 0;
+    const parsed = parseInt(raw, 10);
+    if (!Number.isInteger(parsed) || parsed < 0) return 10 * 60 * 1000;
+    return Math.max(60 * 1000, parsed);
+}
+
 function formatPollInterval(intervalMs) {
     if (intervalMs % (60 * 1000) === 0) {
         return `${intervalMs / 60 / 1000} 分钟`;
@@ -100,6 +111,9 @@ function formatPollInterval(intervalMs) {
 }
 
 const POLL_INTERVAL_MS = parsePollIntervalMs(process.env.WA_POLL_INTERVAL_MS);   // 增量轮询间隔（默认60秒）
+const BAILEYS_BACKFILL_INTERVAL_MS = parseBaileysBackfillIntervalMs(process.env.WA_BAILEYS_BACKFILL_INTERVAL_MS);
+const BAILEYS_BACKFILL_REPORT_DIR = process.env.WA_BAILEYS_BACKFILL_REPORT_DIR
+    || path.join(process.cwd(), 'data', 'runtime-state', 'wa-backfill-reports');
 const HISTORY_MSG_LIMIT = 500;            // 常规历史消息拉取条数
 const POLL_FETCH_LIMIT = 50;              // 增量轮询拉取条数
 const ROSTER_HISTORY_MSG_LIMIT = 100000;  // roster 白名单全历史回溯上限
@@ -1215,6 +1229,21 @@ async function handleBaileysIncomingMessage(incoming) {
             });
             return;
         }
+        if (incoming?.unresolvedLid) {
+            perfLog('wa_unresolved_lid_message_skipped', {
+                sessionId: WA_SESSION_ID,
+                owner: resolveCurrentOwner(),
+                waMsgId,
+                fromMe: !!incoming?.fromMe,
+                eventTimestamp: typeof incoming?.timestamp === 'number' ? incoming.timestamp : null,
+            });
+            perfLog('wa_event_handled', {
+                source: 'worker', waMsgId,
+                outcome: 'unresolved_lid_skipped',
+                durationMs: Date.now() - handleStartedAt,
+            });
+            return;
+        }
         const phoneRaw = normalizePhone(incoming?.chatId || incoming?.from || '');
         if (!phoneRaw) return;
         const text = incoming?.text || '';
@@ -1307,6 +1336,124 @@ const GAP_FILL_THRESHOLD_MS = 5 * 60 * 1000;         // DB 最新消息超 5min 
 const GAP_FILL_FETCH_COUNT = 200;                    // 每次 fetchMessageHistory 请求条数
 const GAP_FILL_PER_CREATOR_DELAY_MS = 500;           // roster 内每个达人间隔，防 WA 限流
 
+function timestampToIso(value) {
+    const ts = toTimestampMs(value || 0);
+    return ts > 0 ? new Date(ts).toISOString() : null;
+}
+
+function buildBaileysBackfillReportSkeleton(reason, rosterTotal) {
+    return {
+        generated_at: new Date().toISOString(),
+        session_id: WA_SESSION_ID,
+        owner: resolveCurrentOwner(),
+        reason,
+        summary: {
+            roster_total: rosterTotal,
+            anchor_triggered: 0,
+            no_anchor: 0,
+            buffer_checked: 0,
+            buffer_inserted: 0,
+            skipped_recent: 0,
+            skipped_no_message: 0,
+            failed: 0,
+        },
+        no_anchor: [],
+        failures: [],
+    };
+}
+
+function sanitizeBackfillReportRow(assignment, lastAny, reason, extras = {}) {
+    const phone = normalizePhone(assignment?.wa_phone || '');
+    return {
+        creator_id: assignment?.creator_id || null,
+        name: assignment?.primary_name || assignment?.raw_name || null,
+        owner: assignment?.owner || assignment?.operator || resolveCurrentOwner(),
+        phone_masked: maskPhone(phone),
+        phone_hash: hashPhoneForReport(phone),
+        last_message_at: timestampToIso(lastAny?.timestamp || null),
+        last_message_has_id: !!lastAny?.wa_message_id,
+        last_proto_driver: lastAny?.proto_driver || null,
+        reason,
+        ...extras,
+    };
+}
+
+function writeBaileysBackfillReport(report) {
+    try {
+        fs.mkdirSync(BAILEYS_BACKFILL_REPORT_DIR, { recursive: true });
+        const reportPath = path.join(BAILEYS_BACKFILL_REPORT_DIR, `${WA_SESSION_ID}-latest.json`);
+        const tmpPath = `${reportPath}.tmp`;
+        fs.writeFileSync(tmpPath, `${JSON.stringify(report, null, 2)}\n`);
+        fs.renameSync(tmpPath, reportPath);
+        return reportPath;
+    } catch (err) {
+        console.warn(`${LOG_PREFIX} backfill report write failed: ${err.message}`);
+        return null;
+    }
+}
+
+function buildBaileysInsertMessage(normalized) {
+    return {
+        role: normalized.fromMe ? 'me' : 'user',
+        text: normalized.text || '',
+        timestamp: typeof normalized.timestamp === 'number' ? normalized.timestamp : Date.now(),
+        wa_message_id: normalized.id || null,
+        protoBytes: normalized.protoBytes || null,
+        protoDriver: normalized.protoDriver || null,
+    };
+}
+
+async function persistBaileysBufferedMessagesForAssignment(driver, assignment, lastAny) {
+    if (!driver || typeof driver.fetchRecentMessages !== 'function') {
+        return { checked: false, insertable: 0, inserted: 0, unresolved_lid_count: 0 };
+    }
+    const buffered = await driver.fetchRecentMessages(assignment.wa_phone, GAP_FILL_FETCH_COUNT);
+    const lastTs = toTimestampMs(lastAny?.timestamp || 0);
+    let unresolvedLidCount = 0;
+    const insertable = (buffered || []).filter((message) => {
+        if (!message || message.isGroup) return false;
+        if (message.unresolvedLid) {
+            unresolvedLidCount++;
+            return false;
+        }
+        const ts = typeof message.timestamp === 'number' ? message.timestamp : 0;
+        if (lastTs > 0 && ts > 0 && ts <= lastTs) return false;
+        if (!message.text && !message.media) return false;
+        return true;
+    });
+    if (insertable.length === 0) {
+        return {
+            checked: true,
+            insertable: 0,
+            inserted: 0,
+            unresolved_lid_count: unresolvedLidCount,
+        };
+    }
+
+    const inserted = await insertMessages(
+        assignment.creator_id,
+        insertable.map((message) => buildBaileysInsertMessage(message))
+    );
+    if (inserted > 0) {
+        await touchCreator(assignment.creator_id);
+        const sample = insertable.find((message) => message.text) || insertable[0];
+        notifyProfilePipelines({
+            creatorId: assignment.creator_id,
+            phone: assignment.wa_phone,
+            text: sample?.text || '',
+            role: sample?.fromMe ? 'me' : 'user',
+            insertedCount: inserted,
+        });
+    }
+
+    return {
+        checked: true,
+        insertable: insertable.length,
+        inserted,
+        unresolved_lid_count: unresolvedLidCount,
+    };
+}
+
 async function handleBaileysHistoryBatch(rawMessages) {
     if (!Array.isArray(rawMessages) || rawMessages.length === 0) return;
     const driver = typeof getDriver === 'function' ? getDriver() : null;
@@ -1334,6 +1481,18 @@ async function handleBaileysHistoryBatch(rawMessages) {
             }
             if (!normalized || normalized.isGroup) {
                 // 群消息暂不经此链路（对齐 wwebjs syncHistory 1:1 语义；群由 syncGroupHistory 另外处理）
+                dropped++;
+                continue;
+            }
+            if (normalized.unresolvedLid) {
+                perfLog('wa_unresolved_lid_message_skipped', {
+                    sessionId: WA_SESSION_ID,
+                    owner: resolveCurrentOwner(),
+                    waMsgId: normalized.id || null,
+                    fromMe: !!normalized.fromMe,
+                    eventTimestamp: typeof normalized.timestamp === 'number' ? normalized.timestamp : null,
+                    source: 'history_set',
+                });
                 dropped++;
                 continue;
             }
@@ -1392,7 +1551,7 @@ async function handleBaileysHistoryBatch(rawMessages) {
     console.log(`${LOG_PREFIX} 📚 history batch: processed=${processed} kept=${kept} inserted=${inserted} dropped=${dropped} ${Date.now() - startedAt}ms`);
 }
 
-async function triggerGapFillIfNeeded() {
+async function triggerGapFillIfNeeded({ reason = 'history_latest_seen' } = {}) {
     const driver = typeof getDriver === 'function' ? getDriver() : null;
     if (!driver || typeof driver.fetchMessageHistory !== 'function') {
         console.log(`${LOG_PREFIX} gap-fill 跳过：driver.fetchMessageHistory 不可用`);
@@ -1403,25 +1562,81 @@ async function triggerGapFillIfNeeded() {
     const db2 = getDb();
     const now = Date.now();
     let triggered = 0, skipped = 0, failed = 0;
+    const report = buildBaileysBackfillReportSkeleton(reason, rosterIndex.all.length);
 
     for (const [phone, assignment] of rosterIndex.byPhone) {
-        // 只查有 baileys proto 的最新行，才有可用的 key 给 fetchMessageHistory
-        const lastRow = await db2.prepare(
-            'SELECT timestamp, wa_message_id FROM wa_messages ' +
+        const lastAny = await db2.prepare(
+            'SELECT id, timestamp, wa_message_id, proto_driver FROM wa_messages ' +
+            'WHERE creator_id = ? ORDER BY timestamp DESC LIMIT 1'
+        ).get(assignment.creator_id);
+
+        if (!lastAny) {
+            skipped++;
+            report.summary.skipped_no_message++;
+            report.summary.no_anchor++;
+            report.no_anchor.push(sanitizeBackfillReportRow(assignment, lastAny, 'no_messages'));
+            continue;
+        }
+
+        // 只查有 baileys proto 的最新行，才有可用 key 给 fetchMessageHistory。
+        // 没有 anchor 的 roster creator 不再静默跳过：先尝试 driver ring buffer，
+        // 再写入可观测 report。
+        let lastRow = await db2.prepare(
+            'SELECT timestamp, wa_message_id, proto_driver FROM wa_messages ' +
             'WHERE creator_id = ? AND proto_driver = ? ' +
             'ORDER BY timestamp DESC LIMIT 1'
         ).get(assignment.creator_id, 'baileys');
 
-        if (!lastRow?.wa_message_id) { skipped++; continue; }
+        if (!lastRow?.wa_message_id) {
+            let buffered = { checked: false, insertable: 0, inserted: 0, unresolved_lid_count: 0 };
+            try {
+                buffered = await persistBaileysBufferedMessagesForAssignment(driver, assignment, lastAny);
+                report.summary.buffer_checked += buffered.checked ? 1 : 0;
+                report.summary.buffer_inserted += buffered.inserted || 0;
+            } catch (err) {
+                failed++;
+                report.summary.failed++;
+                report.failures.push(sanitizeBackfillReportRow(assignment, lastAny, 'buffer_backfill_failed', {
+                    error: err.message,
+                }));
+                continue;
+            }
+
+            if (buffered.inserted > 0) {
+                lastRow = await db2.prepare(
+                    'SELECT timestamp, wa_message_id, proto_driver FROM wa_messages ' +
+                    'WHERE creator_id = ? AND proto_driver = ? ' +
+                    'ORDER BY timestamp DESC LIMIT 1'
+                ).get(assignment.creator_id, 'baileys');
+            }
+
+            if (!lastRow?.wa_message_id) {
+                skipped++;
+                report.summary.no_anchor++;
+                report.no_anchor.push(sanitizeBackfillReportRow(assignment, lastAny, 'no_baileys_anchor', {
+                    buffer_checked: !!buffered.checked,
+                    buffer_insertable: buffered.insertable || 0,
+                    buffer_inserted: buffered.inserted || 0,
+                    unresolved_lid_count: buffered.unresolved_lid_count || 0,
+                }));
+                continue;
+            }
+        }
+
         const gapMs = now - Number(lastRow.timestamp);
-        if (gapMs < GAP_FILL_THRESHOLD_MS) { skipped++; continue; }
+        if (gapMs < GAP_FILL_THRESHOLD_MS) {
+            skipped++;
+            report.summary.skipped_recent++;
+            continue;
+        }
 
         const jid = toBaileysJid(phone, 'baileys');
         const oldestKey = { remoteJid: jid, id: lastRow.wa_message_id, fromMe: false };
 
         perfLog('wa_gap_fill_requested', {
             creatorId: assignment.creator_id,
-            phone,
+            phoneMasked: maskPhone(phone),
+            phoneHash: hashPhoneForReport(phone),
             gapMs,
             oldestMsgId: lastRow.wa_message_id,
         });
@@ -1430,18 +1645,85 @@ async function triggerGapFillIfNeeded() {
             const sessionId = await driver.fetchMessageHistory(
                 GAP_FILL_FETCH_COUNT, oldestKey, Number(lastRow.timestamp)
             );
-            if (sessionId) triggered++;
-            else failed++;
+            if (sessionId) {
+                triggered++;
+                report.summary.anchor_triggered++;
+            } else {
+                failed++;
+                report.summary.failed++;
+                report.failures.push(sanitizeBackfillReportRow(assignment, lastAny, 'fetch_message_history_no_session', {
+                    gap_ms: gapMs,
+                }));
+            }
         } catch (err) {
             console.warn(`${LOG_PREFIX} gap-fill error for creator=${assignment.creator_id}: ${err.message}`);
             failed++;
+            report.summary.failed++;
+            report.failures.push(sanitizeBackfillReportRow(assignment, lastAny, 'fetch_message_history_failed', {
+                gap_ms: gapMs,
+                error: err.message,
+            }));
         }
 
         // Rate limit：避免短时间大量 fetchMessageHistory 被 WA 限流
         await new Promise((resolve) => setTimeout(resolve, GAP_FILL_PER_CREATOR_DELAY_MS));
     }
 
-    console.log(`${LOG_PREFIX} 🔁 gap-fill: triggered=${triggered} skipped=${skipped} failed=${failed}`);
+    const reportPath = writeBaileysBackfillReport(report);
+    perfLog('wa_baileys_backfill_report', {
+        sessionId: WA_SESSION_ID,
+        owner: resolveCurrentOwner(),
+        reason,
+        summary: report.summary,
+        reportPath,
+    });
+    console.log(`${LOG_PREFIX} 🔁 gap-fill: triggered=${triggered} skipped=${skipped} failed=${failed} noAnchor=${report.summary.no_anchor} bufferInserted=${report.summary.buffer_inserted} report=${reportPath || 'none'}`);
+}
+
+let baileysBackfillInterval = null;
+let baileysBackfillInitialTimer = null;
+let baileysBackfillRunning = false;
+
+function runBaileysBackfill(reason) {
+    if (baileysBackfillRunning) {
+        perfLog('wa_baileys_backfill_skipped', {
+            sessionId: WA_SESSION_ID,
+            owner: resolveCurrentOwner(),
+            reason,
+            outcome: 'already_running',
+        });
+        return;
+    }
+    baileysBackfillRunning = true;
+    triggerGapFillIfNeeded({ reason })
+        .catch((err) => {
+            console.error(`${LOG_PREFIX} periodic gap-fill 异常:`, err.message);
+        })
+        .finally(() => {
+            baileysBackfillRunning = false;
+        });
+}
+
+function startBaileysBackfillLoop() {
+    if (BAILEYS_BACKFILL_INTERVAL_MS <= 0) {
+        console.log(`${LOG_PREFIX} Baileys backfill/report loop disabled`);
+        return;
+    }
+    if (baileysBackfillInterval) clearInterval(baileysBackfillInterval);
+    if (baileysBackfillInitialTimer) clearTimeout(baileysBackfillInitialTimer);
+
+    baileysBackfillInitialTimer = setTimeout(() => {
+        baileysBackfillInitialTimer = null;
+        runBaileysBackfill('startup_backfill');
+    }, 30 * 1000);
+    if (typeof baileysBackfillInitialTimer.unref === 'function') baileysBackfillInitialTimer.unref();
+
+    baileysBackfillInterval = setInterval(
+        () => runBaileysBackfill('periodic_backfill'),
+        BAILEYS_BACKFILL_INTERVAL_MS
+    );
+    if (typeof baileysBackfillInterval.unref === 'function') baileysBackfillInterval.unref();
+    console.log(`${LOG_PREFIX} Baileys backfill/report loop 已启动 (每${formatPollInterval(BAILEYS_BACKFILL_INTERVAL_MS)})`);
 }
 
 // ================== 增量轮询 ==================
@@ -1792,10 +2074,10 @@ async function start(options = {}) {
     onDriverEvent('history_latest_seen', () => {
         perfLog('wa_history_latest_seen', {});
         console.log(`${LOG_PREFIX} ✅ history sync latest seen，启动 gap-fill`);
-        triggerGapFillIfNeeded().catch((err) => {
-            console.error(`${LOG_PREFIX} gap-fill 异常:`, err.message);
-        });
+        runBaileysBackfill('history_latest_seen');
     });
+
+    startBaileysBackfillLoop();
 
     progress.phase = 'live';
     console.log('═'.repeat(60));
@@ -1806,6 +2088,11 @@ async function start(options = {}) {
 function stop() {
     if (pollInterval) clearInterval(pollInterval);
     pollInterval = null;
+    if (baileysBackfillInterval) clearInterval(baileysBackfillInterval);
+    baileysBackfillInterval = null;
+    if (baileysBackfillInitialTimer) clearTimeout(baileysBackfillInitialTimer);
+    baileysBackfillInitialTimer = null;
+    baileysBackfillRunning = false;
     if (startRetryTimer) {
         clearTimeout(startRetryTimer);
         startRetryTimer = null;
@@ -1832,6 +2119,7 @@ function getProgress() {
         sessionId: progress.sessionId,
         resolvedOwner: resolveCurrentOwner(),
         pollIntervalMs: POLL_INTERVAL_MS,
+        baileysBackfillIntervalMs: BAILEYS_BACKFILL_INTERVAL_MS,
         uptime: progress.startedAt ? Date.now() - progress.startedAt.getTime() : 0,
     };
 }

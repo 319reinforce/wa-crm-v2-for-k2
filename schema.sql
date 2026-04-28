@@ -90,6 +90,30 @@ CREATE INDEX idx_messages_media_type   ON wa_messages(media_type);
 CREATE INDEX idx_messages_proto_driver ON wa_messages(proto_driver);
 
 -- ============================================================
+-- Baileys LID 映射表
+-- ============================================================
+CREATE TABLE IF NOT EXISTS wa_lid_mappings (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    session_id VARCHAR(64) NOT NULL,
+    operator VARCHAR(32) NULL,
+    lid_jid VARCHAR(128) NOT NULL,
+    pn_jid VARCHAR(128) NOT NULL,
+    phone VARCHAR(32) NULL,
+    source VARCHAR(64) NULL,
+    confidence TINYINT NOT NULL DEFAULT 2,
+    meta_json TEXT NULL,
+    first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    hit_count INT NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_wa_lid_session_lid (session_id, lid_jid),
+    KEY idx_wa_lid_phone (phone),
+    KEY idx_wa_lid_pn (pn_jid),
+    KEY idx_wa_lid_last_seen (last_seen_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
 -- WA 群聊表
 -- ============================================================
 CREATE TABLE IF NOT EXISTS wa_group_chats (
