@@ -140,9 +140,9 @@ router.post('/ai/system-prompt', async (req, res) => {
 });
 
 // POST /api/translate — 翻译接口
-// provider: 'deepl' | 'minimax'（可选，未传则读 env TRANSLATION_PROVIDER，默认 minimax）
-// DeepL 失败会自动 fallback 到 MiniMax，确保返回结果
-// 超过 TRANSLATION_MAX_CHARS_PER_DAY（DeepL 字符额度）返回 429，不 fallback
+// provider: 'deepl' | 'openai' | 'minimax'（可选，未传则读 env TRANSLATION_PROVIDER，默认 deepl）
+// DeepL 失败后 fallback 到 OpenAI；只有显式 provider=minimax 才调用 MiniMax
+// 超过 TRANSLATION_MAX_CHARS_PER_DAY（DeepL 字符额度）也会转 OpenAI fallback
 router.post('/translate', async (req, res) => {
     try {
         const { text, role, timestamp, texts, mode, provider } = req.body;
@@ -162,10 +162,18 @@ router.post('/translate', async (req, res) => {
             console.warn('[translate] quota exceeded:', err.message);
             return res.status(429).json({
                 error: 'TRANSLATION_QUOTA_EXCEEDED',
-                message: 'DeepL 今日字符额度已用尽，请明日再试或切换 provider=minimax',
+                message: 'DeepL 今日字符额度已用尽',
                 used: err.used,
                 incoming: err.incoming,
                 limit: err.limit,
+            });
+        }
+        if (err && err.code === 'TRANSLATION_PROVIDER_FAILED') {
+            console.error('POST /api/translate provider error:', err);
+            return res.status(502).json({
+                error: 'TRANSLATION_PROVIDER_FAILED',
+                message: err.message,
+                provider: 'deepl',
             });
         }
         console.error('POST /api/translate error:', err);

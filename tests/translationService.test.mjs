@@ -27,3 +27,28 @@ test('translationService detects unchanged English as a failed Chinese translati
     true,
   );
 });
+
+test('translationService collects unchanged DeepL batch items for OpenAI repair', () => {
+  const source = 'If someone signs up and later decides they want to withdraw';
+  const inputs = translationService._internal.collectNoopBatchInputs(
+    [{ text: source }, { text: 'TikTok Shop' }],
+    [
+      { idx: 1, translation: source },
+      { idx: 2, translation: 'TikTok Shop' },
+    ],
+    'to_zh',
+  );
+
+  assert.deepEqual(inputs, [
+    {
+      originalIdx: 0,
+      text: source,
+      role: undefined,
+      direction: 'to_zh',
+    },
+  ]);
+});
+
+test('translationService accepts explicit OpenAI provider', () => {
+  assert.equal(translationService._internal.pickProvider('openai'), 'openai');
+});

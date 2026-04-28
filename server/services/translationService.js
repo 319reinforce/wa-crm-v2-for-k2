@@ -3,8 +3,8 @@
  *
  * 职责：
  *   - 根据 provider 参数（优先）或 TRANSLATION_PROVIDER env 选择翻译引擎
- *   - 支持 'deepl' | 'minimax'，默认 'minimax'（保持向后兼容）
- *   - DeepL 失败自动 fallback 到 MiniMax，保证用户请求最终有结果
+ *   - 支持 'deepl' | 'openai' | 'minimax'，默认 'deepl'
+ *   - DeepL 失败后 fallback 到 OpenAI；MiniMax 只有显式选择 minimax 才调用
  *   - 对外接口形状与 aiService.translateText / translateBatch 保持一致，便于无缝替换
  *
  * 使用方式：
@@ -16,6 +16,7 @@ const aiService = require('./aiService');
 const aiProviderCfg = require('./aiProviderConfigService');
 const { getGlossaryId } = require('./translationGlossary');
 const db = require('../../db');
+const { generateResponseFor } = require('../utils/openai');
 
 let deeplModule = null;
 try {
@@ -139,7 +140,7 @@ function detectTranslationDirection(text) {
 
 function pickProvider(explicit) {
     const normalized = String(explicit || '').toLowerCase();
-    if (normalized === 'deepl' || normalized === 'minimax') return normalized;
+    if (normalized === 'deepl' || normalized === 'openai' || normalized === 'minimax') return normalized;
     return (process.env.TRANSLATION_PROVIDER || 'deepl').toLowerCase();
 }
 
@@ -165,39 +166,130 @@ function isNoopTranslationForDirection(original, translation, direction) {
     return false;
 }
 
-async function repairNoopBatchWithMiniMax(texts, translations, mode) {
+function collectNoopBatchInputs(texts, translations, mode) {
     const resolvedMode = resolveTranslationMode(mode);
-    const fallbackInputs = [];
-    const fallbackMeta = [];
-
-    for (let i = 0; i < translations.length; i += 1) {
+    const inputs = [];
+    translations.forEach((item, i) => {
         const sourceText = String(texts[i]?.text ?? '');
         const direction = resolvedMode === 'auto'
             ? detectTranslationDirection(sourceText)
             : resolvedMode;
-        if (isNoopTranslationForDirection(sourceText, translations[i]?.translation, direction)) {
-            fallbackMeta.push({ originalIdx: i, direction });
-            fallbackInputs.push({ text: sourceText, role: texts[i]?.role });
+        if (isNoopTranslationForDirection(sourceText, item?.translation, direction)) {
+            inputs.push({
+                originalIdx: i,
+                text: sourceText,
+                role: texts[i]?.role,
+                direction,
+            });
         }
+    });
+    return inputs;
+}
+
+function stripJsonFence(value) {
+    return String(value || '')
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+}
+
+function openAITranslationSystemPrompt(direction) {
+    const target = direction === 'to_en' ? 'English' : 'Simplified Chinese';
+    return [
+        'You are a strict translation engine.',
+        `Translate the user text into ${target}.`,
+        'Do not answer, advise, summarize, explain, or add labels.',
+        'Preserve meaning, names, prices, links, emoji, and line breaks.',
+        'Return only the translated text.',
+    ].join(' ');
+}
+
+async function translateTextViaOpenAI(text, { direction, timestamp }) {
+    const content = await generateResponseFor('translation', [
+        { role: 'system', content: openAITranslationSystemPrompt(direction) },
+        { role: 'user', content: String(text || '') },
+    ], {
+        temperature: 0,
+        maxTokens: 1500,
+        source: `translation:${direction}`,
+    });
+    return {
+        translation: String(content || '').trim(),
+        timestamp,
+        provider: 'openai',
+    };
+}
+
+async function translateBatchViaOpenAI(texts, mode) {
+    const resolvedMode = resolveTranslationMode(mode);
+    const entries = texts.map((t, i) => {
+        const raw = String(t?.text ?? '');
+        const direction = resolvedMode === 'auto' ? detectTranslationDirection(raw) : resolvedMode;
+        return { idx: i + 1, direction, text: raw };
+    });
+    const content = await generateResponseFor('translation', [
+        {
+            role: 'system',
+            content: [
+                'You are a strict batch translation engine.',
+                'Translate each item independently according to its direction: to_zh means Simplified Chinese, to_en means English.',
+                'Do not answer, advise, summarize, merge, omit, or add extra keys.',
+                'Return only a JSON array shaped exactly as [{"idx":1,"translation":"..."}].',
+            ].join(' '),
+        },
+        { role: 'user', content: JSON.stringify(entries) },
+    ], {
+        temperature: 0,
+        maxTokens: Math.max(2400, entries.length * 250 + 800),
+        source: `translation:batch=${entries.length}`,
+    });
+
+    const map = {};
+    try {
+        const raw = stripJsonFence(content);
+        const jsonMatch = raw.match(/\[[\s\S]*\]/);
+        const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+        for (const item of parsed) {
+            const idx = Number(item?.idx);
+            if (Number.isFinite(idx) && typeof item.translation === 'string') {
+                map[idx] = item.translation.trim();
+            }
+        }
+    } catch (err) {
+        throw new Error(`OpenAI translation JSON parse failed: ${err.message}`);
     }
 
-    if (fallbackInputs.length === 0) return translations;
+    return {
+        translations: texts.map((t, i) => {
+            const idx = i + 1;
+            const translation = map[idx];
+            return {
+                idx,
+                translation: translation && translation.length > 0 ? translation : String(t?.text ?? ''),
+            };
+        }),
+        provider: 'openai',
+    };
+}
 
-    const fallbackMode = resolvedMode === 'auto' ? 'auto' : resolvedMode;
-    const fallback = await aiService.translateBatch(fallbackInputs, fallbackMode);
+async function repairNoopBatchWithOpenAI(texts, translations, mode) {
+    const noopInputs = collectNoopBatchInputs(texts, translations, mode);
+    if (noopInputs.length === 0) return translations;
+
+    const fallback = await translateBatchViaOpenAI(
+        noopInputs.map((item) => ({ text: item.text, role: item.role })),
+        'auto',
+    );
     const repaired = translations.map((item) => ({ ...item }));
     for (const item of fallback?.translations || []) {
         const localIdx = Number(item?.idx || 0) - 1;
-        const meta = fallbackMeta[localIdx];
+        const meta = noopInputs[localIdx];
         if (!meta) continue;
         const replacement = String(item?.translation || '').trim();
-        if (replacement && !isNoopTranslationForDirection(fallbackInputs[localIdx]?.text, replacement, meta.direction)) {
-            repaired[meta.originalIdx] = {
-                ...repaired[meta.originalIdx],
-                translation: replacement,
-                provider: 'minimax',
-            };
-        }
+        repaired[meta.originalIdx] = replacement && !isNoopTranslationForDirection(meta.text, replacement, meta.direction)
+            ? { ...repaired[meta.originalIdx], translation: replacement, provider: 'openai' }
+            : { ...repaired[meta.originalIdx], translation: '' };
     }
     return repaired;
 }
@@ -206,7 +298,7 @@ function logUsage({ provider, status, chars, latencyMs, error, mode, source }) {
     try {
         aiProviderCfg.recordUsage({
             purpose: 'translation',
-            model: provider === 'deepl' ? 'deepl' : 'minimax-translation',
+            model: provider === 'deepl' ? 'deepl' : (provider === 'openai' ? 'openai-translation' : 'minimax-translation'),
             tokens_prompt: chars || 0,
             tokens_total: chars || 0,
             latency_ms: latencyMs,
@@ -314,9 +406,9 @@ async function translateText(text, { role, timestamp, mode, provider } = {}) {
     const chars = String(text || '').length;
 
     if (finalProvider === 'deepl') {
-        // 配额校验放在 try 外面，让 429 穿透到 route 层，不被 fallback 捕获
-        const release = await reserveDeepLQuota(chars);
+        let release = () => {};
         try {
+            release = await reserveDeepLQuota(chars);
             const out = await translateTextViaDeepL(text, { direction, timestamp });
             if (isNoopTranslationForDirection(text, out.translation, direction)) {
                 throw new Error('DeepL returned source text unchanged');
@@ -325,10 +417,20 @@ async function translateText(text, { role, timestamp, mode, provider } = {}) {
             return out;
         } catch (err) {
             release();
-            console.error('[translationService] DeepL translateText failed, fallback MiniMax:', err.message);
+            console.error('[translationService] DeepL translateText failed, fallback OpenAI:', err.message);
             logUsage({ provider: 'deepl', status: 'error', chars, latencyMs: Date.now() - started, error: err.message, mode });
-            // fall-through to MiniMax
+            const openaiStarted = Date.now();
+            const out = await translateTextViaOpenAI(text, { direction, timestamp });
+            logUsage({ provider: 'openai', status: 'ok', chars, latencyMs: Date.now() - openaiStarted, mode });
+            return out;
         }
+    }
+
+    if (finalProvider === 'openai') {
+        const openaiStarted = Date.now();
+        const out = await translateTextViaOpenAI(text, { direction, timestamp });
+        logUsage({ provider: 'openai', status: 'ok', chars, latencyMs: Date.now() - openaiStarted, mode });
+        return out;
     }
 
     const minimaxStarted = Date.now();
@@ -349,10 +451,11 @@ async function translateBatch(texts, { mode, provider } = {}) {
     const totalChars = texts.reduce((sum, t) => sum + String(t?.text || '').length, 0);
 
     if (finalProvider === 'deepl') {
-        const release = await reserveDeepLQuota(totalChars);
+        let release = () => {};
         try {
+            release = await reserveDeepLQuota(totalChars);
             const out = await translateBatchViaDeepL(texts, mode);
-            out.translations = await repairNoopBatchWithMiniMax(texts, out.translations || [], mode);
+            out.translations = await repairNoopBatchWithOpenAI(texts, out.translations || [], mode);
             logUsage({
                 provider: 'deepl',
                 status: 'ok',
@@ -364,7 +467,7 @@ async function translateBatch(texts, { mode, provider } = {}) {
             return out;
         } catch (err) {
             release();
-            console.error('[translationService] DeepL translateBatch failed, fallback MiniMax:', err.message);
+            console.error('[translationService] DeepL translateBatch failed, fallback OpenAI:', err.message);
             logUsage({
                 provider: 'deepl',
                 status: 'error',
@@ -374,8 +477,32 @@ async function translateBatch(texts, { mode, provider } = {}) {
                 mode,
                 source: `batch=${texts.length}`,
             });
-            // fall-through
+            const openaiStarted = Date.now();
+            const out = await translateBatchViaOpenAI(texts, mode);
+            logUsage({
+                provider: 'openai',
+                status: 'ok',
+                chars: totalChars,
+                latencyMs: Date.now() - openaiStarted,
+                mode,
+                source: `batch=${texts.length}`,
+            });
+            return out;
         }
+    }
+
+    if (finalProvider === 'openai') {
+        const openaiStarted = Date.now();
+        const out = await translateBatchViaOpenAI(texts, mode);
+        logUsage({
+            provider: 'openai',
+            status: 'ok',
+            chars: totalChars,
+            latencyMs: Date.now() - openaiStarted,
+            mode,
+            source: `batch=${texts.length}`,
+        });
+        return out;
     }
 
     const minimaxStarted = Date.now();
@@ -402,6 +529,8 @@ module.exports = {
         detectTranslationDirection,
         directionToLangs,
         isNoopTranslationForDirection,
+        collectNoopBatchInputs,
+        stripJsonFence,
         getDeepLClient,
         getTodayTranslationChars,
         reserveDeepLQuota,
