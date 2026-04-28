@@ -123,7 +123,7 @@ async function main() {
             }
         }
 
-        if (envFlag('STARTUP_REBUILD_WANGYOUKE_CREATORS', true)) {
+        if (envFlag('STARTUP_REBUILD_WANGYOUKE_CREATORS', false)) {
             const rebuildArgs = [WANGYOUKE_REBUILD_SCRIPT, '--write'];
             const owner = String(process.env.WANGYOUKE_REBUILD_OWNER || '').trim();
             if (owner) rebuildArgs.push(`--owner=${owner}`);

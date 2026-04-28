@@ -1,14 +1,16 @@
 # WangYouKe Phone Normalization And Translation Handoff
 
 Date: 2026-04-28
-Status: Active
+Status: Active, revised after #97 rollback review
 Branch: `codex/youke-phone-normalization`
-Commits: `16a91d8`, `43b9c02`
-Scope: WangYouKe creator phone normalization, Baileys sync compatibility, startup rebuild, and translation fallback repair
+Commits: `16a91d8`, `43b9c02`, follow-up safety edits
+Scope: WangYouKe creator phone normalization, in-system phone edits, Baileys history repair, and translation fallback repair
 
 ## Summary
 
 This handoff records the fix for the WangYouKe import/sync issue and the chat translation issue.
+
+Follow-up review found that running the WangYouKe rebuild from startup migrations by default is too risky for production because it can move messages, merge duplicate creators, and delete source creator rows during every container start. The safe direction is now: normalize phone values in normal create/edit/import paths, expose explicit Baileys history repair actions, and keep bulk rebuild scripts manual only.
 
 The message sync root cause was phone identity format. WA CRM uses `creators.wa_phone` as the canonical WhatsApp contact key, and Baileys turns that value into a JID as:
 
@@ -49,6 +51,18 @@ Behavior:
 - if an old local-variant creator is reused, it is updated to the canonical `1xxxxxxxxxx` value.
 - the bulk import preview displays the canonical number that will be sent to the API.
 
+Updated edit path:
+
+- `PUT /api/creators/:id`
+- `src/components/CreatorDetail.jsx`
+
+Behavior:
+
+- editing a creator phone through the existing creator edit panel now goes through backend normalization.
+- US 10-digit values are stored as `1xxxxxxxxxx`.
+- the update rejects same-phone variant conflicts with `409` instead of silently merging or overwriting another creator.
+- this is the preferred way to fix a WangYouKe creator phone after import. Do not use startup rebuild for routine edits.
+
 Updated Baileys/worker paths:
 
 - `server/services/wa/driver/jidUtils.js`
@@ -71,9 +85,9 @@ node scripts/rebuild-wangyouke-creators.cjs --write
 
 Startup integration:
 
-- `scripts/run-startup-migrations.cjs` runs the rebuild after SQL migrations.
-- default enabled: `STARTUP_REBUILD_WANGYOUKE_CREATORS=true`.
-- disable with `STARTUP_REBUILD_WANGYOUKE_CREATORS=false`.
+- `scripts/run-startup-migrations.cjs` can run the rebuild after SQL migrations only when explicitly enabled.
+- default enabled: `STARTUP_REBUILD_WANGYOUKE_CREATORS=false`.
+- enable only for a reviewed one-off maintenance window with `STARTUP_REBUILD_WANGYOUKE_CREATORS=true`.
 - default owner: `WangYouKe`.
 - override owner with `WANGYOUKE_REBUILD_OWNER=<owner>`.
 
@@ -92,6 +106,45 @@ Local dry-run on this machine returned zero scanned rows because the local DB di
 ```json
 {"owner":"WangYouKe","session_id":"wangyouke","write":false,"scanned":0,"normalized":0,"merged":0,"conflicts":[],"skipped":[]}
 ```
+
+## Baileys History Repair
+
+New explicit API:
+
+```http
+POST /api/wa/repair-baileys-history
+Content-Type: application/json
+
+{
+  "creator_id": 123,
+  "fetch_limit": 500,
+  "full_dedup": true
+}
+```
+
+Implementation paths:
+
+- `server/routes/wa.js`
+- `server/services/waSessionRouter.js`
+- `server/agent/ipcProtocol.js`
+- `server/agent/waAgent.js`
+
+Behavior:
+
+- routes the request to the creator owner/session.
+- requires the active session to be using the Baileys driver.
+- uses the Baileys on-demand `fetchMessageHistory` path when a Baileys-keyed anchor exists.
+- waits briefly for `messaging-history.set`, combines buffered live messages and fetched history, then runs the existing CRM reconciliation path.
+- returns `audit_source.baileys_history_fetch` so operators can see whether a server-side history fetch was requested, skipped for missing anchor, or collected messages.
+
+UI entry:
+
+- Chat workspace header repair button (`RepairIcon` / mobile `🩺`) now calls `POST /api/wa/repair-baileys-history` first.
+- If the routed session is not Baileys, the same button falls back to the existing `POST /api/wa/reconcile-contact` repair path.
+
+Known boundary:
+
+- if a creator has no Baileys-keyed anchor message yet, the endpoint can still reconcile the driver buffer but cannot force deep history from WA. Send/receive one Baileys message first or wait for normal history sync to create an anchor.
 
 ## Translation Repair
 
@@ -136,16 +189,16 @@ Results:
 
 ## Rollout Notes
 
-1. Deploy branch `codex/youke-phone-normalization`.
-2. Keep `STARTUP_REBUILD_WANGYOUKE_CREATORS=true` for the first deploy so the startup migration runner repairs the owner data.
-3. After deploy, check startup logs for `[wangyouke-rebuild]`.
-4. Confirm `conflicts` is empty or review any reported cross-owner conflicts manually.
-5. Run the Baileys readiness report for WangYouKe after the rebuild:
+1. Deploy branch `codex/youke-phone-normalization` after confirming `STARTUP_REBUILD_WANGYOUKE_CREATORS` remains unset or `false`.
+2. Fix individual WangYouKe phones through the creator edit UI or `PUT /api/creators/:id`.
+3. If bulk cleanup is needed, run `node scripts/rebuild-wangyouke-creators.cjs --dry-run` first and only use `--write` during a reviewed maintenance window.
+4. Run the Baileys readiness report for WangYouKe:
 
 ```bash
 node scripts/report-baileys-backfill-readiness.cjs --owner=WangYouKe --include-ok --limit=50
 ```
 
+5. For a repaired creator, call `POST /api/wa/repair-baileys-history` or use the existing contact repair action.
 6. Retest a WangYouKe creator whose number was imported as a US 10-digit value.
 7. Retest chat translation on an English message; the translation line should show Chinese or stay hidden if no effective translation is returned.
 
@@ -153,7 +206,7 @@ node scripts/report-baileys-backfill-readiness.cjs --owner=WangYouKe --include-o
 
 - The rebuild will not merge a same-phone variant if another owner has a conflicting creator outside WangYouKe scope; it reports the conflict.
 - Existing rows with wrong non-US country assumptions cannot be inferred automatically. Only 10-digit local US numbers are normalized to `1xxxxxxxxxx`.
-- Baileys history backfill still requires a valid Baileys anchor for deep history fetch; phone normalization fixes the target JID and matching layer, not the anchor requirement.
+- Baileys history repair still requires a valid Baileys anchor for deep history fetch; phone normalization fixes the target JID and matching layer, not the anchor requirement.
 - Generated build assets are not committed; only source and tests are part of this handoff.
 
 ## Obsidian Sync

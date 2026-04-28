@@ -9,6 +9,7 @@
 const CMD_SEND_MESSAGE = 'send_message';
 const CMD_SEND_MEDIA = 'send_media';
 const CMD_AUDIT_RECENT_MESSAGES = 'audit_recent_messages';
+const CMD_REPAIR_BAILEYS_HISTORY = 'repair_baileys_history';
 const CMD_CHANGE_DRIVER = 'change_driver';
 const CMD_SHUTDOWN = 'shutdown';
 
@@ -45,6 +46,7 @@ module.exports = {
     CMD_SEND_MESSAGE,
     CMD_SEND_MEDIA,
     CMD_AUDIT_RECENT_MESSAGES,
+    CMD_REPAIR_BAILEYS_HISTORY,
     CMD_SHUTDOWN,
 
     EVT_QR,
