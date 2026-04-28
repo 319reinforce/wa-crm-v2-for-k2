@@ -99,6 +99,67 @@ async function backfillMessageHashes(db2, creatorId, minTs, maxTs, {
     return { updated, deleted };
 }
 
+async function backfillNativeMessageMetadata(db2, creatorId, normalizedRaw, minTs, maxTs) {
+    const candidatesByKey = new Map();
+    for (const row of normalizedRaw || []) {
+        if (!row?.message_id && !row?.proto_driver && !row?.proto_bytes) continue;
+        const key = `${row.role || ''}\u0000${row.normalizedText || ''}\u0000${Number(row.timestamp) || 0}`;
+        if (!candidatesByKey.has(key)) candidatesByKey.set(key, row);
+    }
+    if (candidatesByKey.size === 0) {
+        return { updated: 0, skipped_conflict: 0 };
+    }
+
+    const existingRows = (await db2.prepare(`
+        SELECT id, role, text, timestamp, wa_message_id, proto_driver, proto_bytes
+        FROM wa_messages
+        WHERE creator_id = ?
+          AND timestamp BETWEEN ? AND ?
+        ORDER BY timestamp ASC, id ASC
+    `).all(creatorId, minTs, maxTs)).map((row) => ({
+        ...row,
+        timestamp: Number(row.timestamp) || 0,
+        normalizedText: normalizeMessageText(row.text),
+    }));
+
+    const updateStmt = db2.prepare(`
+        UPDATE wa_messages
+        SET
+            wa_message_id = COALESCE(wa_message_id, ?),
+            proto_bytes = COALESCE(proto_bytes, ?),
+            proto_driver = COALESCE(proto_driver, ?)
+        WHERE id = ?
+    `);
+
+    let updated = 0;
+    let skippedConflict = 0;
+    const usedRawKeys = new Set();
+    for (const existing of existingRows) {
+        if (existing.wa_message_id && existing.proto_driver && existing.proto_bytes) continue;
+        const key = `${existing.role || ''}\u0000${existing.normalizedText || ''}\u0000${Number(existing.timestamp) || 0}`;
+        const raw = candidatesByKey.get(key);
+        if (!raw || usedRawKeys.has(key)) continue;
+        try {
+            const result = await updateStmt.run(
+                raw.message_id || null,
+                raw.proto_bytes || null,
+                raw.proto_driver || null,
+                existing.id
+            );
+            updated += Number(result?.changes || 0);
+            usedRawKeys.add(key);
+        } catch (err) {
+            if (err?.code === 'ER_DUP_ENTRY') {
+                skippedConflict++;
+                continue;
+            }
+            throw err;
+        }
+    }
+
+    return { updated, skipped_conflict: skippedConflict };
+}
+
 function normalizeRawMessages(rawMessages = []) {
     const dedup = new Set();
     return (Array.isArray(rawMessages) ? rawMessages : [])
@@ -107,12 +168,18 @@ function normalizeRawMessages(rawMessages = []) {
             const text = normalizeMessageText(message?.text);
             const timestamp = Number(message?.timestamp) || 0;
             const messageId = String(message?.message_id || '').trim() || null;
+            const protoDriver = String(message?.proto_driver || message?.protoDriver || '').trim().slice(0, 16) || null;
+            const protoBytes = Buffer.isBuffer(message?.proto_bytes)
+                ? message.proto_bytes
+                : (Buffer.isBuffer(message?.protoBytes) ? message.protoBytes : null);
             return {
                 role,
                 text,
                 normalizedText: text,
                 timestamp,
                 message_id: messageId,
+                proto_bytes: protoBytes,
+                proto_driver: protoDriver,
             };
         })
         .filter((message) => message.timestamp > 0 && isUsefulText(message.text))
@@ -325,10 +392,16 @@ async function reconcileCreatorMessagesFromRaw({
                 row.text,
                 row.timestamp,
                 buildMessageHash(row.role, row.text, row.timestamp),
+                row.message_id || null,
+                row.proto_bytes || null,
+                row.proto_driver || null,
             ]);
-            const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+            const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
             await db2.prepare(`
-                INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash)
+                INSERT IGNORE INTO wa_messages (
+                    creator_id, role, operator, text, timestamp, message_hash,
+                    wa_message_id, proto_bytes, proto_driver
+                )
                 VALUES ${placeholders}
             `).run(...values.flat());
             enqueueCreatorEventDetection(db2, {
@@ -344,6 +417,7 @@ async function reconcileCreatorMessagesFromRaw({
             await db2.prepare('UPDATE creators SET updated_at = NOW() WHERE id = ?').run(creatorId);
         }
 
+        const nativeMetadataBackfill = await backfillNativeMessageMetadata(db2, creatorId, normalizedRaw, minTs, maxTs);
         const duplicateDeleted = await cleanupDuplicateMessages(db2, creatorId, minTs, maxTs, { full: fullDedup });
         const hashBackfill = await backfillMessageHashes(db2, creatorId, minTs, maxTs, { full: fullDedup });
         const groupPurged = await purgeCreatorMessagesMatchingGroups(db2, {
@@ -353,7 +427,12 @@ async function reconcileCreatorMessagesFromRaw({
             minTs,
             maxTs,
         });
-        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill, group_purged: groupPurged };
+        cleanup = {
+            native_metadata_backfill: nativeMetadataBackfill,
+            duplicate_deleted: duplicateDeleted,
+            hash_backfill: hashBackfill,
+            group_purged: groupPurged,
+        };
     }
 
     return {
@@ -433,10 +512,16 @@ async function syncCreatorMessagesFromRaw({
             row.text,
             row.timestamp,
             buildMessageHash(row.role, row.text, row.timestamp),
+            row.message_id || null,
+            row.proto_bytes || null,
+            row.proto_driver || null,
         ]);
-        const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+        const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
         await db2.prepare(`
-            INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash)
+            INSERT IGNORE INTO wa_messages (
+                creator_id, role, operator, text, timestamp, message_hash,
+                wa_message_id, proto_bytes, proto_driver
+            )
             VALUES ${placeholders}
         `).run(...values.flat());
         await db2.prepare('UPDATE creators SET updated_at = NOW() WHERE id = ?').run(creatorId);
@@ -450,6 +535,7 @@ async function syncCreatorMessagesFromRaw({
     }
 
     if (!dryRun) {
+        const nativeMetadataBackfill = await backfillNativeMessageMetadata(db2, creatorId, normalizedRaw, minTs, maxTs);
         const duplicateDeleted = await cleanupDuplicateMessages(db2, creatorId, minTs, maxTs, { full: fullDedup });
         const hashBackfill = await backfillMessageHashes(db2, creatorId, minTs, maxTs, { full: fullDedup });
         const groupPurged = await purgeCreatorMessagesMatchingGroups(db2, {
@@ -459,7 +545,12 @@ async function syncCreatorMessagesFromRaw({
             minTs,
             maxTs,
         });
-        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill, group_purged: groupPurged };
+        cleanup = {
+            native_metadata_backfill: nativeMetadataBackfill,
+            duplicate_deleted: duplicateDeleted,
+            hash_backfill: hashBackfill,
+            group_purged: groupPurged,
+        };
     }
 
     return {
@@ -573,10 +664,16 @@ async function replaceCreatorMessagesFromRaw({
             row.text,
             row.timestamp,
             buildMessageHash(row.role, row.text, row.timestamp),
+            row.message_id || null,
+            row.proto_bytes || null,
+            row.proto_driver || null,
         ]);
-        const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+        const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
         await db2.prepare(`
-            INSERT IGNORE INTO wa_messages (creator_id, role, operator, text, timestamp, message_hash)
+            INSERT IGNORE INTO wa_messages (
+                creator_id, role, operator, text, timestamp, message_hash,
+                wa_message_id, proto_bytes, proto_driver
+            )
             VALUES ${placeholders}
         `).run(...values.flat());
         enqueueCreatorEventDetection(db2, {
@@ -589,6 +686,7 @@ async function replaceCreatorMessagesFromRaw({
 
         await db2.prepare('UPDATE creators SET updated_at = NOW() WHERE id = ?').run(creatorId);
 
+        const nativeMetadataBackfill = await backfillNativeMessageMetadata(db2, creatorId, normalizedRaw, minTs, maxTs);
         const duplicateDeleted = await cleanupDuplicateMessages(db2, creatorId, minTs, maxTs, { full: fullDedup });
         const hashBackfill = await backfillMessageHashes(db2, creatorId, minTs, maxTs, { full: fullDedup });
         const groupPurged = await purgeCreatorMessagesMatchingGroups(db2, {
@@ -598,7 +696,12 @@ async function replaceCreatorMessagesFromRaw({
             minTs,
             maxTs,
         });
-        cleanup = { duplicate_deleted: duplicateDeleted, hash_backfill: hashBackfill, group_purged: groupPurged };
+        cleanup = {
+            native_metadata_backfill: nativeMetadataBackfill,
+            duplicate_deleted: duplicateDeleted,
+            hash_backfill: hashBackfill,
+            group_purged: groupPurged,
+        };
     }
 
     return {
@@ -624,6 +727,7 @@ module.exports = {
     _private: {
         assessWindowedReplaceSafety,
         buildReconcileSupportKey,
+        normalizeRawMessages,
         planReconcileOperations,
     },
 };

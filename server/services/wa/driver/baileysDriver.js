@@ -19,6 +19,12 @@ const { URL } = require('url');
 
 const { normalizeJid, isGroupJid, jidToPhoneE164 } = require('./jidUtils');
 const protoStore = require('../../messageProtoStore');
+const {
+    loadLidMappings,
+    upsertLidMapping,
+    isLidJid,
+    isPnJid,
+} = require('../../waLidMappingService');
 
 const RECONNECT_DELAY_MS = 5000;
 const BUFFER_SIZE = 200; // per-jid ring buffer for fetchRecentMessages
@@ -65,6 +71,14 @@ function categorizeMime(mimeType) {
     if (mimeType.startsWith('audio/')) return 'audio';
     if (mimeType.startsWith('video/')) return 'video';
     return 'document';
+}
+
+function maskJid(jid) {
+    const value = String(jid || '');
+    const [left, suffix = ''] = value.split('@');
+    const digits = left.replace(/\D/g, '');
+    const masked = digits.length <= 4 ? '***' : `***${digits.slice(-4)}`;
+    return suffix ? `${masked}@${suffix}` : masked;
 }
 
 // ---- DisconnectReason codes from baileys ----
@@ -179,6 +193,7 @@ class BaileysDriver extends EventEmitter {
         this._baileysModule = { makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage };
 
         const { state, saveCreds } = await useMultiFileAuthState(this._authDir);
+        await this._loadPersistedLidMappings();
 
         // Baileys 要求 logger 实现 pino 接口（含 child()），裸 { level: 'silent' }
         // 会让 makeWASocket 在内部调用 logger.child(...) 时抛 TypeError。
@@ -308,24 +323,21 @@ class BaileysDriver extends EventEmitter {
         this._sock.ev.on('contacts.upsert', (contacts) => {
             for (const c of contacts) {
                 if (c?.id && c?.lid) {
-                    this._lidToPnMap.set(String(c.lid), String(c.id));
-                    console.log(`[BaileysDriver:${this.sessionId}] contacts.upsert mapped LID ${c.lid} → PN ${c.id}`);
+                    this._rememberLidMapping(c.lid, c.id, 'contacts_upsert', null, 2);
                 }
             }
         });
         this._sock.ev.on('contacts.update', (updates) => {
             for (const u of updates) {
                 if (u?.id && u?.lid) {
-                    this._lidToPnMap.set(String(u.lid), String(u.id));
-                    console.log(`[BaileysDriver:${this.sessionId}] contacts.update mapped LID ${u.lid} → PN ${u.id}`);
+                    this._rememberLidMapping(u.lid, u.id, 'contacts_update', null, 2);
                 }
             }
         });
         this._sock.ev.on('chats.upsert', (chats) => {
             for (const c of chats) {
                 if (c?.id && c?.lid) {
-                    this._lidToPnMap.set(String(c.lid), String(c.id));
-                    console.log(`[BaileysDriver:${this.sessionId}] chats.upsert mapped LID ${c.lid} → PN ${c.id}`);
+                    this._rememberLidMapping(c.lid, c.id, 'chats_upsert', null, 2);
                 }
             }
         });
@@ -356,7 +368,7 @@ class BaileysDriver extends EventEmitter {
                 // LID ↔ PN 映射：messaging-history.set 里的 contacts 可能带 lid 字段（Issue #2077 有时为空）
                 for (const c of contacts) {
                     if (c?.id && c?.lid) {
-                        this._lidToPnMap.set(String(c.lid), String(c.id));
+                        this._rememberLidMapping(c.lid, c.id, 'history_contact', null, 2);
                     }
                 }
                 console.log(`[BaileysDriver:${this.sessionId}] messaging-history.set chats=${chats.length} contacts=${contacts.length} messages=${messages.length} syncType=${syncType} progress=${progress} isLatest=${!!isLatest}`);
@@ -406,7 +418,7 @@ class BaileysDriver extends EventEmitter {
         }
         const startedAt = Date.now();
         const jid = normalizeJid(phoneE164, 'baileys');
-        console.log(`[BaileysDriver:${this.sessionId}] sendMessage → ${jid} len=${String(text || '').length}`);
+        console.log(`[BaileysDriver:${this.sessionId}] sendMessage → ${maskJid(jid)} len=${String(text || '').length}`);
 
         // 预检：目标号码是否在 WhatsApp 上。onWhatsApp 结果为空/exists=false 时
         // sock.sendMessage 会永久等 ack，父进程 30s 超时（用户看到的 command timeout）。
@@ -417,15 +429,14 @@ class BaileysDriver extends EventEmitter {
                     new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
                 ]);
                 const entry = Array.isArray(check) ? check[0] : null;
-                console.log(`[BaileysDriver:${this.sessionId}] onWhatsApp raw: ${JSON.stringify(check)}`);
+                console.log(`[BaileysDriver:${this.sessionId}] onWhatsApp exists=${!!entry?.exists} jid=${maskJid(entry?.jid)} lid=${maskJid(entry?.lid)}`);
                 if (!entry?.exists) {
-                    console.warn(`[BaileysDriver:${this.sessionId}] onWhatsApp: ${jid} NOT registered (check=${JSON.stringify(check)})`);
+                    console.warn(`[BaileysDriver:${this.sessionId}] onWhatsApp: ${maskJid(jid)} NOT registered`);
                     return { ok: false, error: `phone ${phoneE164} 未注册 WhatsApp 或 lid 未解析` };
                 }
                 // 建立 LID ↔ PN 映射：onWhatsApp 返回 { jid: <pn>, lid: <lid>, exists }
                 if (entry.lid && entry.jid) {
-                    this._lidToPnMap.set(String(entry.lid), String(entry.jid));
-                    console.log(`[BaileysDriver:${this.sessionId}] mapped LID ${entry.lid} → PN ${entry.jid}`);
+                    this._rememberLidMapping(entry.lid, entry.jid, 'on_whatsapp', { exists: !!entry.exists }, 3);
                 }
             }
         } catch (err) {
@@ -610,6 +621,64 @@ class BaileysDriver extends EventEmitter {
 
     // ---- private ----
 
+    async _loadPersistedLidMappings() {
+        try {
+            const mappings = await loadLidMappings(this.sessionId);
+            if (mappings.size > 0) {
+                this._lidToPnMap = mappings;
+                console.log(`[BaileysDriver:${this.sessionId}] loaded ${mappings.size} persisted LID mappings`);
+            }
+        } catch (err) {
+            console.warn(`[BaileysDriver:${this.sessionId}] load LID mappings failed: ${err.message}`);
+        }
+    }
+
+    _rememberLidMapping(lidJid, pnJid, source = 'unknown', meta = null, confidence = 2) {
+        const lid = String(lidJid || '').trim().toLowerCase();
+        const pn = String(pnJid || '').trim().toLowerCase();
+        if (!isLidJid(lid) || !isPnJid(pn)) return false;
+
+        const previous = this._lidToPnMap.get(lid);
+        this._lidToPnMap.set(lid, pn);
+        if (previous !== pn) {
+            console.log(`[BaileysDriver:${this.sessionId}] learned LID ${maskJid(lid)} → PN ${maskJid(pn)} source=${source}`);
+        }
+
+        upsertLidMapping({
+            sessionId: this.sessionId,
+            operator: this.cfg.owner,
+            lidJid: lid,
+            pnJid: pn,
+            source,
+            confidence,
+            meta,
+        }).catch((err) => {
+            console.warn(`[BaileysDriver:${this.sessionId}] persist LID mapping failed source=${source}: ${err.message}`);
+        });
+        return true;
+    }
+
+    _resolvePnJid(jidCandidate) {
+        if (!jidCandidate) return null;
+        const str = String(jidCandidate).trim().toLowerCase();
+        if (!str) return null;
+        if (isPnJid(str) || str.endsWith('@g.us')) return str;
+        if (isLidJid(str)) {
+            const pn = this._lidToPnMap.get(str);
+            if (pn) return pn;
+            // 兜底：最近 2min 内刚给某 PN 发过消息 → 假设是同一 chat 回复。
+            // 该路径置信度较低，但会持久化并打 masked log，方便后续审计。
+            if (this._lastOutgoingPnJid && Date.now() - this._lastOutgoingAt < this._LID_TIMING_WINDOW_MS) {
+                const ageMs = Date.now() - this._lastOutgoingAt;
+                this._rememberLidMapping(str, this._lastOutgoingPnJid, 'timing_heuristic', { age_ms: ageMs }, 1);
+                console.warn(`[BaileysDriver:${this.sessionId}] LID ${maskJid(str)} resolved by timing heuristic ageMs=${ageMs}`);
+                return this._lastOutgoingPnJid;
+            }
+            console.warn(`[BaileysDriver:${this.sessionId}] LID ${maskJid(str)} unresolved (no persisted map, no recent outgoing)`);
+        }
+        return str;
+    }
+
     async _reconnect() {
         if (this._stopped) return;
         if (this._sock) {
@@ -637,31 +706,19 @@ class BaileysDriver extends EventEmitter {
         // 两种格式，同一个人的不同标识。DB creators.wa_phone 存 PN 格式（真实号码）。
         // LID 是 WA 内部别名、值和手机号完全不同；直接当号码用会创建野生 creator。
         //
-        // 三级兜底找 PN:
+        // 多级兜底找 PN:
         //   1. 如果 remoteJid 本身就是 PN (@s.whatsapp.net) → 直接用
         //   2. 如果 key.senderPn / msg.senderPn 存在 → 用它（baileys 6.x 某些版本有）
-        //   3. 否则查 _lidToPnMap（sendMessage 时从 onWhatsApp 结果缓存的 LID→PN）
-        const resolvePnJid = (jidCandidate) => {
-            if (!jidCandidate) return null;
-            const str = String(jidCandidate);
-            if (str.endsWith('@s.whatsapp.net') || str.endsWith('@g.us')) return str;
-            if (str.endsWith('@lid')) {
-                const pn = this._lidToPnMap.get(str);
-                if (pn) return pn;
-                // 兜底：最近 2min 内刚给某 PN 发过消息 → 假设是同一 chat 回复
-                if (this._lastOutgoingPnJid && Date.now() - this._lastOutgoingAt < this._LID_TIMING_WINDOW_MS) {
-                    this._lidToPnMap.set(str, this._lastOutgoingPnJid);
-                    console.warn(`[BaileysDriver:${this.sessionId}] LID ${str} resolved by timing heuristic → PN ${this._lastOutgoingPnJid} (lastSent ${Date.now() - this._lastOutgoingAt}ms ago)`);
-                    return this._lastOutgoingPnJid;
-                }
-                console.warn(`[BaileysDriver:${this.sessionId}] LID ${str} 无法还原 PN (no map entry, no recent outgoing), using LID as-is`);
-            }
-            return str;
-        };
-
-        const chatJidForPhone = !fromMe && !isGroup
-            ? (key.senderPn || msg?.senderPn || resolvePnJid(key.remoteJid))
-            : key.remoteJid;
+        //   3. 否则查持久化/内存 _lidToPnMap，最后才落到 unresolvedLid
+        let chatJidForPhone;
+        if (isGroup) {
+            chatJidForPhone = key.remoteJid;
+        } else if (fromMe) {
+            chatJidForPhone = this._resolvePnJid(key.remoteJid);
+        } else {
+            chatJidForPhone = key.senderPn || msg?.senderPn || this._resolvePnJid(key.remoteJid);
+        }
+        const unresolvedLid = !isGroup && isLidJid(chatJidForPhone);
 
         const chatId = jidToPhoneE164(chatJidForPhone);
         const from = jidToPhoneE164(fromMe ? chatJidForPhone : (key.participant || chatJidForPhone));
@@ -701,6 +758,7 @@ class BaileysDriver extends EventEmitter {
             authorName: !fromMe ? (msg?.pushName || msg?.verifiedBizName || null) : null,
             media: null,
             raw: msg,
+            unresolvedLid,
             // 交给 insertMessages 做 DB 冷存储。仅 baileys driver 设置。
             protoBytes,
             protoDriver: protoBytes ? 'baileys' : null,
@@ -802,9 +860,7 @@ class BaileysDriver extends EventEmitter {
         if (!msgId) return;
         const targetPnJid = this._sentIdToTargetJid.get(msgId);
         if (!targetPnJid) return;
-        if (this._lidToPnMap.get(remoteJid) === targetPnJid) return;
-        this._lidToPnMap.set(remoteJid, targetPnJid);
-        console.log(`[BaileysDriver:${this.sessionId}] learned LID ${remoteJid} → PN ${targetPnJid} (via fromMe reflection msgId=${msgId})`);
+        this._rememberLidMapping(remoteJid, targetPnJid, 'from_me_reflection', { message_id: msgId }, 3);
     }
 
     /** @param {import('./types').IncomingMessage} msg */
