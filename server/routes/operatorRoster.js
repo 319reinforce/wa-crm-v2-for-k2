@@ -12,7 +12,12 @@
  */
 const express = require('express');
 const db = require('../../db');
-const { getOperatorRoster } = require('../config/operatorRoster');
+const { getOperatorRoster, sortOperatorNames } = require('../config/operatorRoster');
+const { requireHumanAdmin } = require('../middleware/appAuth');
+const { writeAudit } = require('../middleware/audit');
+const creatorCache = require('../services/creatorCache');
+const { getSessionIdForOperator, _invalidateRosterFlagCache } = require('../services/operatorRosterService');
+const { normalizeOperatorName, ownersEqual } = require('../utils/operator');
 
 const router = express.Router();
 
@@ -29,6 +34,38 @@ async function fetchDistinctNames(sql, label) {
         console.error(`GET /api/operator-roster ${label} failed:`, err.message);
         return [];
     }
+}
+
+function normalizeTransferOwner(raw) {
+    const owner = normalizeOperatorName(raw, null);
+    return owner && String(owner).trim() ? String(owner).trim() : null;
+}
+
+async function getTransferPreview(fromOwner, toOwner) {
+    const dbConn = db.getDb();
+    const [creatorRow, rosterRow, activeCreatorRow, existingTargetRosterRow, eventRow] = await Promise.all([
+        dbConn.prepare('SELECT COUNT(*) AS c FROM creators WHERE wa_owner = ?').get(fromOwner),
+        dbConn.prepare('SELECT COUNT(*) AS c FROM operator_creator_roster WHERE operator = ?').get(fromOwner),
+        dbConn.prepare('SELECT COUNT(*) AS c FROM creators WHERE wa_owner = ? AND COALESCE(is_active, 1) = 1').get(fromOwner),
+        dbConn.prepare('SELECT COUNT(*) AS c FROM operator_creator_roster WHERE operator = ?').get(toOwner),
+        dbConn.prepare(`
+            SELECT COUNT(*) AS c
+              FROM events e
+              JOIN creators c ON c.id = e.creator_id
+             WHERE c.wa_owner = ?
+               AND e.owner = ?
+        `).get(fromOwner, fromOwner),
+    ]);
+    return {
+        from_owner: fromOwner,
+        to_owner: toOwner,
+        creator_count: Number(creatorRow?.c || 0),
+        active_creator_count: Number(activeCreatorRow?.c || 0),
+        roster_count: Number(rosterRow?.c || 0),
+        event_count: Number(eventRow?.c || 0),
+        target_existing_roster_count: Number(existingTargetRosterRow?.c || 0),
+        target_session_id: getSessionIdForOperator(toOwner) || String(toOwner || '').toLowerCase(),
+    };
 }
 
 router.get('/', async (req, res) => {
@@ -89,12 +126,138 @@ router.get('/', async (req, res) => {
                     seen_in: [...sources],
                 };
             })
-            .sort((a, b) => String(a.operator).localeCompare(String(b.operator), 'zh-CN'));
+            .sort((a, b) => sortOperatorNames(a.operator, b.operator));
 
         res.json({ ok: true, data: dynamicItems });
     } catch (err) {
         console.error('GET /api/operator-roster error:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/operator-roster/transfer-preview?from=Jiawen&to=Yiyun
+router.get('/transfer-preview', requireHumanAdmin, async (req, res) => {
+    try {
+        const fromOwner = normalizeTransferOwner(req.query?.from || req.query?.from_owner);
+        const toOwner = normalizeTransferOwner(req.query?.to || req.query?.to_owner);
+        if (!fromOwner || !toOwner) {
+            return res.status(400).json({ ok: false, error: 'from and to owner are required' });
+        }
+        if (ownersEqual(fromOwner, toOwner)) {
+            return res.status(400).json({ ok: false, error: 'from and to owner must be different' });
+        }
+        res.json({ ok: true, data: await getTransferPreview(fromOwner, toOwner) });
+    } catch (err) {
+        console.error('GET /api/operator-roster/transfer-preview error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// POST /api/operator-roster/transfer — admin 批量转移联系人 owner 归属
+router.post('/transfer', requireHumanAdmin, async (req, res) => {
+    try {
+        const fromOwner = normalizeTransferOwner(req.body?.from || req.body?.from_owner);
+        const toOwner = normalizeTransferOwner(req.body?.to || req.body?.to_owner);
+        const confirm = req.body?.confirm === true || req.body?.confirm === 'true';
+        if (!fromOwner || !toOwner) {
+            return res.status(400).json({ ok: false, error: 'from and to owner are required' });
+        }
+        if (ownersEqual(fromOwner, toOwner)) {
+            return res.status(400).json({ ok: false, error: 'from and to owner must be different' });
+        }
+
+        const before = await getTransferPreview(fromOwner, toOwner);
+        if (!confirm) {
+            return res.json({ ok: true, dry_run: true, data: before });
+        }
+
+        const targetSessionId = before.target_session_id;
+        const result = await db.getDb().transaction(async (txDb) => {
+            const rows = await txDb.prepare(`
+                SELECT id, wa_phone
+                  FROM creators
+                 WHERE wa_owner = ?
+                 ORDER BY id ASC
+            `).all(fromOwner);
+            const creatorIds = rows.map((row) => Number(row.id)).filter(Boolean);
+
+            let creatorsUpdated = 0;
+            if (creatorIds.length > 0) {
+                const creatorUpdate = await txDb.prepare(`
+                    UPDATE creators
+                       SET wa_owner = ?,
+                           updated_at = CURRENT_TIMESTAMP
+                     WHERE wa_owner = ?
+                `).run(toOwner, fromOwner);
+                creatorsUpdated = Number(creatorUpdate?.changes || 0);
+            }
+
+            const rosterUpdate = await txDb.prepare(`
+                UPDATE operator_creator_roster
+                   SET operator = ?,
+                       session_id = ?,
+                       updated_at = CURRENT_TIMESTAMP
+                 WHERE operator = ?
+            `).run(toOwner, targetSessionId, fromOwner);
+
+            let eventsUpdated = 0;
+            if (creatorIds.length > 0) {
+                const placeholders = creatorIds.map(() => '?').join(', ');
+                const eventUpdate = await txDb.prepare(`
+                    UPDATE events
+                       SET owner = ?,
+                           updated_at = CURRENT_TIMESTAMP
+                     WHERE owner = ?
+                       AND creator_id IN (${placeholders})
+                `).run(toOwner, fromOwner, ...creatorIds);
+                eventsUpdated = Number(eventUpdate?.changes || 0);
+            }
+
+            return {
+                creator_ids: creatorIds,
+                creator_rows: rows,
+                creators_updated: creatorsUpdated,
+                roster_updated: Number(rosterUpdate?.changes || 0),
+                events_updated: eventsUpdated,
+            };
+        });
+
+        _invalidateRosterFlagCache();
+        await Promise.all((result.creator_rows || []).map((row) => creatorCache.invalidateCreator(row.id, row.wa_phone)));
+
+        const after = await getTransferPreview(fromOwner, toOwner);
+        await writeAudit(
+            'operator.transfer_contacts',
+            'creators',
+            null,
+            before,
+            {
+                ...after,
+                moved_from: fromOwner,
+                moved_to: toOwner,
+                creators_updated: result.creators_updated,
+                roster_updated: result.roster_updated,
+                events_updated: result.events_updated,
+                creator_ids: result.creator_ids,
+            },
+            req
+        );
+
+        res.json({
+            ok: true,
+            data: {
+                from_owner: fromOwner,
+                to_owner: toOwner,
+                creators_updated: result.creators_updated,
+                roster_updated: result.roster_updated,
+                events_updated: result.events_updated,
+                target_session_id: targetSessionId,
+                remaining_from_owner: after.creator_count,
+            },
+        });
+    } catch (err) {
+        console.error('POST /api/operator-roster/transfer error:', err);
+        res.status(500).json({ ok: false, error: err.message });
     }
 });
 

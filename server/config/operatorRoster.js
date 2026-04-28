@@ -36,8 +36,49 @@ const OPERATOR_ROSTER = [
     },
 ];
 
+// Business-facing display priority for owner chips and roster selectors.
+const OPERATOR_DISPLAY_ORDER = [
+    'Yiyun',
+    'Beau',
+    'WangYouKe',
+    'Jaylyn',
+    'Jiawei',
+];
+
+const OPERATOR_ORDER_ALIASES = {
+    yiyun: 'Yiyun',
+    yanyiyun: 'Yiyun',
+    alice: 'Yiyun',
+    beau: 'Beau',
+    yifan: 'Beau',
+    youke: 'WangYouKe',
+    wangyouke: 'WangYouKe',
+    bella: 'WangYouKe',
+    youkebella: 'WangYouKe',
+    jaylyn: 'Jaylyn',
+    jiawei: 'Jiawei',
+};
+
 function normalizeDigits(value) {
     return String(value || '').replace(/\D/g, '');
+}
+
+function normalizeOrderKey(value) {
+    const key = String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return OPERATOR_ORDER_ALIASES[key] || value;
+}
+
+function getOperatorSortRank(operator) {
+    const canonical = normalizeOrderKey(operator);
+    const rank = OPERATOR_DISPLAY_ORDER.indexOf(canonical);
+    return rank === -1 ? Number.POSITIVE_INFINITY : rank;
+}
+
+function sortOperatorNames(a, b) {
+    const ar = getOperatorSortRank(a);
+    const br = getOperatorSortRank(b);
+    if (ar !== br) return ar - br;
+    return String(a || '').localeCompare(String(b || ''), 'zh-CN');
 }
 
 function findByPhone(phone) {
@@ -66,8 +107,11 @@ function getOperatorRoster() {
 }
 
 module.exports = {
+    OPERATOR_DISPLAY_ORDER,
     OPERATOR_ROSTER,
     findByPhone,
+    getOperatorSortRank,
     getOperatorRoster,
     normalizeDigits,
+    sortOperatorNames,
 };

@@ -6,11 +6,29 @@ export const OWNER_COLORS = {
   Yiyun: '#8b5cf6',
   Jiawen: '#ec4899',
   WangYouKe: '#14b8a6',
+  Jaylyn: '#f97316',
+  Jiawei: '#0ea5e9',
 }
 
 // Dynamic owner lists come from /api/operator-roster. Keep this empty so local
 // fixed owners do not appear unless they exist in users/creators/wa_sessions.
 export const OWNER_ORDER = []
+
+// Business-facing display priority for owner chips and selectors.
+const OWNER_SORT_ORDER = ['Yiyun', 'Beau', 'WangYouKe', 'Jaylyn', 'Jiawei']
+const OWNER_ORDER_ALIASES = {
+  yiyun: 'Yiyun',
+  yanyiyun: 'Yiyun',
+  alice: 'Yiyun',
+  beau: 'Beau',
+  yifan: 'Beau',
+  youke: 'WangYouKe',
+  wangyouke: 'WangYouKe',
+  bella: 'WangYouKe',
+  youkebella: 'WangYouKe',
+  jaylyn: 'Jaylyn',
+  jiawei: 'Jiawei',
+}
 
 export function getOwnerColor(owner, fallback = '#94a3b8') {
   if (OWNER_COLORS[owner]) return OWNER_COLORS[owner]
@@ -29,7 +47,17 @@ export function sortOwners(a, b) {
     if (bi === -1) return -1
     return ai - bi
   }
+  const ar = ownerSortRank(a)
+  const br = ownerSortRank(b)
+  if (ar !== br) return ar - br
   return String(a).localeCompare(String(b), 'zh-CN')
+}
+
+function ownerSortRank(owner) {
+  const key = String(owner || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  const canonical = OWNER_ORDER_ALIASES[key] || owner
+  const rank = OWNER_SORT_ORDER.indexOf(canonical)
+  return rank === -1 ? Number.POSITIVE_INFINITY : rank
 }
 
 export function buildOwnerOptions(values = [], { includeAll = false } = {}) {
