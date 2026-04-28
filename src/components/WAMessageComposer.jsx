@@ -1908,18 +1908,27 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         setRepairingMessages(true);
         setLastRepairSummary(null);
         try {
-            const res = await fetchWaAdmin(`${API_BASE}/wa/reconcile-contact`, {
+            const payload = {
+                creator_id: client.id,
+                phone: client.phone,
+                operator: creator?.wa_owner || client.wa_owner || null,
+                session_id: creator?.session_id || client.session_id || null,
+                fetch_limit: 500,
+            };
+            let res = await fetchWaAdmin(`${API_BASE}/wa/repair-baileys-history`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    creator_id: client.id,
-                    phone: client.phone,
-                    operator: creator?.wa_owner || client.wa_owner || null,
-                    session_id: creator?.session_id || client.session_id || null,
-                    fetch_limit: 500,
-                }),
+                body: JSON.stringify(payload),
             });
-            const data = await res.json();
+            let data = await res.json();
+            if (!res.ok && /requires baileys driver/i.test(String(data?.error || ''))) {
+                res = await fetchWaAdmin(`${API_BASE}/wa/reconcile-contact`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                data = await res.json();
+            }
             if (!res.ok || !data?.ok) {
                 if (data?.error === 'session syncing') {
                     throw new Error('后台正在全量同步中，请稍后再试');

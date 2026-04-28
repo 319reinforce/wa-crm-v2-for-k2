@@ -1,6 +1,6 @@
 # WA CRM v2 Memory Index
 
-Date: 2026-04-27
+Date: 2026-04-28
 Status: Active
 
 ## Active Standards
@@ -24,6 +24,8 @@ Status: Active
 - [[notes/2026-04-27-ai-reply-generation-current|AI Reply Generation Current]]
 - [[notes/2026-04-27-sse-and-deployment-current|SSE And Deployment Current]]
 - [[notes/2026-04-27-baileys-session-direction|Baileys Session Direction]]
+- [[notes/2026-04-28-baileys-message-sync-repair-handoff|Baileys Message Sync And Repair Handoff]]
+- [[notes/2026-04-28-wangyouke-phone-normalization-translation-handoff|WangYouKe Phone Normalization, Safe Edit, And Baileys Repair Handoff]]
 - [[notes/2026-04-27-database-schema-optimization-plan|Database Schema Optimization Plan]]
 - [[notes/2026-04-27-database-structure-future-optimization-handoff|Database Structure Future Optimization Handoff]]
 - [[notes/2026-04-27-mysql-optimize-handoff|MySQL Optimize Handoff]]

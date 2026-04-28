@@ -1414,20 +1414,34 @@ router.put('/:id', async (req, res) => {
         const { primary_name, wa_phone, wa_owner, keeper_username } = req.body;
         const id = parseInt(req.params.id);
         const lockedOwner = getLockedOwner(req);
-        const creator = await ensureCreatorAccess(req, res, id, 'id, wa_owner');
+        const creator = await ensureCreatorAccess(req, res, id, 'id, primary_name, wa_phone, wa_owner');
         if (!creator) return;
         if (lockedOwner && wa_owner !== undefined && !matchesOwnerScope(req, wa_owner)) {
             return sendOwnerScopeForbidden(res, lockedOwner);
         }
 
-        if (wa_phone !== undefined && (wa_phone === null || String(wa_phone).trim() === '')) {
+        const normalizedPhone = wa_phone !== undefined ? normalizeWaPhoneForStorage(wa_phone) : undefined;
+        if (wa_phone !== undefined && !normalizedPhone) {
             return res.status(400).json({ error: 'wa_phone cannot be empty' });
+        }
+        if (normalizedPhone !== undefined) {
+            const conflicts = (await findPhoneConflictRows(db2, normalizedPhone))
+                .filter((row) => Number(row.id) !== Number(id));
+            if (conflicts.length > 0) {
+                const sameOwnerConflict = conflicts.find((row) => normalizeOperatorName(row.wa_owner, row.wa_owner) === normalizeOperatorName(creator.wa_owner, creator.wa_owner));
+                return res.status(409).json({
+                    ok: false,
+                    error: sameOwnerConflict ? 'phone variant already belongs to another creator' : 'phone already belongs to another owner',
+                    normalized_phone: normalizedPhone,
+                    conflicts,
+                });
+            }
         }
 
         const fields = [];
         const values = [];
         if (primary_name !== undefined) { fields.push('primary_name = ?'); values.push(primary_name); }
-        if (wa_phone !== undefined) { fields.push('wa_phone = ?'); values.push(wa_phone); }
+        if (normalizedPhone !== undefined) { fields.push('wa_phone = ?'); values.push(normalizedPhone); }
         if (wa_owner !== undefined) { fields.push('wa_owner = ?'); values.push(normalizeOperatorName(wa_owner, wa_owner)); }
         if (keeper_username !== undefined) { fields.push('keeper_username = ?'); values.push(keeper_username); }
 
@@ -1437,10 +1451,16 @@ router.put('/:id', async (req, res) => {
         values.push(id);
         await db2.prepare(`UPDATE creators SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 
-        await writeAudit('creator_update', 'creators', id, null, buildCreatorUpdateAuditPayload(req.body), req);
+        await writeAudit('creator_update', 'creators', id, null, buildCreatorUpdateAuditPayload({
+            ...req.body,
+            ...(normalizedPhone !== undefined ? { wa_phone: normalizedPhone, raw_wa_phone: wa_phone } : {}),
+        }), req);
 
-        await creatorCache.invalidateCreator(id, wa_phone);
-        res.json({ ok: true });
+        await creatorCache.invalidateCreator(id, normalizedPhone || creator.wa_phone);
+        if (normalizedPhone && normalizedPhone !== creator.wa_phone) {
+            await creatorCache.invalidateByPhone(creator.wa_phone).catch(() => {});
+        }
+        res.json({ ok: true, normalized_phone: normalizedPhone });
     } catch (err) {
         console.error('PUT /api/creators/:id error:', err);
         res.status(500).json({ error: err.message });

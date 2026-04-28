@@ -12,6 +12,9 @@ const {
     getSessionIdForOperator,
 } = require('./operatorRosterService');
 const {
+    CMD_REPAIR_BAILEYS_HISTORY,
+} = require('../agent/ipcProtocol');
+const {
     createSessionCommand,
     listStatusSessions,
     readSessionStatus,
@@ -397,7 +400,7 @@ async function sendViaSessionCommand(sessionId, type, payload) {
         operator: payload.operator || null,
         creator_id: payload.creator_id || null,
     });
-    const timeoutMs = type === 'audit_recent_messages' ? 60000 : 30000;
+    const timeoutMs = (type === 'audit_recent_messages' || type === CMD_REPAIR_BAILEYS_HISTORY) ? 60000 : 30000;
     return await waitForSessionCommandResult(sessionId, commandId, timeoutMs);
 }
 
@@ -826,6 +829,71 @@ async function replaceRoutedContact({
     };
 }
 
+async function repairRoutedBaileysHistory({
+    creator_id,
+    phone,
+    session_id,
+    operator,
+    fetch_limit = 500,
+    full_dedup = true,
+}) {
+    const creatorId = Number(creator_id) || 0;
+    const creatorRow = creatorId
+        ? await creatorCache.getCreator(db.getDb(), creatorId, 'id, primary_name, wa_phone, wa_owner')
+        : (phone
+            ? await creatorCache.getCreatorByPhone(db.getDb(), phone, 'id, primary_name, wa_phone, wa_owner')
+            : null);
+
+    if (!creatorRow) return { ok: false, error: 'Creator not found' };
+    if (!creatorRow.wa_phone) return { ok: false, error: 'Creator has no wa_phone' };
+
+    const resolved = await resolveSessionTarget({
+        sessionId: session_id,
+        operator: operator || creatorRow.wa_owner,
+        creatorId: creatorRow.id,
+        phone: creatorRow.wa_phone,
+        allowFallback: false,
+    });
+    if (!resolved.session_id) return { ok: false, error: 'No target session resolved' };
+
+    const rawResult = await sendViaSessionCommand(resolved.session_id, CMD_REPAIR_BAILEYS_HISTORY, {
+        phone: creatorRow.wa_phone,
+        limit: Math.max(50, Math.min(parseInt(fetch_limit, 10) || 500, 2000)),
+        operator: resolved.operator,
+        creator_id: creatorRow.id,
+    });
+    if (!rawResult?.ok) {
+        return {
+            ok: false,
+            error: rawResult?.error || 'repair_baileys_history failed',
+            routed_session_id: resolved.session_id,
+            routed_operator: resolved.operator,
+        };
+    }
+
+    const summary = await reconcileCreatorMessagesFromRaw({
+        creatorId: creatorRow.id,
+        creatorName: creatorRow.primary_name,
+        operator: resolved.operator,
+        sessionId: resolved.session_id,
+        rawMessages: rawResult.messages || [],
+        fullDedup: !!full_dedup,
+        dryRun: false,
+    });
+
+    return {
+        ok: true,
+        creator_id: creatorRow.id,
+        creator_name: creatorRow.primary_name,
+        wa_phone: creatorRow.wa_phone,
+        fetched_raw_count: Array.isArray(rawResult.messages) ? rawResult.messages.length : 0,
+        reconciliation: summary,
+        audit_source: buildAuditSourceMeta(rawResult),
+        routed_session_id: resolved.session_id,
+        routed_operator: resolved.operator,
+    };
+}
+
 startRepairQueueWorker();
 
 module.exports = {
@@ -833,6 +901,7 @@ module.exports = {
     getRoutedStatus,
     getSessionRegistry,
     reconcileRoutedContact,
+    repairRoutedBaileysHistory,
     syncRoutedContact,
     replaceRoutedContact,
     resolveSessionTarget,

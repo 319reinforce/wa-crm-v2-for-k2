@@ -45,6 +45,7 @@ const {
     CMD_SEND_MESSAGE,
     CMD_SEND_MEDIA,
     CMD_AUDIT_RECENT_MESSAGES,
+    CMD_REPAIR_BAILEYS_HISTORY,
     CMD_SHUTDOWN,
     EVT_QR,
     EVT_READY,
@@ -160,7 +161,9 @@ function getWaMessageText(message) {
 }
 
 function normalizePhoneDigits(value) {
-    return String(value || '').replace(/\D/g, '');
+    const digits = String(value || '').replace(/\D/g, '');
+    if (digits.length === 10) return `1${digits}`;
+    return digits;
 }
 
 function phoneToChatId(phone) {
@@ -459,6 +462,31 @@ async function handleAuditRecentMessages(payload = {}) {
     };
 }
 
+async function handleRepairBaileysHistory(payload = {}) {
+    if (getDriverName() !== 'baileys') {
+        return {
+            ok: false,
+            error: 'repair_baileys_history requires baileys driver',
+            routed_session_id: WA_SESSION_ID,
+            routed_operator: WA_OWNER,
+        };
+    }
+    const phone = payload.phone || '';
+    const limit = Math.max(50, Math.min(parseInt(payload.limit, 10) || 500, 2000));
+    const creatorId = Number(payload.creator_id || 0) || null;
+    const result = await withTimeout(
+        fetchAuditMessagesViaBaileys(phone, limit, creatorId),
+        60000,
+        'repair_baileys_history timeout'
+    ).catch((error) => ({ ok: false, error: error.message || String(error) }));
+    return {
+        ...result,
+        repair_mode: 'baileys_history',
+        routed_session_id: WA_SESSION_ID,
+        routed_operator: WA_OWNER,
+    };
+}
+
 async function handleCommand(envelope) {
     if (commandInFlight) {
         // 父进程应该串行发命令,这里只是保险
@@ -478,6 +506,9 @@ async function handleCommand(envelope) {
                 break;
             case CMD_AUDIT_RECENT_MESSAGES:
                 result = await handleAuditRecentMessages(payload);
+                break;
+            case CMD_REPAIR_BAILEYS_HISTORY:
+                result = await handleRepairBaileysHistory(payload);
                 break;
             case CMD_SHUTDOWN:
                 emitCommandResult(envelope.id, { ok: true, stopping: true });

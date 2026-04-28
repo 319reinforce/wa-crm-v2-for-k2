@@ -31,6 +31,7 @@ const {
     getRoutedQr,
     getRoutedStatus,
     reconcileRoutedContact,
+    repairRoutedBaileysHistory,
     sendRoutedMessage,
     sendRoutedMedia,
     syncRoutedContact,
@@ -292,6 +293,41 @@ router.post('/reconcile-contact', async (req, res) => {
         res.json(result);
     } catch (err) {
         console.error('[WA Route] reconcile-contact error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// POST /api/wa/repair-baileys-history
+// 显式触发 Baileys on-demand history fetch，并把返回历史按 CRM 修复链路落库。
+router.post('/repair-baileys-history', async (req, res) => {
+    try {
+        const { creator_id, phone, session_id, operator, fetch_limit, full_dedup } = req.body || {};
+        if (!creator_id && !phone) {
+            return res.status(400).json({ ok: false, error: 'creator_id or phone required' });
+        }
+
+        const resolvedCreator = ensureResolvedCreatorAccess(
+            req,
+            res,
+            await resolveSendCreator({ creator_id, phone })
+        );
+        if (!resolvedCreator) return;
+        if (!resolvedCreator.ok) {
+            return res.status(resolvedCreator.status).json({ ok: false, error: resolvedCreator.error });
+        }
+
+        const result = await repairRoutedBaileysHistory({
+            creator_id: resolvedCreator.creator.id,
+            phone: resolvedCreator.phone,
+            session_id: getEffectiveSessionId(req, session_id),
+            operator: getEffectiveOperator(req, operator, resolvedCreator.creator.wa_owner || null),
+            fetch_limit: parsePositiveInt(fetch_limit, 500),
+            full_dedup: full_dedup === undefined ? true : toBooleanFlag(full_dedup, true),
+        });
+        if (!result.ok) return res.status(400).json(result);
+        res.json(result);
+    } catch (err) {
+        console.error('[WA Route] repair-baileys-history error:', err);
         res.status(500).json({ ok: false, error: err.message });
     }
 });
