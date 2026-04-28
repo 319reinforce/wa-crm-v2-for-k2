@@ -12,6 +12,7 @@ test('jidUtils — normalizeJid', () => {
   assert.equal(normalizeJid('+12025550001', 'baileys'), '12025550001@s.whatsapp.net');
   assert.equal(normalizeJid('+85255550001', 'wwebjs'), '85255550001@c.us');
   assert.equal(normalizeJid('85255550001', 'baileys'), '85255550001@s.whatsapp.net');
+  assert.equal(normalizeJid('(410) 801-0355', 'baileys'), '14108010355@s.whatsapp.net');
   assert.equal(normalizeJid('+86 138 0000 0001', 'baileys'), '8613800000001@s.whatsapp.net');
   assert.ok(normalizeJid('+85255550001').endsWith('@s.whatsapp.net'));
 });

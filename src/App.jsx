@@ -2457,12 +2457,13 @@ function parseBulkCreatorRows(text) {
         }
       }
     }
-    const digits = phone.replace(/\D/g, '')
+    const rawDigits = phone.replace(/\D/g, '')
+    const digits = rawDigits.length === 10 ? `1${rawDigits}` : rawDigits
     rows.push({
       lineNo: i + 1,
       raw: line,
       name,
-      phone,
+      phone: digits || phone,
       digits,
       valid: Boolean(name) && digits.length >= 7,
       reason: !name ? '缺少姓名' : (digits.length < 7 ? '缺少有效手机号' : ''),
