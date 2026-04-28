@@ -184,8 +184,8 @@ function App() {
   const [selectedEventId, setSelectedEventId] = useState(null)
   const [eventReturnContext, setEventReturnContext] = useState(null)
   const [eventPanelRestoreState, setEventPanelRestoreState] = useState(null)
-  const [batchApplyingOption0, setBatchApplyingOption0] = useState(false)
   const [batchTogglingActive, setBatchTogglingActive] = useState(false)
+  const [activeTogglingCreatorId, setActiveTogglingCreatorId] = useState(null)
   const [unreadCounts, setUnreadCounts] = useState({}) // creatorId -> unread count
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [tagsVisible, setTagsVisible] = useState(true)
@@ -312,7 +312,10 @@ function App() {
       const params = new URLSearchParams()
       if (filterOwner) params.set('owner', filterOwner)
       params.set('fields', 'wa_phone')
-      if (showInactive) params.set('is_active', '0')
+      if (showInactive) {
+        params.set('is_active', '0')
+        params.set('roster', 'all')
+      }
 
       const [creatorsData, statsData] = await Promise.all([
         fetchJsonOrThrow(`${API_BASE}/creators?${params.toString()}`, { signal }),
@@ -962,32 +965,6 @@ function App() {
     setSelectedCreatorIds(prev => prev.filter(id => visibleCreatorIds.includes(id)))
   }, [visibleCreatorIds])
 
-  const applyBatchLifecycleOption0 = useCallback(async () => {
-    if (selectedVisibleCreatorIds.length === 0) return
-    setBatchApplyingOption0(true)
-    try {
-      const result = await fetchJsonOrThrow(`${API_BASE}/creators/batch-next-action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          creator_ids: selectedVisibleCreatorIds,
-          mode: 'lifecycle_option0',
-        }),
-      })
-      await loadData()
-      if (selectedCreator?.id && selectedVisibleCreatorIds.includes(selectedCreator.id)) {
-        const detail = await fetchJsonOrThrow(`${API_BASE}/creators/${selectedCreator.id}`)
-        setSelectedCreator(buildCreatorViewModel(detail, selectedCreator))
-      }
-      setSelectedCreatorIds([])
-      window.alert(`已按生命周期 Option0 回填 ${result?.updated_count || 0} 位达人`)
-    } catch (e) {
-      window.alert(e.message || '批量写入 Option0 失败')
-    } finally {
-      setBatchApplyingOption0(false)
-    }
-  }, [loadData, selectedCreator, selectedVisibleCreatorIds])
-
   const applyBatchActiveChange = useCallback(async () => {
     if (selectedVisibleCreatorIds.length === 0) return
     const owner = ownerLocked ? lockedOwner : filterOwner
@@ -1010,10 +987,11 @@ function App() {
           creator_ids: selectedVisibleCreatorIds,
         }),
       })
-      if (selectedCreator?.id && selectedVisibleCreatorIds.includes(selectedCreator.id)) {
+      if (action === 'unbind' && selectedCreator?.id && selectedVisibleCreatorIds.includes(selectedCreator.id)) {
         setSelectedCreator(null)
       }
       setSelectedCreatorIds([])
+      creatorsCacheRef.current.clear()
       await loadData()
       window.alert(`已${verb} ${result?.updated_count || 0} 位达人`)
     } catch (e) {
@@ -1022,6 +1000,57 @@ function App() {
       setBatchTogglingActive(false)
     }
   }, [filterOwner, loadData, lockedOwner, ownerLocked, selectedCreator?.id, selectedVisibleCreatorIds, showInactive])
+
+  const applyCreatorActiveChange = useCallback(async (creator) => {
+    if (!creator?.id) return
+    const owner = creator.wa_owner || creator?._full?.wa_owner || (ownerLocked ? lockedOwner : filterOwner)
+    if (!owner) {
+      window.alert('缺少 owner，无法解绑/恢复该联系人')
+      return
+    }
+    const action = showInactive ? 'rebind' : 'unbind'
+    const verb = showInactive ? '恢复绑定' : '解绑'
+    const confirmed = window.confirm(`确认${verb} ${creator.primary_name || '该联系人'}？\n\n历史消息和事件数据会保留。`)
+    if (!confirmed) return
+    setActiveTogglingCreatorId(creator.id)
+    try {
+      const result = await fetchJsonOrThrow(`${API_BASE}/creators/batch-active`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner,
+          action,
+          creator_ids: [creator.id],
+        }),
+      })
+      if (action === 'unbind' && selectedCreator?.id === creator.id) {
+        setSelectedCreator(null)
+      }
+      setSelectedCreatorIds(prev => prev.filter(id => id !== creator.id))
+      creatorsCacheRef.current.clear()
+      await loadData()
+      window.alert(`已${verb} ${result?.updated_count || 0} 位达人`)
+    } catch (e) {
+      window.alert(e.message || `${verb}失败`)
+    } finally {
+      setActiveTogglingCreatorId(null)
+    }
+  }, [filterOwner, loadData, lockedOwner, ownerLocked, selectedCreator?.id, showInactive])
+
+  const saveCreatorBasicInfo = useCallback(async (creatorId, payload) => {
+    const result = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    creatorsCacheRef.current.clear()
+    await loadData()
+    if (selectedCreator?.id === creatorId) {
+      const detail = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}`)
+      setSelectedCreator(buildCreatorViewModel(detail, selectedCreator))
+    }
+    return result
+  }, [loadData, selectedCreator])
 
   const toggleSelectAllVisible = useCallback(() => {
     if (visibleCreatorIds.length === 0) return
@@ -1324,6 +1353,9 @@ function App() {
                 }}
                 applyBatchActiveChange={applyBatchActiveChange}
                 batchTogglingActive={batchTogglingActive}
+                activeTogglingCreatorId={activeTogglingCreatorId}
+                onToggleCreatorActive={applyCreatorActiveChange}
+                onSaveCreatorEdit={saveCreatorBasicInfo}
                 form={manualForm}
                 onFormChange={setManualForm}
                 onSave={saveManualCreator}
@@ -1553,49 +1585,6 @@ function App() {
                 )}
               </div>
 
-              {conversationScope === 'creators' && viewMode === 'list' && filteredCreators.length > 0 && (
-                <div className="px-4 py-2.5 border-b flex items-center justify-between gap-3" style={{ borderColor: WA.shellBorder, background: WA.shellPanelStrong }}>
-                  <label className="flex items-center gap-2 text-xs" style={{ color: WA.textMuted }}>
-                    <input
-                      type="checkbox"
-                      checked={allVisibleSelected}
-                      onChange={toggleSelectAllVisible}
-                    />
-                    <span>全选当前 {visibleCreatorIds.length} 位</span>
-                  </label>
-                  <div className="flex items-center gap-2">
-                    {selectedVisibleCount > 0 && (
-                      <button
-                        onClick={clearSelectedCreators}
-                        className="px-2.5 py-1.5 rounded-full text-xs font-medium"
-                        style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
-                      >
-                        清空
-                      </button>
-                    )}
-                    <button
-                      onClick={applyBatchLifecycleOption0}
-                      disabled={showInactive || selectedVisibleCount === 0 || batchApplyingOption0 || batchTogglingActive}
-                      className="px-3 py-1.5 rounded-full text-xs font-semibold text-white disabled:opacity-50"
-                      style={{ background: batchApplyingOption0 ? '#9ca3af' : WA.teal }}
-                    >
-                      {batchApplyingOption0 ? '写入中...' : `批量写入 Option0${selectedVisibleCount > 0 ? ` (${selectedVisibleCount})` : ''}`}
-                    </button>
-                    <button
-                      onClick={applyBatchActiveChange}
-                      disabled={selectedVisibleCount === 0 || batchApplyingOption0 || batchTogglingActive || (!ownerLocked && !filterOwner)}
-                      className="px-3 py-1.5 rounded-full text-xs font-semibold text-white disabled:opacity-50"
-                      style={{ background: batchTogglingActive ? '#9ca3af' : (showInactive ? WA.teal : '#dc2626') }}
-                      title={!ownerLocked && !filterOwner ? '请先选择一个 owner' : undefined}
-                    >
-                      {batchTogglingActive
-                        ? '处理中...'
-                        : `${showInactive ? '批量恢复' : '批量解绑'}${selectedVisibleCount > 0 ? ` (${selectedVisibleCount})` : ''}`}
-                    </button>
-                  </div>
-                </div>
-              )}
-
               <div className="flex-1 overflow-y-auto docs-scrollbar" style={{ background: WA.shellPanel }}>
                 {loading && creators.length > 0 ? (
                   <div style={{ position: 'sticky', top: 0, height: 2, background: WA.teal, opacity: 0.6, zIndex: 10 }} />
@@ -1637,9 +1626,6 @@ function App() {
                       creator={c}
                       unread={unreadCounts[c.id] || 0}
                       active={selectedCreator?.id === c.id && activeTab === 'creators'}
-                      selectable
-                      selected={selectedCreatorIds.includes(c.id)}
-                      onToggleSelect={toggleCreatorSelection}
                       onClick={() => handleSelectCreator(c)}
                     />
                   ))
@@ -1925,6 +1911,9 @@ function ContactManagementPage({
   onOpenCreator,
   applyBatchActiveChange,
   batchTogglingActive,
+  activeTogglingCreatorId,
+  onToggleCreatorActive,
+  onSaveCreatorEdit,
   form,
   onFormChange,
   onSave,
@@ -1956,6 +1945,10 @@ function ContactManagementPage({
   const [mode, setMode] = useState('single')
   const [transferFromOwner, setTransferFromOwner] = useState('Jiawen')
   const [transferToOwner, setTransferToOwner] = useState('Yiyun')
+  const [editingCreator, setEditingCreator] = useState(null)
+  const [editForm, setEditForm] = useState({ primary_name: '', wa_phone: '', wa_owner: '' })
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
   const parsedBulkRows = useMemo(() => parseBulkCreatorRows(bulkText), [bulkText])
   const validBulkRows = useMemo(() => parsedBulkRows.filter(r => r.valid), [parsedBulkRows])
   const samePhone = checkResult?.conflicts?.same_phone || []
@@ -1978,6 +1971,49 @@ function ContactManagementPage({
     if (transferToOwner) merged.add(transferToOwner)
     return [...merged]
   })()
+  const editOwnerOptions = (() => {
+    const merged = new Set(managerOwnerOptions)
+    if (editForm.wa_owner) merged.add(editForm.wa_owner)
+    if (editingCreator?.wa_owner) merged.add(editingCreator.wa_owner)
+    if (lockedOwner) merged.add(lockedOwner)
+    return [...merged].filter(Boolean)
+  })()
+  const openEditCreator = (creator) => {
+    setEditingCreator(creator)
+    setEditForm({
+      primary_name: creator?.primary_name || '',
+      wa_phone: creator?.wa_phone || '',
+      wa_owner: creator?.wa_owner || lockedOwner || owner || '',
+    })
+    setEditError('')
+  }
+  const closeEditCreator = () => {
+    if (editSaving) return
+    setEditingCreator(null)
+    setEditError('')
+  }
+  const submitEditCreator = async () => {
+    if (!editingCreator?.id) return
+    const payload = {
+      primary_name: String(editForm.primary_name || '').trim(),
+      wa_phone: String(editForm.wa_phone || '').trim(),
+      wa_owner: String(editForm.wa_owner || '').trim(),
+    }
+    if (!payload.primary_name || !payload.wa_phone || !payload.wa_owner) {
+      setEditError('姓名、电话和负责人都不能为空')
+      return
+    }
+    setEditSaving(true)
+    setEditError('')
+    try {
+      await onSaveCreatorEdit?.(editingCreator.id, payload)
+      setEditingCreator(null)
+    } catch (e) {
+      setEditError(e.message || '保存失败')
+    } finally {
+      setEditSaving(false)
+    }
+  }
 
   return (
     <div className="flex-1 min-w-0 docs-panel overflow-hidden flex flex-col" style={{ background: WA.shellPanelStrong }}>
@@ -2403,14 +2439,36 @@ function ContactManagementPage({
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => onOpenCreator?.(creator)}
-                            className="px-3 py-1.5 rounded-full text-xs font-semibold"
-                            style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
-                          >
-                            打开
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEditCreator(creator)}
+                              disabled={editSaving}
+                              className="px-3 py-1.5 rounded-full text-xs font-semibold disabled:opacity-50"
+                              style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
+                            >
+                              编辑
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onToggleCreatorActive?.(creator)}
+                              disabled={batchTogglingActive || activeTogglingCreatorId === creator.id}
+                              className="px-3 py-1.5 rounded-full text-xs font-semibold text-white disabled:opacity-50"
+                              style={{ background: activeTogglingCreatorId === creator.id ? '#9ca3af' : (showInactive ? WA.teal : '#dc2626') }}
+                            >
+                              {activeTogglingCreatorId === creator.id
+                                ? '处理中...'
+                                : (showInactive ? '恢复' : '解绑')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onOpenCreator?.(creator)}
+                              className="px-3 py-1.5 rounded-full text-xs font-semibold"
+                              style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
+                            >
+                              打开
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -2421,6 +2479,93 @@ function ContactManagementPage({
           </div>
         </div>
       </div>
+      {editingCreator && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" style={{ background: 'rgba(31,29,26,0.42)' }} onMouseDown={closeEditCreator}>
+          <div
+            className="w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden"
+            style={{ background: WA.shellPanelStrong, border: `1px solid ${WA.shellBorder}` }}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b flex items-center justify-between gap-3" style={{ borderColor: WA.shellBorder, background: WA.white }}>
+              <div>
+                <div className="docs-kicker">Edit Contact</div>
+                <div className="text-lg font-semibold mt-1" style={{ color: WA.textDark }}>编辑达人</div>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditCreator}
+                disabled={editSaving}
+                className="w-9 h-9 rounded-full text-lg disabled:opacity-50"
+                style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
+                aria-label="关闭编辑弹窗"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-6 space-y-5" style={{ background: WA.shellPanel }}>
+              <label className="block text-sm space-y-2">
+                <span style={{ color: WA.textMuted }}>姓名</span>
+                <input
+                  value={editForm.primary_name}
+                  onChange={e => setEditForm(prev => ({ ...prev, primary_name: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-2xl border text-base focus:outline-none"
+                  style={{ borderColor: WA.borderLight, color: WA.textDark, background: WA.white }}
+                  autoFocus
+                />
+              </label>
+              <label className="block text-sm space-y-2">
+                <span style={{ color: WA.textMuted }}>电话</span>
+                <input
+                  value={editForm.wa_phone}
+                  onChange={e => setEditForm(prev => ({ ...prev, wa_phone: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-2xl border text-base focus:outline-none"
+                  style={{ borderColor: WA.borderLight, color: WA.textDark, background: WA.white }}
+                />
+              </label>
+              <label className="block text-sm space-y-2">
+                <span style={{ color: WA.textMuted }}>负责人</span>
+                <select
+                  value={editForm.wa_owner}
+                  onChange={e => setEditForm(prev => ({ ...prev, wa_owner: e.target.value }))}
+                  disabled={ownerLocked}
+                  className="w-full px-4 py-3 rounded-2xl border text-base focus:outline-none"
+                  style={{ borderColor: WA.borderLight, color: WA.textDark, background: ownerLocked ? WA.lightBg : WA.white }}
+                >
+                  {!editForm.wa_owner && <option value="">请选择负责人</option>}
+                  {editOwnerOptions.map(item => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </label>
+              {editError && (
+                <div className="text-sm px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>
+                  {editError}
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t flex items-center justify-end gap-2" style={{ borderColor: WA.shellBorder, background: WA.white }}>
+              <button
+                type="button"
+                onClick={closeEditCreator}
+                disabled={editSaving}
+                className="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50"
+                style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={submitEditCreator}
+                disabled={editSaving || !editForm.primary_name.trim() || !editForm.wa_phone.trim() || !editForm.wa_owner.trim()}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                style={{ background: WA.teal }}
+              >
+                {editSaving ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -3302,7 +3447,7 @@ function getPriorityBadgeMeta(priority, creator) {
 }
 
 // ====== Chat List Item ======
-function ChatListItem({ creator, onClick, unread, active = false, selectable = false, selected = false, onToggleSelect }) {
+function ChatListItem({ creator, onClick, unread, active = false }) {
   const ownerColor = getOwnerColor(creator.wa_owner, WA.textMuted)
   const full = creator._full || {}
   const wacrm = full.wacrm || {}
@@ -3341,16 +3486,6 @@ function ChatListItem({ creator, onClick, unread, active = false, selectable = f
       onMouseEnter={e => e.currentTarget.style.background = hoverBackground}
       onMouseLeave={e => e.currentTarget.style.background = restBackground}
     >
-      {selectable && (
-        <div className="shrink-0" onClick={e => e.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={() => onToggleSelect?.(creator.id)}
-          />
-        </div>
-      )}
-
       {/* Avatar + unread dot */}
       <div className="relative shrink-0">
         <div className="rounded-full flex items-center justify-center text-white font-medium" style={{ background: ownerColor, width: 48, height: 48, fontSize: 16 }}>
