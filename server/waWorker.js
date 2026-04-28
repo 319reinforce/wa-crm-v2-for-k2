@@ -31,6 +31,10 @@ const {
 } = require('./services/activeEventDetectionService');
 const { extractWaMessageId } = require('./utils/waMessageId');
 const { phoneHash: hashPhoneForReport } = require('./services/waLidMappingService');
+const {
+    getWaPhoneLookupVariants,
+    normalizeWaPhoneForStorage,
+} = require('./utils/phoneNormalization');
 
 // Optional-require for message cache (perf-cache branch). No-op when not present.
 let invalidateMessageCache = () => {};
@@ -124,6 +128,7 @@ const WA_SESSION_ID = String(process.env.WA_SESSION_ID || process.env.PORT || '3
 const BASE_URL = process.env.WA_API_BASE || `http://localhost:${process.env.PORT || 3000}`; // 画像服务调用地址
 const WORKER_TAG = `${WA_SESSION_ID}`;
 const LOG_PREFIX = `[WA Worker:${WA_OWNER}/${WORKER_TAG}]`;
+const PHONE_CLEAN_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(wa_phone, '+', ''), ' ', ''), '-', ''), '(', ''), ')', '')";
 const DIRECT_CHAT_SUFFIXES = ['@c.us', '@lid'];
 
 function maskPhone(phone) {
@@ -334,6 +339,22 @@ function buildRosterIndex(rows = []) {
 async function loadRosterIndex() {
     const rows = await getPrimaryAssignmentsByOperator(resolveCurrentOwner());
     return buildRosterIndex(rows);
+}
+
+async function findCreatorByPhoneForWa(db2, phone, fields = 'id, wa_phone') {
+    const variants = getWaPhoneLookupVariants(phone);
+    if (variants.length === 0) return null;
+    const placeholders = variants.map(() => '?').join(', ');
+    const preferred = normalizeWaPhoneForStorage(phone);
+    return await db2.prepare(`
+        SELECT ${fields}
+        FROM creators
+        WHERE ${PHONE_CLEAN_SQL} IN (${placeholders})
+        ORDER BY
+            CASE WHEN ${PHONE_CLEAN_SQL} = ? THEN 0 ELSE 1 END,
+            id DESC
+        LIMIT 1
+    `).get(...variants, preferred);
 }
 
 function getEligibilityForHistory(phone, name, messages = []) {
@@ -1255,9 +1276,7 @@ async function handleBaileysIncomingMessage(incoming) {
         const phoneDigits = phoneRaw.replace(/^\+/, '');
         const name = incoming?.authorName || 'Unknown';
         const db2 = getDb();
-        const existing = await db2.prepare(
-            'SELECT id, wa_phone FROM creators WHERE wa_phone IN (?, ?) LIMIT 1'
-        ).get(phoneRaw, phoneDigits);
+        const existing = await findCreatorByPhoneForWa(db2, phoneRaw, 'id, wa_phone');
 
         // 沿用 DB 里已有的 phone 格式，避免 getOrCreateCreator 再用另一种格式
         // insert 一条重复的 creator；新 creator 默认用 digits-only（匹配主流）
@@ -1504,9 +1523,7 @@ async function handleBaileysHistoryBatch(rawMessages) {
                 const phoneDigits = phoneRaw.replace(/^\+/, '');
                 const name = normalized.authorName || 'Unknown';
                 const db2 = getDb();
-                const existing = await db2.prepare(
-                    'SELECT id, wa_phone FROM creators WHERE wa_phone IN (?, ?) LIMIT 1'
-                ).get(phoneRaw, phoneDigits);
+                const existing = await findCreatorByPhoneForWa(db2, phoneRaw, 'id, wa_phone');
                 const canonicalPhone = existing ? existing.wa_phone : phoneDigits;
 
                 let creatorId;

@@ -5,6 +5,10 @@ const { sendRoutedMessage } = require('./waSessionRouter');
 const { persistDirectMessageRecord } = require('./directMessagePersistenceService');
 const { getSessionIdForOperator, TABLE: ROSTER_TABLE } = require('./operatorRosterService');
 const { assertManagedSchemaReady } = require('./schemaReadinessGuard');
+const {
+    getWaPhoneLookupVariants,
+    normalizeWaPhoneForStorage,
+} = require('../utils/phoneNormalization');
 
 const MAX_ROWS_PER_BATCH = 500;
 const DEFAULT_SEND_DELAY_MS = Math.max(0, parseInt(process.env.CREATOR_IMPORT_SEND_DELAY_MS || '8000', 10) || 8000);
@@ -13,7 +17,7 @@ const activeRuns = new Set();
 let schemaReady = false;
 
 function normalizePhone(value) {
-    return String(value || '').replace(/\D/g, '').trim();
+    return normalizeWaPhoneForStorage(value);
 }
 
 function normalizeName(value) {
@@ -166,15 +170,19 @@ async function upsertOutreachTemplate({
 }
 
 async function findPhoneConflictRows(txDb, normalizedPhone) {
-    if (!normalizedPhone) return [];
+    const variants = getWaPhoneLookupVariants(normalizedPhone);
+    if (variants.length === 0) return [];
+    const placeholders = variants.map(() => '?').join(', ');
+    const cleanExpr = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(wa_phone, '+', ''), ' ', ''), '-', ''), '(', ''), ')', '')";
     return await txDb.prepare(`
         SELECT id, primary_name, wa_phone, wa_owner
         FROM creators
-        WHERE wa_phone = ?
-           OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(wa_phone, '+', ''), ' ', ''), '-', ''), '(', ''), ')', '') = ?
-        ORDER BY id DESC
+        WHERE ${cleanExpr} IN (${placeholders})
+        ORDER BY
+            CASE WHEN ${cleanExpr} = ? THEN 0 ELSE 1 END,
+            id DESC
         LIMIT 10
-    `).all(normalizedPhone, normalizedPhone);
+    `).all(...variants, normalizedPhone);
 }
 
 async function createImportBatch({
@@ -282,11 +290,12 @@ async function createImportBatch({
                     await txDb.prepare(`
                         UPDATE creators
                         SET primary_name = ?,
+                            wa_phone = ?,
                             wa_owner = ?,
                             source = ?,
                             updated_at = CURRENT_TIMESTAMP
                         WHERE id = ?
-                    `).run(normalizedName, normalizedOwner, safeSource, creatorId);
+                    `).run(normalizedName, normalizedPhone, normalizedOwner, safeSource, creatorId);
                 } else {
                     const upsertCreator = await txDb.prepare(`
                         INSERT INTO creators (primary_name, wa_phone, wa_owner, source)

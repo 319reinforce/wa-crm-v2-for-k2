@@ -52,10 +52,16 @@ const {
     getLatestOperationalFactsForCreator,
     projectOperationalFactsOntoWacrm,
 } = require('../services/operationalFactService');
+const {
+    getWaPhoneLookupVariants,
+    normalizeWaPhoneForStorage,
+} = require('../utils/phoneNormalization');
 
 function normalizeManualPhone(value) {
-    return String(value || '').replace(/\D/g, '').trim();
+    return normalizeWaPhoneForStorage(value);
 }
+
+const PHONE_CLEAN_SQL = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(wa_phone, '+', ''), ' ', ''), '-', ''), '(', ''), ')', '')";
 
 function parseRequestedCreatorFields(value) {
     return new Set(
@@ -185,15 +191,18 @@ async function ensureCreatorAccess(req, res, creatorId, fields = 'id, primary_na
 }
 
 async function findPhoneConflictRows(dbConn, normalizedPhone) {
-    if (!normalizedPhone) return [];
+    const variants = getWaPhoneLookupVariants(normalizedPhone);
+    if (variants.length === 0) return [];
+    const placeholders = variants.map(() => '?').join(', ');
     return await dbConn.prepare(`
         SELECT id, primary_name, wa_phone, wa_owner, created_at
         FROM creators
-        WHERE wa_phone = ?
-           OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(wa_phone, '+', ''), ' ', ''), '-', ''), '(', ''), ')', '') = ?
-        ORDER BY id DESC
+        WHERE ${PHONE_CLEAN_SQL} IN (${placeholders})
+        ORDER BY
+            CASE WHEN ${PHONE_CLEAN_SQL} = ? THEN 0 ELSE 1 END,
+            id DESC
         LIMIT 10
-    `).all(normalizedPhone, normalizedPhone);
+    `).all(...variants, normalizedPhone);
 }
 
 async function findNameConflictRows(dbConn, normalizedName) {
@@ -818,20 +827,34 @@ router.post('/manual', async (req, res) => {
                 error: 'phone already belongs to another owner',
             });
         }
-        const reused = samePhoneRows.length > 0;
+        const existingPhoneRow = samePhoneRows[0] || null;
+        const reused = !!existingPhoneRow;
 
         const resultPayload = await dbConn.transaction(async (txDb) => {
-            const upsertCreator = await txDb.prepare(`
-                INSERT INTO creators (primary_name, wa_phone, wa_owner, source)
-                VALUES (?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                    id = LAST_INSERT_ID(id),
-                    primary_name = VALUES(primary_name),
-                    wa_owner = VALUES(wa_owner),
-                    source = VALUES(source),
-                    updated_at = CURRENT_TIMESTAMP
-            `).run(normalizedName, normalizedPhone, operator, source);
-            const creatorId = Number(upsertCreator.lastInsertRowid || 0);
+            let creatorId = Number(existingPhoneRow?.id || 0);
+            if (creatorId) {
+                await txDb.prepare(`
+                    UPDATE creators
+                    SET primary_name = ?,
+                        wa_phone = ?,
+                        wa_owner = ?,
+                        source = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                `).run(normalizedName, normalizedPhone, operator, source, creatorId);
+            } else {
+                const upsertCreator = await txDb.prepare(`
+                    INSERT INTO creators (primary_name, wa_phone, wa_owner, source)
+                    VALUES (?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        id = LAST_INSERT_ID(id),
+                        primary_name = VALUES(primary_name),
+                        wa_owner = VALUES(wa_owner),
+                        source = VALUES(source),
+                        updated_at = CURRENT_TIMESTAMP
+                `).run(normalizedName, normalizedPhone, operator, source);
+                creatorId = Number(upsertCreator.lastInsertRowid || 0);
+            }
             const sessionId = getSessionIdForOperator(operator) || String(operator || '').toLowerCase();
 
             await txDb.prepare(`
@@ -951,20 +974,34 @@ router.post('/import', async (req, res) => {
                     });
                     continue;
                 }
-                const reused = samePhoneRows.length > 0;
+                const existingPhoneRow = samePhoneRows[0] || null;
+                const reused = !!existingPhoneRow;
 
                 const rowResult = await dbConn.transaction(async (txDb) => {
-                    const upsertCreator = await txDb.prepare(`
-                        INSERT INTO creators (primary_name, wa_phone, wa_owner, source)
-                        VALUES (?, ?, ?, ?)
-                        ON DUPLICATE KEY UPDATE
-                            id = LAST_INSERT_ID(id),
-                            primary_name = VALUES(primary_name),
-                            wa_owner = VALUES(wa_owner),
-                            source = VALUES(source),
-                            updated_at = CURRENT_TIMESTAMP
-                    `).run(normalizedName, normalizedPhone, operator, source);
-                    const creatorId = Number(upsertCreator.lastInsertRowid || 0);
+                    let creatorId = Number(existingPhoneRow?.id || 0);
+                    if (creatorId) {
+                        await txDb.prepare(`
+                            UPDATE creators
+                            SET primary_name = ?,
+                                wa_phone = ?,
+                                wa_owner = ?,
+                                source = ?,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        `).run(normalizedName, normalizedPhone, operator, source, creatorId);
+                    } else {
+                        const upsertCreator = await txDb.prepare(`
+                            INSERT INTO creators (primary_name, wa_phone, wa_owner, source)
+                            VALUES (?, ?, ?, ?)
+                            ON DUPLICATE KEY UPDATE
+                                id = LAST_INSERT_ID(id),
+                                primary_name = VALUES(primary_name),
+                                wa_owner = VALUES(wa_owner),
+                                source = VALUES(source),
+                                updated_at = CURRENT_TIMESTAMP
+                        `).run(normalizedName, normalizedPhone, operator, source);
+                        creatorId = Number(upsertCreator.lastInsertRowid || 0);
+                    }
                     const sessionId = getSessionIdForOperator(operator) || String(operator || '').toLowerCase();
 
                     await txDb.prepare(`

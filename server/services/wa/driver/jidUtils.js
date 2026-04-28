@@ -7,6 +7,8 @@
  */
 'use strict';
 
+const { normalizeWaPhoneForStorage } = require('../../../utils/phoneNormalization');
+
 /**
  * Convert E.164 phone to driver's native JID format.
  * @param {string} phoneE164  e.g. "+85255550001"
@@ -14,7 +16,7 @@
  * @returns {string} JID
  */
 function normalizeJid(phoneE164, driver = 'baileys') {
-    const digits = String(phoneE164).replace(/[^\d]/g, '');
+    const digits = normalizeWaPhoneForStorage(phoneE164);
     const suffix = driver === 'baileys' ? '@s.whatsapp.net' : '@c.us';
     return `${digits}${suffix}`;
 }
