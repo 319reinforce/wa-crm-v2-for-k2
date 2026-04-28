@@ -204,6 +204,10 @@ function App() {
   const [bulkSendWelcome, setBulkSendWelcome] = useState(false)
   const [bulkWelcomeText, setBulkWelcomeText] = useState('')
   const [bulkWelcomeTemplateKey, setBulkWelcomeTemplateKey] = useState('welcome')
+  const [ownerTransferPreview, setOwnerTransferPreview] = useState(null)
+  const [ownerTransferLoading, setOwnerTransferLoading] = useState(false)
+  const [ownerTransferExecuting, setOwnerTransferExecuting] = useState(false)
+  const [ownerTransferError, setOwnerTransferError] = useState('')
   const creatorsCacheRef = useRef(new Map())
   const queryBootstrapDoneRef = useRef(false)
 
@@ -856,6 +860,59 @@ function App() {
     setSelectedCreatorIds([])
   }, [])
 
+  const loadOwnerTransferPreview = useCallback(async ({ fromOwner = 'Jiawen', toOwner = 'Yiyun' } = {}) => {
+    const from = String(fromOwner || '').trim()
+    const to = String(toOwner || '').trim()
+    if (!from || !to) {
+      setOwnerTransferError('请选择来源和目标 owner')
+      return null
+    }
+    setOwnerTransferLoading(true)
+    setOwnerTransferError('')
+    try {
+      const params = new URLSearchParams({ from, to })
+      const res = await fetchJsonOrThrow(`${API_BASE}/operator-roster/transfer-preview?${params.toString()}`)
+      const data = res?.data || null
+      setOwnerTransferPreview(data)
+      return data
+    } catch (e) {
+      setOwnerTransferError(e.message || '读取迁移预览失败')
+      return null
+    } finally {
+      setOwnerTransferLoading(false)
+    }
+  }, [])
+
+  const executeOwnerTransfer = useCallback(async ({ fromOwner = 'Jiawen', toOwner = 'Yiyun' } = {}) => {
+    const preview = ownerTransferPreview || await loadOwnerTransferPreview({ fromOwner, toOwner })
+    if (!preview) return
+    const confirmed = window.confirm(
+      `确认将 ${preview.from_owner} 的 ${preview.creator_count || 0} 位联系人迁移到 ${preview.to_owner}？\n\n同时会更新 ${preview.roster_count || 0} 条 roster 归属和 ${preview.event_count || 0} 条事件归属；历史消息不会删除。`
+    )
+    if (!confirmed) return
+    setOwnerTransferExecuting(true)
+    setOwnerTransferError('')
+    try {
+      const res = await fetchJsonOrThrow(`${API_BASE}/operator-roster/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: fromOwner, to: toOwner, confirm: true }),
+      })
+      const nextOwner = res?.data?.to_owner || toOwner
+      creatorsCacheRef.current.clear()
+      setFilterOwner(nextOwner)
+      setManualForm(prev => ({ ...prev, owner: nextOwner }))
+      setSelectedCreatorIds([])
+      setOwnerTransferPreview(null)
+      if (nextOwner === filterOwner) await loadData()
+      window.alert(`已迁移 ${res?.data?.creators_updated || 0} 位联系人到 ${nextOwner}`)
+    } catch (e) {
+      setOwnerTransferError(e.message || '迁移失败')
+    } finally {
+      setOwnerTransferExecuting(false)
+    }
+  }, [filterOwner, loadData, loadOwnerTransferPreview, ownerTransferPreview])
+
   const filteredCreators = useMemo(() => creators.filter(c => {
     if (search) {
       const s = search.toLowerCase()
@@ -1286,6 +1343,14 @@ function App() {
                 onBulkWelcomeTextChange={setBulkWelcomeText}
                 bulkWelcomeTemplateKey={bulkWelcomeTemplateKey}
                 onBulkWelcomeTemplateKeyChange={setBulkWelcomeTemplateKey}
+                isAdmin={isAdmin}
+                transferPreview={ownerTransferPreview}
+                transferLoading={ownerTransferLoading}
+                transferExecuting={ownerTransferExecuting}
+                transferError={ownerTransferError}
+                onLoadTransferPreview={loadOwnerTransferPreview}
+                onExecuteOwnerTransfer={executeOwnerTransfer}
+                onClearTransferPreview={() => setOwnerTransferPreview(null)}
               />
             ) : (
             <>
@@ -1879,8 +1944,18 @@ function ContactManagementPage({
   onBulkWelcomeTextChange,
   bulkWelcomeTemplateKey,
   onBulkWelcomeTemplateKeyChange,
+  isAdmin,
+  transferPreview,
+  transferLoading,
+  transferExecuting,
+  transferError,
+  onLoadTransferPreview,
+  onExecuteOwnerTransfer,
+  onClearTransferPreview,
 }) {
   const [mode, setMode] = useState('single')
+  const [transferFromOwner, setTransferFromOwner] = useState('Jiawen')
+  const [transferToOwner, setTransferToOwner] = useState('Yiyun')
   const parsedBulkRows = useMemo(() => parseBulkCreatorRows(bulkText), [bulkText])
   const validBulkRows = useMemo(() => parsedBulkRows.filter(r => r.valid), [parsedBulkRows])
   const samePhone = checkResult?.conflicts?.same_phone || []
@@ -1894,6 +1969,13 @@ function ContactManagementPage({
     if (owner) merged.add(owner)
     if (form?.owner) merged.add(form.owner)
     if (lockedOwner) merged.add(lockedOwner)
+    return [...merged]
+  })()
+  const transferOwnerOptions = (() => {
+    const merged = new Set(['Jiawen', 'Yiyun'])
+    for (const item of managerOwnerOptions || []) if (item) merged.add(item)
+    if (transferFromOwner) merged.add(transferFromOwner)
+    if (transferToOwner) merged.add(transferToOwner)
     return [...merged]
   })()
 
@@ -1962,6 +2044,104 @@ function ContactManagementPage({
                 ))}
               </div>
             </div>
+
+            {isAdmin && !ownerLocked && (
+              <div className="docs-panel-strong p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="docs-kicker">Transfer</div>
+                    <div className="text-sm font-semibold mt-1" style={{ color: WA.textDark }}>联系人迁移</div>
+                    <div className="text-xs mt-1" style={{ color: WA.textMuted }}>
+                      批量调整联系人 owner 归属，保留历史消息。
+                    </div>
+                  </div>
+                  {transferPreview && (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: WA.shellAccentSoft, color: WA.teal }}>
+                      {transferPreview.creator_count || 0} 位
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-end">
+                  <label className="text-xs space-y-1">
+                    <span style={{ color: WA.textMuted }}>来源</span>
+                    <select
+                      value={transferFromOwner}
+                      onChange={e => {
+                        setTransferFromOwner(e.target.value)
+                        onClearTransferPreview?.()
+                      }}
+                      disabled={transferLoading || transferExecuting}
+                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                      style={{ borderColor: WA.borderLight, color: WA.textDark, background: WA.white }}
+                    >
+                      {transferOwnerOptions.map(item => (
+                        <option key={item} value={item}>{item}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="pb-2 text-sm" style={{ color: WA.textMuted }}>→</div>
+                  <label className="text-xs space-y-1">
+                    <span style={{ color: WA.textMuted }}>目标</span>
+                    <select
+                      value={transferToOwner}
+                      onChange={e => {
+                        setTransferToOwner(e.target.value)
+                        onClearTransferPreview?.()
+                      }}
+                      disabled={transferLoading || transferExecuting}
+                      className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none"
+                      style={{ borderColor: WA.borderLight, color: WA.textDark, background: WA.white }}
+                    >
+                      {transferOwnerOptions.map(item => (
+                        <option key={item} value={item}>{item}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {transferPreview && (
+                  <div className="rounded-xl border p-3 text-xs space-y-1" style={{ borderColor: WA.borderLight, background: WA.lightBg }}>
+                    <div style={{ color: WA.textDark }}>
+                      {transferPreview.from_owner} → {transferPreview.to_owner}
+                    </div>
+                    <div style={{ color: WA.textMuted }}>
+                      活跃 {transferPreview.active_creator_count || 0} / 全部 {transferPreview.creator_count || 0} 位联系人
+                    </div>
+                    <div style={{ color: WA.textMuted }}>
+                      roster {transferPreview.roster_count || 0} 条 · 事件 {transferPreview.event_count || 0} 条 · session {transferPreview.target_session_id || '-'}
+                    </div>
+                  </div>
+                )}
+
+                {transferError && (
+                  <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>
+                    {transferError}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onLoadTransferPreview?.({ fromOwner: transferFromOwner, toOwner: transferToOwner })}
+                    disabled={transferLoading || transferExecuting || transferFromOwner === transferToOwner}
+                    className="px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
+                    style={{ border: `1px solid ${WA.borderLight}`, color: WA.textMuted, background: WA.white }}
+                  >
+                    {transferLoading ? '读取中...' : '预览'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onExecuteOwnerTransfer?.({ fromOwner: transferFromOwner, toOwner: transferToOwner })}
+                    disabled={transferLoading || transferExecuting || transferFromOwner === transferToOwner}
+                    className="px-3 py-2 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
+                    style={{ background: WA.teal }}
+                  >
+                    {transferExecuting ? '迁移中...' : '确认迁移'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="docs-panel-strong p-4 space-y-4">
               <div className="flex items-center justify-between gap-3">

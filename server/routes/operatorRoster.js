@@ -16,7 +16,12 @@ const { getOperatorRoster, sortOperatorNames } = require('../config/operatorRost
 const { requireHumanAdmin } = require('../middleware/appAuth');
 const { writeAudit } = require('../middleware/audit');
 const creatorCache = require('../services/creatorCache');
-const { getSessionIdForOperator, _invalidateRosterFlagCache } = require('../services/operatorRosterService');
+const {
+    TABLE: ROSTER_TABLE,
+    getSessionIdForOperator,
+    hasRosterAssignments,
+    _invalidateRosterFlagCache,
+} = require('../services/operatorRosterService');
 const { normalizeOperatorName, ownersEqual } = require('../utils/operator');
 
 const router = express.Router();
@@ -43,22 +48,62 @@ function normalizeTransferOwner(raw) {
 
 async function getTransferPreview(fromOwner, toOwner) {
     const dbConn = db.getDb();
-    const [creatorRow, rosterRow, activeCreatorRow, existingTargetRosterRow, eventRow] = await Promise.all([
-        dbConn.prepare('SELECT COUNT(*) AS c FROM creators WHERE wa_owner = ?').get(fromOwner),
-        dbConn.prepare('SELECT COUNT(*) AS c FROM operator_creator_roster WHERE operator = ?').get(fromOwner),
-        dbConn.prepare('SELECT COUNT(*) AS c FROM creators WHERE wa_owner = ? AND COALESCE(is_active, 1) = 1').get(fromOwner),
-        dbConn.prepare('SELECT COUNT(*) AS c FROM operator_creator_roster WHERE operator = ?').get(toOwner),
-        dbConn.prepare(`
-            SELECT COUNT(*) AS c
-              FROM events e
-              JOIN creators c ON c.id = e.creator_id
-             WHERE c.wa_owner = ?
-               AND e.owner = ?
-        `).get(fromOwner, fromOwner),
-    ]);
+    const useRosterAssignments = await hasRosterAssignments();
+    const [creatorRow, rosterRow, activeCreatorRow, existingTargetRosterRow, eventRow] = useRosterAssignments
+        ? await Promise.all([
+            dbConn.prepare(`
+                SELECT COUNT(DISTINCT c.id) AS c
+                  FROM ${ROSTER_TABLE} r
+                  JOIN creators c ON c.id = r.creator_id
+                 WHERE r.operator = ?
+                   AND r.is_primary = 1
+            `).get(fromOwner),
+            dbConn.prepare(`
+                SELECT COUNT(*) AS c
+                  FROM ${ROSTER_TABLE}
+                 WHERE operator = ?
+                   AND is_primary = 1
+            `).get(fromOwner),
+            dbConn.prepare(`
+                SELECT COUNT(DISTINCT c.id) AS c
+                  FROM ${ROSTER_TABLE} r
+                  JOIN creators c ON c.id = r.creator_id
+                 WHERE r.operator = ?
+                   AND r.is_primary = 1
+                   AND COALESCE(c.is_active, 1) = 1
+            `).get(fromOwner),
+            dbConn.prepare(`
+                SELECT COUNT(*) AS c
+                  FROM ${ROSTER_TABLE}
+                 WHERE operator = ?
+                   AND is_primary = 1
+            `).get(toOwner),
+            dbConn.prepare(`
+                SELECT COUNT(*) AS c
+                  FROM events e
+                  JOIN ${ROSTER_TABLE} r ON r.creator_id = e.creator_id
+                 WHERE r.operator = ?
+                   AND r.is_primary = 1
+                   AND e.owner = ?
+            `).get(fromOwner, fromOwner),
+        ])
+        : await Promise.all([
+            dbConn.prepare('SELECT COUNT(*) AS c FROM creators WHERE wa_owner = ?').get(fromOwner),
+            dbConn.prepare(`SELECT COUNT(*) AS c FROM ${ROSTER_TABLE} WHERE operator = ?`).get(fromOwner),
+            dbConn.prepare('SELECT COUNT(*) AS c FROM creators WHERE wa_owner = ? AND COALESCE(is_active, 1) = 1').get(fromOwner),
+            dbConn.prepare(`SELECT COUNT(*) AS c FROM ${ROSTER_TABLE} WHERE operator = ?`).get(toOwner),
+            dbConn.prepare(`
+                SELECT COUNT(*) AS c
+                  FROM events e
+                  JOIN creators c ON c.id = e.creator_id
+                 WHERE c.wa_owner = ?
+                   AND e.owner = ?
+            `).get(fromOwner, fromOwner),
+        ]);
     return {
         from_owner: fromOwner,
         to_owner: toOwner,
+        assignment_source: useRosterAssignments ? 'roster' : 'creators',
         creator_count: Number(creatorRow?.c || 0),
         active_creator_count: Number(activeCreatorRow?.c || 0),
         roster_count: Number(rosterRow?.c || 0),
@@ -173,32 +218,51 @@ router.post('/transfer', requireHumanAdmin, async (req, res) => {
 
         const targetSessionId = before.target_session_id;
         const result = await db.getDb().transaction(async (txDb) => {
-            const rows = await txDb.prepare(`
-                SELECT id, wa_phone
-                  FROM creators
-                 WHERE wa_owner = ?
-                 ORDER BY id ASC
-            `).all(fromOwner);
+            const rows = before.assignment_source === 'roster'
+                ? await txDb.prepare(`
+                    SELECT DISTINCT c.id, c.wa_phone
+                      FROM ${ROSTER_TABLE} r
+                      JOIN creators c ON c.id = r.creator_id
+                     WHERE r.operator = ?
+                       AND r.is_primary = 1
+                     ORDER BY c.id ASC
+                `).all(fromOwner)
+                : await txDb.prepare(`
+                    SELECT id, wa_phone
+                      FROM creators
+                     WHERE wa_owner = ?
+                     ORDER BY id ASC
+                `).all(fromOwner);
             const creatorIds = rows.map((row) => Number(row.id)).filter(Boolean);
 
             let creatorsUpdated = 0;
             if (creatorIds.length > 0) {
+                const placeholders = creatorIds.map(() => '?').join(', ');
                 const creatorUpdate = await txDb.prepare(`
                     UPDATE creators
                        SET wa_owner = ?,
                            updated_at = CURRENT_TIMESTAMP
-                     WHERE wa_owner = ?
-                `).run(toOwner, fromOwner);
+                     WHERE id IN (${placeholders})
+                `).run(toOwner, ...creatorIds);
                 creatorsUpdated = Number(creatorUpdate?.changes || 0);
             }
 
-            const rosterUpdate = await txDb.prepare(`
-                UPDATE operator_creator_roster
-                   SET operator = ?,
-                       session_id = ?,
-                       updated_at = CURRENT_TIMESTAMP
-                 WHERE operator = ?
-            `).run(toOwner, targetSessionId, fromOwner);
+            const rosterUpdate = before.assignment_source === 'roster'
+                ? await txDb.prepare(`
+                    UPDATE ${ROSTER_TABLE}
+                       SET operator = ?,
+                           session_id = ?,
+                           updated_at = CURRENT_TIMESTAMP
+                     WHERE operator = ?
+                       AND is_primary = 1
+                `).run(toOwner, targetSessionId, fromOwner)
+                : await txDb.prepare(`
+                    UPDATE ${ROSTER_TABLE}
+                       SET operator = ?,
+                           session_id = ?,
+                           updated_at = CURRENT_TIMESTAMP
+                     WHERE operator = ?
+                `).run(toOwner, targetSessionId, fromOwner);
 
             let eventsUpdated = 0;
             if (creatorIds.length > 0) {
