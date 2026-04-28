@@ -1644,23 +1644,23 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 signal: AbortSignal.timeout(60000),
             });
             const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+            }
             const newMap = {};
             if (data.translations && Array.isArray(data.translations)) {
                 for (const t of data.translations) {
                     const idx = t.idx - 1; // idx 是 1-based
                     if (idx >= 0 && idx < last20.length) {
                         const key = getTranslationKey(last20[idx], `translate_${idx}`);
-                        newMap[key] = t.translation || last20[idx].text;
+                        const translated = String(t.translation || '').trim();
+                        const original = String(last20[idx].text || '').trim();
+                        if (translated && translated !== original) {
+                            newMap[key] = translated;
+                        }
                     }
                 }
             }
-            // 兜底：未翻译到的用原文
-            last20.forEach((msg, idx) => {
-                const key = getTranslationKey(msg, `translate_${idx}`);
-                if (!newMap[key]) {
-                    newMap[key] = msg.text;
-                }
-            });
             setTranslateProgress(`${last20.length}/${last20.length}`);
             setTranslationMap(newMap);
         } catch (e) {

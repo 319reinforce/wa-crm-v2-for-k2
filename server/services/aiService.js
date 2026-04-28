@@ -130,7 +130,8 @@ const EN_TRANSLATION_SYSTEM_PROMPT = [
 
 function resolveTranslationMode(mode) {
     const normalized = String(mode || '').trim().toLowerCase();
-    return normalized === 'auto' ? 'auto' : 'to_zh';
+    if (normalized === 'auto' || normalized === 'to_en' || normalized === 'to_zh') return normalized;
+    return 'to_zh';
 }
 
 function detectTranslationDirection(text) {

@@ -145,7 +145,61 @@ function pickProvider(explicit) {
 
 function directionToLangs(direction) {
     if (direction === 'to_en') return { source: 'zh', target: 'en-US' };
-    return { source: 'en', target: 'zh' };
+    return { source: 'en', target: 'zh-HANS' };
+}
+
+function normalizeForTranslationCompare(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function isNoopTranslationForDirection(original, translation, direction) {
+    const source = normalizeForTranslationCompare(original);
+    const output = normalizeForTranslationCompare(translation);
+    if (!source || !output || source !== output) return false;
+    if (direction === 'to_zh') {
+        return source.length >= 12 && /[A-Za-z]{2,}/.test(source) && !/[\u3400-\u9fff]/.test(source);
+    }
+    if (direction === 'to_en') {
+        return /[\u3400-\u9fff]/.test(source);
+    }
+    return false;
+}
+
+async function repairNoopBatchWithMiniMax(texts, translations, mode) {
+    const resolvedMode = resolveTranslationMode(mode);
+    const fallbackInputs = [];
+    const fallbackMeta = [];
+
+    for (let i = 0; i < translations.length; i += 1) {
+        const sourceText = String(texts[i]?.text ?? '');
+        const direction = resolvedMode === 'auto'
+            ? detectTranslationDirection(sourceText)
+            : resolvedMode;
+        if (isNoopTranslationForDirection(sourceText, translations[i]?.translation, direction)) {
+            fallbackMeta.push({ originalIdx: i, direction });
+            fallbackInputs.push({ text: sourceText, role: texts[i]?.role });
+        }
+    }
+
+    if (fallbackInputs.length === 0) return translations;
+
+    const fallbackMode = resolvedMode === 'auto' ? 'auto' : resolvedMode;
+    const fallback = await aiService.translateBatch(fallbackInputs, fallbackMode);
+    const repaired = translations.map((item) => ({ ...item }));
+    for (const item of fallback?.translations || []) {
+        const localIdx = Number(item?.idx || 0) - 1;
+        const meta = fallbackMeta[localIdx];
+        if (!meta) continue;
+        const replacement = String(item?.translation || '').trim();
+        if (replacement && !isNoopTranslationForDirection(fallbackInputs[localIdx]?.text, replacement, meta.direction)) {
+            repaired[meta.originalIdx] = {
+                ...repaired[meta.originalIdx],
+                translation: replacement,
+                provider: 'minimax',
+            };
+        }
+    }
+    return repaired;
 }
 
 function logUsage({ provider, status, chars, latencyMs, error, mode, source }) {
@@ -264,6 +318,9 @@ async function translateText(text, { role, timestamp, mode, provider } = {}) {
         const release = await reserveDeepLQuota(chars);
         try {
             const out = await translateTextViaDeepL(text, { direction, timestamp });
+            if (isNoopTranslationForDirection(text, out.translation, direction)) {
+                throw new Error('DeepL returned source text unchanged');
+            }
             logUsage({ provider: 'deepl', status: 'ok', chars, latencyMs: Date.now() - started, mode });
             return out;
         } catch (err) {
@@ -295,6 +352,7 @@ async function translateBatch(texts, { mode, provider } = {}) {
         const release = await reserveDeepLQuota(totalChars);
         try {
             const out = await translateBatchViaDeepL(texts, mode);
+            out.translations = await repairNoopBatchWithMiniMax(texts, out.translations || [], mode);
             logUsage({
                 provider: 'deepl',
                 status: 'ok',
@@ -342,6 +400,8 @@ module.exports = {
         pickProvider,
         resolveTranslationMode,
         detectTranslationDirection,
+        directionToLangs,
+        isNoopTranslationForDirection,
         getDeepLClient,
         getTodayTranslationChars,
         reserveDeepLQuota,

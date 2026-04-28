@@ -19,6 +19,7 @@ const DEFAULT_MIGRATIONS = [
 ];
 
 const LIFECYCLE_BASE_MIGRATION = 'server/migrations/004_event_lifecycle_fact_model.sql';
+const WANGYOUKE_REBUILD_SCRIPT = 'scripts/rebuild-wangyouke-creators.cjs';
 
 function envFlag(name, fallback = false) {
     const raw = process.env[name];
@@ -119,6 +120,16 @@ async function main() {
             const analyzeStatus = runNodeScript(['scripts/analyze-schema-state.js']);
             if (analyzeStatus !== 0) {
                 throw new Error(`analyze-schema-state exited with status ${analyzeStatus}`);
+            }
+        }
+
+        if (envFlag('STARTUP_REBUILD_WANGYOUKE_CREATORS', true)) {
+            const rebuildArgs = [WANGYOUKE_REBUILD_SCRIPT, '--write'];
+            const owner = String(process.env.WANGYOUKE_REBUILD_OWNER || '').trim();
+            if (owner) rebuildArgs.push(`--owner=${owner}`);
+            const rebuildStatus = runNodeScript(rebuildArgs);
+            if (rebuildStatus !== 0) {
+                throw new Error(`${WANGYOUKE_REBUILD_SCRIPT} exited with status ${rebuildStatus}`);
             }
         }
     });
