@@ -28,7 +28,7 @@ Branch `codex/youke-phone-normalization` fixes WangYouKe creator sync failures c
 - Startup migrations no longer run `scripts/rebuild-wangyouke-creators.cjs --write` by default.
 - Creator phone edits through `PUT /api/creators/:id` now normalize US 10-digit values and reject same-phone variant conflicts.
 - `POST /api/wa/repair-baileys-history` explicitly triggers Baileys on-demand history repair for a creator/session.
-- DeepL Chinese output targets `zh-HANS`, and unchanged provider output falls back to MiniMax instead of being rendered as a successful translation.
+- DeepL Chinese output targets `zh-HANS`; DeepL remains the default translator, while failures and unchanged output fallback to OpenAI. MiniMax is only used for explicit `provider=minimax`.
 
 ## Operational Facts
 

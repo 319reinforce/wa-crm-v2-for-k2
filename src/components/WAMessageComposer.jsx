@@ -744,6 +744,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const [translateProgress, setTranslateProgress] = useState(null);
     // 翻译 map：key = message_key，value = 中文翻译
     const [translationMap, setTranslationMap] = useState({});
+    const [translatingMessageKey, setTranslatingMessageKey] = useState(null);
     // 主输入框翻译：loading 态
     const [translatingInput, setTranslatingInput] = useState(false);
     // 主输入框翻译 undo 快照：存原文；置 null 表示当前不在"已翻译"状态
@@ -1669,6 +1670,50 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             setTranslateProgress(null);
         } finally {
             setTranslating(false);
+        }
+    };
+
+    const handleTranslateMessage = async (message) => {
+        const key = message?.translationKey || getTranslationKey(message);
+        const source = String(message?.text || '').trim();
+        if (!key || !source) return;
+
+        if (translationMap[key]) {
+            setTranslationMap((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+            return;
+        }
+
+        setTranslatingMessageKey(key);
+        try {
+            const response = await fetchAppAuth(`${API_BASE}/translate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: source,
+                    mode: 'auto',
+                    provider: 'deepl',
+                }),
+                signal: AbortSignal.timeout(30000),
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data?.message || data?.error || `HTTP ${response.status}`);
+            }
+            const translation = String(data?.translation || '').trim();
+            if (!translation || translation === source) {
+                toast.warning('这条消息没有可显示的译文');
+                return;
+            }
+            setTranslationMap((prev) => ({ ...prev, [key]: translation }));
+        } catch (e) {
+            console.error('[TranslateMessage] error:', e);
+            toast.error(`单条翻译失败：${e.message || '未知错误'}`);
+        } finally {
+            setTranslatingMessageKey(null);
         }
     };
 
@@ -3754,6 +3799,24 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                         </div>
                                     )}
                                     <div className="text-xs mt-1.5 flex justify-end items-center gap-1.5" style={{ color: isMe ? '#667781' : WA.textMuted }}>
+                                        {String(item.text || '').trim() && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleTranslateMessage(item)}
+                                                disabled={translatingMessageKey === item.translationKey}
+                                                className="w-6 h-6 rounded-full inline-flex items-center justify-center transition-all disabled:opacity-60"
+                                                style={{
+                                                    color: translationMap[item.translationKey] ? WA.teal : (isMe ? '#667781' : WA.textMuted),
+                                                    background: translationMap[item.translationKey] ? 'rgba(15,118,110,0.12)' : 'rgba(255,255,255,0.55)',
+                                                    border: `1px solid ${translationMap[item.translationKey] ? 'rgba(15,118,110,0.18)' : 'rgba(0,0,0,0.06)'}`,
+                                                }}
+                                                title={translationMap[item.translationKey] ? '关闭这条翻译' : '翻译这条消息'}
+                                            >
+                                                {translatingMessageKey === item.translationKey
+                                                    ? <SpinnerIcon color="currentColor" />
+                                                    : <GlobeIcon size={13} strokeWidth={2} />}
+                                            </button>
+                                        )}
                                         <span>{formatTime(item.normalizedTimestamp)}</span>
                                         {isMe && (
                                             item.pending ? (
