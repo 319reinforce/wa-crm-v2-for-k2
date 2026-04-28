@@ -418,141 +418,6 @@ function TempPasswordToast({ tempPassword, onClose }) {
   )
 }
 
-function OwnerTransferCard({ roster, onTransferred }) {
-  const toast = useToast()
-  const [fromOwner, setFromOwner] = useState('Jiawen')
-  const [toOwner, setToOwner] = useState('Yiyun')
-  const [preview, setPreview] = useState(null)
-  const [loadingPreview, setLoadingPreview] = useState(false)
-  const [transferring, setTransferring] = useState(false)
-
-  const ownerOptions = useMemo(() => {
-    const names = new Set(['Jiawen', 'Yiyun'])
-    for (const item of roster || []) {
-      if (item?.operator) names.add(item.operator)
-    }
-    if (fromOwner) names.add(fromOwner)
-    if (toOwner) names.add(toOwner)
-    return [...names]
-  }, [fromOwner, roster, toOwner])
-
-  async function loadPreview() {
-    const from = fromOwner.trim()
-    const to = toOwner.trim()
-    if (!from || !to) {
-      toast.warning('请选择来源和目标 owner')
-      return null
-    }
-    setLoadingPreview(true)
-    try {
-      const params = new URLSearchParams({ from, to })
-      const res = await fetchJsonOrThrow(`${API_BASE}/operator-roster/transfer-preview?${params}`)
-      setPreview(res?.data || null)
-      return res?.data || null
-    } catch (err) {
-      toast.error(err?.message || '读取迁移预览失败')
-      return null
-    } finally {
-      setLoadingPreview(false)
-    }
-  }
-
-  async function executeTransfer() {
-    const latestPreview = preview || await loadPreview()
-    if (!latestPreview) return
-    const count = Number(latestPreview.creator_count || 0)
-    const rosterCount = Number(latestPreview.roster_count || 0)
-    const eventCount = Number(latestPreview.event_count || 0)
-    const confirmed = window.confirm(
-      `确认将 ${latestPreview.from_owner} 的 ${count} 位联系人迁移到 ${latestPreview.to_owner}？\n\n同时会更新 ${rosterCount} 条 roster 归属和 ${eventCount} 条事件归属；历史消息不会删除。`
-    )
-    if (!confirmed) return
-    setTransferring(true)
-    try {
-      const res = await fetchJsonOrThrow(`${API_BASE}/operator-roster/transfer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: fromOwner.trim(), to: toOwner.trim(), confirm: true }),
-      })
-      const data = res?.data || {}
-      toast.success(`已迁移 ${data.creators_updated || 0} 位联系人到 ${data.to_owner || toOwner}`)
-      setPreview(null)
-      if (onTransferred) await onTransferred(data)
-    } catch (err) {
-      toast.error(err?.message || '迁移失败')
-    } finally {
-      setTransferring(false)
-    }
-  }
-
-  return (
-    <div
-      className="docs-panel p-4"
-      style={{ background: WA.white, border: `1px solid ${WA.borderLight}`, borderRadius: 16 }}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-        <div>
-          <div className="docs-kicker">Owner Transfer</div>
-          <div className="text-[15px] font-semibold mt-1" style={{ color: WA.textDark }}>联系人 owner 迁移</div>
-          <div className="text-[12px] mt-1" style={{ color: WA.textMuted }}>
-            批量更新联系人负责人、roster 路由和事件 owner，适合业务归属整体调整。
-          </div>
-        </div>
-        {preview && (
-          <div className="rounded-[14px] px-3 py-2 text-[12px]" style={{ background: WA.shellPanelMuted, color: WA.textDark }}>
-            {preview.from_owner} → {preview.to_owner} · {preview.creator_count} 位联系人
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto_auto] gap-2 items-end">
-        <FormField label="来源 owner">
-          <select
-            value={fromOwner}
-            onChange={(e) => { setFromOwner(e.target.value); setPreview(null) }}
-            disabled={loadingPreview || transferring}
-            style={selectStyle}
-          >
-            {ownerOptions.map((owner) => (
-              <option key={owner} value={owner}>{owner}</option>
-            ))}
-          </select>
-        </FormField>
-
-        <FormField label="目标 owner">
-          <select
-            value={toOwner}
-            onChange={(e) => { setToOwner(e.target.value); setPreview(null) }}
-            disabled={loadingPreview || transferring}
-            style={selectStyle}
-          >
-            {ownerOptions.map((owner) => (
-              <option key={owner} value={owner}>{owner}</option>
-            ))}
-          </select>
-        </FormField>
-
-        <button
-          type="button"
-          onClick={loadPreview}
-          disabled={loadingPreview || transferring}
-          style={{ ...secondaryBtnStyle, marginBottom: 16, minWidth: 92 }}
-        >
-          {loadingPreview ? '读取中…' : '预览'}
-        </button>
-        <button
-          type="button"
-          onClick={executeTransfer}
-          disabled={loadingPreview || transferring}
-          style={{ ...primaryBtnStyle(transferring), marginBottom: 16, minWidth: 116 }}
-        >
-          {transferring ? '迁移中…' : '确认迁移'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
 function OwnerCell({ user, roster, onCommit }) {
   const toast = useToast()
   const [editing, setEditing] = useState(false)
@@ -697,11 +562,6 @@ export function UsersPanel() {
     loadAll()
   }
 
-  async function handleOwnerTransferred() {
-    clearRosterCache()
-    await loadAll()
-  }
-
   return (
     <div
       className="h-full overflow-y-auto docs-scrollbar px-3 py-3 md:px-6 md:py-6 space-y-4"
@@ -745,8 +605,6 @@ export function UsersPanel() {
           {error}
         </div>
       )}
-
-      <OwnerTransferCard roster={roster} onTransferred={handleOwnerTransferred} />
 
       <div
         className="docs-panel overflow-hidden"
