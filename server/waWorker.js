@@ -489,6 +489,7 @@ const progress = {
     clientError: null,
     owner: WA_OWNER,
     sessionId: WA_SESSION_ID,
+    contactStatuses: new Map(),
 
     progressPct() {
         if (this.phase === 'init') return 5;
@@ -513,6 +514,30 @@ const progress = {
             + `错误 ${this.errors.length}`;
     }
 };
+
+function rememberContactStatus({ creatorId, owner, sessionId, name, phone, status, checked = 0, inserted = 0, error = null, source = null }) {
+    const id = Number(creatorId || 0);
+    if (!id) return;
+    const now = new Date().toISOString();
+    const prev = progress.contactStatuses.get(id) || {};
+    progress.contactStatuses.set(id, {
+        creator_id: id,
+        owner: owner || WA_OWNER || prev.owner || null,
+        session_id: sessionId || WA_SESSION_ID || prev.session_id || null,
+        name: name || prev.name || null,
+        phone: phone || prev.phone || null,
+        status: status || prev.status || 'unknown',
+        checked_count: Number(checked || 0),
+        inserted_count: Number(inserted || 0),
+        error: error || null,
+        source: source || prev.source || null,
+        updated_at: now,
+    });
+    if (progress.contactStatuses.size > 500) {
+        const oldestKey = progress.contactStatuses.keys().next().value;
+        progress.contactStatuses.delete(oldestKey);
+    }
+}
 
 // ================== 消息写入 MySQL ==================
 
@@ -1795,7 +1820,19 @@ async function pollOnce(client) {
                 try {
                     await new Promise(r => setTimeout(r, 3000));
                     wamessages = await fetchMessagesWithFallback(chat, POLL_FETCH_LIMIT);
-                } catch (_) { continue; }
+                } catch (retryErr) {
+                    rememberContactStatus({
+                        creatorId,
+                        owner: rosterAssignment?.operator || WA_OWNER,
+                        sessionId: WA_SESSION_ID,
+                        name,
+                        phone,
+                        status: 'error',
+                        error: retryErr.message || e.message,
+                        source: 'poll',
+                    });
+                    continue;
+                }
             }
 
             const eligibility = rosterAssignment
@@ -1833,6 +1870,17 @@ async function pollOnce(client) {
                     };
                 }));
                 newTotal += inserted;
+                rememberContactStatus({
+                    creatorId,
+                    owner: rosterAssignment?.operator || WA_OWNER,
+                    sessionId: WA_SESSION_ID,
+                    name,
+                    phone,
+                    status: 'checked',
+                    checked: wamessages.length,
+                    inserted,
+                    source: 'poll',
+                });
                 if (inserted > 0) {
                     await touchCreator(creatorId);
                     console.log(`${LOG_PREFIX}[Poll] ${name}: +${inserted} 条新消息`);
@@ -1862,6 +1910,18 @@ async function pollOnce(client) {
                         insertedCount: inserted,
                     });
                 }
+            } else {
+                rememberContactStatus({
+                    creatorId,
+                    owner: rosterAssignment?.operator || WA_OWNER,
+                    sessionId: WA_SESSION_ID,
+                    name,
+                    phone,
+                    status: 'checked',
+                    checked: wamessages.length,
+                    inserted: 0,
+                    source: 'poll',
+                });
             }
         }
 
@@ -1882,7 +1942,17 @@ async function pollOnce(client) {
             let wamessages;
             try {
                 wamessages = await fetchMessagesWithFallback(chat, POLL_FETCH_LIMIT);
-            } catch (_) {
+            } catch (err) {
+                rememberContactStatus({
+                    creatorId: assignment.creator_id,
+                    owner: assignment.operator || WA_OWNER,
+                    sessionId: WA_SESSION_ID,
+                    name: assignment.primary_name || assignment.raw_name || null,
+                    phone: assignment.wa_phone,
+                    status: 'error',
+                    error: err.message,
+                    source: 'poll_roster',
+                });
                 continue;
             }
 
@@ -1893,7 +1963,20 @@ async function pollOnce(client) {
                 return ts > toTimestampMs(lastRow?.timestamp || 0);
             });
 
-            if (newer.length === 0) continue;
+            if (newer.length === 0) {
+                rememberContactStatus({
+                    creatorId: assignment.creator_id,
+                    owner: assignment.operator || WA_OWNER,
+                    sessionId: WA_SESSION_ID,
+                    name: assignment.primary_name || assignment.raw_name || null,
+                    phone: assignment.wa_phone,
+                    status: 'checked',
+                    checked: wamessages.length,
+                    inserted: 0,
+                    source: 'poll_roster',
+                });
+                continue;
+            }
 
             // 处理消息中的媒体（来自 fetchMessagesViaStore 的 _mediaData）
             const withMedia = newer.filter(m => m._mediaData?.data);
@@ -1918,6 +2001,17 @@ async function pollOnce(client) {
                 };
             }));
             newTotal += inserted;
+            rememberContactStatus({
+                creatorId: assignment.creator_id,
+                owner: assignment.operator || WA_OWNER,
+                sessionId: WA_SESSION_ID,
+                name: assignment.primary_name || assignment.raw_name || null,
+                phone: assignment.wa_phone,
+                status: 'checked',
+                checked: wamessages.length,
+                inserted,
+                source: 'poll_roster',
+            });
             if (inserted > 0) {
                 await touchCreator(assignment.creator_id);
                 console.log(`${LOG_PREFIX}[Poll][Roster] ${assignment.primary_name || assignment.raw_name || maskPhone(assignment.wa_phone)}: +${inserted} 条新消息`);
@@ -2135,6 +2229,9 @@ function getProgress() {
         owner: progress.owner,
         sessionId: progress.sessionId,
         resolvedOwner: resolveCurrentOwner(),
+        recentContacts: Array.from(progress.contactStatuses.values())
+            .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+            .slice(0, 200),
         pollIntervalMs: POLL_INTERVAL_MS,
         baileysBackfillIntervalMs: BAILEYS_BACKFILL_INTERVAL_MS,
         uptime: progress.startedAt ? Date.now() - progress.startedAt.getTime() : 0,

@@ -442,6 +442,178 @@ app.get('/api/wa-worker/status', requireAppAuth, (req, res) => {
     });
 });
 
+function collectRuntimeContactStatuses() {
+    const statuses = new Map();
+    const addItems = (sessionId, owner, items = []) => {
+        for (const item of items || []) {
+            const creatorId = Number(item?.creator_id || item?.creatorId || 0);
+            if (!creatorId) continue;
+            statuses.set(creatorId, {
+                ...item,
+                creator_id: creatorId,
+                owner: item.owner || owner || null,
+                session_id: item.session_id || sessionId || null,
+            });
+        }
+    };
+
+    const { getRegistry } = require('./services/sessionRegistry');
+    const registry = getRegistry();
+    if (registry?.isEnabled()) {
+        for (const agent of registry.listAgents()) {
+            addItems(agent.session_id, agent.owner, agent.worker?.recentContacts || []);
+        }
+    }
+
+    for (const sessionId of listStatusSessions()) {
+        const status = readSessionStatus(sessionId);
+        addItems(sessionId, status?.owner || status?.configured_owner || null, status?.worker?.recentContacts || []);
+    }
+    return statuses;
+}
+
+function parseWorkerDays(value) {
+    const parsed = parseInt(value || '', 10);
+    if (!Number.isInteger(parsed)) return 3;
+    return Math.max(1, Math.min(parsed, 14));
+}
+
+// 近 N 天有新消息的联系人抓取/确认状态。
+app.get('/api/wa-worker/contact-status', requireAppAuth, async (req, res) => {
+    try {
+        const days = parseWorkerDays(req.query.days);
+        const cutoffTs = Date.now() - days * 24 * 60 * 60 * 1000;
+        const lockedOwner = req.auth?.owner || null;
+        const runtime = collectRuntimeContactStatuses();
+        const whereOwner = lockedOwner
+            ? "WHERE LOWER(COALESCE(ocr.operator, c.wa_owner, 'Unknown')) = LOWER(?)"
+            : '';
+        const params = lockedOwner ? [cutoffTs, lockedOwner] : [cutoffTs];
+        const rows = await db.prepare(`
+            SELECT
+                c.id AS creator_id,
+                c.primary_name,
+                c.wa_phone,
+                COALESCE(ocr.operator, c.wa_owner, 'Unknown') AS owner,
+                COALESCE(ocr.session_id, '') AS session_id,
+                recent.recent_message_count,
+                recent.latest_message_at,
+                recent.latest_inbound_at,
+                conf.confirmed_through_ts,
+                conf.confirmed_at,
+                conf.confirmed_by
+            FROM (
+                SELECT
+                    creator_id,
+                    COUNT(*) AS recent_message_count,
+                    MAX(timestamp) AS latest_message_at,
+                    MAX(CASE WHEN role = 'user' THEN timestamp ELSE 0 END) AS latest_inbound_at
+                FROM wa_messages
+                WHERE timestamp >= ?
+                GROUP BY creator_id
+            ) recent
+            INNER JOIN creators c ON c.id = recent.creator_id
+            LEFT JOIN operator_creator_roster ocr ON ocr.creator_id = c.id
+            LEFT JOIN wa_worker_contact_confirmations conf
+              ON conf.creator_id = c.id
+             AND LOWER(conf.owner) = LOWER(COALESCE(ocr.operator, c.wa_owner, 'Unknown'))
+            ${whereOwner}
+            ORDER BY owner ASC, recent.latest_message_at DESC
+            LIMIT 500
+        `).all(...params);
+
+        const contacts = rows.map((row) => {
+            const runtimeRow = runtime.get(Number(row.creator_id)) || null;
+            const latest = Number(row.latest_message_at || 0);
+            const confirmedThrough = Number(row.confirmed_through_ts || 0);
+            return {
+                creator_id: Number(row.creator_id),
+                name: row.primary_name || row.wa_phone || 'Unknown',
+                phone: row.wa_phone || null,
+                owner: row.owner || 'Unknown',
+                session_id: row.session_id || runtimeRow?.session_id || null,
+                recent_message_count: Number(row.recent_message_count || 0),
+                latest_message_at: latest,
+                latest_inbound_at: Number(row.latest_inbound_at || 0) || null,
+                confirmed: confirmedThrough >= latest,
+                confirmed_through_ts: confirmedThrough || null,
+                confirmed_at: row.confirmed_at || null,
+                confirmed_by: row.confirmed_by || null,
+                crawl: runtimeRow ? {
+                    status: runtimeRow.status || 'unknown',
+                    checked_count: Number(runtimeRow.checked_count || 0),
+                    inserted_count: Number(runtimeRow.inserted_count || 0),
+                    error: runtimeRow.error || null,
+                    source: runtimeRow.source || null,
+                    updated_at: runtimeRow.updated_at || null,
+                } : null,
+            };
+        });
+        const owners = contacts.reduce((acc, item) => {
+            const key = item.owner || 'Unknown';
+            if (!acc[key]) acc[key] = { owner: key, total: 0, confirmed: 0, unconfirmed: 0 };
+            acc[key].total += 1;
+            if (item.confirmed) acc[key].confirmed += 1;
+            else acc[key].unconfirmed += 1;
+            return acc;
+        }, {});
+        res.json({
+            ok: true,
+            days,
+            cutoff_ts: cutoffTs,
+            owners: Object.values(owners),
+            contacts,
+        });
+    } catch (err) {
+        console.error('[wa-worker/contact-status] error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+app.post('/api/wa-worker/contact-status/:creatorId/confirm', requireAppAuth, async (req, res) => {
+    try {
+        const creatorId = Number(req.params.creatorId || 0);
+        if (!creatorId) return res.status(400).json({ ok: false, error: 'invalid creator id' });
+        const creator = await db.prepare(`
+            SELECT c.id, c.primary_name, c.wa_phone, COALESCE(ocr.operator, c.wa_owner, 'Unknown') AS owner
+            FROM creators c
+            LEFT JOIN operator_creator_roster ocr ON ocr.creator_id = c.id
+            WHERE c.id = ?
+            LIMIT 1
+        `).get(creatorId);
+        if (!creator) return res.status(404).json({ ok: false, error: 'creator not found' });
+        const lockedOwner = req.auth?.owner || null;
+        const owner = String(creator.owner || 'Unknown').trim() || 'Unknown';
+        if (lockedOwner && owner.toLowerCase() !== String(lockedOwner).toLowerCase()) {
+            return res.status(403).json({ ok: false, error: 'owner scope mismatch' });
+        }
+        const latest = await db.prepare('SELECT MAX(timestamp) AS latest_message_at FROM wa_messages WHERE creator_id = ?').get(creatorId);
+        const requestedTs = Number(req.body?.confirmed_through_ts || 0);
+        const confirmedThrough = requestedTs > 0 ? requestedTs : Number(latest?.latest_message_at || Date.now());
+        const confirmedBy = req.auth?.username || req.auth?.role || 'app-user';
+        await db.prepare(`
+            INSERT INTO wa_worker_contact_confirmations
+                (creator_id, owner, confirmed_through_ts, confirmed_by, confirmed_at)
+            VALUES (?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE
+                confirmed_through_ts = VALUES(confirmed_through_ts),
+                confirmed_by = VALUES(confirmed_by),
+                confirmed_at = NOW(),
+                updated_at = NOW()
+        `).run(creatorId, owner, confirmedThrough, confirmedBy);
+        res.json({
+            ok: true,
+            creator_id: creatorId,
+            owner,
+            confirmed_through_ts: confirmedThrough,
+            confirmed_by: confirmedBy,
+        });
+    } catch (err) {
+        console.error('[wa-worker/contact-status confirm] error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
 // ================== 启动服务器 ==================
 
 (async () => {

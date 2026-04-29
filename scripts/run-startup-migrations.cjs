@@ -16,6 +16,7 @@ const DEFAULT_MIGRATIONS = [
     'server/migrations/012_retention_rollups_and_purge_windows.sql',
     'server/migrations/013_retention_external_archive_checks.sql',
     'server/migrations/014_baileys_lid_mapping.sql',
+    'server/migrations/015_wa_worker_contact_confirmations.sql',
 ];
 
 const LIFECYCLE_BASE_MIGRATION = 'server/migrations/004_event_lifecycle_fact_model.sql';
