@@ -158,9 +158,12 @@ Updated files:
 Behavior:
 
 - DeepL Chinese target is now `zh-HANS`.
-- single-message translation treats unchanged English-to-Chinese output as a failed provider result and falls back to MiniMax.
-- batch translation repairs unchanged per-message DeepL outputs through MiniMax fallback.
+- DeepL remains the default translation provider.
+- DeepL failures, quota blocks, and unchanged English-to-Chinese outputs fallback to OpenAI translation.
+- batch translation repairs unchanged per-message DeepL outputs through OpenAI fallback.
+- MiniMax is only used when explicitly requested with `provider=minimax`.
 - MiniMax translation mode now accepts `to_en` and `to_zh`, instead of collapsing every non-auto mode to Chinese.
+- the chat UI supports translating one message directly from the message bubble.
 - the chat UI no longer renders original text as a fake translation when the backend returns no effective translation.
 
 ## Verification
