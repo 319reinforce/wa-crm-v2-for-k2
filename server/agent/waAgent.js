@@ -37,6 +37,7 @@ const {
     start: startWaWorker,
     stop: stopWaWorker,
     getProgress: getWaWorkerProgress,
+    registerMessageHandler,
 } = require('../waWorker');
 const { assertNoGroupSend } = require('../services/groupSendGuard');
 const { normalizeOperatorName } = require('../utils/operator');
@@ -750,6 +751,21 @@ async function main() {
     // 启动 WA service 和 worker
     startWaService();
     wireClientEvents();
+    registerMessageHandler((message) => {
+        const digits = normalizePhoneDigits(message?.phone || '');
+        if (!digits) return;
+        emitEvent(EVT_WA_MESSAGE, {
+            chat_id: `${digits}@c.us`,
+            from_phone: `+${digits}`,
+            to_phone: `+${digits}`,
+            role: message?.role || null,
+            text: message?.text || '',
+            timestamp: message?.timestamp || Date.now(),
+            message_id: message?.message_id || null,
+            creator_id: message?.creatorId || null,
+            source: 'wa_worker_persistence',
+        });
+    });
 
     try {
         await startWaWorker({ syncHistory: true });

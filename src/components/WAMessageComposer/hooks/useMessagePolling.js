@@ -109,7 +109,7 @@ export function useMessagePolling({
             try {
                 const data = event?.detail;
                 if (!data) return;
-                const clientPhone = String(client?.wa_phone || '').replace(/\D/g, '');
+                const clientPhone = String(client?.wa_phone || client?.phone || '').replace(/\D/g, '');
                 if (!clientPhone) return;
                 const fromDigits = String(data.from_phone || '').replace(/\D/g, '');
                 const toDigits = String(data.to_phone || '').replace(/\D/g, '');
@@ -145,7 +145,7 @@ export function useMessagePolling({
             document.removeEventListener('visibilitychange', handleVisibility);
             if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
         };
-    }, [client?.id, client?.wa_phone, checkNewMessages, sseHealthyRef]);
+    }, [client?.id, client?.wa_phone, client?.phone, checkNewMessages, sseHealthyRef]);
 
     // 48 小时无互动检测(业务逻辑,保留)
     const check48h = useCallback(() => {

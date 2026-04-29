@@ -341,6 +341,8 @@ class SessionRegistry {
                         text: msg.text || '',
                         timestamp: msg.timestamp || Date.now(),
                         message_id: msg.message_id || null,
+                        creator_id: msg.creator_id || null,
+                        source: msg.source || 'agent_ipc',
                     });
                     break;
                 default:
