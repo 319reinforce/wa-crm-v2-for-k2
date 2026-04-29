@@ -125,6 +125,12 @@ function isRecoverableFrameError(error) {
         || message.includes('Cannot find context with specified id');
 }
 
+function isWWebChatLoadingError(error) {
+    const message = String(error?.message || error || '');
+    return message.includes('waitForChatLoading')
+        || message.includes('Cannot read properties of undefined');
+}
+
 function getWaMessageTimestampMs(message) {
     const raw = message?.timestamp_ms
         ?? message?.timestamp
@@ -243,6 +249,92 @@ function dedupeAuditMessages(messages = []) {
         out.push(message);
     }
     return out.sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
+}
+
+function mapWWebMessageToAuditMessage(message) {
+    return {
+        role: getWaMessageRole(message),
+        text: getWaMessageText(message),
+        timestamp: getWaMessageTimestampMs(message),
+        message_id: typeof message?.id === 'string'
+            ? message.id
+            : (message?.id?._serialized || message?.id?.id || message?._data?.id?._serialized || null),
+    };
+}
+
+async function fetchWWebMessagesViaStore(client, chatId, limit) {
+    if (!client?.pupPage || !chatId) {
+        throw new Error('WWeb Store fallback unavailable');
+    }
+
+    return await client.pupPage.evaluate(async (targetChatId, targetLimit) => {
+        const store = window.Store;
+        if (!store?.Chat) {
+            throw new Error('WWeb Store.Chat unavailable');
+        }
+        const widFactory = store.WidFactory || window.WidFactory || null;
+        const chatWid = widFactory?.createWid
+            ? widFactory.createWid(targetChatId)
+            : targetChatId;
+        const model = store.Chat.get(chatWid)
+            || store.Chat.get(targetChatId)
+            || (typeof store.Chat.find === 'function' ? await store.Chat.find(chatWid) : null)
+            || (typeof store.Chat.find === 'function' ? await store.Chat.find(targetChatId) : null);
+        if (!model?.msgs || typeof model.msgs.getModelsArray !== 'function') return [];
+
+        const rawMessages = model.msgs
+            .getModelsArray()
+            .filter((m) => !m.isNotification)
+            .sort((a, b) => (Number(a.t || 0) > Number(b.t || 0) ? 1 : -1));
+        const safeLimit = Math.max(20, Math.min(Number(targetLimit) || 120, 2000));
+        const sliced = rawMessages.slice(-safeLimit);
+        return sliced.map((msgObj) => {
+            if (window.WWebJS?.getMessageModel) {
+                return window.WWebJS.getMessageModel(msgObj);
+            }
+            return {
+                id: msgObj.id,
+                body: msgObj.body || msgObj.caption || '',
+                timestamp: msgObj.t,
+                fromMe: !!msgObj.id?.fromMe,
+                _data: {
+                    body: msgObj.body || msgObj.caption || '',
+                    t: msgObj.t,
+                    fromMe: !!msgObj.id?.fromMe,
+                    id: msgObj.id,
+                },
+            };
+        });
+    }, chatId, limit);
+}
+
+async function fetchWWebMessagesWithFallback(client, chat, chatId, limit) {
+    const safeLimit = Math.max(20, Math.min(limit, 2000));
+    try {
+        const fetched = await chat.fetchMessages({ limit: safeLimit });
+        return {
+            messages: Array.isArray(fetched) ? fetched : [],
+            source: 'wweb_fetch_messages',
+        };
+    } catch (error) {
+        if (!isWWebChatLoadingError(error)) throw error;
+        console.warn(`[waAgent:${AGENT_TAG}] WWeb fetchMessages failed, using Store.Chat fallback: ${error.message || error}`);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        try {
+            const fallback = await fetchWWebMessagesViaStore(client, chatId, safeLimit);
+            return {
+                messages: Array.isArray(fallback) ? fallback : [],
+                source: 'wweb_store_fallback',
+                fallback_error: error.message || String(error),
+            };
+        } catch (fallbackError) {
+            return {
+                messages: [],
+                source: 'wweb_store_fallback_failed',
+                fallback_error: `${error.message || String(error)}; Store fallback failed: ${fallbackError.message || String(fallbackError)}`,
+            };
+        }
+    }
 }
 
 function createBaileysHistoryCollector({ driver, targetDigits, limit }) {
@@ -421,20 +513,15 @@ async function fetchAuditMessagesByPhone(phone, limit = 120, creatorId = null) {
             if (!chat || !isDirectChatId(chat.id?._serialized || chatId)) {
                 return { ok: false, error: `chat not found for ${normalizedTarget}` };
             }
-            const fetched = await chat.fetchMessages({ limit: Math.max(20, Math.min(limit, 2000)) });
-            const messages = Array.isArray(fetched) ? fetched : [];
+            const fetched = await fetchWWebMessagesWithFallback(client, chat, chat.id?._serialized || chatId, Math.max(20, Math.min(limit, 2000)));
+            const messages = Array.isArray(fetched.messages) ? fetched.messages : [];
             return {
                 ok: true,
                 phone: normalizedTarget,
                 name: chat.name || chat.contact?.pushname || 'Unknown',
-                messages: messages.map((message) => ({
-                    role: getWaMessageRole(message),
-                    text: getWaMessageText(message),
-                    timestamp: getWaMessageTimestampMs(message),
-                    message_id: typeof message?.id === 'string'
-                        ? message.id
-                        : (message?.id?._serialized || message?.id?.id || null),
-                })),
+                messages: messages.map(mapWWebMessageToAuditMessage),
+                audit_source: fetched.source,
+                fallback_error: fetched.fallback_error || null,
             };
         } catch (error) {
             if (!isRecoverableFrameError(error) || attempt === 3) {

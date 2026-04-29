@@ -41,10 +41,23 @@ function ProgressBar({ pct, color }) {
     )
 }
 
+function formatShortTime(ts) {
+    const n = Number(ts || 0)
+    if (!Number.isFinite(n) || n <= 0) return '无时间'
+    const d = new Date(n)
+    const now = Date.now()
+    const diffHours = Math.floor((now - n) / 3600000)
+    if (diffHours < 1) return '刚刚'
+    if (diffHours < 24) return `${diffHours}小时前`
+    return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+}
+
 const COLLAPSED_SIZE = 48
 
 export function WorkerStatusBar() {
     const [status, setStatus] = useState(null)
+    const [contactStatus, setContactStatus] = useState(null)
+    const [confirmingCreatorId, setConfirmingCreatorId] = useState(null)
     const [waStatus, setWaStatus] = useState(null)  // { ready, hasQr }
     const [qrDataUrl, setQrDataUrl] = useState(null)
     const [visible, setVisible] = useState(false)
@@ -66,6 +79,15 @@ export function WorkerStatusBar() {
 
     // 轮询 worker 状态（每5秒）
     useEffect(() => {
+        let cancelled = false
+        const fetchContactStatus = async () => {
+            try {
+                const res = await fetchAppAuth(`${API_BASE}/wa-worker/contact-status?days=3`)
+                if (!res.ok) return
+                const data = await res.json()
+                if (!cancelled) setContactStatus(data)
+            } catch (_) {}
+        }
         const fetchStatus = async () => {
             try {
                 const res = await fetchAppAuth(`${API_BASE}/wa-worker/status`)
@@ -73,11 +95,15 @@ export function WorkerStatusBar() {
                 setStatus(data)
                 setVisible(data.phase !== 'idle')
                 if (data.phase === 'live') pollTickRef.current = 0
+                fetchContactStatus()
             } catch (_) {}
         }
         fetchStatus()
         const id = setInterval(fetchStatus, 30000)
-        return () => clearInterval(id)
+        return () => {
+            cancelled = true
+            clearInterval(id)
+        }
     }, [])
 
     // 轮询 WhatsApp 状态和二维码（每5秒）
@@ -174,6 +200,37 @@ export function WorkerStatusBar() {
     const color = status ? phaseColor(status.phase) : '#94a3b8'
 
     const effectivePollIntervalMs = status?.pollIntervalMs || DEFAULT_POLL_INTERVAL_MS
+    const contacts = Array.isArray(contactStatus?.contacts) ? contactStatus.contacts : []
+    const ownerSummaries = Array.isArray(contactStatus?.owners) ? contactStatus.owners : []
+    const unconfirmedCount = contacts.filter((item) => !item.confirmed).length
+    const visibleContacts = contacts
+        .slice()
+        .sort((a, b) => {
+            if (a.confirmed !== b.confirmed) return a.confirmed ? 1 : -1
+            return Number(b.latest_message_at || 0) - Number(a.latest_message_at || 0)
+        })
+        .slice(0, 80)
+
+    const refreshContactStatus = async () => {
+        const res = await fetchAppAuth(`${API_BASE}/wa-worker/contact-status?days=3`)
+        if (!res.ok) return
+        setContactStatus(await res.json())
+    }
+
+    const confirmContact = async (contact) => {
+        if (!contact?.creator_id || contact.confirmed) return
+        setConfirmingCreatorId(contact.creator_id)
+        try {
+            const res = await fetchAppAuth(`${API_BASE}/wa-worker/contact-status/${contact.creator_id}/confirm`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirmed_through_ts: contact.latest_message_at }),
+            })
+            if (res.ok) await refreshContactStatus()
+        } finally {
+            setConfirmingCreatorId(null)
+        }
+    }
 
     // 计算距下次轮询的倒计时
     let secondsUntilNextPoll = null
@@ -231,7 +288,7 @@ export function WorkerStatusBar() {
                 position: 'fixed',
                 bottom: pos.bottom,
                 right: pos.right,
-                width: 300,
+                width: 380,
                 zIndex: 9999,
                 background: '#fff',
                 borderRadius: 12,
@@ -270,6 +327,18 @@ export function WorkerStatusBar() {
                     boxShadow: `0 0 4px ${color}`,
                 }} />
                 <span style={{ fontWeight: 600, color: '#374151', flex: 1 }}>WA Worker</span>
+                {unconfirmedCount > 0 && (
+                    <span style={{
+                        padding: '1px 6px',
+                        borderRadius: 20,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        background: '#fff7ed',
+                        color: '#c2410c',
+                    }}>
+                        待确认 {unconfirmedCount}
+                    </span>
+                )}
                 <span style={{
                     padding: '1px 7px', borderRadius: 20, fontSize: 10, fontWeight: 600,
                     background: `${color}22`, color,
@@ -329,6 +398,120 @@ export function WorkerStatusBar() {
                             {safeStatus.processedChats || 0}/{safeStatus.totalChats || 0}
                         </div>
                     </div>
+                </div>
+
+                {ownerSummaries.length > 0 && (
+                    <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {ownerSummaries.map((item) => (
+                            <span
+                                key={item.owner}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    padding: '2px 7px',
+                                    borderRadius: 999,
+                                    background: item.unconfirmed > 0 ? '#fff7ed' : '#ecfdf5',
+                                    color: item.unconfirmed > 0 ? '#c2410c' : '#047857',
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                }}
+                            >
+                                {item.owner} {item.confirmed}/{item.total}
+                            </span>
+                        ))}
+                    </div>
+                )}
+
+                <div style={{ marginTop: 10, borderTop: '1px solid #f3f4f6', paddingTop: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <div style={{ color: '#374151', fontSize: 11, fontWeight: 700 }}>近3天新消息联系人</div>
+                        <button
+                            type="button"
+                            onClick={refreshContactStatus}
+                            style={{
+                                border: '1px solid #e5e7eb',
+                                background: '#fff',
+                                color: '#64748b',
+                                borderRadius: 999,
+                                padding: '2px 8px',
+                                fontSize: 10,
+                                cursor: 'pointer',
+                            }}
+                        >
+                            刷新
+                        </button>
+                    </div>
+                    {visibleContacts.length === 0 ? (
+                        <div style={{ color: '#9ca3af', fontSize: 10, padding: '8px 0' }}>暂无近3天新消息</div>
+                    ) : (
+                        <div style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 2 }}>
+                            {visibleContacts.map((item) => {
+                                const crawlStatus = item.crawl?.status || 'waiting'
+                                const crawlColor = crawlStatus === 'error'
+                                    ? '#dc2626'
+                                    : crawlStatus === 'checked'
+                                        ? '#047857'
+                                        : '#64748b'
+                                return (
+                                    <div
+                                        key={`${item.owner}:${item.creator_id}`}
+                                        style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: '1fr auto',
+                                            gap: 8,
+                                            alignItems: 'center',
+                                            padding: '7px 0',
+                                            borderTop: '1px solid #f8fafc',
+                                        }}
+                                    >
+                                        <div style={{ minWidth: 0 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                                                <span style={{
+                                                    width: 6,
+                                                    height: 6,
+                                                    borderRadius: '50%',
+                                                    background: item.confirmed ? '#10b981' : '#f59e0b',
+                                                    flexShrink: 0,
+                                                }} />
+                                                <span style={{ color: '#111827', fontSize: 11, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {item.name}
+                                                </span>
+                                            </div>
+                                            <div style={{ marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap', color: '#94a3b8', fontSize: 10 }}>
+                                                <span>{item.owner}</span>
+                                                <span>{formatShortTime(item.latest_message_at)}</span>
+                                                <span>{item.recent_message_count} 条</span>
+                                                <span style={{ color: crawlColor }}>
+                                                    {crawlStatus === 'checked' ? '已爬取' : crawlStatus === 'error' ? '爬取错误' : '待爬取'}
+                                                </span>
+                                                {item.crawl?.inserted_count > 0 && <span style={{ color: '#047857' }}>+{item.crawl.inserted_count}</span>}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => confirmContact(item)}
+                                            disabled={item.confirmed || confirmingCreatorId === item.creator_id}
+                                            title={item.confirmed ? '已确认到最新消息' : '确认这位联系人已检查'}
+                                            style={{
+                                                width: 28,
+                                                height: 28,
+                                                borderRadius: 999,
+                                                border: `1px solid ${item.confirmed ? '#bbf7d0' : '#fed7aa'}`,
+                                                background: item.confirmed ? '#ecfdf5' : '#fff7ed',
+                                                color: item.confirmed ? '#047857' : '#c2410c',
+                                                fontWeight: 800,
+                                                cursor: item.confirmed ? 'default' : 'pointer',
+                                                opacity: confirmingCreatorId === item.creator_id ? 0.65 : 1,
+                                            }}
+                                        >
+                                            ✓
+                                        </button>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
                 </div>
 
                 {/* 增量轮询倒计时 */}
