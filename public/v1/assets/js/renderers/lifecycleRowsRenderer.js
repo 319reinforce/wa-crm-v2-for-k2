@@ -34,7 +34,7 @@
 
         tbody.innerHTML = data.map((u) => {
             const owner = u.wa_owner || '-';
-            const ownerClass = owner === 'Beau' ? 'owner-beau' : owner === 'Jiawen' ? 'owner-jiawen' : owner === 'Yiyun' ? 'owner-yiyun' : '';
+            const ownerClass = owner === 'Beau' ? 'owner-beau' : owner === 'Yiyun' ? 'owner-yiyun' : '';
             const lastActive = u.last_active ? deps.formatRelativeTime(new Date(u.last_active)) : '-';
             const msgCount = u.msg_count || 0;
             const lifecycleLabel = deps.getLifecycleLabel(u.lifecycle?.stage_key, u.lifecycle?.stage_label);

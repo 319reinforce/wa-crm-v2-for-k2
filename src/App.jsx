@@ -24,7 +24,7 @@ import {
   getCreatorStatusMeta,
   getCreatorTrialPhaseMeta,
 } from './utils/creatorMeta'
-import { buildOwnerOptions, getOwnerColor, useOperatorRoster } from './utils/operators'
+import { buildOwnerOptions, getOwnerColor, isHiddenOwner, useOperatorRoster } from './utils/operators'
 import { fetchWaAdmin } from './utils/waAdmin'
 import WA from './utils/waTheme'
 
@@ -864,7 +864,7 @@ function App() {
     setSelectedCreatorIds([])
   }, [])
 
-  const loadOwnerTransferPreview = useCallback(async ({ fromOwner = 'Jiawen', toOwner = 'Yiyun' } = {}) => {
+  const loadOwnerTransferPreview = useCallback(async ({ fromOwner = '', toOwner = 'Yiyun' } = {}) => {
     const from = String(fromOwner || '').trim()
     const to = String(toOwner || '').trim()
     if (!from || !to) {
@@ -887,7 +887,7 @@ function App() {
     }
   }, [])
 
-  const executeOwnerTransfer = useCallback(async ({ fromOwner = 'Jiawen', toOwner = 'Yiyun' } = {}) => {
+  const executeOwnerTransfer = useCallback(async ({ fromOwner = '', toOwner = 'Yiyun' } = {}) => {
     const preview = ownerTransferPreview || await loadOwnerTransferPreview({ fromOwner, toOwner })
     if (!preview) return
     const confirmed = window.confirm(
@@ -1944,7 +1944,7 @@ function ContactManagementPage({
   onClearTransferPreview,
 }) {
   const [mode, setMode] = useState('single')
-  const [transferFromOwner, setTransferFromOwner] = useState('Jiawen')
+  const [transferFromOwner, setTransferFromOwner] = useState('')
   const [transferToOwner, setTransferToOwner] = useState('Yiyun')
   const [editingCreator, setEditingCreator] = useState(null)
   const [editForm, setEditForm] = useState({ primary_name: '', wa_phone: '', wa_owner: '' })
@@ -1966,11 +1966,11 @@ function ContactManagementPage({
     return [...merged]
   })()
   const transferOwnerOptions = (() => {
-    const merged = new Set(['Jiawen', 'Yiyun'])
+    const merged = new Set(['Yiyun'])
     for (const item of managerOwnerOptions || []) if (item) merged.add(item)
-    if (transferFromOwner) merged.add(transferFromOwner)
-    if (transferToOwner) merged.add(transferToOwner)
-    return [...merged]
+    if (transferFromOwner && !isHiddenOwner(transferFromOwner)) merged.add(transferFromOwner)
+    if (transferToOwner && !isHiddenOwner(transferToOwner)) merged.add(transferToOwner)
+    return [...merged].filter((item) => !isHiddenOwner(item))
   })()
   const editOwnerOptions = (() => {
     const merged = new Set(managerOwnerOptions)

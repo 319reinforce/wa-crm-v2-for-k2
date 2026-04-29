@@ -354,7 +354,6 @@
         .sheet-table .status-text.unbound { color: var(--accent-orange); }
 
         .sheet-table .owner-beau { color: #9b5b2e; font-weight: 600; }
-        .sheet-table .owner-jiawen { color: #3f7ae0; font-weight: 600; }
         .sheet-table .owner-yiyun { color: #8b5cf6; font-weight: 600; }
         .sheet-table .last-active { color: var(--text-muted); font-size: 11px; }
         .sheet-table .gmv { color: #10b981; font-weight: 500; }
@@ -3640,7 +3639,7 @@
 
                     // WA 相关字段
                     const owner = u.wa_owner || '-';
-                    const ownerClass = owner === 'Beau' ? 'owner-beau' : owner === 'Jiawen' ? 'owner-jiawen' : owner === 'Yiyun' ? 'owner-yiyun' : '';
+                    const ownerClass = owner === 'Beau' ? 'owner-beau' : owner === 'Yiyun' ? 'owner-yiyun' : '';
                     const lastActive = u.last_active ? formatRelativeTime(new Date(u.last_active)) : '-';
                     const msgCount = u.msg_count || 0;
                     const lifecycleLabel = getLifecycleLabel(u.lifecycle?.stage_key, u.lifecycle?.stage_label);

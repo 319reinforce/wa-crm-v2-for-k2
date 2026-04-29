@@ -4,10 +4,16 @@ import { fetchJsonOrThrow } from './api'
 export const OWNER_COLORS = {
   Beau: '#3b82f6',
   Yiyun: '#8b5cf6',
-  Jiawen: '#ec4899',
   WangYouKe: '#14b8a6',
   Jaylyn: '#f97316',
   Jiawei: '#0ea5e9',
+}
+
+const HIDDEN_OWNER_KEYS = new Set(['jiawen', 'sybil'])
+
+export function isHiddenOwner(owner) {
+  const key = String(owner || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  return HIDDEN_OWNER_KEYS.has(key)
 }
 
 // Dynamic owner lists come from /api/operator-roster. Keep this empty so local
@@ -63,7 +69,7 @@ function ownerSortRank(owner) {
 export function buildOwnerOptions(values = [], { includeAll = false } = {}) {
   const names = new Set(OWNER_ORDER)
   for (const value of values) {
-    if (value) names.add(value)
+    if (value && !isHiddenOwner(value)) names.add(value)
   }
   const ordered = [...names].sort(sortOwners)
   return includeAll ? [''].concat(ordered) : ordered
@@ -139,7 +145,7 @@ export function useOperatorRoster() {
   }, [])
 
   const owners = useMemo(() => {
-    const names = (roster || []).map((item) => item?.operator).filter(Boolean)
+    const names = (roster || []).map((item) => item?.operator).filter((name) => name && !isHiddenOwner(name))
     if (names.length === 0) return [...OWNER_ORDER]
     return [...names].sort(sortOwners)
   }, [roster])
