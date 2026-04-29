@@ -312,7 +312,7 @@ function AddAccountModal({ onClose, onCreated }) {
               type="text"
               value={aliases}
               onChange={(e) => setAliases(e.target.value)}
-              placeholder="sybil, jw"
+              placeholder="alias1, alias2"
               style={inputStyle}
             />
           </FormField>
