@@ -296,10 +296,11 @@ function App() {
     }
   }, [dragging])
 
-  const loadData = useCallback(async (signal) => {
+  const loadData = useCallback(async (signal, options = {}) => {
     const cacheKey = `${filterOwner}|inactive=${showInactive ? '1' : '0'}`
     const cached = creatorsCacheRef.current.get(cacheKey)
-    const isFresh = cached && (Date.now() - cached.ts < 15000)
+    const forceRefresh = !!options.force
+    const isFresh = !forceRefresh && cached && (Date.now() - cached.ts < 15000)
 
     if (isFresh) {
       setCreators(cached.data)
@@ -424,7 +425,7 @@ function App() {
 
     const debouncedLoadData = () => {
       clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(() => { loadDataRef.current?.() }, 1500)
+      debounceTimer = setTimeout(() => { loadDataRef.current?.(undefined, { force: true }) }, 1500)
     }
 
     const scheduleReconnect = () => {

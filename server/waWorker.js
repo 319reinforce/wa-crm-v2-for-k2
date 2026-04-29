@@ -572,6 +572,8 @@ async function insertMessages(creatorId, messages) {
             media_caption:          m.mediaInfo?.caption || null,
             media_thumbnail:        m.mediaInfo?.thumbnail || null,
             media_download_status:  m.mediaInfo?.mediaAssetId ? 'success' : (m.mediaInfo?.media_download_status || null),
+            phone:                  m.phone || null,
+            name:                   m.name || null,
             // Baileys proto 持久化（由 baileysDriver._normalizeMessage 设置）。
             // 其它 driver（wwebjs）不设这两个字段，NULL 写入。
             proto_bytes:            m.protoBytes || null,
@@ -636,6 +638,22 @@ async function insertMessages(creatorId, messages) {
         const changes = Number(result?.changes || 0);
         if (changes > 0) {
             try { invalidateMessageCache(creatorId); } catch (_) {}
+            groupFiltered.kept.forEach((message) => {
+                if (!message.phone) return;
+                messageHandlers.forEach(fn => {
+                    try {
+                        fn({
+                            phone: message.phone,
+                            name: message.name || null,
+                            text: message.text || '',
+                            creatorId,
+                            role: message.role || null,
+                            timestamp: message.timestamp || Date.now(),
+                            message_id: message.wa_message_id || null,
+                        });
+                    } catch (_) {}
+                });
+            });
             const insertedTimestamps = groupFiltered.kept
                 .map((m) => Number(m.timestamp || 0))
                 .filter((ts) => Number.isFinite(ts) && ts > 0);
@@ -824,6 +842,8 @@ async function syncRosterCreatorHistory(client, assignment, chat = null) {
         text: getWaMessageText(m),
         timestamp: getWaMessageTimestampMs(m),
         wa_message_id: extractWaMessageId(m),
+        phone: assignment.wa_phone,
+        name,
     })));
 
     await getOrCreateCreator(assignment.wa_phone, name);
@@ -1203,6 +1223,8 @@ async function handleIncomingMessage(msg) {
             text: getWaMessageText(msg),
             timestamp: getWaMessageTimestampMs(msg),
             wa_message_id: extractWaMessageId(msg),
+            phone,
+            name,
             mediaInfo,
         }]);
 
@@ -1212,9 +1234,6 @@ async function handleIncomingMessage(msg) {
                 ? `[Media: ${msg.mimetype || 'image'}] ${getWaMessageText(msg).slice(0, 40)}`
                 : getWaMessageText(msg).slice(0, 50);
             console.log(`${LOG_PREFIX} 📩 ${name}: ${preview}`);
-            messageHandlers.forEach(fn => {
-                try { fn({ phone, name, text: getWaMessageText(msg), creatorId }); } catch (_) {}
-            });
 
             // 触发客户画像系统：旧画像链路 + profile-analysis hook
             notifyProfilePipelines({
@@ -1332,6 +1351,8 @@ async function handleBaileysIncomingMessage(incoming) {
             text,
             timestamp: timestampMs,
             wa_message_id: incoming.id || null,
+            phone: canonicalPhone,
+            name,
             // baileysDriver._normalizeMessage 已经 encode 好 proto 并挂到 incoming 上
             protoBytes: incoming.protoBytes || null,
             protoDriver: incoming.protoDriver || null,
@@ -1340,9 +1361,6 @@ async function handleBaileysIncomingMessage(incoming) {
         if (inserted > 0) {
             await touchCreator(creatorId);
             console.log(`${LOG_PREFIX} 📩 ${name} (baileys): ${text.slice(0, 50)}`);
-            messageHandlers.forEach(fn => {
-                try { fn({ phone: canonicalPhone, name, text, creatorId }); } catch (_) {}
-            });
             notifyProfilePipelines({ creatorId, phone: canonicalPhone, text, role, insertedCount: inserted });
         }
 
@@ -1866,6 +1884,8 @@ async function pollOnce(client) {
                         text: getWaMessageText(m),
                         timestamp: getWaMessageTimestampMs(m),
                         wa_message_id: extractWaMessageId(m),
+                        phone,
+                        name,
                         mediaInfo,
                     };
                 }));
@@ -1997,6 +2017,8 @@ async function pollOnce(client) {
                     text: getWaMessageText(m),
                     timestamp: getWaMessageTimestampMs(m),
                     wa_message_id: extractWaMessageId(m),
+                    phone: assignment.wa_phone,
+                    name: assignment.primary_name || assignment.raw_name || null,
                     mediaInfo,
                 };
             }));

@@ -481,6 +481,7 @@ function parseWorkerDays(value) {
 // 近 N 天有新消息的联系人抓取/确认状态。
 app.get('/api/wa-worker/contact-status', requireAppAuth, async (req, res) => {
     try {
+        const dbConn = db.getDb();
         const days = parseWorkerDays(req.query.days);
         const cutoffTs = Date.now() - days * 24 * 60 * 60 * 1000;
         const lockedOwner = req.auth?.owner || null;
@@ -489,7 +490,7 @@ app.get('/api/wa-worker/contact-status', requireAppAuth, async (req, res) => {
             ? "WHERE LOWER(COALESCE(ocr.operator, c.wa_owner, 'Unknown')) = LOWER(?)"
             : '';
         const params = lockedOwner ? [cutoffTs, lockedOwner] : [cutoffTs];
-        const rows = await db.prepare(`
+        const rows = await dbConn.prepare(`
             SELECT
                 c.id AS creator_id,
                 c.primary_name,
@@ -572,9 +573,10 @@ app.get('/api/wa-worker/contact-status', requireAppAuth, async (req, res) => {
 
 app.post('/api/wa-worker/contact-status/:creatorId/confirm', requireAppAuth, async (req, res) => {
     try {
+        const dbConn = db.getDb();
         const creatorId = Number(req.params.creatorId || 0);
         if (!creatorId) return res.status(400).json({ ok: false, error: 'invalid creator id' });
-        const creator = await db.prepare(`
+        const creator = await dbConn.prepare(`
             SELECT c.id, c.primary_name, c.wa_phone, COALESCE(ocr.operator, c.wa_owner, 'Unknown') AS owner
             FROM creators c
             LEFT JOIN operator_creator_roster ocr ON ocr.creator_id = c.id
@@ -587,11 +589,11 @@ app.post('/api/wa-worker/contact-status/:creatorId/confirm', requireAppAuth, asy
         if (lockedOwner && owner.toLowerCase() !== String(lockedOwner).toLowerCase()) {
             return res.status(403).json({ ok: false, error: 'owner scope mismatch' });
         }
-        const latest = await db.prepare('SELECT MAX(timestamp) AS latest_message_at FROM wa_messages WHERE creator_id = ?').get(creatorId);
+        const latest = await dbConn.prepare('SELECT MAX(timestamp) AS latest_message_at FROM wa_messages WHERE creator_id = ?').get(creatorId);
         const requestedTs = Number(req.body?.confirmed_through_ts || 0);
         const confirmedThrough = requestedTs > 0 ? requestedTs : Number(latest?.latest_message_at || Date.now());
         const confirmedBy = req.auth?.username || req.auth?.role || 'app-user';
-        await db.prepare(`
+        await dbConn.prepare(`
             INSERT INTO wa_worker_contact_confirmations
                 (creator_id, owner, confirmed_through_ts, confirmed_by, confirmed_at)
             VALUES (?, ?, ?, ?, NOW())
