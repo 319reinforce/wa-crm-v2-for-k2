@@ -71,7 +71,7 @@ while [ $# -gt 0 ]; do
     --reload)       RELOAD=1; shift ;;
     --regen-cert)   REGEN_CERT=1; shift ;;
     --dry-run)      DRY_RUN=1; shift ;;
-    --help|-h)      sed -n '/^# Usage/,/^# Idempotency/p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    --help|-h)      sed -n '/^# Usage/,/^# Idempotency/p' "$0" | sed -e 's/^# //' -e 's/^#$//'; exit 0 ;;
     -*)             err "unknown flag: $1" ;;
     *)              [ -z "$HOSTNAME" ] && HOSTNAME="$1" || err "extra positional arg: $1"; shift ;;
   esac
