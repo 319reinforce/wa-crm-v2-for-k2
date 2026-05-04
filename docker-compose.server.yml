@@ -10,7 +10,9 @@ services:
     env_file:
       - .env
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      # WA_BIND_HOST defaults to 0.0.0.0 (backward compat); set to 127.0.0.1
+      # in .env when running behind a reverse proxy.
+      - "${WA_BIND_HOST:-0.0.0.0}:${PORT:-3000}:${PORT:-3000}"
     environment:
       NODE_ENV: production
       PORT: ${PORT:-3000}
