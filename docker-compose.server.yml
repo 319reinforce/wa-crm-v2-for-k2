@@ -33,6 +33,9 @@ services:
       PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
       MEDIA_STORAGE_PROVIDER: ${MEDIA_STORAGE_PROVIDER:-local}
       MEDIA_LOCAL_DIR: /app/data/media-assets
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_ENABLED: ${REDIS_ENABLED:-true}
     volumes:
       - wa_wwebjs_auth:/app/.wwebjs_auth
       - wa_baileys_auth:/app/.baileys_auth    # NEW
@@ -40,6 +43,8 @@ services:
       - wa_media_assets:/app/data/media-assets
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     shm_size: "1gb"
     restart: unless-stopped
@@ -66,6 +71,20 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_EXPOSE_PORT:-6379}:6379"
+    volumes:
+      - wa_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   wa_mysql_data:
     name: wa_crm_mysql_data
@@ -77,3 +96,5 @@ volumes:
     name: wa_crm_wwebjs_cache
   wa_media_assets:
     name: wa_crm_media_assets
+  wa_redis_data:
+    name: wa_crm_redis_data
