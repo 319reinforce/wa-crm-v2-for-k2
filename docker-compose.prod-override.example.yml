@@ -1,0 +1,28 @@
+# Example override for production-style deploys (image pull, no on-host build).
+#
+# Usage on the target VM:
+#   1. cp docker-compose.prod-override.example.yml docker-compose.prod-override.yml
+#   2. Edit the wa-crm `image:` tag below to a specific build (e.g. 20260429-abcdef).
+#      Tags are listed in the Gitea registry; pin to a known-good immutable tag.
+#   3. In .env set:
+#        WA_BIND_HOST=127.0.0.1   (only your reverse proxy reaches wa-crm)
+#        DB_EXPOSE_PORT=13306     (if host already serves MySQL on 3306)
+#        REDIS_EXPOSE_PORT=16379  (if host already serves Redis on 6379)
+#   4. Login to the registry once: docker login git.k2lab.ai
+#      (use a Gitea personal access token as the password)
+#   5. Pull explicitly so subsequent `up` doesn't try to build:
+#        docker pull git.k2lab.ai/k2lab/wa-crm:<tag>
+#   6. Boot:
+#        docker compose -f docker-compose.server.yml \
+#                       -f docker-compose.prod-override.yml up -d
+#
+# What this override does:
+#   - Pins wa-crm to a pre-built Gitea image instead of building from source.
+#   - Resets the base file's `build:` block so compose never tries to build.
+#   - `pull_policy: never` — once pulled, compose will reuse the local image
+#     and not silently re-pull when the registry-side tag moves.
+services:
+  wa-crm:
+    image: git.k2lab.ai/k2lab/wa-crm:CHANGE-ME-TO-A-PINNED-TAG
+    build: !reset null
+    pull_policy: never
