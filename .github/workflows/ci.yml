@@ -1,7 +1,7 @@
-# PR workflow: build + push wa-crm image + deploy to test env.
+# PR workflow: build + push wa-crm image + deploy to krev.
 # 触发：
-#   - pull_request → main：PR 过程中每次 push 都会跑一次（预览构建 + 部署到测试）
-#   - push → main：PR 合并进 main 后再跑一次（用合并后的真实提交构建 + 部署到测试）
+#   - pull_request → main：PR 过程中每次 push 都会跑一次（预览构建）
+#   - push → main：PR 合并进 main 后再跑一次（构建 + 更新 deploy/values-prod.yaml + 部署 krev）
 #   - workflow_dispatch：手动重跑
 # 参考 K2Lab/keeper/.gitea/workflows/test-backend-build.yaml
 name: test-wa-crm-build
@@ -67,6 +67,7 @@ jobs:
           SHORT_SHA="$(echo ${{ github.sha }} | cut -c1-7)"
           DATE_TAG="$(date +%Y%m%d)-${SHORT_SHA}"
           echo "tag=${DATE_TAG}" >> $GITHUB_OUTPUT
+          echo "::set-output name=tag::${DATE_TAG}"
           echo "${DATE_TAG}" > wa_crm_tag.txt
           echo "Generated tag: ${DATE_TAG}"
 
@@ -76,6 +77,7 @@ jobs:
           IMAGE="git.k2lab.ai/k2lab/wa-crm"
           docker build -t "${IMAGE}:${DATE_TAG}" -t "${IMAGE}:latest" -f Dockerfile .
           docker push "${IMAGE}:${DATE_TAG}"
+          docker push "${IMAGE}:latest"
 
       - name: Upload Tag Artifact
         uses: actions/upload-artifact@v3
@@ -83,8 +85,18 @@ jobs:
           name: wa-crm-tag
           path: wa_crm_tag.txt
 
+      - name: Update last-built tag marker
+        if: github.event_name == 'push'
+        run: |
+          curl -H "Authorization: token ${{ secrets.GITEA_TOKEN }}" \
+               -o update-tag.sh \
+               https://git.k2lab.ai/K2Lab/moras-composer/raw/branch/main/scripts/update-tag.sh
+          chmod +x update-tag.sh
+          ./update-tag.sh deploy/values-prod.yaml "${{ steps.set_tag.outputs.tag }}"
+
   deploy:
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Download Tag Artifact
@@ -95,14 +107,19 @@ jobs:
       - name: Read Tag
         run: echo "TAG=$(cat wa_crm_tag.txt)" >> $GITHUB_ENV
 
-      - name: Deploy to Test Server
+      - name: Deploy to krev
         uses: appleboy/ssh-action@v0.1.10
         with:
-          host: ${{ secrets.TEST_SERVER_HOST }}
-          username: ${{ secrets.TEST_SERVER_USER }}
-          key: ${{ secrets.TEST_SERVER_SSH_KEY }}
+          host: ${{ secrets.KREV_SERVER_HOST }}
+          username: ${{ secrets.KREV_SERVER_USER }}
+          key: ${{ secrets.KREV_SERVER_SSH_KEY }}
           envs: TAG
           script: |
-            echo "Deploying with TAG=${TAG}"
-            cd /home/dev/moras-composer
-            ./scripts/deploy-service.sh test wa-crm "${TAG}"
+            echo "Deploying wa-crm:${TAG} to krev"
+            cd ~/whatsapp-mgr
+            git pull origin main
+            docker pull git.k2lab.ai/k2lab/wa-crm:${TAG}
+            sed -i "s|image: git.k2lab.ai/k2lab/wa-crm:.*|image: git.k2lab.ai/k2lab/wa-crm:${TAG}|" docker-compose.krev.override.yml
+            docker compose -f docker-compose.server.yml -f docker-compose.krev.override.yml up -d
+            sleep 3
+            curl -sf http://localhost:3000/api/health && echo "Health check passed"
