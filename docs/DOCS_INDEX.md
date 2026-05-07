@@ -56,12 +56,18 @@ Read in this order:
 | Document | Purpose |
 | --- | --- |
 | `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md` | Batch creator import, dynamic owners, owner welcome template pool, and standard welcome-message publish handoff. |
+| `docs/TEMPLATE_SYSTEM_DESIGN_20260507.md` | Current template system boundaries: manifest SOP templates, DB custom topic templates, import welcome templates, SOP image assets, and known risks. |
+| `docs/MAY_TEMPLATE_ROLLOUT_KICKOFF_20260507.md` | May SOP template rollout kickoff, template storage map, merge assessment, and current template-logic review. |
+| `docs/MAY_TEMPLATE_ROLLOUT_HANDOFF_20260507.md` | May SOP rollout implementation handoff, verification, local/LAN access, image preview/delete behavior, and potential issues. |
+| `docs/REPLY_DECK_IMAGE_TEMPLATE_PLAN_20260507.md` | Planned Reply Deck image-template rollout: composer image library default, local upload fallback UI, `op3` recommended image slot, AI slot shift, and SOP image metadata drift mitigation. |
+
 ## Transitional Knowledge Sources
 
 | Document | Purpose |
 | --- | --- |
 | `docs/rag/knowledge-manifest.json` | Legacy manifest still read by current local-rule code. Not the future architecture. |
 | `docs/rag/sources/` | Legacy SOP/policy source files retained until profile/skill memory replaces this path. |
+| `docs/rag/sources/sop-creator-outreach-may-2026-v1.md` | May 2026 creator outreach SOP source converted from the docx with explicit template metadata. |
 | `docs/obsidian/notes/2026-04-27-profile-skill-memory-direction.md` | Future direction: per-user Markdown profile memory instead of heavy RAG. |
 
 ## Cleanup, Archive, And Memory

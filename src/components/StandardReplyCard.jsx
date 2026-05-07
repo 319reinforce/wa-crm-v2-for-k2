@@ -21,8 +21,10 @@ export default function StandardReplyCard({
     onUpdateTemplate = null,
     onSend = null,
     onSendMedia = null,
+    onPreviewMedia = null,
     compactMobile = false,
     deckHeight = null,
+    mediaOnly = false,
 }) {
     const [expanded, setExpanded] = useState(false);
     const showAlternatives = expanded && Array.isArray(alternatives) && alternatives.length > 0;
@@ -125,11 +127,11 @@ export default function StandardReplyCard({
                                         className="rounded-lg overflow-hidden"
                                         style={{ border: `1px solid ${WA.borderLight}`, background: WA.white }}
                                     >
-                                        <a
-                                            href={item.url || item.file_url || '#'}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="block"
+                                        <button
+                                            type="button"
+                                            onClick={() => onPreviewMedia?.(item, slot)}
+                                            className="block w-full text-left"
+                                            title="查看大图"
                                         >
                                             {item.url || item.file_url ? (
                                                 <img
@@ -142,7 +144,7 @@ export default function StandardReplyCard({
                                                     {item.label || '对应图片'}
                                                 </div>
                                             )}
-                                        </a>
+                                        </button>
                                         {(item.label || item.note) && (
                                             <div className="px-2 py-1 text-[10px] truncate" style={{ color: WA.textMuted }}>
                                                 {item.label || item.note}
@@ -203,7 +205,7 @@ export default function StandardReplyCard({
                         {expanded ? '收起备选' : `展开备选 (${alternatives.length})`}
                     </button>
                 )}
-                {hasText && onEdit && (
+                {hasText && onEdit && !mediaOnly && (
                     <button
                         onClick={() => onEdit(slot.text, slot)}
                         className="px-3 py-2 rounded-full text-[12px] font-semibold"
@@ -229,7 +231,7 @@ export default function StandardReplyCard({
                         更新模板
                     </button>
                 )}
-                {hasText && onSend && (
+                {hasText && onSend && !mediaOnly && (
                     <button
                         onClick={() => onSend(slot.text, slot)}
                         className="px-3 py-2 rounded-full text-[12px] font-semibold text-white"

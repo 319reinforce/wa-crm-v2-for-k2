@@ -3,6 +3,7 @@
  * GET /api/custom-topic-templates
  * POST /api/custom-topic-templates
  * PUT /api/custom-topic-templates/:id
+ * DELETE /api/custom-topic-templates/:id
  */
 const express = require('express');
 const router = express.Router();
@@ -262,6 +263,57 @@ router.put('/custom-topic-templates/:id', async (req, res) => {
         if (err?.code === 'ER_DUP_ENTRY') {
             return res.status(409).json({ error: 'template label already exists' });
         }
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /api/custom-topic-templates/:id
+router.delete('/custom-topic-templates/:id', async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id) || id <= 0) {
+            return res.status(400).json({ error: 'valid id required' });
+        }
+
+        const db2 = db.getDb();
+        await ensureCustomTopicTemplatesTable(db2);
+        const ownerScope = getOwnerScope(req);
+        const oldRow = await db2.prepare(`
+            SELECT *
+            FROM custom_topic_templates
+            WHERE id = ? AND owner_scope = ? AND is_active = 1
+            LIMIT 1
+        `).get(id, ownerScope);
+        if (!oldRow) {
+            return res.status(404).json({ error: 'template not found' });
+        }
+
+        await db2.prepare(`
+            UPDATE custom_topic_templates
+            SET is_active = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND owner_scope = ?
+        `).run(id, ownerScope);
+
+        await writeAudit(
+            'custom_topic_template_delete',
+            'custom_topic_templates',
+            id,
+            oldRow,
+            {
+                id,
+                label: oldRow.label,
+                topic_group: oldRow.topic_group,
+                intent_key: oldRow.intent_key,
+                scene_key: oldRow.scene_key,
+                owner_scope: ownerScope,
+            },
+            req
+        );
+
+        res.json({ ok: true, deleted_id: id });
+    } catch (err) {
+        console.error('DELETE /api/custom-topic-templates/:id error:', err);
         res.status(500).json({ error: err.message });
     }
 });

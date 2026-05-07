@@ -111,6 +111,56 @@
       "rule_version": "2026-04-23"
     },
     {
+      "id": "sop-creator-outreach-may-2026-v1",
+      "title": "Moras Creator Outreach SOP (May 2026)",
+      "type": "sop",
+      "format": "md",
+      "path": "docs/rag/sources/sop-creator-outreach-may-2026-v1.md",
+      "scene": [
+        "first_contact",
+        "trial_intro",
+        "trial_followup",
+        "monthly_inquiry",
+        "payment_issue",
+        "mcn_binding",
+        "content_request",
+        "gmv_inquiry",
+        "violation_appeal",
+        "follow_up",
+        "general"
+      ],
+      "topic": [
+        "outreach",
+        "onboarding",
+        "payment",
+        "mcn_binding",
+        "product",
+        "posting",
+        "safety",
+        "violation",
+        "appeal"
+      ],
+      "keywords": [
+        "may",
+        "515",
+        "14-day",
+        "$100",
+        "$20",
+        "mcn",
+        "qualified video",
+        "bi-weekly",
+        "ad authorization",
+        "appeal",
+        "precheck"
+      ],
+      "priority": 0,
+      "sensitivity": "internal",
+      "status": "approved",
+      "updated_at": "2026-05-07",
+      "effective_from": "2026-05-07",
+      "rule_version": "2026-05-07"
+    },
+    {
       "id": "sop-violation-appeal-and-risk-control-v1",
       "title": "Violation Appeal And Risk Control SOP",
       "type": "sop",

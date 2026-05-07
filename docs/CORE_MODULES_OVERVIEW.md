@@ -216,8 +216,36 @@ Responsibilities:
 Current docs:
 
 - `docs/AI_REPLY_GENERATION_SYSTEM.md`
+- `docs/TEMPLATE_SYSTEM_DESIGN_20260507.md`
+- `docs/MAY_TEMPLATE_ROLLOUT_HANDOFF_20260507.md`
 - `docs/obsidian/notes/2026-04-27-profile-skill-memory-direction.md`
 - `docs/obsidian/notes/2026-04-27-rag-knowledge-source-docs.md` for historical RAG context
+
+## 8.1 Template System Boundary
+
+Primary files:
+
+- `server/services/localRuleRetrievalService.js`
+- `server/routes/customTopicTemplates.js`
+- `server/routes/creatorImportBatches.js`
+- `src/components/WAMessageComposer.jsx`
+- `src/components/StandardReplyCard.jsx`
+- `docs/rag/knowledge-manifest.json`
+- `docs/rag/sources/sop-creator-outreach-may-2026-v1.md`
+- `public/sop-assets/`
+
+Responsibilities:
+
+- Manifest-backed SOP templates power Reply Deck standard copy through `POST /api/experience/retrieve-template`.
+- DB-backed `custom_topic_templates` store operator-maintained text/image/image-only templates. Deletes are soft deletes via `is_active = 0`.
+- Static SOP image assets live under `public/sop-assets/<version>/`; DB rows store only URL media items.
+- `operator_outreach_templates` remains limited to creator-import welcome copy and should not be mixed with Reply Deck SOP templates.
+
+Current docs:
+
+- `docs/TEMPLATE_SYSTEM_DESIGN_20260507.md`
+- `docs/MAY_TEMPLATE_ROLLOUT_HANDOFF_20260507.md`
+- `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md`
 
 ## 9. Frontend Shell And Operations UI
 
