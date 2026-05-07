@@ -40,6 +40,10 @@ Status: Active
 - [[notes/2026-04-25-worktree-remediation-plan|Worktree Remediation Plan]]
 - [[notes/2026-04-26-creator-import-welcome-handoff|Creator Import Welcome Handoff]]
 - [[notes/2026-04-26-template-custom-topic-handoff|Template Custom Topic Handoff]]
+- [[notes/2026-05-07-may-template-rollout-kickoff|May Template Rollout Kickoff]]
+- [[notes/2026-05-07-template-system-design|Template System Design]]
+- [[notes/2026-05-07-may-template-rollout-handoff|May Template Rollout Handoff]]
+- [[notes/2026-05-07-reply-deck-image-template-plan|Reply Deck Image Template Plan]]
 - [[notes/2026-04-27-recent-branch-doc-mapping|Recent Branch Doc Mapping]]
 
 ## Historical Backfills

@@ -20,12 +20,15 @@ WA CRM v2 custom topic templates now support independent image assets. A saved t
 
 ## Key Decisions
 
-- Local public image paths such as `/sop-assets/apr-2026/image1.png` are valid template image URLs and should render as previews.
+- Local public image paths such as `/sop-assets/apr-2026/image1.png` and `/sop-assets/may-2026/image1.png` are valid template image URLs and should render as previews.
 - Template persistence accepts a label plus either `template_text` or `media_items`; text is no longer mandatory when image assets exist.
 - Custom template retrieval returns image-only templates into `op1` so operators can select and send them.
 - Template text and template images are intentionally decoupled: `直接发送` sends text, while `单独发送图片` sends an image tile as a media message.
 - SOP image topic buttons should not inject their old summary text into the template body.
 - Backend retrieval should not auto-infer SOP images for text templates; image sending should come from saved/selectable image-only templates.
+- Saved template image thumbnails can be clicked for a large preview in the save/update modal.
+- Saved custom topic templates can be deleted through `DELETE /api/custom-topic-templates/:id`; deletion is a soft delete via `is_active = 0`.
+- May SOP image candidates are separate static assets under `public/sop-assets/may-2026/`, and their modal source label is `5月版 SOP 图片`.
 
 ## Source
 
@@ -40,4 +43,11 @@ WA CRM v2 custom topic templates now support independent image assets. A saved t
 ## Verification
 
 - Required local checks: `node --check server/routes/customTopicTemplates.js`, `node --check server/services/localRuleRetrievalService.js`, `npm test`, and production build.
-- Browser rollout should verify saving an image-only SOP template, previewing `/sop-assets/...` images, and sending one image tile independently from text.
+- Browser rollout should verify saving an image-only SOP template, previewing `/sop-assets/...` images, clicking a saved-template thumbnail for large preview, deleting a saved template, and sending one image tile independently from text.
+
+## 2026-05-07 Update
+
+Current detailed docs:
+
+- `docs/TEMPLATE_SYSTEM_DESIGN_20260507.md`
+- `docs/MAY_TEMPLATE_ROLLOUT_HANDOFF_20260507.md`

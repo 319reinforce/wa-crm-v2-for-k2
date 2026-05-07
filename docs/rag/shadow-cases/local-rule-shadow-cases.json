@@ -19,7 +19,7 @@
       "operator": "Yiyun",
       "latest_user_message": "How does the free trial work and how many AI videos can I make?",
       "expected_top_source": "policy-trial-pack-v1",
-      "expected_sources": ["policy-trial-pack-v1", "sop-creator-outreach-mar-2026-v1"],
+      "expected_sources": ["policy-trial-pack-v1", "sop-creator-outreach-may-2026-v1"],
       "expected_terms": ["7-day trial", "20 AI generations per day", "low-friction way to test Moras"],
       "must_not_terms": ["guaranteed earnings", "guaranteed GMV"]
     },

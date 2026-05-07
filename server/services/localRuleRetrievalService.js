@@ -144,6 +144,12 @@ function retrieveLocalRules(context) {
                 matchedBy.push('keyword:violation');
             }
 
+            if ((lowerMsg.includes('100% safe') || lowerMsg.includes('zero risk') || lowerMsg.includes('zero-risk') || lowerMsg.includes('guarantee'))
+                && source.id.includes('violation')) {
+                score += 4;
+                matchedBy.push('keyword:zero-risk');
+            }
+
             if ((lowerMsg.includes('product') || lowerMsg.includes('recommend'))
                 && (source.id.includes('product') || source.type === 'faq')) {
                 score += 3;
@@ -403,6 +409,36 @@ function normalizeSectionTitle(title) {
         .trim();
 }
 
+function parseTemplateMetaBlock(raw = '') {
+    const match = String(raw || '').match(/<!--\s*template-meta\s*([\s\S]*?)-->/i);
+    if (!match) return null;
+
+    const meta = {};
+    for (const line of match[1].split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const pair = trimmed.match(/^([a-zA-Z0-9_]+)\s*:\s*(.*)$/);
+        if (!pair) continue;
+
+        const key = pair[1];
+        const value = pair[2].trim();
+        if (value === 'true') {
+            meta[key] = true;
+        } else if (value === 'false') {
+            meta[key] = false;
+        } else if (key === 'scene_keys' || key === 'operator_scope') {
+            meta[key] = value.split(',').map((item) => item.trim()).filter(Boolean);
+        } else if (key === 'priority') {
+            const numeric = Number(value);
+            meta[key] = Number.isFinite(numeric) ? numeric : value;
+        } else {
+            meta[key] = value;
+        }
+    }
+
+    return meta;
+}
+
 function pickSectionText(section) {
     const codeBlocks = Array.from(section.raw.matchAll(/```(?:text)?\s*([\s\S]*?)```/gi))
         .map((match) => sanitizeTemplateText(match[1]))
@@ -434,7 +470,9 @@ function inferSectionMetadata(source, section) {
         sendable: true,
         priority: Number.isFinite(source?.priority) ? source.priority : 99,
         is_reference: false,
+        explicit_metadata: false,
     };
+    const explicitMeta = parseTemplateMetaBlock(section.raw);
 
     if (sourceId.includes('creator-outreach')) {
         if (titleText.includes('script a')) {
@@ -575,6 +613,31 @@ function inferSectionMetadata(source, section) {
         }
     }
 
+    if (explicitMeta) {
+        const allowedKeys = [
+            'topic_group',
+            'intent_key',
+            'scene_keys',
+            'operator_scope',
+            'template_kind',
+            'sendable',
+            'priority',
+            'is_reference',
+        ];
+        for (const key of allowedKeys) {
+            if (Object.prototype.hasOwnProperty.call(explicitMeta, key)) {
+                meta[key] = explicitMeta[key];
+            }
+        }
+        meta.explicit_metadata = true;
+        if (!Array.isArray(meta.scene_keys)) {
+            meta.scene_keys = normalizeManifestField(meta.scene_keys);
+        }
+        if (!Array.isArray(meta.operator_scope)) {
+            meta.operator_scope = normalizeManifestField(meta.operator_scope);
+        }
+    }
+
     return meta;
 }
 
@@ -685,6 +748,10 @@ function scoreTemplateSection(section, context) {
     if (section.source_type === 'playbook') score += 2;
     if (section.source_type === 'faq') score += 1;
     if (section.is_reference) score += 1;
+    if (section.explicit_metadata) {
+        score += 8;
+        matched_by.push('explicit_metadata');
+    }
 
     return { score, matched_by: Array.from(new Set(matched_by)) };
 }
@@ -755,37 +822,6 @@ function retrieveTemplateSlots(context) {
         };
     }
 
-    const fixedTemplate = FIXED_TOPIC_TEMPLATES[intent_key] || null;
-    if (fixedTemplate) {
-        const fixedSection = {
-            source_id: fixedTemplate.source,
-            title: fixedTemplate.title,
-        text: fixedTemplate.text,
-        section_id: `${fixedTemplate.source}::${fixedTemplate.intent_key}`,
-        topic_group: fixedTemplate.topic_group,
-        intent_key: fixedTemplate.intent_key,
-        scene_keys: fixedTemplate.scene_keys,
-        media_items: [],
-        matched_by: ['fixed_topic_template'],
-        sendable: true,
-        score: 100,
-        };
-        return {
-            context: {
-                topic_group,
-                intent_key,
-                scene_key,
-                resolved_operator: operator || null,
-            },
-            slots: {
-                op1: formatTemplateSlot(fixedSection, 'recommended'),
-                op2: null,
-            },
-            alternatives: [],
-            template: { text: fixedTemplate.text, source: fixedTemplate.source },
-        };
-    }
-
     const sections = [];
     for (const source of manifestData.sources || []) {
         if (source.status !== 'approved') continue;
@@ -837,6 +873,37 @@ function retrieveTemplateSlots(context) {
         .filter((item) => item.section_id !== op1?.section_id && item.section_id !== op2?.section_id)
         .slice(0, Math.max(0, maxSources - 2))
         .map((item) => formatTemplateSlot(item, 'alternative'));
+
+    const fixedTemplate = FIXED_TOPIC_TEMPLATES[intent_key] || null;
+    if (!op1 && fixedTemplate) {
+        const fixedSection = {
+            source_id: fixedTemplate.source,
+            title: fixedTemplate.title,
+            text: fixedTemplate.text,
+            section_id: `${fixedTemplate.source}::${fixedTemplate.intent_key}`,
+            topic_group: fixedTemplate.topic_group,
+            intent_key: fixedTemplate.intent_key,
+            scene_keys: fixedTemplate.scene_keys,
+            media_items: [],
+            matched_by: ['fixed_topic_template_fallback'],
+            sendable: true,
+            score: 1,
+        };
+        return {
+            context: {
+                topic_group,
+                intent_key,
+                scene_key,
+                resolved_operator: operator || null,
+            },
+            slots: {
+                op1: formatTemplateSlot(fixedSection, 'recommended'),
+                op2: null,
+            },
+            alternatives: [],
+            template: { text: fixedTemplate.text, source: fixedTemplate.source },
+        };
+    }
 
     return {
         context: {

@@ -116,6 +116,55 @@ GET /api/policy-documents?active_only=true
 GET /api/audit-log?action=policy_update&limit=50
 ```
 
+### 标准话术 / Reply Deck 模板检索
+```
+POST /api/experience/retrieve-template
+Content-Type: application/json
+
+{
+  "client_id": "16145639865",
+  "operator": "Beau",
+  "scene": "first_contact",
+  "user_message": "new creator outreach",
+  "current_topic": {
+    "topic_group": "outreach_contact",
+    "intent_key": "first_outreach_fixed",
+    "scene_key": "first_contact"
+  },
+  "force_template_sources": true
+}
+```
+
+返回 `slots.op1/op2` 和 `alternatives`。当前 May SOP 源来自 `docs/rag/sources/sop-creator-outreach-may-2026-v1.md`，通过 `docs/rag/knowledge-manifest.json` 注册。更新 manifest 后必须重启 Node 进程，因为本地规则服务会缓存 manifest。
+
+### 自定义话题模板（含图片模板）
+```
+GET /api/custom-topic-templates
+
+POST /api/custom-topic-templates
+Content-Type: application/json
+{
+  "label": "May Ads Only图",
+  "topic_group": "violation_risk_control",
+  "intent_key": "risk_precheck",
+  "scene_key": "violation_appeal",
+  "template_text": "",
+  "media_items": [
+    { "url": "/sop-assets/may-2026/image15.png", "label": "对应图片" }
+  ]
+}
+
+PUT /api/custom-topic-templates/:id
+DELETE /api/custom-topic-templates/:id
+```
+
+说明：
+
+- `template_text` 和 `media_items` 二选一即可，支持 image-only 模板。
+- 图片素材独立存储在 `public/sop-assets/<version>/`，DB 只保存 URL/media item。
+- `DELETE` 是软删除，将 `is_active` 置为 `0`。
+- 批量导入 DB 模板前先跑 `scripts/validate-custom-topic-template-import.cjs`，避免 `owner_scope + label` 覆盖。
+
 ### 客户画像（Profile Agent）
 ```
 # 触发画像更新事件

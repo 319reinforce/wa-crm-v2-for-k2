@@ -92,6 +92,35 @@ pushPicker({ opt1, opt2 })
 - `currentTopic` — 手动或自动触发的话题（触发 Prompt 生成）
 - `autoDetectedTopic` — 自动检测到的话题（仅用于 UI 显示）
 
+### 2.7 标准话术模板（Reply Deck Templates）
+
+- **来源**：`POST /api/experience/retrieve-template`
+- **后端**：`server/services/localRuleRetrievalService.js`
+- **Manifest**：`docs/rag/knowledge-manifest.json`
+- **当前 May SOP**：`docs/rag/sources/sop-creator-outreach-may-2026-v1.md`
+
+处理逻辑：
+
+- `retrieveTemplateSlots()` 根据 `topic_group`、`intent_key`、`scene_key`、operator、active events 和用户消息排序模板 section。
+- May SOP section 使用 `template-meta` 显式声明路由元数据，避免中文标题被英文 heading inference 误判。
+- `FIXED_TOPIC_TEMPLATES` 只在没有 manifest-backed section 时作为 fallback。
+- `sendable: false` 的 section 是参考材料，不应作为直接发送话术。
+- 更新 `docs/rag/knowledge-manifest.json` 后需要重启 Node 进程，因为 manifest 在进程内缓存。
+
+### 2.8 自定义话题模板与图片素材
+
+- **API**：`GET/POST/PUT/DELETE /api/custom-topic-templates`
+- **表**：`custom_topic_templates`
+- **前端**：`src/components/WAMessageComposer.jsx`
+
+处理逻辑：
+
+- 模板可以是 text-only、text + images、或 image-only。
+- 图片素材以 `media_items` URL 形式保存；SOP 静态图片位于 `public/sop-assets/<version>/`。
+- Reply Deck 中图片发送与文字发送是分离操作，不会自动把图片拼到文本后面。
+- 删除模板是软删除：`is_active = 0`。
+- 当前 upsert 仍以 `owner_scope + label` 匹配，批量导入前需要使用 `scripts/validate-custom-topic-template-import.cjs` 检查重复 label。
+
 ---
 
 ## 三、会提取哪些信息

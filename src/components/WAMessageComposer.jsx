@@ -16,6 +16,10 @@ import WA from '../utils/waTheme';
 
 const API_BASE = '/api';
 const MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024;
+const SOP_IMAGE_MANIFEST_URLS = [
+    '/sop-assets/may-2026/manifest.json',
+    '/sop-assets/apr-2026/manifest.json',
+];
 const CHAT_PATTERN = [
     'radial-gradient(circle at 1px 1px, rgba(111,106,98,0.05) 1px, transparent 0)',
     'radial-gradient(circle at 12px 12px, rgba(111,106,98,0.03) 1px, transparent 0)',
@@ -143,128 +147,36 @@ function formatMediaUrlLabel(url = '') {
     }
 }
 
-const SOP_IMAGE_TOPIC_TEMPLATES = [
-    {
-        topic_group: 'outreach_contact',
-        intent_key: 'first_outreach_fixed',
-        scene_key: 'first_contact',
-        label: 'App Store下载图',
-        image: '/sop-assets/apr-2026/image1.png',
-        summary: 'Moras App Store 下载入口截图，适合建联、跟进、邀请码说明时附给达人。',
-    },
-    {
-        topic_group: 'signup_onboarding',
-        intent_key: 'invite_code_reply',
-        scene_key: 'trial_intro',
-        label: '邀请码填写图',
-        image: '/sop-assets/apr-2026/image3.png',
-        summary: '注册/登录后输入邀请码的步骤截图，适合邀请码回复和注册卡点说明。',
-    },
-    {
-        topic_group: 'signup_onboarding',
-        intent_key: 'username_followup',
-        scene_key: 'trial_intro',
-        label: '登录返回图',
-        image: '/sop-assets/apr-2026/image11.png',
-        summary: '登录失败时返回上一步的参考截图，用于指导达人用原邮箱重新登录。',
-    },
-    {
-        topic_group: 'signup_onboarding',
-        intent_key: 'username_followup',
-        scene_key: 'trial_intro',
-        label: '原邮箱登录图',
-        image: '/sop-assets/apr-2026/image12.png',
-        summary: '使用此前登录邮箱继续登录的截图，适合处理登录不上或账号找回问题。',
-    },
-    {
-        topic_group: 'mcn_partnership',
-        intent_key: 'mcn_explain',
-        scene_key: 'mcn_binding',
-        label: 'MCN邀请入口',
-        image: '/sop-assets/apr-2026/image4.png',
-        summary: 'TikTok Agency/MCN 邀请与绑定入口截图，用于解释如何接受绑定邀请。',
-    },
-    {
-        topic_group: 'mcn_partnership',
-        intent_key: 'mcn_explain',
-        scene_key: 'mcn_binding',
-        label: 'Agency权限勾选',
-        image: '/sop-assets/apr-2026/image5.png',
-        summary: 'Agency 绑定时需要勾选的数据权限截图，适合绑定步骤指导。',
-    },
-    {
-        topic_group: 'mcn_partnership',
-        intent_key: 'mcn_hesitation',
-        scene_key: 'mcn_binding',
-        label: '解绑旧MCN',
-        image: '/sop-assets/apr-2026/image6.png',
-        summary: '已有 MCN 时如何先解绑/处理旧绑定的截图，适合绑定冲突说明。',
-    },
-    {
-        topic_group: 'settlement_pricing',
-        intent_key: 'monthly_fee_explain',
-        scene_key: 'payment_issue',
-        label: '7天额度说明图',
-        image: '/sop-assets/apr-2026/image2.png',
-        summary: '7 天试用、20 generations/day 与 MCN 后额度变化说明图。',
-    },
-    {
-        topic_group: 'settlement_pricing',
-        intent_key: 'subsidy_explain',
-        scene_key: 'payment_issue',
-        label: '规则奖励图',
-        image: '/sop-assets/apr-2026/image9.png',
-        summary: 'April Creator Rewards Program 的规则、补贴、里程碑和推荐奖励图。',
-    },
-    {
-        topic_group: 'product_mechanics',
-        intent_key: 'how_moras_works',
-        scene_key: 'content_request',
-        label: '产品流程图',
-        image: '/sop-assets/apr-2026/image3.png',
-        summary: 'Moras 注册、生成和使用流程参考图，可用于产品机制说明。',
-    },
-    {
-        topic_group: 'violation_risk_control',
-        intent_key: 'risk_precheck',
-        scene_key: 'violation_appeal',
-        label: '广告状态图',
-        image: '/sop-assets/apr-2026/image13.png',
-        summary: '视频处于广告/投放状态时的页面截图，适合解释无法删除或隐藏的情况。',
-    },
-    {
-        topic_group: 'violation_risk_control',
-        intent_key: 'risk_precheck',
-        scene_key: 'violation_appeal',
-        label: 'Ads only图',
-        image: '/sop-assets/apr-2026/image14.jpeg',
-        summary: '将视频切换为 ads only、减少自然流量影响的参考截图。',
-    },
-    {
-        topic_group: 'violation_risk_control',
-        intent_key: 'violation_reassurance',
-        scene_key: 'violation_appeal',
-        label: '发布前检查图',
-        image: '/sop-assets/apr-2026/image15.png',
-        summary: '发布前检查颜色、形状、logo、纹理是否一致的 Tips 截图。',
-    },
-    {
-        topic_group: 'content_strategy',
-        intent_key: 'posting_cadence',
-        scene_key: 'content_request',
-        label: 'GMV案例图1',
-        image: '/sop-assets/apr-2026/image7.jpeg',
-        summary: '达人 GMV 表现案例截图，仅作运营参考，发送前注意避免夸大承诺。',
-    },
-    {
-        topic_group: 'content_strategy',
-        intent_key: 'product_selection',
-        scene_key: 'content_request',
-        label: 'GMV案例图2',
-        image: '/sop-assets/apr-2026/image8.jpeg',
-        summary: '达人 GMV/订单表现案例截图，仅作运营参考，避免作为保证收益表达。',
-    },
-];
+function normalizeSopManifestItem(item = {}, manifest = {}, index = 0) {
+    const url = String(item.url || (item.image_file ? `/sop-assets/${manifest.asset_version || ''}/${item.image_file}` : '')).trim();
+    if (!url) return null;
+    return {
+        id: item.id || `${manifest.asset_version || 'sop'}-${index}`,
+        topic_group: item.topic_group || 'custom_topic',
+        intent_key: item.intent_key || 'custom_template',
+        scene_key: item.scene_key || 'follow_up',
+        label: item.label || formatMediaUrlLabel(url),
+        image: url,
+        sourceTitle: item.sourceTitle || manifest.sourceTitle || manifest.asset_version || 'SOP 图片',
+        summary: item.summary || item.risk_note || '',
+        review_status: item.review_status || null,
+        risk_note: item.risk_note || null,
+        asset_version: manifest.asset_version || null,
+        manifest_id: item.id || null,
+        width: item.width || null,
+        height: item.height || null,
+    };
+}
+
+function dedupeSopImageTemplates(items = []) {
+    const seen = new Set();
+    return items.filter((item) => {
+        const url = String(item?.image || item?.url || '').trim();
+        if (!url || seen.has(url)) return false;
+        seen.add(url);
+        return true;
+    });
+}
 
 function findMessageMatch(messages = [], jumpTarget = null) {
     if (!jumpTarget || !Array.isArray(messages) || messages.length === 0) return null;
@@ -752,7 +664,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     // 记录上一次的译文，用于判断用户是否手动编辑过输入框（编辑后再点 🌐 视为重新翻译而不是 undo）
     const [lastTranslatedInputText, setLastTranslatedInputText] = useState(null);
 
-    // 当前回复上下文（模板/AI 共用，四槽位方案）
+    // 当前回复上下文（模板/图片/AI 共用，五槽位方案）
     const [activeReplyContext, setActiveReplyContext] = useState(null);
     // 用户主动关闭 Reply Deck 时记下当时的 context signature；
     // 只要 signature 没变（没有新来信 / 没切 topic），就不再自动把 deck 弹回来。
@@ -770,6 +682,9 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const [pickerCollapsed, setPickerCollapsed] = useState(false);
     const [replyDeckHeight, setReplyDeckHeight] = useState(0);
     const [templateManageModal, setTemplateManageModal] = useState(null);
+    const [templateImagePreview, setTemplateImagePreview] = useState(null);
+    const [imagePickerOpen, setImagePickerOpen] = useState(false);
+    const [sopImageManifestTemplates, setSopImageManifestTemplates] = useState([]);
     const [isMobileViewport, setIsMobileViewport] = useState(() => {
         if (typeof window === 'undefined') return false;
         return window.innerWidth < 768;
@@ -835,6 +750,129 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     // 活跃事件数据（用于 inferAutoTopic 置信度加权 + Prompt 注入）
     const [activeEvents, setActiveEvents] = useState([]);
     const [allEvents, setAllEvents] = useState([]);
+
+    const sopImageTopicTemplates = useMemo(() => (
+        dedupeSopImageTemplates(sopImageManifestTemplates)
+    ), [sopImageManifestTemplates]);
+
+    const activeImageTopic = useMemo(() => ({
+        topic_group: currentTopic?.topic_group
+            || currentTopic?.topic_key
+            || activeReplyContext?.topic_group
+            || activePicker?.topicGroup
+            || autoDetectedTopic?.topic_group
+            || autoDetectedTopic?.topic_key
+            || null,
+        intent_key: currentTopic?.intent_key
+            || activeReplyContext?.intent_key
+            || activePicker?.intentKey
+            || null,
+        scene_key: currentTopic?.scene_key
+            || activeReplyContext?.scene_key
+            || activePicker?.scene
+            || null,
+    }), [activePicker?.intentKey, activePicker?.scene, activePicker?.topicGroup, activeReplyContext, autoDetectedTopic, currentTopic]);
+
+    const imageLibraryCandidates = useMemo(() => {
+        const candidates = [];
+        const currentCustomId = currentTopic?.custom_template_id ? String(currentTopic.custom_template_id) : null;
+
+        (savedCustomTopicTemplates || []).forEach((template) => {
+            const mediaItems = Array.isArray(template?.media_items) ? template.media_items : [];
+            mediaItems.forEach((media, index) => {
+                const url = String(media?.url || media?.file_url || '').trim();
+                if (!url) return;
+                candidates.push({
+                    id: `saved:${template.id || template.label}:${index}:${url}`,
+                    kind: 'saved',
+                    label: media.label || template.label || formatMediaUrlLabel(url),
+                    url,
+                    sourceTitle: template.owner_scope === 'global' ? '全局模板' : '我的模板',
+                    summary: template.template_text || media.note || '',
+                    topic_group: template.topic_group || 'custom_topic',
+                    intent_key: template.intent_key || 'custom_template',
+                    scene_key: template.scene_key || 'follow_up',
+                    owner_scope: template.owner_scope || null,
+                    custom_template_id: template.id || null,
+                    readOnly: template.owner_scope === 'global',
+                    rankBias: currentCustomId && String(template.id) === currentCustomId ? 40 : 20,
+                    mediaItem: {
+                        url,
+                        label: media.label || template.label || '对应图片',
+                        note: media.note || template.template_text || '',
+                    },
+                });
+            });
+        });
+
+        (sopImageTopicTemplates || []).forEach((item, index) => {
+            candidates.push({
+                id: `static:${item.id || item.image || index}`,
+                kind: 'static',
+                label: item.label,
+                url: item.image,
+                sourceTitle: item.sourceTitle || 'SOP 图片',
+                summary: item.summary || item.risk_note || '',
+                topic_group: item.topic_group || 'custom_topic',
+                intent_key: item.intent_key || 'custom_template',
+                scene_key: item.scene_key || 'follow_up',
+                review_status: item.review_status || null,
+                risk_note: item.risk_note || null,
+                asset_version: item.asset_version || null,
+                rankBias: item.asset_version === 'may-2026' || String(item.image || '').includes('/may-2026/') ? 8 : 0,
+                mediaItem: {
+                    url: item.image,
+                    label: item.label || '对应图片',
+                    note: item.summary || item.risk_note || '',
+                },
+            });
+        });
+
+        const seen = new Set();
+        return candidates
+            .filter((candidate) => {
+                if (!candidate.url || seen.has(candidate.url)) return false;
+                seen.add(candidate.url);
+                return true;
+            })
+            .map((candidate) => {
+                const groupMatch = activeImageTopic.topic_group && candidate.topic_group === activeImageTopic.topic_group;
+                const intentMatch = activeImageTopic.intent_key && candidate.intent_key === activeImageTopic.intent_key;
+                const sceneMatch = activeImageTopic.scene_key && candidate.scene_key === activeImageTopic.scene_key;
+                const score = (candidate.rankBias || 0)
+                    + (groupMatch ? 50 : 0)
+                    + (intentMatch ? 36 : 0)
+                    + (sceneMatch ? 12 : 0)
+                    + (candidate.kind === 'saved' ? 8 : 0);
+                return { ...candidate, score };
+            })
+            .sort((a, b) => b.score - a.score || String(a.label || '').localeCompare(String(b.label || ''), 'zh-Hans-CN'));
+    }, [activeImageTopic, currentTopic?.custom_template_id, savedCustomTopicTemplates, sopImageTopicTemplates]);
+
+    const recommendedImageCandidate = imageLibraryCandidates.find((candidate) => candidate.score > 0) || imageLibraryCandidates[0] || null;
+    const recommendedImageSlot = useMemo(() => {
+        if (!recommendedImageCandidate) return null;
+        return {
+            text: '',
+            title: recommendedImageCandidate.label,
+            source: recommendedImageCandidate.sourceTitle,
+            section_id: recommendedImageCandidate.custom_template_id
+                ? `operator-custom-topic::${recommendedImageCandidate.custom_template_id}`
+                : `sop-image::${recommendedImageCandidate.id}`,
+            custom_template_id: recommendedImageCandidate.custom_template_id || null,
+            matched_by: [
+                recommendedImageCandidate.kind === 'saved' ? 'saved_image_template' : 'sop_image_manifest',
+                recommendedImageCandidate.topic_group,
+                recommendedImageCandidate.intent_key,
+            ].filter(Boolean),
+            media_items: [{
+                ...recommendedImageCandidate.mediaItem,
+                sourceTitle: recommendedImageCandidate.sourceTitle,
+                review_status: recommendedImageCandidate.review_status || null,
+                risk_note: recommendedImageCandidate.risk_note || null,
+            }],
+        };
+    }, [recommendedImageCandidate]);
 
     const chatScrollRef = useRef(null);
     const inputRef = useRef(null);
@@ -942,6 +980,28 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         messagesRef.current = messages;
     }, [messages]);
 
+    useEffect(() => {
+        let cancelled = false;
+        Promise.all(SOP_IMAGE_MANIFEST_URLS.map(async (manifestUrl) => {
+            const data = await fetchJsonOrThrow(manifestUrl, {
+                signal: AbortSignal.timeout(10000),
+            });
+            const items = Array.isArray(data?.items) ? data.items : [];
+            return items
+                .map((item, index) => normalizeSopManifestItem(item, data, index))
+                .filter(Boolean);
+        }))
+            .then((groups) => {
+                if (cancelled) return;
+                setSopImageManifestTemplates(groups.flat());
+            })
+            .catch((err) => {
+                if (cancelled) return;
+                console.warn('[sop-image-manifest] load failed:', err);
+            });
+        return () => { cancelled = true; };
+    }, []);
+
     // sideDataReady：副数据 (policyDocs + clientMemory) 首次加载完成的标记。
     // 自动 AI 生成 effect 会等这个 flag（保留 "未加载政策不自动生成" 的合规不变量）。
     const [sideDataReady, setSideDataReady] = useState(false);
@@ -970,6 +1030,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         setAllEvents([]);
         setActiveEvents([]);
         setSideDataReady(false);
+        setImagePickerOpen(false);
         clearPendingImage();
         jumpContextUntilRef.current = 0;
         pendingCandidatesRef.current = [];
@@ -1054,7 +1115,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [client?.phone, client?.id]);
 
-    // 四槽位方案：不再对新 incoming 消息自动生成 AI 候选。op3/op4 由 🤖 按钮手动触发。
+    // 五槽位方案：不再对新 incoming 消息自动生成 AI 候选。op4/op5 由 🤖 按钮手动触发。
 
     // 为一条 incoming 消息生成候选
     // conversationMsgs: 可选,调用方传入已拉到的消息列表(避免重复 fetch)。
@@ -1149,7 +1210,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         setAutoDetectedTopic(detected);
     }, [messages, activeEvents]);
 
-    // ==================== 四槽位方案：回复上下文 + 模板槽位 ====================
+    // ==================== 五槽位方案：回复上下文 + 模板槽位 ====================
     // 根据消息、当前话题、事件推导出 reply 上下文（driving templateDeck + op3/op4 生成）
     const resolveReplyContext = useCallback(() => {
         const lastIncoming = getLatestIncomingMessage(messages);
@@ -1342,7 +1403,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     };
 
     const handlePickImage = () => {
-        mediaInputRef.current?.click();
+        setImagePickerOpen(true);
     };
 
     const handleImageFileChange = (e) => {
@@ -1373,6 +1434,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 size: file.size || 0,
             };
         });
+        setImagePickerOpen(false);
     };
 
     /**
@@ -2914,7 +2976,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             scene_key: item.scene_key,
             routeLoading: false,
             routeError: null,
-            routeSourceTitle: '4月版 SOP 图片',
+            routeSourceTitle: item.sourceTitle || 'SOP 图片',
         }));
     }, []);
 
@@ -2997,6 +3059,34 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             setTemplateError(`自定义模板${mode === 'update' ? '更新' : '保存'}失败：${e.message || '未知错误'}`);
         }
     }, [handleSelectTopicTemplate, resolveTemplateModalPayload, templateManageModal, toast, upsertSavedCustomTemplate]);
+
+    const deleteTemplateManageModal = useCallback(async () => {
+        const id = templateManageModal?.slot?.custom_template_id
+            || String(templateManageModal?.slot?.section_id || '').match(/operator-custom-topic::(\d+)/)?.[1];
+        if (!id) {
+            setTemplateError('只能删除已保存的话题模板');
+            return;
+        }
+        const label = templateManageModal?.label || '当前模板';
+        const confirmed = window.confirm(`确定删除「${label}」吗？删除后不会出现在已保存模板列表里。`);
+        if (!confirmed) return;
+
+        try {
+            await fetchOkOrThrow(`${API_BASE}/custom-topic-templates/${id}`, {
+                method: 'DELETE',
+                signal: AbortSignal.timeout(15000),
+            });
+            setSavedCustomTopicTemplates((prev) => (prev || []).filter((item) => String(item.id) !== String(id)));
+            fetchCustomTopicTemplates().then((templates) => {
+                setSavedCustomTopicTemplates(templates);
+            });
+            toast.success(`模板已删除：${label}`);
+            setTemplateManageModal(null);
+        } catch (e) {
+            console.error('[customTopicTemplates] delete failed:', e);
+            setTemplateError(`删除模板失败：${e.message || '未知错误'}`);
+        }
+    }, [templateManageModal, toast]);
 
     const handleReadTemplateImagesFromClipboard = useCallback(async () => {
         if (!templateManageModal) return;
@@ -3215,7 +3305,16 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                                 <img
                                                     src={url}
                                                     alt=""
-                                                    className="w-12 h-12 rounded-lg object-cover shrink-0"
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    onClick={() => setTemplateImagePreview({ url, label: formatMediaUrlLabel(url) })}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault();
+                                                            setTemplateImagePreview({ url, label: formatMediaUrlLabel(url) });
+                                                        }
+                                                    }}
+                                                    className="w-12 h-12 rounded-lg object-cover shrink-0 cursor-zoom-in"
                                                     style={{ border: `1px solid ${WA.borderLight}` }}
                                                 />
                                                 <div className="min-w-0 flex-1">
@@ -3225,6 +3324,14 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                                                     <div className="text-[11px] truncate" style={{ color: WA.textMuted }}>
                                                         {url}
                                                     </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setTemplateImagePreview({ url, label: formatMediaUrlLabel(url) })}
+                                                        className="mt-1 text-[11px] font-semibold"
+                                                        style={{ color: WA.teal }}
+                                                    >
+                                                        查看大图
+                                                    </button>
                                                 </div>
                                                 <button
                                                     type="button"
@@ -3262,6 +3369,16 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                     </div>
 
                     <div className="px-6 py-4 border-t flex items-center justify-end gap-2" style={{ borderColor: WA.borderLight, background: WA.shellPanelStrong }}>
+                        {templateManageModal.mode === 'update' && (
+                            <button
+                                type="button"
+                                onClick={deleteTemplateManageModal}
+                                className="mr-auto px-5 py-2.5 rounded-full text-sm font-semibold"
+                                style={{ color: '#b91c1c', border: '1px solid rgba(185,28,28,0.22)', background: 'rgba(185,28,28,0.06)' }}
+                            >
+                                删除模板
+                            </button>
+                        )}
                         <button
                             type="button"
                             onClick={() => setTemplateManageModal(null)}
@@ -3315,7 +3432,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                             const savedInGroup = savedCustomTopicTemplates
                                 .filter((item) => (item.topic_group || 'custom_topic') === groupKey)
                                 .slice(0, 10);
-                            const sopImagesInGroup = SOP_IMAGE_TOPIC_TEMPLATES
+                            const sopImagesInGroup = sopImageTopicTemplates
                                 .filter((item) => item.topic_group === groupKey);
                             return (
                                 <div key={groupKey} className="rounded-xl p-2" style={{ background: groupActive ? 'rgba(15,118,110,0.08)' : 'rgba(255,255,255,0.62)', border: `1px solid ${groupActive ? 'rgba(15,118,110,0.22)' : WA.borderLight}` }}>
@@ -3412,6 +3529,210 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         })}
                     </div>
                 </aside>
+            </div>
+        </div>
+    ) : null;
+
+    const imagePickerView = imagePickerOpen ? (
+        <div
+            style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 3300,
+                background: 'rgba(31,29,26,0.38)',
+                display: 'flex',
+                alignItems: isMobileViewport ? 'flex-end' : 'center',
+                justifyContent: 'center',
+                padding: isMobileViewport ? '0' : '32px',
+            }}
+            onClick={() => setImagePickerOpen(false)}
+        >
+            <div
+                className="overflow-hidden"
+                style={{
+                    width: isMobileViewport ? '100%' : 'min(960px, 94vw)',
+                    maxHeight: isMobileViewport ? '88vh' : '82vh',
+                    borderRadius: isMobileViewport ? '20px 20px 0 0' : '20px',
+                    background: WA.shellPanelStrong,
+                    border: `1px solid ${WA.borderLight}`,
+                    boxShadow: WA.shellShadow,
+                    display: 'flex',
+                    flexDirection: 'column',
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div
+                    className="px-5 py-4 border-b flex items-center justify-between gap-3"
+                    style={{ borderColor: WA.borderLight, background: WA.white }}
+                >
+                    <div className="min-w-0">
+                        <div className="text-xs font-semibold tracking-[0.08em] uppercase" style={{ color: WA.textMuted }}>
+                            Image Library
+                        </div>
+                        <div className="text-sm font-semibold mt-0.5 truncate" style={{ color: WA.textDark }}>
+                            模板图片库
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <button
+                            type="button"
+                            onClick={() => mediaInputRef.current?.click()}
+                            disabled={sendingMedia || writeBlocked}
+                            className="px-3 py-2 rounded-full text-xs font-semibold disabled:opacity-50"
+                            style={{ color: '#2563eb', border: '1px solid rgba(37,99,235,0.22)', background: 'rgba(37,99,235,0.08)' }}
+                        >
+                            本地选择
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setImagePickerOpen(false)}
+                            className="w-9 h-9 rounded-full flex items-center justify-center"
+                            style={{ color: WA.textMuted, border: `1px solid ${WA.borderLight}`, background: WA.shellPanelMuted }}
+                            title="关闭"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-y-auto p-4">
+                    {imageLibraryCandidates.length > 0 ? (
+                        <div className="grid gap-3" style={{ gridTemplateColumns: isMobileViewport ? '1fr' : 'repeat(3, minmax(0, 1fr))' }}>
+                            {imageLibraryCandidates.map((candidate) => (
+                                <div
+                                    key={candidate.id}
+                                    className="rounded-xl overflow-hidden"
+                                    style={{
+                                        background: WA.white,
+                                        border: `1px solid ${candidate === recommendedImageCandidate ? 'rgba(37,99,235,0.30)' : WA.borderLight}`,
+                                        boxShadow: candidate === recommendedImageCandidate ? '0 10px 26px rgba(37,99,235,0.10)' : 'none',
+                                    }}
+                                >
+                                    <button
+                                        type="button"
+                                        onClick={() => setTemplateImagePreview({ url: candidate.url, label: candidate.label })}
+                                        className="block w-full text-left"
+                                        title="查看大图"
+                                    >
+                                        <img
+                                            src={candidate.url}
+                                            alt={candidate.label}
+                                            className="w-full object-cover"
+                                            style={{ height: isMobileViewport ? 160 : 148, background: WA.shellPanelMuted }}
+                                        />
+                                    </button>
+                                    <div className="px-3 py-2.5">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <div className="text-xs font-semibold truncate" style={{ color: WA.textDark }}>
+                                                    {candidate.label}
+                                                </div>
+                                                <div className="text-[11px] truncate mt-0.5" style={{ color: WA.textMuted }}>
+                                                    {candidate.sourceTitle}
+                                                </div>
+                                            </div>
+                                            {candidate === recommendedImageCandidate && (
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0" style={{ color: '#2563eb', background: 'rgba(37,99,235,0.10)' }}>
+                                                    推荐
+                                                </span>
+                                            )}
+                                        </div>
+                                        {candidate.summary && (
+                                            <div className="mt-2 text-[11px] leading-snug" style={{ color: WA.textMuted }}>
+                                                {candidate.summary.slice(0, 92)}
+                                            </div>
+                                        )}
+                                        <div className="mt-3 flex gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setTemplateImagePreview({ url: candidate.url, label: candidate.label })}
+                                                className="flex-1 px-3 py-2 rounded-full text-[11px] font-semibold"
+                                                style={{ color: WA.textDark, border: `1px solid ${WA.borderLight}`, background: WA.shellPanelMuted }}
+                                            >
+                                                预览
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setImagePickerOpen(false);
+                                                    sendTemplateMediaItem(candidate.mediaItem);
+                                                }}
+                                                disabled={sendingMedia || writeBlocked}
+                                                className="flex-1 px-3 py-2 rounded-full text-[11px] font-semibold text-white disabled:opacity-50"
+                                                style={{ background: WA.teal }}
+                                            >
+                                                发送图片
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="py-12 text-center text-sm" style={{ color: WA.textMuted }}>
+                            暂无可用模板图片
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    ) : null;
+
+    const templateImagePreviewView = templateImagePreview ? (
+        <div
+            style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 3600,
+                background: 'rgba(17,24,39,0.74)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: isMobileViewport ? '16px' : '40px',
+            }}
+            onClick={() => setTemplateImagePreview(null)}
+        >
+            <div
+                style={{
+                    maxWidth: 'min(1080px, 94vw)',
+                    maxHeight: '92vh',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12,
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate" style={{ color: WA.white }}>
+                            {templateImagePreview.label || '图片预览'}
+                        </div>
+                        <div className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.72)' }}>
+                            {templateImagePreview.url}
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setTemplateImagePreview(null)}
+                        className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                        style={{ color: WA.white, border: '1px solid rgba(255,255,255,0.24)', background: 'rgba(255,255,255,0.12)' }}
+                        title="关闭预览"
+                    >
+                        ✕
+                    </button>
+                </div>
+                <img
+                    src={templateImagePreview.url}
+                    alt={templateImagePreview.label || '图片预览'}
+                    className="rounded-xl"
+                    style={{
+                        maxWidth: 'min(1080px, 94vw)',
+                        maxHeight: '82vh',
+                        objectFit: 'contain',
+                        background: WA.white,
+                        boxShadow: '0 24px 72px rgba(0,0,0,0.36)',
+                    }}
+                />
             </div>
         </div>
     ) : null;
@@ -3862,6 +4183,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                             opt1: activePicker.candidates.opt1,
                             opt2: activePicker.candidates.opt2,
                         } : null}
+                        imageSlot={recommendedImageSlot}
                         operatorLabel={activePicker?.operatorDisplayName || activePicker?.operator || activeReplyContext.operator || 'Base'}
                         operatorConfigured={activePicker?.operatorConfigured}
                         promptVersion={activePicker?.systemPromptVersion}
@@ -3871,6 +4193,10 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         onSaveTemplate={handleSaveTemplateFromCard}
                         onUpdateTemplate={handleUpdateTemplateFromCard}
                         onSendTemplateMedia={sendTemplateMediaItem}
+                        onPreviewTemplateMedia={(item) => {
+                            const url = String(item?.url || item?.file_url || '').trim();
+                            if (url) setTemplateImagePreview({ url, label: item?.label || formatMediaUrlLabel(url) });
+                        }}
                         onGenerateAi={handleBotIconClick}
                         onRegenerate={handleRegenerate}
                         onRetryTemplates={() => activeReplyContext && loadTemplateDeck(activeReplyContext)}
@@ -3977,7 +4303,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                             background: WA.white,
                             border: `1px solid ${WA.borderLight}`,
                         }}
-                        title={writeBlockedTitle || '上传图片'}
+                        title={writeBlockedTitle || '打开模板图片库'}
                     >
                         {sendingMedia ? <SpinnerIcon /> : <ImageIcon />}
                     </button>
@@ -4306,6 +4632,8 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 </div>
             </div>
             {templateManageModalView}
+            {imagePickerView}
+            {templateImagePreviewView}
         </>
     );
 }

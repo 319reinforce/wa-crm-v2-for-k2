@@ -1,6 +1,6 @@
 /**
- * AIReplyPicker — 统一四槽位回复面板
- * op1/op2 = 模板，op3/op4 = AI
+ * AIReplyPicker — 统一五槽位回复面板
+ * op1/op2 = 模板，op3 = 推荐图片，op4/op5 = AI
  *
  * 自定义文本输入/翻译/Emoji/发送的入口一律回到主输入框(下方 textarea),
  * 本面板不再维护独立 Custom textarea,避免上下各一个输入框造成的重复。
@@ -13,6 +13,7 @@ export default function AIReplyPicker({
     incomingMsg,
     templateDeck,
     aiDeck,
+    imageSlot,
     operatorLabel,
     operatorConfigured,
     promptVersion,
@@ -25,6 +26,7 @@ export default function AIReplyPicker({
     onRegenerate,
     onRetryTemplates,
     onSendTemplateMedia,
+    onPreviewTemplateMedia,
     templateLoading = false,
     templateError = null,
     loading = false,
@@ -94,6 +96,7 @@ export default function AIReplyPicker({
                     onUpdateTemplate={(slot) => onUpdateTemplate?.({ slot, slotKey: 'op1' })}
                     onSend={(text, slot) => onSelect('template_op1', { text, slot })}
                     onSendMedia={(item) => onSendTemplateMedia?.(item)}
+                    onPreviewMedia={(item) => onPreviewTemplateMedia?.(item)}
                     compactMobile={compactMobile}
                     deckHeight={resizableDeck ? deckHeight : null}
                 />
@@ -112,12 +115,28 @@ export default function AIReplyPicker({
                     onUpdateTemplate={(slot) => onUpdateTemplate?.({ slot, slotKey: 'op2' })}
                     onSend={(text, slot) => onSelect('template_op2', { text, slot })}
                     onSendMedia={(item) => onSendTemplateMedia?.(item)}
+                    onPreviewMedia={(item) => onPreviewTemplateMedia?.(item)}
                     compactMobile={compactMobile}
                     deckHeight={resizableDeck ? deckHeight : null}
                 />
-                <CandidateCard
+                <StandardReplyCard
+                    slotLabel="op3 推荐图片"
                     badge="3"
-                    label="op3 AI 方案一"
+                    accent="#0f766e"
+                    slot={imageSlot}
+                    alternatives={[]}
+                    loading={false}
+                    error={null}
+                    placeholder="暂无推荐图片"
+                    onSendMedia={(item) => onSendTemplateMedia?.(item)}
+                    onPreviewMedia={(item) => onPreviewTemplateMedia?.(item)}
+                    compactMobile={compactMobile}
+                    deckHeight={resizableDeck ? deckHeight : null}
+                    mediaOnly
+                />
+                <CandidateCard
+                    badge="4"
+                    label="op4 AI 方案一"
                     text={aiDeck?.opt1 || '点击 AI 生成'}
                     accent="#2563eb"
                     loading={aiBusy}
@@ -131,8 +150,8 @@ export default function AIReplyPicker({
                     deckHeight={resizableDeck ? deckHeight : null}
                 />
                 <CandidateCard
-                    badge="4"
-                    label="op4 AI 方案二"
+                    badge="5"
+                    label="op5 AI 方案二"
                     text={aiDeck?.opt2 || '点击 AI 生成'}
                     accent="#0f766e"
                     loading={aiBusy}
