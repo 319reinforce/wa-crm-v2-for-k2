@@ -115,11 +115,11 @@ jobs:
           key: ${{ secrets.KREV_SERVER_SSH_KEY }}
           envs: TAG
           script: |
-            echo "Deploying wa-crm:${TAG} to krev"
+            echo "Deploying wa-crm:$TAG to krev"
             cd ~/whatsapp-mgr
             git pull origin main
-            docker pull git.k2lab.ai/k2lab/wa-crm:${TAG}
-            sed -i "s|image: git.k2lab.ai/k2lab/wa-crm:.*|image: git.k2lab.ai/k2lab/wa-crm:${TAG}|" docker-compose.krev.override.yml
+            docker pull git.k2lab.ai/k2lab/wa-crm:$TAG
+            sed -i "s|image: git.k2lab.ai/k2lab/wa-crm:.*|image: git.k2lab.ai/k2lab/wa-crm:$TAG|" docker-compose.krev.override.yml
             docker compose -f docker-compose.server.yml -f docker-compose.krev.override.yml up -d
             sleep 3
             curl -sf http://localhost:3000/api/health && echo "Health check passed"
