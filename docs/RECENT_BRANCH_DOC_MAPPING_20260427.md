@@ -25,6 +25,7 @@ Removed local branches after merge:
 
 | Gitea PR / merge | Source branch | Main commit | Primary scope | Repository docs | Obsidian notes |
 | --- | --- | --- | --- | --- | --- |
+| `#69` `fix(api): scope v1 board and reserve DeepL quota` | `codex/backend-scope-quota-20260424` | `1ac65be` merge, `47fdad5` feature | v1Board owner-scope guard (parametrized allowlist via `V1_OWNER_ALLOWLIST` env), v1Board `isOwnerVisible()` check, DeepL quota TOCTOU fix via process-local `reserveDeepLQuota()` + `release()` pattern | — | `docs/obsidian/notes/2026-04-27-recent-branch-doc-mapping.md` (this doc) |
 | `#77` `feat: 功能：新增所有者范围内的联系人管理和模板媒体资源` | `codex/contact-import-template-assets` | `76f59a3` merge, `3be6d8a` feature | Owner-scoped contact management, batch creator import, optional welcome sending, template media decoupling | `docs/CREATOR_IMPORT_WELCOME_HANDOFF_20260426.md` | `docs/obsidian/notes/2026-04-26-creator-import-welcome-handoff.md`, `docs/obsidian/notes/2026-04-26-template-custom-topic-handoff.md` |
 | `#76` `feat: add active event detection queue` | `codex/import` | `e761059` merge, `f34e1ca` feature | Active event detection queue, dry-run/write rollout, message supplement integration, repair hooks | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | `docs/obsidian/notes/2026-04-26-active-event-detection-handoff.md` |
 | `#74` `eventoptimize` | `codex/eventoptimize` | `bc811d1` merge, `cec106b` docs tail | Event/lifecycle backfill hardening, docs index, core module handoff | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md`, `docs/DOCS_INDEX.md`, `docs/CORE_MODULES_OVERVIEW.md` | `docs/obsidian/notes/2026-04-25-event-lifecycle-backfill-handoff.md`, `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md` |
@@ -46,6 +47,7 @@ Removed local branches after merge:
 - `codex/mysqloptimize` is intentionally preserved and may be older than `origin/main`; avoid merging or rebasing it without a separate task.
 - `archive/local-archive-20260420` is not compatible with current `origin/main` as a direct merge because it predates the latest event queue, contact management, dynamic owner, and template media changes. Treat it as a source for selective cherry-picks.
 - The contact/import/template work in PR `#77` supersedes earlier assumptions that SOP images are bound to text templates. Image assets are now separate media templates.
+- PR `#69` (v1Board owner-scope guard + DeepL quota TOCTOU fix) is merged and in origin/main. `V1_OWNER_ALLOWLIST` env var controls v1Board visibility; `reserveDeepLQuota()` pattern ensures DeepL/C-Claude quota consistency in the translation path.
 
 ## Operational Checklist
 

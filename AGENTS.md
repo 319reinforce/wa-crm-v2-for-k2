@@ -45,6 +45,7 @@
 | `schema.sql` | 数据库 schema 定义 |
 | `server/routes/profile.js` | 客户画像路由：标签提取 + summary 生成 + 记忆写入 |
 | `server/routes/experience.js` | Experience Router 核心逻辑 |
+| `server/routes/v1Board.js` | v1 只读看板后端（`/v1/api/*`），owner scope guard + 参数化白名单 |
 
 ### 前端
 
@@ -97,6 +98,21 @@ client_id / operator → 查 operator_experiences → 编译 system_prompt → �
 
 ---
 
+## 关键环境变量
+
+| 变量 | 默认值 | 作用 |
+|------|--------|------|
+| `V1_OWNER_ALLOWLIST` | `Beau,Yiyun` | v1Board 只读 API 的 owner 白名单（逗号分隔原始值） |
+| `V1_CUTOFF_DATE` | `2026-01-21T00:00:00Z` | v1Board 默认统计截止日期 |
+| `DEEPL_CHAR_LIMIT` | — | DeepL 每日字符配额上限，设为 0 则跳过 DeepL |
+| `OPENAI_API_KEY` | — | OpenAI API 密钥（DeepL 失败时的 fallback） |
+| `MINIMAX_API_KEY` | — | MiniMax API 密钥 |
+| `LOCAL_API_AUTH_BYPASS` | `false` | 设为 `true` 可绕过本地 API 认证（仅开发用） |
+
+> v1Board 是 v1 只读看板后端（`server/routes/v1Board.js`），`V1_OWNER_ALLOWLIST` 控制哪些 owner 的数据可见；新增 operator 时改 env 即可，无需改代码。
+
+---
+
 ## 必读文档
 
 | 文档 | 用途 |
@@ -106,6 +122,8 @@ client_id / operator → 查 operator_experiences → 编译 system_prompt → �
 | `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md` | 当前 agent 接入状态、文档覆盖矩阵、遗留边界 |
 | `docs/CORE_MODULES_OVERVIEW.md` | 当前最重要模块和施工边界总览 |
 | `docs/AI_REPLY_GENERATION_SYSTEM.md` | 当前 AI 回复生成、话题检测、事件推进、provider 路由 |
+| `docs/TEMPLATE_SYSTEM_DESIGN_20260507.md` | 三层模板系统边界：manifest SOP / DB 自定义 / import welcome + SOP 图片资产管理 |
+| `docs/MAY_TEMPLATE_ROLLOUT_HANDOFF_20260507.md` | May SOP  rollout 实装记录：manifest 转换、检索硬化、图片导入、保存模板预览/删除 |
 | `docs/EVENT_LIFECYCLE_BACKFILL_HANDOFF_20260425.md` | 最新 event/lifecycle backfill、snapshot、review UI 进展 |
 | `docs/EVENT_LIFECYCLE_DATA_PRD_20260425.md` | 当前 event/lifecycle 数据模型基线 |
 | `docs/ACTIVE_EVENT_DETECTION_HANDOFF_20260426.md` | 当前 active event detection queue 与 rollout handoff |
