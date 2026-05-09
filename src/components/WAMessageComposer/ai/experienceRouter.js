@@ -39,7 +39,9 @@ export async function generateViaExperienceRouter({
     currentTopic,
     autoDetectedTopic,
     setCurrentTopic,
+    onProgress,
 }) {
+    onProgress?.({ stage: 'preparing', message: '正在整理最近对话与客户上下文' });
     const allMsgs = conversation?.messages || [];
     const lastIncomingText = [...allMsgs].reverse().find(m => m.role === 'user')?.text || '';
     const lastMsgTimestamp = allMsgs.length > 0 ? allMsgs[allMsgs.length - 1].timestamp : null;
@@ -135,46 +137,73 @@ export async function generateViaExperienceRouter({
         conversationMsgs.push({ role: 'user', content: '[请回复这位达人]' });
     }
 
-    const data = await fetchJsonOrThrow(`${API_BASE}/ai/generate-candidates`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            client_id: resolvedClientId,
-            scene: effectiveScene,
-            topic_group: effectiveTopic?.topic_group || null,
-            intent_key: effectiveTopic?.intent_key || null,
-            topicContext,
-            richContext: richContextParagraph,
-            conversationSummary: convSummary ? convSummary.summary : '',
-            latest_user_message: latestUserMessage,
-            messages: conversationMsgs,
-            max_tokens: 500,
-            temperature: [0.8, 0.4],
-        }),
-        signal: AbortSignal.timeout(60000),
-    });
+    onProgress?.({ stage: 'generating', message: '正在生成 AI 候选回复' });
+    let slowTimer = null;
+    try {
+        slowTimer = setTimeout(() => {
+            onProgress?.({
+                stage: 'fallback',
+                message: '细调模型响应较慢，正在等待后端 fallback 或备用 provider',
+            });
+        }, 16_000);
+        const data = await fetchJsonOrThrow(`${API_BASE}/ai/generate-candidates`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                client_id: resolvedClientId,
+                scene: effectiveScene,
+                topic_group: effectiveTopic?.topic_group || null,
+                intent_key: effectiveTopic?.intent_key || null,
+                topicContext,
+                richContext: richContextParagraph,
+                conversationSummary: convSummary ? convSummary.summary : '',
+                latest_user_message: latestUserMessage,
+                messages: conversationMsgs,
+                max_tokens: 500,
+                temperature: [0.8, 0.4],
+            }),
+            signal: AbortSignal.timeout(60000),
+        });
+        if (slowTimer) clearTimeout(slowTimer);
 
-    const opt1 = String(data?.opt1 || '').trim();
-    const opt2 = String(data?.opt2 || '').trim();
-    if (!opt1 && !opt2) {
-        throw new Error('AI 返回空候选，请重试');
+        const opt1 = String(data?.opt1 || '').trim();
+        const opt2 = String(data?.opt2 || '').trim();
+        if (!opt1 && !opt2) {
+            throw new Error('AI 返回空候选，请重试');
+        }
+        onProgress?.({
+            stage: 'done',
+            message: 'AI 候选已生成',
+            provider: data.provider || null,
+            model: data.model || null,
+        });
+        return {
+            opt1,
+            opt2,
+            systemPrompt: data.systemPrompt,
+            systemPromptVersion: data.systemPromptVersion || data.version,
+            operator: data.operator || null,
+            operatorDisplayName: data.operatorDisplayName || data.operator || null,
+            operatorConfigured: !!data.operatorConfigured,
+            scene: effectiveScene,
+            topicGroup: effectiveTopic?.topic_group || null,
+            intentKey: effectiveTopic?.intent_key || null,
+            sceneSource,
+            retrievalSnapshotId: data.retrievalSnapshotId || data.retrieval_snapshot_id || null,
+            generationLogId: data.generationLogId || data.generation_log_id || null,
+            provider: data.provider || null,
+            model: data.model || null,
+            pipelineVersion: data.pipelineVersion || data.pipeline_version || 'reply_generation_v2',
+        };
+    } catch (error) {
+        onProgress?.({
+            stage: 'failed',
+            message: error?.name === 'TimeoutError'
+                ? 'AI 生成超时，可以重试'
+                : 'AI 生成失败，可以重试',
+        });
+        throw error;
+    } finally {
+        if (slowTimer) clearTimeout(slowTimer);
     }
-    return {
-        opt1,
-        opt2,
-        systemPrompt: data.systemPrompt,
-        systemPromptVersion: data.systemPromptVersion || data.version,
-        operator: data.operator || null,
-        operatorDisplayName: data.operatorDisplayName || data.operator || null,
-        operatorConfigured: !!data.operatorConfigured,
-        scene: effectiveScene,
-        topicGroup: effectiveTopic?.topic_group || null,
-        intentKey: effectiveTopic?.intent_key || null,
-        sceneSource,
-        retrievalSnapshotId: data.retrievalSnapshotId || data.retrieval_snapshot_id || null,
-        generationLogId: data.generationLogId || data.generation_log_id || null,
-        provider: data.provider || null,
-        model: data.model || null,
-        pipelineVersion: data.pipelineVersion || data.pipeline_version || 'reply_generation_v2',
-    };
 }

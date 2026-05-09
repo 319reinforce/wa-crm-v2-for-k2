@@ -4,6 +4,14 @@ date: 2026-04-27
 project: wa-crm-v2
 type: status
 source_path: docs/DOCS_INDEX.md
+related:
+  - docs/obsidian/index.md
+  - docs/TEMPLATE_SYSTEM_DESIGN_20260507.md
+  - docs/MAY_TEMPLATE_ROLLOUT_KICKOFF_20260507.md
+  - docs/MAY_TEMPLATE_ROLLOUT_HANDOFF_20260507.md
+  - docs/REPLY_DECK_IMAGE_TEMPLATE_PLAN_20260507.md
+  - docs/obsidian/notes/2026-05-08-document-sync-refresh.md
+  - docs/obsidian/notes/2026-05-08-stash-cleanup-audit.md
 status: active
 tags:
   - wa-crm-v2
@@ -17,6 +25,19 @@ tags:
 ## Summary
 
 This is the current onboarding snapshot after the deep documentation cleanup. New agents should treat `AGENTS.md`, `docs/DOCS_INDEX.md`, `docs/CORE_MODULES_OVERVIEW.md`, and this note as the active navigation layer. Obsidian is the retained memory layer; deleted historical docs should not be restored.
+
+## 2026-05-08 Refresh
+
+- `docs/DOCS_INDEX.md` and `docs/obsidian/index.md` are refreshed to 2026-05-08.
+- May template rollout docs are active: `docs/TEMPLATE_SYSTEM_DESIGN_20260507.md`, `docs/MAY_TEMPLATE_ROLLOUT_KICKOFF_20260507.md`, `docs/MAY_TEMPLATE_ROLLOUT_HANDOFF_20260507.md`, and `docs/REPLY_DECK_IMAGE_TEMPLATE_PLAN_20260507.md`.
+- Stash cleanup is complete; `git stash list` returned empty after the audit captured in `docs/obsidian/notes/2026-05-08-stash-cleanup-audit.md`.
+- Documentation sync was rechecked across active docs; the refresh is captured in `docs/obsidian/notes/2026-05-08-document-sync-refresh.md`.
+
+## 2026-05-09 Refresh
+
+- Tech debt remediation is implemented through Phase 5 in `docs/TECH_DEBT_REMEDIATION_KICKOFF_20260508.md`.
+- Phase 5 delivered route-level rate limiting, SSE client caps/scoped metadata, and request-scoped structured API error logs.
+- `docs/SSE_HARDENING.md` and `docs/obsidian/notes/2026-04-27-sse-and-deployment-current.md` now reflect the Phase 5 SSE lifecycle hardening state.
 
 ## Current Product Direction
 
@@ -50,6 +71,12 @@ This is the current onboarding snapshot after the deep documentation cleanup. Ne
 | `docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md` | active artifact boundary | `2026-04-27-runtime-artifact-cleanup-plan.md` |
 | `docs/DOCUMENT_RETENTION_AUDIT_20260427.md` | active cleanup record | `2026-04-27-document-retention-audit.md` |
 | `docs/RECENT_BRANCH_DOC_MAPPING_20260427.md` | active branch/doc map | `2026-04-27-recent-branch-doc-mapping.md` |
+| `docs/TEMPLATE_SYSTEM_DESIGN_20260507.md` | active template system design | `2026-05-07-template-system-design.md` |
+| `docs/MAY_TEMPLATE_ROLLOUT_KICKOFF_20260507.md` | active May template rollout kickoff | `2026-05-07-may-template-rollout-kickoff.md`, `2026-05-07-may-template-rollout-handoff.md` |
+| `docs/MAY_TEMPLATE_ROLLOUT_HANDOFF_20260507.md` | active May template implementation handoff | `2026-05-07-may-template-rollout-handoff.md` |
+| `docs/REPLY_DECK_IMAGE_TEMPLATE_PLAN_20260507.md` | active Reply Deck image-template plan | `2026-05-07-reply-deck-image-template-plan.md` |
+| `docs/obsidian/notes/2026-05-08-document-sync-refresh.md` | latest sync audit | `2026-05-08-document-sync-refresh.md` |
+| `docs/obsidian/notes/2026-05-08-stash-cleanup-audit.md` | latest stash cleanup audit | `2026-05-08-stash-cleanup-audit.md` |
 | `docs/archive/PRE_20260420_DOCS_ARCHIVE.md` | historical archive | `2026-04-27-pre-20260420-docs-archive.md` |
 | `docs/archive/reports/REPORTS_INDEX_20260427.md` | historical report inventory | `2026-04-27-runtime-artifact-cleanup-plan.md` |
 | `docs/rag/knowledge-manifest.json` and `docs/rag/sources/` | transitional runtime inputs | `2026-04-27-rag-knowledge-source-docs.md`, `2026-04-27-profile-skill-memory-direction.md` |

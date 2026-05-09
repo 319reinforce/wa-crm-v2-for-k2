@@ -4,6 +4,8 @@ date: 2026-04-25
 project: wa-crm-v2
 type: standard
 source_path: docs/DOCS_INDEX.md
+related:
+  - docs/CORE_MODULES_OVERVIEW.md
 status: active
 tags:
   - wa-crm-v2

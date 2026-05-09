@@ -101,6 +101,20 @@ function shouldExposeCreatorListPhone(req, requestedFields) {
     return privileged && requestedFields.has('wa_phone');
 }
 
+function maskPhone(value) {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return null;
+    return digits.length <= 4 ? '***' : `***${digits.slice(-4)}`;
+}
+
+function shouldExposeCreatorDetailPhone(req, detail = {}, requestedFields = new Set()) {
+    if (!requestedFields.has('wa_phone')) return false;
+    const role = String(req?.auth?.role || '').trim().toLowerCase();
+    if (role === 'admin' || role === 'service') return true;
+    const lockedOwner = getLockedOwner(req);
+    return !!lockedOwner && matchesOwnerScope(req, detail.wa_owner);
+}
+
 // 列表响应里 lifecycle 对象只保留下列字段（详情页走 /api/creators/:id 拿完整）
 // 前端所有 list 场景消费路径（App.jsx/MobileListScreen/MobileChatScreen/EventPanel）都只访问这四个
 const LIST_LIFECYCLE_ALLOWED_KEYS = ['stage_key', 'stage_label', 'flags', 'has_conflicts'];
@@ -110,6 +124,50 @@ function projectLifecycleForList(lifecycle) {
     for (const k of LIST_LIFECYCLE_ALLOWED_KEYS) {
         if (lifecycle[k] !== undefined) projected[k] = lifecycle[k];
     }
+    return projected;
+}
+
+const CREATOR_DETAIL_MESSAGE_ALLOWED_KEYS = [
+    'id',
+    'creator_id',
+    'role',
+    'operator',
+    'text',
+    'timestamp',
+    'message_hash',
+    'wa_message_id',
+    'created_at',
+    'updated_at',
+    'media_asset_id',
+    'media_type',
+    'media_mime',
+    'media_size',
+    'media_width',
+    'media_height',
+    'media_caption',
+    'media_thumbnail',
+    'media_download_status',
+];
+
+function projectCreatorMessageForDetail(message = {}) {
+    if (!message || typeof message !== 'object') return null;
+    const projected = {};
+    for (const key of CREATOR_DETAIL_MESSAGE_ALLOWED_KEYS) {
+        if (message[key] !== undefined) projected[key] = message[key];
+    }
+    return projected;
+}
+
+function projectCreatorDetailForResponse(detail = {}, { exposeWaPhone = false } = {}) {
+    if (!detail || typeof detail !== 'object') return detail;
+    const projected = {
+        ...detail,
+        wa_phone_masked: maskPhone(detail.wa_phone),
+        messages: Array.isArray(detail.messages)
+            ? detail.messages.map(projectCreatorMessageForDetail).filter(Boolean)
+            : [],
+    };
+    if (!exposeWaPhone) delete projected.wa_phone;
     return projected;
 }
 
@@ -741,10 +799,15 @@ router.get('/', async (req, res) => {
 router._private = {
     parseRequestedCreatorFields,
     shouldExposeCreatorListPhone,
+    shouldExposeCreatorDetailPhone,
+    maskPhone,
     buildCreatorUpdateAuditPayload,
     buildCreatorWacrmAuditPayload,
     projectLifecycleForList,
+    projectCreatorMessageForDetail,
+    projectCreatorDetailForResponse,
     LIST_LIFECYCLE_ALLOWED_KEYS,
+    CREATOR_DETAIL_MESSAGE_ALLOWED_KEYS,
 };
 
 // GET /api/creators/manual-check — 手动录入前去重检查（同号/重名）
@@ -1258,6 +1321,7 @@ router.post('/batch-active', async (req, res) => {
 router.get('/:id', async (req, res) => {
     try {
         const creatorId = parseInt(req.params.id, 10);
+        const requestedFields = parseRequestedCreatorFields(req.query.fields);
         const dbConn = db.getDb();
         const creator = await getCreatorFull(creatorId);
         if (!creator) {
@@ -1298,11 +1362,13 @@ router.get('/:id', async (req, res) => {
             event_snapshot: eventSnapshot,
         }), eventsMap.get(creator.id) || [], lifecycleOptions);
         const lifecycleSnapshot = await getLifecycleSnapshotRecord(dbConn, creator.id);
-        res.json({
+        res.json(projectCreatorDetailForResponse({
             ...detail,
             lifecycle_snapshot: lifecycleSnapshot,
             lifecycle_conflicts: detail.lifecycle?.conflicts || [],
-        });
+        }, {
+            exposeWaPhone: shouldExposeCreatorDetailPhone(req, detail, requestedFields),
+        }));
     } catch (err) {
         console.error('Error fetching creator:', err);
         res.status(500).json({ error: err.message });

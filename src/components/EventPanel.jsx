@@ -5,6 +5,7 @@ import { getAppAuthScopeOwner, isAppAuthOwnerLocked } from '../utils/appAuth'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 import { useToast } from './Toast'
 import sharedWA from '../utils/waTheme'
+import { PanelEmpty, PanelError, PanelLoading } from './common/PanelFeedback'
 
 const API_BASE = '/api';
 const DISPLAY_TIME_ZONE = 'Asia/Shanghai';
@@ -130,6 +131,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
   const defaultOwner = lockedOwner || dynamicOwnerOptions[0] || ''
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
+  const [panelError, setPanelError] = useState('')
   const [total, setTotal] = useState(0)
   const [filterStatus, setFilterStatus] = useState('')
   const [filterOwner, setFilterOwner] = useState(lockedOwner || '')
@@ -173,6 +175,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
 
   const fetchEvents = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
+    if (!silent) setPanelError('')
     try {
       const params = new URLSearchParams()
       if (filterStatus) params.set('status', filterStatus)
@@ -185,6 +188,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
       setTotal(data.total || 0)
     } catch (e) {
       console.error('fetchEvents error:', e)
+      if (!silent) setPanelError(e.message || '事件列表加载失败')
     } finally {
       if (!silent) setLoading(false)
     }
@@ -199,6 +203,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
       setCreators(Array.isArray(data) ? data : [])
     } catch (e) {
       console.error('fetchCreators error:', e)
+      setPanelError((current) => current || e.message || '达人列表加载失败')
     }
   }, [])
 
@@ -229,7 +234,10 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
         setSelectedEvent(data)
         setJudgeResult(null)
       } catch (e) {
-        if (!cancelled) console.error('syncSelectedEvent error:', e)
+        if (!cancelled) {
+          console.error('syncSelectedEvent error:', e)
+          setPanelError(e.message || '事件详情加载失败')
+        }
       }
     }
 
@@ -336,6 +344,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
       }
     } catch (e) {
       console.error('handleStatusChange error:', e)
+      toast.error(`状态更新失败: ${e.message || '未知错误'}`)
     }
   }
 
@@ -407,6 +416,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
       fetchEvents(true)
     } catch (e) {
       console.error('handleJudge error:', e)
+      toast.error(`判定失败: ${e.message || '未知错误'}`)
     } finally {
       setJudging(false)
     }
@@ -420,6 +430,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
       setJudgeResult(null)
     } catch (e) {
       console.error('handleViewEvent error:', e)
+      setPanelError(e.message || '事件详情加载失败')
     }
   }
 
@@ -475,6 +486,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
         </div>
         <div className="flex gap-2 shrink-0">
           <button
+            type="button"
             onClick={() => fetchEvents()}
             disabled={loading}
             className="rounded-full text-[12px] font-semibold whitespace-nowrap"
@@ -483,6 +495,7 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
             {loading ? '刷新中…' : '刷新'}
           </button>
           <button
+            type="button"
             onClick={() => setShowCreate(true)}
             className="rounded-full text-[12px] font-semibold text-white whitespace-nowrap"
             style={{ minHeight: 40, padding: '0 16px', background: WA.teal }}
@@ -553,15 +566,12 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
 
       {/* Content */}
       <div ref={contentScrollRef} className="flex-1 overflow-y-auto docs-scrollbar p-4">
-          {loading && events.length === 0 ? (
-            <div className="flex items-center justify-center py-16" style={{ color: WA.textMuted }}>
-              <span>⏳ 加载中...</span>
-            </div>
+          {panelError ? (
+            <PanelError message={panelError} onRetry={() => fetchEvents()} />
+          ) : loading && events.length === 0 ? (
+            <PanelLoading />
           ) : events.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3" style={{ color: WA.textMuted }}>
-              <span className="text-3xl">📋</span>
-              <span className="text-sm">暂无事件</span>
-            </div>
+            <PanelEmpty icon="📋" title="暂无事件" detail="新建事件或等待自动识别后会显示在这里。" />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
             {events.map(event => {
@@ -604,6 +614,15 @@ export function EventPanel({ onOpenCreatorChat, selectedEventId, onSelectedEvent
                     else eventCardRefs.current.delete(Number(displayEvent.id))
                   }}
                   onClick={() => handleViewEvent(displayEvent.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      handleViewEvent(displayEvent.id)
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
                   className="p-5 cursor-pointer transition-all rounded-[24px] space-y-4"
                   style={{
                     border: `1px solid ${isSelected ? 'rgba(0,168,132,0.28)' : WA.borderLight}`,

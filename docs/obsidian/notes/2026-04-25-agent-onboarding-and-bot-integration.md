@@ -4,6 +4,10 @@ date: 2026-04-25
 project: wa-crm-v2
 type: standard
 source_path: AGENTS.md
+related:
+  - BOT_INTEGRATION.md
+  - docs/DOCS_INDEX.md
+  - docs/CORE_MODULES_OVERVIEW.md
 status: active
 tags:
   - wa-crm-v2

@@ -1,8 +1,45 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
 import WA from '../utils/waTheme'
+import { PanelError } from './common/PanelFeedback'
 
 const API_BASE = '/api'
+const SFT_DASHBOARD_CACHE_TTL_MS = 30_000
+const sftDashboardRequestCache = new Map()
+
+function getCachedSftRequest(cacheKey) {
+  const entry = sftDashboardRequestCache.get(cacheKey)
+  if (!entry) return null
+  if (entry.promise) return entry.promise
+  if (Date.now() - entry.ts <= SFT_DASHBOARD_CACHE_TTL_MS) return Promise.resolve(entry.data)
+  sftDashboardRequestCache.delete(cacheKey)
+  return null
+}
+
+function loadSftRequest(cacheKey, loader, { force = false } = {}) {
+  if (!force) {
+    const cached = getCachedSftRequest(cacheKey)
+    if (cached) return cached
+  }
+  const promise = Promise.resolve()
+    .then(loader)
+    .then((data) => {
+      sftDashboardRequestCache.set(cacheKey, { data, ts: Date.now(), promise: null })
+      return data
+    })
+    .catch((error) => {
+      sftDashboardRequestCache.delete(cacheKey)
+      throw error
+    })
+  sftDashboardRequestCache.set(cacheKey, { promise, ts: Date.now(), data: null })
+  return promise
+}
+
+function invalidateSftRequestCache(prefix = '') {
+  for (const key of sftDashboardRequestCache.keys()) {
+    if (!prefix || key.startsWith(prefix)) sftDashboardRequestCache.delete(key)
+  }
+}
 
 export function SFTDashboard() {
   const [stats, setStats] = useState(null)
@@ -16,69 +53,80 @@ export function SFTDashboard() {
   const [trendsData, setTrendsData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('records')
-
-  useEffect(() => {
-    loadData()
-  }, [])
+  const [panelError, setPanelError] = useState(null)
+  const [tabReloadKey, setTabReloadKey] = useState(0)
+  const tabRequestSeqRef = useRef(0)
 
   const loadPendingRecords = async () => {
-    const data = await fetchJsonOrThrow(`${API_BASE}/sft-memory/pending`)
+    const data = await loadSftRequest('review:pending', () => fetchJsonOrThrow(`${API_BASE}/sft-memory/pending`))
     setPendingRecords(data)
   }
 
-  useEffect(() => {
-    let cancelled = false
-    const loadTabData = async () => {
-      try {
-        if (activeTab === 'evaluation') {
-          const [abEval, genStats, genRecent, ragObs, ragSrc] = await Promise.all([
-            fetchJsonOrThrow(`${API_BASE}/ab-evaluation`),
-            fetchJsonOrThrow(`${API_BASE}/generation-log/stats?days=7`),
-            fetchJsonOrThrow(`${API_BASE}/generation-log/recent?limit=20`),
-            fetchJsonOrThrow(`${API_BASE}/generation-log/rag-observation?hours=24`),
-            fetchJsonOrThrow(`${API_BASE}/generation-log/rag-sources?hours=24&limit=20`),
-          ])
-          if (!cancelled) {
-            setAbData(abEval)
-            setGenerationStats(genStats)
-            setGenerationRecent(genRecent)
-            setRagObservation(ragObs)
-            setRagSources(ragSrc)
-          }
-          return
-        }
-        if (activeTab === 'trends') {
-          const data = await fetchJsonOrThrow(`${API_BASE}/sft-memory/trends`)
-          if (!cancelled) setTrendsData(data)
-          return
-        }
-        if (activeTab === 'review') {
-          const data = await fetchJsonOrThrow(`${API_BASE}/sft-memory/pending`)
-          if (!cancelled) setPendingRecords(data)
-        }
-      } catch (e) {
-        if (!cancelled) console.error(e)
-      }
-    }
-    loadTabData()
-    return () => { cancelled = true }
-  }, [activeTab])
-
-  const loadData = async () => {
+  const loadData = useCallback(async ({ force = false } = {}) => {
     setLoading(true)
+    setPanelError(null)
     try {
-      const [statsData, recordsData] = await Promise.all([
-        fetchJsonOrThrow(`${API_BASE}/sft-memory/stats`),
-        fetchJsonOrThrow(`${API_BASE}/sft-memory?limit=50`)
-      ])
+      const { statsData, recordsData } = await loadSftRequest('records:overview', async () => {
+        const [nextStats, nextRecords] = await Promise.all([
+          fetchJsonOrThrow(`${API_BASE}/sft-memory/stats`),
+          fetchJsonOrThrow(`${API_BASE}/sft-memory?limit=50`)
+        ])
+        return { statsData: nextStats, recordsData: nextRecords }
+      }, { force })
       setStats(statsData)
       setRecords(recordsData)
     } catch (e) {
       console.error('加载失败:', e)
+      setPanelError(e.message || 'SFT 数据加载失败')
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    loadData().finally(() => {
+      if (!mounted) return
+    })
+    return () => { mounted = false }
+  }, [loadData])
+
+  useEffect(() => {
+    const requestSeq = ++tabRequestSeqRef.current
+    const loadTabData = async () => {
+      try {
+        if (activeTab === 'evaluation') {
+          const bundle = await loadSftRequest('evaluation:summary:v1', () => (
+            fetchJsonOrThrow(`${API_BASE}/generation-log/evaluation-summary?days=7&hours=24&limit=20`)
+          ))
+          if (requestSeq === tabRequestSeqRef.current) {
+            setAbData(bundle.ab_evaluation)
+            setGenerationStats(bundle.generation_stats)
+            setGenerationRecent(bundle.generation_recent || [])
+            setRagObservation(bundle.rag_observation)
+            setRagSources(bundle.rag_sources)
+          }
+          return
+        }
+        if (activeTab === 'trends') {
+          const data = await loadSftRequest('trends:summary', () => fetchJsonOrThrow(`${API_BASE}/sft-memory/trends`))
+          if (requestSeq === tabRequestSeqRef.current) setTrendsData(data)
+          return
+        }
+        if (activeTab === 'review') {
+          const data = await loadSftRequest('review:pending', () => fetchJsonOrThrow(`${API_BASE}/sft-memory/pending`))
+          if (requestSeq === tabRequestSeqRef.current) setPendingRecords(data)
+        }
+      } catch (e) {
+        if (requestSeq === tabRequestSeqRef.current) {
+          console.error(e)
+          setPanelError(e.message || 'SFT 面板加载失败')
+        }
+      }
+    }
+    loadTabData()
+    return () => { tabRequestSeqRef.current += 1 }
+  }, [activeTab, tabReloadKey])
 
   const refreshLockRef = useRef(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -87,7 +135,8 @@ export function SFTDashboard() {
     refreshLockRef.current = true
     setRefreshing(true)
     try {
-      await loadData()
+      invalidateSftRequestCache()
+      await loadData({ force: true })
       if (activeTab === 'review') {
         await loadPendingRecords()
       }
@@ -98,7 +147,8 @@ export function SFTDashboard() {
   }
 
   const handleReviewed = async () => {
-    await loadData()
+    invalidateSftRequestCache()
+    await loadData({ force: true })
     await loadPendingRecords()
   }
 
@@ -154,6 +204,16 @@ export function SFTDashboard() {
           </button>
         )}
       </div>
+
+      <PanelError
+        message={panelError}
+        onRetry={() => {
+          setPanelError(null)
+          invalidateSftRequestCache()
+          if (activeTab === 'records') loadData({ force: true })
+          else setTabReloadKey((value) => value + 1)
+        }}
+      />
 
       {activeTab === 'evaluation' ? (
         <ABEvaluationPanel

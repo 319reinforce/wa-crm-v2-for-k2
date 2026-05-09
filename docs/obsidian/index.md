@@ -1,6 +1,6 @@
 # WA CRM v2 Memory Index
 
-Date: 2026-04-28
+Date: 2026-05-09
 Status: Active
 
 ## Active Standards
@@ -15,6 +15,7 @@ Status: Active
 - [[notes/2026-04-27-deep-doc-cleanup|Deep Doc Cleanup]]
 - [[notes/2026-04-27-sft-docs-and-report-cleanup|SFT Docs And Report Cleanup]]
 - [[notes/2026-04-27-profile-skill-memory-direction|Profile Skill Memory Direction]]
+- [[notes/2026-05-08-document-sync-refresh|Document Sync Refresh]]
 
 ## Implementation Baselines
 
@@ -44,7 +45,9 @@ Status: Active
 - [[notes/2026-05-07-template-system-design|Template System Design]]
 - [[notes/2026-05-07-may-template-rollout-handoff|May Template Rollout Handoff]]
 - [[notes/2026-05-07-reply-deck-image-template-plan|Reply Deck Image Template Plan]]
+- [[notes/2026-05-08-tech-debt-remediation-kickoff|Tech Debt Remediation Kickoff]]
 - [[notes/2026-04-27-recent-branch-doc-mapping|Recent Branch Doc Mapping]]
+- [[notes/2026-05-08-stash-cleanup-audit|Stash Cleanup Audit]]
 
 ## Historical Backfills
 
@@ -54,6 +57,11 @@ Status: Active
 - [[notes/2026-04-27-pre-20260420-docs-archive|Pre-20260420 Docs Archive]]
 
 ## Index Maintenance
+
+## 2026-05-09 Update
+
+- Tech debt remediation is implemented through Phase 5.
+- SSE hardening note now covers Phase 5 client caps, scoped metadata, structured logs, and reconnect cleanup verification.
 
 When adding a memory note:
 

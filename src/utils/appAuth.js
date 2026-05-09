@@ -6,6 +6,53 @@ const SCOPE_SESSION_ID_KEY = 'app_auth_scope_session_id'
 const SCOPE_LOCKED_KEY = 'app_auth_scope_locked'
 const ROLE_KEY = 'app_auth_role'
 const USER_ID_KEY = 'app_auth_user_id'
+const AUTH_CHANGE_EVENT = 'app-auth-change'
+const APP_AUTH_STORAGE_KEYS = [
+  ...TOKEN_KEYS,
+  USERNAME_KEY,
+  SCOPE_OWNER_KEY,
+  SCOPE_SESSION_ID_KEY,
+  SCOPE_LOCKED_KEY,
+  ROLE_KEY,
+  USER_ID_KEY,
+]
+
+function canUseWindow() {
+  return typeof window !== 'undefined'
+}
+
+function notifyAppAuthChanged() {
+  if (!canUseWindow()) return
+  try {
+    window.dispatchEvent(new CustomEvent(AUTH_CHANGE_EVENT, { detail: readAppAuthSnapshot() }))
+  } catch (_) {}
+}
+
+export function readAppAuthSnapshot() {
+  return {
+    token: getAppAuthToken(),
+    username: getAppAuthUsername(),
+    role: getAppAuthRole(),
+    userId: getAppAuthUserId(),
+    scopeOwner: getAppAuthScopeOwner(),
+    scopeSessionId: getAppAuthScopeSessionId(),
+    ownerLocked: isAppAuthOwnerLocked(),
+  }
+}
+
+export function subscribeAppAuthChanges(callback) {
+  if (!canUseWindow() || typeof callback !== 'function') return () => {}
+  const handler = () => callback(readAppAuthSnapshot())
+  const onStorage = (event) => {
+    if (!event?.key || APP_AUTH_STORAGE_KEYS.includes(event.key)) handler()
+  }
+  window.addEventListener(AUTH_CHANGE_EVENT, handler)
+  window.addEventListener('storage', onStorage)
+  return () => {
+    window.removeEventListener(AUTH_CHANGE_EVENT, handler)
+    window.removeEventListener('storage', onStorage)
+  }
+}
 
 export function getAppAuthToken() {
   try {
@@ -24,9 +71,11 @@ export function setAppAuthToken(token) {
   try {
     if (!normalized) {
       TOKEN_KEYS.forEach((key) => localStorage.removeItem(key))
+      notifyAppAuthChanged()
       return ''
     }
     localStorage.setItem(PRIMARY_TOKEN_KEY, normalized)
+    notifyAppAuthChanged()
     return normalized
   } catch (_) {
     return normalized
@@ -50,9 +99,11 @@ export function setAppAuthUsername(username) {
   try {
     if (!normalized) {
       localStorage.removeItem(USERNAME_KEY)
+      notifyAppAuthChanged()
       return ''
     }
     localStorage.setItem(USERNAME_KEY, normalized)
+    notifyAppAuthChanged()
     return normalized
   } catch (_) {
     return normalized
@@ -82,6 +133,7 @@ export function setAppAuthRole(role, userId) {
     else localStorage.removeItem(ROLE_KEY)
     if (userId) localStorage.setItem(USER_ID_KEY, String(userId))
     else localStorage.removeItem(USER_ID_KEY)
+    notifyAppAuthChanged()
   } catch (_) {}
 }
 
@@ -89,6 +141,7 @@ export function clearAppAuthRole() {
   try {
     localStorage.removeItem(ROLE_KEY)
     localStorage.removeItem(USER_ID_KEY)
+    notifyAppAuthChanged()
   } catch (_) {}
 }
 
@@ -158,6 +211,7 @@ export function setAppAuthScope(scope = {}) {
 
     if (locked) localStorage.setItem(SCOPE_LOCKED_KEY, '1')
     else localStorage.removeItem(SCOPE_LOCKED_KEY)
+    notifyAppAuthChanged()
   } catch (_) {}
   return { owner, sessionId, locked }
 }
@@ -167,6 +221,7 @@ export function clearAppAuthScope() {
     localStorage.removeItem(SCOPE_OWNER_KEY)
     localStorage.removeItem(SCOPE_SESSION_ID_KEY)
     localStorage.removeItem(SCOPE_LOCKED_KEY)
+    notifyAppAuthChanged()
   } catch (_) {}
 }
 
@@ -181,9 +236,22 @@ export async function logoutAppAuth() {
 
 export function getAppAuthHeaders(extraHeaders = {}) {
   const token = getAppAuthToken()
+  const requestId = getOrCreateRequestId(extraHeaders)
+  const headers = requestId ? { ...extraHeaders, 'X-Request-Id': requestId } : { ...extraHeaders }
   return token
-    ? { ...extraHeaders, Authorization: `Bearer ${token}` }
-    : { ...extraHeaders }
+    ? { ...headers, Authorization: `Bearer ${token}` }
+    : headers
+}
+
+function getOrCreateRequestId(headers = {}) {
+  const existing = headers['X-Request-Id'] || headers['x-request-id']
+  if (existing) return existing
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID()
+    }
+  } catch (_) {}
+  return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function stripLegacyTokenFromUrl() {

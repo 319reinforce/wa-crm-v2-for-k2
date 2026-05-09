@@ -11,6 +11,12 @@ const db = require('../db');
 
 const jsonBody = require('./middleware/jsonBody');
 const timeout = require('./middleware/timeout');
+const { requestIdMiddleware } = require('./middleware/requestId');
+const { createOperationalRateLimiters } = require('./middleware/rateLimit');
+const {
+    logServerEvent,
+    requestErrorLogMiddleware,
+} = require('./middleware/structuredLog');
 const {
     requireAppAuth,
     getPrimaryLoginTokenEntry,
@@ -69,6 +75,11 @@ const {
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const EVENT_BROADCAST_TOKEN = process.env.EVENT_BROADCAST_TOKEN;
+const rateLimiters = createOperationalRateLimiters();
+
+app.use(requestIdMiddleware);
+app.use(requestErrorLogMiddleware);
+app.use(rateLimiters.apiWrite);
 
 function getConfiguredLogin() {
     return {
@@ -83,6 +94,20 @@ function getConfiguredLogin() {
 // GET /api/events/subscribe — 前端 SSE 订阅
 // EventSource 通过同源 httpOnly cookie 复用认证态
 app.get('/api/events/subscribe', requireAppAuth, (req, res) => {
+    if (!sseBus.canAcceptClient()) {
+        const stats = sseBus.summarizeClients();
+        logServerEvent('warn', 'sse_client_limit_reached', {
+            clients: stats.total,
+            maxClients: stats.max,
+        }, req);
+        return res.status(429).json({
+            ok: false,
+            error: 'Too many SSE clients',
+            clients: stats.total,
+            max_clients: stats.max,
+        });
+    }
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     // HTTP/2 禁止 connection-specific 头（RFC 9113 §8.2.2），否则走 HTTP/2 反代会触发
@@ -95,11 +120,25 @@ app.get('/api/events/subscribe', requireAppAuth, (req, res) => {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
-    sseBus.addClient(res);
-    console.log(`[SSE] Client connected (total: ${sseBus.count()})`);
+    const client = sseBus.addClient(res, {
+        requestId: req.id,
+        ownerScope: req.auth?.owner || null,
+        authRole: req.auth?.role || null,
+        userId: req.auth?.user_id || null,
+    });
+    if (!client.accepted) {
+        return res.end();
+    }
+    logServerEvent('info', 'sse_client_connected', {
+        clients: client.count,
+        maxClients: client.max,
+    }, req);
 
     req.on('close', () => {
-        console.log(`[SSE] Client disconnected (total: ${sseBus.count()})`);
+        logServerEvent('info', 'sse_client_disconnected', {
+            clients: sseBus.count(),
+            maxClients: sseBus.summarizeClients().max,
+        }, req);
     });
 });
 
@@ -116,7 +155,10 @@ app.post('/api/events/broadcast', jsonBody, (req, res) => {
     const rawEvent = (req.body || {}).event;
     const event = ALLOWED_EVENTS.includes(rawEvent) ? rawEvent : 'creators-updated';
     const remaining = sseBus.broadcast(event, { refreshed: true });
-    console.log(`[SSE] Broadcast "${event}" to ${remaining} clients`);
+    logServerEvent('info', 'sse_broadcast_requested', {
+        event,
+        clients: remaining,
+    }, req);
     res.json({ ok: true, clients: remaining });
 });
 
@@ -267,7 +309,7 @@ app.get('/api/wa/agents/health', async (req, res) => {
 
 // POST /api/auth/login — 纯 DB 鉴权(已移除 env 密码 fallback)
 // 成功签发 per-user session token(64 hex 字符),写入 user_sessions 表并 set cookie
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', rateLimiters.authLogin, async (req, res) => {
     const username = String(req.body?.username || '').trim();
     const password = String(req.body?.password || '');
     if (!username || !password) {
@@ -310,7 +352,9 @@ app.post('/api/auth/login', async (req, res) => {
             token,
         });
     } catch (err) {
-        console.error('[auth/login] error:', err);
+        logServerEvent('error', 'auth_login_error', {
+            error: err?.message || String(err),
+        }, req);
         return res.status(500).json({ error: 'Login failed' });
     }
 });
@@ -353,7 +397,7 @@ app.post('/api/auth/logout', async (req, res) => {
 app.use('/api/creators/:id/messages', requireAppAuth, messagesRouter);
 app.use('/api/creators', requireAppAuth, creatorsRouter);
 app.use('/api', requireAppAuth, statsRouter);
-app.use('/api', requireAppAuth, aiRouter);
+app.use('/api', requireAppAuth, rateLimiters.ai, aiRouter);
 app.use('/api', requireAppAuth, sftRouter);
 app.use('/api', requireAppAuth, policyRouter);
 app.use('/api', requireAppAuth, auditRouter);
@@ -365,7 +409,7 @@ app.use('/api', requireAppAuth, strategyRouter);
 app.use('/api', requireAppAuth, customTopicTemplatesRouter);
 app.use('/api', requireAppAuth, lifecycleRouter);
 app.use('/api/wa/sessions', requireAppAuth, waSessionsRouter);
-app.use('/api/wa', requireAppAuth, waRouter);
+app.use('/api/wa', requireAppAuth, rateLimiters.mediaUpload, waRouter);
 
 // WA metrics endpoint (no auth — for internal Prometheus scraping)
 app.use('/metrics/wa', (req, res, next) => {
@@ -384,7 +428,6 @@ app.use('/api/creator-import-batches', requireAppAuth, creatorImportBatchesRoute
 app.use('/api/admin', aiProvidersRouter);
 // v1 看板后端（public/v1/ 的静态 shell 对应的只读 API）
 app.use('/v1/api', requireAppAuth, v1BoardRouter);
-app.use('/api/admin', aiProvidersRouter);
 
 // WA Worker 路由
 // 聚合所有 agent 进程的 worker 状态,Registry 启用时优先读内存态,

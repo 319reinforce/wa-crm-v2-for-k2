@@ -19,7 +19,25 @@ const creatorCache = require('../services/creatorCache');
 // JOIN 条件限定 status='active'：已被 mediaCleanupService 或人工 soft-delete
 // 的资产不再产出 media_url，避免前端出现 404 / 坏图标。
 const WA_MESSAGES_SELECT = `
-    wm.*,
+    wm.id,
+    wm.creator_id,
+    wm.role,
+    wm.operator,
+    wm.text,
+    wm.timestamp,
+    wm.message_hash,
+    wm.wa_message_id,
+    wm.created_at,
+    wm.updated_at,
+    wm.media_asset_id,
+    wm.media_type,
+    wm.media_mime,
+    wm.media_size,
+    wm.media_width,
+    wm.media_height,
+    wm.media_caption,
+    wm.media_thumbnail,
+    wm.media_download_status,
     COALESCE(
       NULLIF(ma.file_url, ''),
       CASE WHEN ma.id IS NOT NULL THEN CONCAT('/api/wa/media-assets/', ma.id, '/file') ELSE NULL END
@@ -264,6 +282,7 @@ router.post('/', async (req, res) => {
 
 module.exports = router;
 module.exports._private = {
+    WA_MESSAGES_SELECT,
     normalizeMessagesForTimeline,
     buildMessageKey,
     isLegacySecondTimestamp,

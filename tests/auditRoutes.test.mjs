@@ -49,6 +49,7 @@ async function withDbStub(stubDb, fn) {
 const getGenerationLogDetail = getRouteHandler(auditRouter, 'get', '/generation-log/:id')
 const getRetrievalSnapshotDetail = getRouteHandler(auditRouter, 'get', '/retrieval-snapshot/:id')
 const getAuditLog = getRouteHandler(auditRouter, 'get', '/audit-log')
+const getEvaluationSummary = getRouteHandler(auditRouter, 'get', '/generation-log/evaluation-summary')
 
 test('fetchGenerationRows uses a parameterized LIMIT when one is requested', async () => {
   let capturedSql = ''
@@ -94,6 +95,82 @@ test('fetchGenerationRows keeps the unlimited query path free of LIMIT interpola
 
   assert.doesNotMatch(capturedSql, /\bLIMIT\b/)
   assert.deepEqual(capturedArgs, [12])
+})
+
+test('generation-log evaluation summary aggregates SFT dashboard requests behind one route', async () => {
+  const res = createRes()
+  const preparedSql = []
+  const generationRows = [{
+    id: 31,
+    client_id: '15550009',
+    retrieval_snapshot_id: 9,
+    provider: 'openai',
+    model: 'gpt-4o',
+    route: 'generate-candidates',
+    ab_bucket: 'openai',
+    scene: 'trial_intro',
+    operator: 'Beau',
+    message_count: 3,
+    prompt_version: 'v2',
+    latency_ms: 900,
+    status: 'success',
+    error_message: null,
+    created_at: '2026-05-08 10:00:00',
+    grounding_json: '{"rag":{"enabled":true,"hit_count":1,"hits":[{"source_id":"sop-1","source_type":"policy"}]}}',
+  }]
+  const stubDb = {
+    prepare(sql) {
+      preparedSql.push(sql)
+      return {
+        async get(...args) {
+          if (/FROM sft_memory sm/.test(sql)) {
+            assert.deepEqual(args, [])
+            return { total: 3, opt1_count: 1, opt2_count: 1, custom_count: 1 }
+          }
+          if (/FROM generation_log gl/.test(sql)) {
+            return { total: 2, success_count: 2, failed_count: 0, avg_latency_ms: 900 }
+          }
+          if (/FROM sft_feedback sf/.test(sql)) {
+            assert.deepEqual(args, [24])
+            return { count: 1 }
+          }
+          return {}
+        },
+        async all(...args) {
+          if (/JSON_EXTRACT\(context_json, '\$\.scene'\)/.test(sql)) {
+            assert.deepEqual(args, [])
+            return [{ scene: 'trial_intro', total: 3, custom_count: 1 }]
+          }
+          if (/c\.wa_owner as owner/.test(sql)) return [{ owner: 'Beau', total: 3, custom_count: 1 }]
+          if (/DATE\(sm\.created_at\) as date/.test(sql)) return [{ date: '2026-05-08', total: 3, custom_count: 1 }]
+          if (/SELECT gl\.provider, COUNT/.test(sql)) return [{ provider: 'openai', count: 2 }]
+          if (/SELECT gl\.route, COUNT/.test(sql)) return [{ route: 'generate-candidates', count: 2 }]
+          if (/DATE\(gl\.created_at\) AS date/.test(sql)) return [{ date: '2026-05-08', total: 2, success_count: 2, failed_count: 0 }]
+          if (/FROM generation_log gl/.test(sql)) {
+            assert.ok(args.includes(20) || args.includes(24))
+            return generationRows
+          }
+          if (/FROM sft_memory sm/.test(sql)) {
+            assert.deepEqual(args, [24])
+            return [{ id: 41, human_selected: 'custom', status: 'approved', context_json: '{}', created_at: '2026-05-08 10:05:00' }]
+          }
+          return []
+        },
+      }
+    },
+  }
+
+  await withDbStub(stubDb, async () => {
+    await getEvaluationSummary({ query: {}, auth: { role: 'admin' } }, res)
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.ab_evaluation.total_records, 3)
+  assert.equal(res.body.generation_stats.total, 2)
+  assert.equal(res.body.generation_recent[0].provider, 'openai')
+  assert.equal(res.body.rag_observation.generation.rag_hit_count, 1)
+  assert.equal(res.body.rag_sources.recent[0].rag_hit_count, 1)
+  assert.ok(preparedSql.some((sql) => /generation-log\/evaluation-summary/.test(sql)) === false)
 })
 
 test('audit-log response redacts record_id and nested sensitive payload fields', async () => {

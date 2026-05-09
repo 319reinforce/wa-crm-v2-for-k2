@@ -4,6 +4,8 @@ date: 2026-04-27
 project: wa-crm-v2
 type: cleanup
 source_path: docs/RUNTIME_ARTIFACT_CLEANUP_PLAN_20260427.md
+related:
+  - docs/archive/reports/REPORTS_INDEX_20260427.md
 status: active
 tags:
   - wa-crm-v2

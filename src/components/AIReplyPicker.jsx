@@ -31,6 +31,7 @@ export default function AIReplyPicker({
     templateError = null,
     loading = false,
     generating = false,
+    aiProgress = null,
     sending = false,
     error = null,
     compactMobile = false,
@@ -44,6 +45,8 @@ export default function AIReplyPicker({
     const templateSlots = templateDeck?.slots || {};
     const alternatives = Array.isArray(templateDeck?.alternatives) ? templateDeck.alternatives : [];
     const aiReady = !!(aiDeck?.opt1 || aiDeck?.opt2);
+    const aiProgressText = aiProgress?.message || (aiBusy ? 'AI 正在生成候选回复...' : null);
+    const aiProviderMeta = [aiProgress?.provider, aiProgress?.model].filter(Boolean).join(' · ');
     const resizableDeck = Number.isFinite(Number(deckHeight)) && !compactMobile;
 
     const shellStyle = {
@@ -140,6 +143,7 @@ export default function AIReplyPicker({
                     text={aiDeck?.opt1 || '点击 AI 生成'}
                     accent="#2563eb"
                     loading={aiBusy}
+                    loadingText={aiProgressText}
                     sending={sendBusy}
                     error={error}
                     ready={!!aiDeck?.opt1}
@@ -155,6 +159,7 @@ export default function AIReplyPicker({
                     text={aiDeck?.opt2 || '点击 AI 生成'}
                     accent="#0f766e"
                     loading={aiBusy}
+                    loadingText={aiProgressText}
                     sending={sendBusy}
                     error={error}
                     ready={!!aiDeck?.opt2}
@@ -218,6 +223,11 @@ export default function AIReplyPicker({
                                     AI 未生成
                                 </span>
                             )}
+                            {aiProviderMeta && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: 'rgba(15,118,110,0.10)', color: '#0f766e' }}>
+                                    {aiProviderMeta}
+                                </span>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -253,7 +263,7 @@ export default function AIReplyPicker({
     );
 }
 
-function CandidateCard({ badge, label, text, accent, ready, loading, sending, error, onGenerate, onEdit, onSend, compactMobile, deckHeight = null }) {
+function CandidateCard({ badge, label, text, accent, ready, loading, loadingText, sending, error, onGenerate, onEdit, onSend, compactMobile, deckHeight = null }) {
     const waiting = !ready && !loading && !error;
     const showError = !ready && !!error && !loading;
     const canInteract = ready && !sending;
@@ -296,7 +306,7 @@ function CandidateCard({ badge, label, text, accent, ready, loading, sending, er
                 }}
             >
                 {loading ? (
-                    <span style={{ color: WA.textMuted }}>AI 正在生成候选回复...</span>
+                    <span style={{ color: WA.textMuted }}>{loadingText || 'AI 正在生成候选回复...'}</span>
                 ) : showError ? (
                     <span style={{ color: '#b91c1c' }}>生成失败：{error}</span>
                 ) : text}

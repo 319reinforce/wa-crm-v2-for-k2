@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { requireAdminOnly } = require('../../server/middleware/appAuth');
+const { requireAdminOnly, requireHumanAdmin } = require('../../server/middleware/appAuth');
 
 function createRes() {
   const res = {
@@ -87,4 +87,53 @@ test('未知 role：403', () => {
   requireAdminOnly(req, res, next);
   assert.equal(next.callCount(), 0);
   assert.equal(res.statusCode, 403);
+});
+
+test('requireHumanAdmin allows DB-backed admin sessions', () => {
+  const req = { auth: { role: 'admin', source: 'db' } };
+  const res = createRes();
+  const next = mkNext();
+  requireHumanAdmin(req, res, next);
+  assert.equal(next.callCount(), 1);
+  assert.equal(res.statusCode, 200);
+});
+
+test('requireHumanAdmin allows local bypass only outside production', () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousBypass = process.env.LOCAL_API_AUTH_BYPASS;
+  process.env.NODE_ENV = 'development';
+  process.env.LOCAL_API_AUTH_BYPASS = 'true';
+  try {
+    const req = { auth: { role: 'admin', source: 'env', token_key: 'LOCAL_BYPASS' } };
+    const res = createRes();
+    const next = mkNext();
+    requireHumanAdmin(req, res, next);
+    assert.equal(next.callCount(), 1);
+    assert.equal(res.statusCode, 200);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousBypass === undefined) delete process.env.LOCAL_API_AUTH_BYPASS;
+    else process.env.LOCAL_API_AUTH_BYPASS = previousBypass;
+  }
+});
+
+test('requireHumanAdmin rejects env admin tokens in production', () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousBypass = process.env.LOCAL_API_AUTH_BYPASS;
+  process.env.NODE_ENV = 'production';
+  process.env.LOCAL_API_AUTH_BYPASS = 'true';
+  try {
+    const req = { auth: { role: 'admin', source: 'env', token_key: 'LOCAL_BYPASS' } };
+    const res = createRes();
+    const next = mkNext();
+    requireHumanAdmin(req, res, next);
+    assert.equal(next.callCount(), 0);
+    assert.equal(res.statusCode, 403);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousBypass === undefined) delete process.env.LOCAL_API_AUTH_BYPASS;
+    else process.env.LOCAL_API_AUTH_BYPASS = previousBypass;
+  }
 });

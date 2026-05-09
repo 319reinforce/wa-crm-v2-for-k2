@@ -5,6 +5,8 @@ import {
   getAppAuthToken,
   getAppAuthUsername,
   logoutAppAuth,
+  readAppAuthSnapshot,
+  subscribeAppAuthChanges,
   setAppAuthScope,
   setAppAuthToken,
   setAppAuthUsername,
@@ -111,6 +113,16 @@ export function AppAuthGate({ children }) {
     bootstrap()
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => subscribeAppAuthChanges((snapshot) => {
+    if (!snapshot?.token && status === 'ready') {
+      setStatus('needs-auth')
+      setError('会话已在其他标签页退出,请重新登录。')
+      return
+    }
+    const nextUsername = readAppAuthSnapshot().username
+    if (nextUsername && nextUsername !== username) setUsername(nextUsername)
+  }), [status, username])
 
   async function handlePasswordSubmit(event) {
     event.preventDefault()

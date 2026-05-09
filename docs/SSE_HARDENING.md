@@ -1,7 +1,8 @@
 # SSE 链路加固说明
 
 > 适用范围：`GET /api/events/subscribe`（SSE 推送） + 前端 `src/App.jsx` 中的 `EventSource` 订阅
-> 最后更新：2026-04-22
+> 最后更新：2026-05-09
+> 当前状态：Phase 5 operational hardening 已落地
 
 ---
 
@@ -51,6 +52,24 @@
 - 心跳由后端 `sseBus.ping()`（25s 间隔）负责维持长连接不被中间盒关闭
 
 位置：`src/App.jsx` 的 SSE `useEffect`
+
+### 5. Phase 5：SSE client cap、作用域元数据、结构化日志
+
+- `server/events/sseBus.js` 现在使用进程内 client registry 记录每个连接的 metadata：
+  - `requestId`
+  - owner scope
+  - auth role
+  - user id
+- `SSE_MAX_CLIENTS` 控制单进程最大 SSE client 数；未配置时默认 `100`。
+- 新连接会先收到 `event: sse-meta`，便于前端和排障时关联 request ID / scope。
+- connect、disconnect、broadcast request、client write failure 使用 request-scoped structured JSON logs。
+- `broadcast()` 会在对象 payload 上附加 `_meta`，记录事件名、recipient 数和 emitted 时间。
+- 本地 soak 已验证 75 次重复 connect / broadcast / close 后 client count 回到 0。
+
+位置：
+
+- `server/index.cjs` → `/api/events/subscribe`、`/api/events/broadcast`
+- `server/events/sseBus.js`
 
 ---
 
@@ -148,6 +167,8 @@ handle /api/events/* {
 | 心跳调度 | `server/index.cjs` → `setInterval(() => sseBus.ping(), 25000)` |
 | compression filter | `server/index.cjs` → `app.use(_compression({ filter: ... }))` |
 | 前端订阅 + 重连退避 | `src/App.jsx` → `// SSE 实时订阅` 注释下的 `useEffect` |
+| SSE client cap | `SSE_MAX_CLIENTS` env + `server/events/sseBus.js` |
+| SSE structured logs | `server/middleware/structuredLog.js` + `server/index.cjs` |
 
 ---
 
@@ -155,6 +176,7 @@ handle /api/events/* {
 
 - `Last-Event-ID` 断点续传：需要 `sseBus.broadcast` 为每条事件发 `id:` 行 + 后端维护 ring buffer，前端重连时通过 `EventSource` 自动带回最后一个 id；当前广播体量不大，故暂不做
 - 多进程水平扩展：`sseBus` 目前是进程内 `Set`，多个 Node 实例之间不共享订阅。若要上横向扩容，可接 Redis pub/sub 作为总线，或走 SSE gateway（如 Mercure）
+- 分布式 rate limit / SSE quota：当前 Phase 5 限流和 SSE client cap 均为单进程内存实现；多 API worker 时需要 Redis 或 gateway 层统一配额。
 
 ## Obsidian Sync
 

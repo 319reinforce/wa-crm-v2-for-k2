@@ -4,6 +4,8 @@ date: 2026-04-27
 project: wa-crm-v2
 type: decision
 source_path: docs/WA_SESSIONS_DESIGN.md
+related:
+  - docs/BAILEYS_ROLLOUT.md
 status: active
 tags:
   - wa-crm-v2

@@ -161,3 +161,9 @@ Expected result:
 - New active rules point to Obsidian.
 - Legacy external-memory terms are absent from project documentation.
 - New or updated normative documents include an Obsidian sync block when applicable.
+
+## Obsidian Sync
+
+- Status: synced
+- Note: `docs/obsidian/notes/2026-04-25-obsidian-memory-standard.md`
+- Index: `docs/obsidian/index.md`

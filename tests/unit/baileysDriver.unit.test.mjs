@@ -6,7 +6,84 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import Module from 'node:module';
+import { EventEmitter } from 'node:events';
 const require = createRequire(import.meta.url);
+
+const fakeProto = {
+    Message: {
+        encode: (message) => ({ finish: () => Buffer.from(JSON.stringify(message || {})) }),
+        decode: (bytes) => JSON.parse(Buffer.from(bytes).toString()),
+    },
+};
+
+function makeFakeSock() {
+    return {
+        ev: new EventEmitter(),
+        user: { id: '85255550001@s.whatsapp.net' },
+        end: () => {},
+        sendMessage: async () => ({ key: { id: 'mock-id' } }),
+        sendPresenceUpdate: async () => {},
+        onWhatsApp: async (jid) => [{ jid, exists: true }],
+        groupFetchAllParticipating: async () => ({}),
+        updateMediaMessage: async () => {},
+        fetchMessageHistory: async () => 'mock-history-session',
+    };
+}
+
+function buildFakeBaileys() {
+    return {
+        default: () => makeFakeSock(),
+        useMultiFileAuthState: async () => ({
+            state: {},
+            saveCreds: async () => {},
+        }),
+        Browsers: {
+            ubuntu: (app) => ['Ubuntu', app || 'Chrome', '22.04.4'],
+            macOS: (app) => ['Mac OS', app || 'Desktop', '14.4.1'],
+        },
+        DisconnectReason: {
+            loggedOut: 401,
+            connectionReplaced: 428,
+            restartRequired: 515,
+        },
+        fetchLatestBaileysVersion: async () => ({ version: [2, 3000, 1] }),
+        downloadMediaMessage: async () => Buffer.alloc(0),
+        proto: fakeProto,
+    };
+}
+
+function fakePino() {
+    const logger = {
+        level: 'silent',
+        trace: () => {},
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        fatal: () => {},
+        child: () => logger,
+    };
+    return logger;
+}
+fakePino.default = fakePino;
+
+const origLoad = Module._load;
+Module._load = function(id, parent, isMain) {
+    if (id === '@whiskeysockets/baileys') return buildFakeBaileys();
+    if (id === 'pino') return fakePino;
+    return origLoad.call(this, id, parent, isMain);
+};
+
+require.cache[require.resolve('../../db')] = {
+    id: require.resolve('../../db'),
+    filename: require.resolve('../../db'),
+    loaded: true,
+    exports: {
+        getDb: () => ({ prepare: () => ({ get: async () => undefined, all: async () => [] }) }),
+        closeDb: () => {},
+    },
+};
 
 const BaileysDriver = require('../../server/services/wa/driver/baileysDriver.js');
 

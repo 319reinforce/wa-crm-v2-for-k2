@@ -114,3 +114,61 @@ test('projectLifecycleForList omits missing optional fields without inserting un
   assert.equal('flags' in projected, false)
   assert.equal('has_conflicts' in projected, false)
 })
+
+test('projectCreatorDetailForResponse strips internal message proto fields', () => {
+  const projected = creatorsRouter._private.projectCreatorDetailForResponse({
+    id: 1,
+    primary_name: 'Alice',
+    wa_phone: '+15550001',
+    messages: [{
+      id: 10,
+      role: 'user',
+      text: 'hello',
+      timestamp: 1710000000000,
+      wa_message_id: 'abc',
+      media_asset_id: 3,
+      proto_bytes: Buffer.from('private'),
+      proto_driver: 'baileys',
+      internal_debug: 'nope',
+    }],
+  })
+
+  assert.deepEqual(projected.messages, [{
+    id: 10,
+    role: 'user',
+    text: 'hello',
+    timestamp: 1710000000000,
+    wa_message_id: 'abc',
+    media_asset_id: 3,
+  }])
+  assert.equal(projected.primary_name, 'Alice')
+  assert.equal(projected.wa_phone, undefined)
+  assert.equal(projected.wa_phone_masked, '***0001')
+})
+
+test('creator detail phone exposure requires explicit field and privileged or owner-scoped request', () => {
+  const fields = new Set(['wa_phone'])
+  const detail = { wa_owner: 'Beau' }
+
+  assert.equal(creatorsRouter._private.shouldExposeCreatorDetailPhone({ auth: { role: 'admin' } }, detail, fields), true)
+  assert.equal(creatorsRouter._private.shouldExposeCreatorDetailPhone({ auth: { role: 'service' } }, detail, fields), true)
+  assert.equal(creatorsRouter._private.shouldExposeCreatorDetailPhone({
+    auth: { role: 'owner', owner: 'Beau', owner_locked: true },
+  }, detail, fields), true)
+  assert.equal(creatorsRouter._private.shouldExposeCreatorDetailPhone({
+    auth: { role: 'owner', owner: 'Yiyun', owner_locked: true },
+  }, detail, fields), false)
+  assert.equal(creatorsRouter._private.shouldExposeCreatorDetailPhone({ auth: { role: 'admin' } }, detail, new Set()), false)
+})
+
+test('projectCreatorDetailForResponse can expose raw phone for approved app flows', () => {
+  const projected = creatorsRouter._private.projectCreatorDetailForResponse({
+    id: 1,
+    primary_name: 'Alice',
+    wa_phone: '+15550001',
+    messages: [],
+  }, { exposeWaPhone: true })
+
+  assert.equal(projected.wa_phone, '+15550001')
+  assert.equal(projected.wa_phone_masked, '***0001')
+})

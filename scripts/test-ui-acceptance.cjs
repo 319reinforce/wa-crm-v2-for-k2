@@ -81,6 +81,58 @@ function summarizeResult(result) {
   };
 }
 
+async function runCrossTabAuthCheck(browser, targetUrl) {
+  const context = await browser.newContext({ viewport: { width: 1024, height: 768 } });
+  const pageA = await context.newPage();
+  const pageB = await context.newPage();
+  try {
+    await pageA.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await pageA.waitForSelector('[data-locked-owner]', { timeout: 15000 });
+    await pageA.evaluate(() => {
+      localStorage.setItem('api_auth_token', 'phase2-cross-tab-token');
+      localStorage.setItem('app_auth_role', 'owner');
+      localStorage.setItem('app_auth_scope_owner', 'Beau');
+      localStorage.setItem('app_auth_scope_locked', '1');
+      window.dispatchEvent(new CustomEvent('app-auth-change'));
+    });
+    await pageA.waitForFunction(() => (
+      document.querySelector('[data-locked-owner]')?.getAttribute('data-locked-owner') === 'Beau'
+    ), { timeout: 10000 });
+
+    await pageB.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await pageB.waitForSelector('[data-locked-owner]', { timeout: 15000 });
+    await pageB.waitForTimeout(500);
+    await pageB.evaluate(() => {
+      localStorage.setItem('app_auth_scope_owner', 'Yiyun');
+      localStorage.setItem('app_auth_scope_locked', '1');
+      localStorage.setItem('app_auth_role', 'owner');
+    });
+    await pageA.waitForFunction(() => (
+      document.querySelector('[data-locked-owner]')?.getAttribute('data-locked-owner') === 'Yiyun'
+    ), { timeout: 10000 });
+    return true;
+  } finally {
+    await context.close();
+  }
+}
+
+async function runSftRapidTabCheck(page) {
+  const sftButton = page.locator('button:has-text("SFT")').first();
+  if (!(await sftButton.isVisible().catch(() => false))) return false;
+  await sftButton.click();
+  await page.waitForTimeout(500);
+  const tabNames = ['A/B 评估', '趋势', '审核', '语料记录', 'A/B 评估'];
+  for (const name of tabNames) {
+    const tab = page.locator(`button:has-text("${name}")`).first();
+    if (await tab.isVisible().catch(() => false)) {
+      await tab.click();
+      await page.waitForTimeout(120);
+    }
+  }
+  await page.waitForTimeout(1200);
+  return await page.locator('button:has-text("A/B 评估")').first().isVisible().catch(() => false);
+}
+
 async function runBrowserChecks(url) {
   ensureReportDir();
   const playwright = resolvePlaywright();
@@ -140,6 +192,9 @@ async function runBrowserChecks(url) {
   const groupScreenshot = path.join(REPORT_DIR, 'ui-groups.png');
   await page.screenshot({ path: groupScreenshot, fullPage: true });
 
+  const sftRapidTabStable = await runSftRapidTabCheck(page);
+  const crossTabAuthSynced = await runCrossTabAuthCheck(browser, targetUrl);
+
   await browser.close();
 
   const checks = {
@@ -149,6 +204,8 @@ async function runBrowserChecks(url) {
     groupButtonVisible,
     groupViewVisible,
     groupEmptyOrSelectedVisible,
+    sftRapidTabStable,
+    crossTabAuthSynced,
     consoleErrorCount: consoleErrors.length,
     pageErrorCount: pageErrors.length,
   };
@@ -176,6 +233,8 @@ async function runBrowserChecks(url) {
   if (!groupButtonVisible) failures.push('group tab button not visible');
   if (!groupViewVisible) failures.push('group archive view not visible after switching');
   if (!groupEmptyOrSelectedVisible) failures.push('group detail panel did not render expected empty or selected state');
+  if (!sftRapidTabStable) failures.push('SFT rapid tab switching did not stay stable');
+  if (!crossTabAuthSynced) failures.push('cross-tab auth owner scope did not sync');
   if (consoleErrors.length > 0) failures.push(`console errors detected (${consoleErrors.length})`);
   if (pageErrors.length > 0) failures.push(`page errors detected (${pageErrors.length})`);
 

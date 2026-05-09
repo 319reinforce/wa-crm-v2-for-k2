@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { WAMessageComposer } from './WAMessageComposer'
 import { CreatorEventsSection } from './CreatorEventsSection'
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api'
+import { buildCreatorDetailUrl } from '../utils/creatorApi'
 import { getCreatorStatusMeta } from '../utils/creatorMeta'
 import { useOperatorRoster } from '../utils/operators'
 import {
@@ -456,7 +457,7 @@ function CreatorDetail({
   const fetchCreator = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true)
     try {
-      const data = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}`)
+      const data = await fetchJsonOrThrow(buildCreatorDetailUrl(creatorId))
       setCreator(data)
       onCreatorUpdated?.(data)
       setEditForm(buildEditFormSnapshot(data))
@@ -754,7 +755,7 @@ function CreatorDetail({
           keeper_activate_time: parseInt(editForm.keeper_activate_time) || 0,
         })
       })
-      const refreshed = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}`)
+      const refreshed = await fetchJsonOrThrow(buildCreatorDetailUrl(creatorId))
       setCreator(refreshed)
       onCreatorUpdated?.(refreshed)
       setShowEdit(false)
@@ -786,7 +787,7 @@ function CreatorDetail({
         onClose?.()
       } else {
         await fetchOkOrThrow(`${API_BASE}/creators/${creatorId}/rebind`, { method: 'POST' })
-        const refreshed = await fetchJsonOrThrow(`${API_BASE}/creators/${creatorId}`)
+        const refreshed = await fetchJsonOrThrow(buildCreatorDetailUrl(creatorId))
         setCreator(refreshed)
         onCreatorUpdated?.(refreshed)
         setShowUnbindConfirm(false)

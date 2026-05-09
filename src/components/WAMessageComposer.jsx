@@ -8,6 +8,7 @@ import { generateViaExperienceRouter } from './WAMessageComposer/ai/experienceRo
 import { useMessagePolling, getMessageKey } from './WAMessageComposer/hooks/useMessagePolling';
 import { TOPIC_GROUP_LABELS, TOPIC_GROUP_ORDER, TOPIC_GROUP_SUBTOPICS, getIntentLabel, getTopicLabel } from './WAMessageComposer/constants/topicLabels';
 import { fetchJsonOrThrow, fetchOkOrThrow } from '../utils/api';
+import { buildCreatorDetailUrl } from '../utils/creatorApi';
 import { fetchWaAdmin } from '../utils/waAdmin';
 import { fetchAppAuth, isAppAuthViewer, canAppAuthWriteToOwner, getAppAuthScopeOwner } from '../utils/appAuth';
 import { DEFAULT_UNBOUND_AGENCY_STRATEGIES, normalizeUnboundAgencyStrategies } from '../utils/unboundAgencyStrategies';
@@ -26,9 +27,24 @@ const CHAT_PATTERN = [
 ].join(', ');
 
 const MESSAGES_CACHE_TTL_MS = 30_000;
+const MESSAGES_CACHE_MAX_ENTRIES = 120;
 const POLICY_DOCS_CACHE_TTL_MS = 60_000;
 const messagesCache = new Map();
 let policyDocsCacheEntry = null;
+
+function pruneMessagesCache(now = Date.now()) {
+    for (const [creatorId, entry] of messagesCache) {
+        if (!entry || now - entry.ts > MESSAGES_CACHE_TTL_MS) {
+            messagesCache.delete(creatorId);
+        }
+    }
+    if (messagesCache.size <= MESSAGES_CACHE_MAX_ENTRIES) return;
+    const overflow = messagesCache.size - MESSAGES_CACHE_MAX_ENTRIES;
+    const oldest = [...messagesCache.entries()]
+        .sort((a, b) => (a[1]?.ts || 0) - (b[1]?.ts || 0))
+        .slice(0, overflow);
+    oldest.forEach(([creatorId]) => messagesCache.delete(creatorId));
+}
 
 function getCachedMessages(creatorId) {
     if (!creatorId) return null;
@@ -44,6 +60,7 @@ function getCachedMessages(creatorId) {
 function setCachedMessages(creatorId, msgs, total) {
     if (!creatorId) return;
     messagesCache.set(creatorId, { msgs, total, ts: Date.now() });
+    pruneMessagesCache();
 }
 
 function invalidateMessagesCache(creatorId) {
@@ -679,6 +696,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
     const [emojiEnhancingInput, setEmojiEnhancingInput] = useState(false);
     const [pickerLoading, setPickerLoading] = useState(false);
     const [pickerError, setPickerError] = useState(null);
+    const [aiProgress, setAiProgress] = useState(null);
     const [pickerCollapsed, setPickerCollapsed] = useState(false);
     const [replyDeckHeight, setReplyDeckHeight] = useState(0);
     const [templateManageModal, setTemplateManageModal] = useState(null);
@@ -1117,6 +1135,10 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
     // 五槽位方案：不再对新 incoming 消息自动生成 AI 候选。op4/op5 由 🤖 按钮手动触发。
 
+    const reportAiProgress = useCallback((progress) => {
+        setAiProgress(progress || null);
+    }, []);
+
     // 为一条 incoming 消息生成候选
     // conversationMsgs: 可选,调用方传入已拉到的消息列表(避免重复 fetch)。
     // 不传时读 messagesRef.current(与 messages state 实时同步)。
@@ -1141,6 +1163,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 currentTopic,
                 autoDetectedTopic,
                 setCurrentTopic,
+                onProgress: reportAiProgress,
             });
 
             return {
@@ -1168,7 +1191,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
         } finally {
             setPickerLoading(false);
         }
-    }, [client, creator, policyDocs, clientMemory, agencyStrategies, currentTopic, autoDetectedTopic]);
+    }, [client, creator, policyDocs, clientMemory, agencyStrategies, currentTopic, autoDetectedTopic, reportAiProgress]);
 
     // 弹出候选 picker（处理新候选）
     const pushPicker = useCallback((result) => {
@@ -1653,6 +1676,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 currentTopic,
                 autoDetectedTopic,
                 setCurrentTopic,
+                onProgress: reportAiProgress,
             });
             setActivePicker({
                 incomingMsg: latestMsg,
@@ -1678,6 +1702,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
             lastGeneratedKeyRef.current = getMessageKey(latestMsg);
         } catch (e) {
             console.error('[Regenerate] error:', e);
+            setPickerError(e.message || '生成失败，请重试');
         } finally {
             setPickerLoading(false);
         }
@@ -1856,6 +1881,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 currentTopic,
                 autoDetectedTopic,
                 setCurrentTopic,
+                onProgress: reportAiProgress,
             });
             setActivePicker(prev => ({
                 ...prev,
@@ -2000,7 +2026,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
 
     const reloadCreatorDetail = useCallback(async () => {
         if (!client?.id) return null;
-        const detail = await fetchJsonOrThrow(`${API_BASE}/creators/${client.id}`, {
+        const detail = await fetchJsonOrThrow(buildCreatorDetailUrl(client.id), {
             signal: AbortSignal.timeout(15000),
         });
         onCreatorUpdated?.(detail);
@@ -2405,6 +2431,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                 currentTopic,
                 autoDetectedTopic,
                 setCurrentTopic,
+                onProgress: reportAiProgress,
             });
 
             setActivePicker({
@@ -4204,6 +4231,7 @@ export function WAMessageComposer({ client, creator, jumpTarget, onClose, onSwip
                         templateError={templateError}
                         loading={pickerLoading}
                         generating={generating}
+                        aiProgress={aiProgress}
                         sending={sendingText}
                         error={pickerError}
                         compactMobile={isMobileViewport}

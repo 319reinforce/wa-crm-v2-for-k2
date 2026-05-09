@@ -8,6 +8,7 @@ const { normalizeOperatorName, ownersEqual } = require('../utils/operator');
 const { getInternalServiceTokenEntry } = require('../utils/internalAuth');
 const sessionRepository = require('../services/sessionRepository');
 const userSessionRepo = require('../services/userSessionRepo');
+const { logServerEvent } = require('./structuredLog');
 
 const ADMIN_TOKEN_ENV_KEYS = [
     'API_AUTH_TOKEN',
@@ -318,7 +319,9 @@ async function requireAppAuth(req, res, next) {
             return next();
         }
     } catch (err) {
-        console.error('[appAuth] DB session lookup failed:', err?.message || err);
+        logServerEvent('error', 'app_auth_session_lookup_failed', {
+            error: err?.message || String(err),
+        }, req);
         // fall through to env token 匹配,不让 DB 故障把 service 也挡住
     }
 
@@ -335,6 +338,14 @@ async function requireAppAuth(req, res, next) {
 // 人类管理员专属(users CRUD / policy 写 / audit 管理视图)
 function requireHumanAdmin(req, res, next) {
     if (req?.auth?.source === 'db' && req?.auth?.role === 'admin') {
+        return next();
+    }
+    if (
+        process.env.NODE_ENV !== 'production'
+        && process.env.LOCAL_API_AUTH_BYPASS === 'true'
+        && req?.auth?.token_key === 'LOCAL_BYPASS'
+        && req?.auth?.role === 'admin'
+    ) {
         return next();
     }
     return res.status(403).json({

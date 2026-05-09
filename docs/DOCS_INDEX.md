@@ -1,6 +1,6 @@
 # WA CRM v2 Documentation Index
 
-Date: 2026-04-28
+Date: 2026-05-09
 Status: Active
 
 This is the compact entry point for current project documentation. It intentionally avoids listing every historical handoff or generated report. Use Obsidian and `docs/archive/` for history.
@@ -39,7 +39,7 @@ Read in this order:
 | `docs/BAILEYS_ROLLOUT.md` | Baileys driver rollout and risk notes. |
 | `docs/BAILEYS_MESSAGE_SYNC_REPAIR_HANDOFF_20260428.md` | Baileys message sync repair handoff: no-anchor report, persistent LID mapping, and Baileys audit/repair compatibility. |
 | `docs/WANGYOUKE_PHONE_NORMALIZATION_TRANSLATION_HANDOFF_20260428.md` | WangYouKe phone normalization, safe phone edit flow, Baileys history repair, startup rebuild safety boundary, and translation fallback repair. |
-| `docs/SSE_HARDENING.md` | SSE transport hardening. |
+| `docs/SSE_HARDENING.md` | SSE transport and Phase 5 lifecycle hardening. |
 | `DEPLOY.md` | Baileys-oriented deployment baseline. |
 
 ## Current Event And Lifecycle Docs
@@ -60,6 +60,7 @@ Read in this order:
 | `docs/MAY_TEMPLATE_ROLLOUT_KICKOFF_20260507.md` | May SOP template rollout kickoff, template storage map, merge assessment, and current template-logic review. |
 | `docs/MAY_TEMPLATE_ROLLOUT_HANDOFF_20260507.md` | May SOP rollout implementation handoff, verification, local/LAN access, image preview/delete behavior, and potential issues. |
 | `docs/REPLY_DECK_IMAGE_TEMPLATE_PLAN_20260507.md` | Planned Reply Deck image-template rollout: composer image library default, local upload fallback UI, `op3` recommended image slot, AI slot shift, and SOP image metadata drift mitigation. |
+| `docs/TECH_DEBT_REMEDIATION_KICKOFF_20260508.md` | Verified High/Medium/Low tech debt risks, Phase 1-5 implementation records, and final test gates. |
 
 ## Transitional Knowledge Sources
 
@@ -81,6 +82,8 @@ Read in this order:
 | `docs/RECENT_BRANCH_DOC_MAPPING_20260427.md` | Recent Gitea branch, PR, archive tag, and handoff/Obsidian mapping. |
 | `docs/obsidian/index.md` | Obsidian memory note index. |
 | `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md` | Latest agent-facing coverage matrix. |
+| `docs/obsidian/notes/2026-05-08-document-sync-refresh.md` | Latest full documentation sync pass and verification notes. |
+| `docs/obsidian/notes/2026-05-08-stash-cleanup-audit.md` | Local stash cleanup audit and deletion record. |
 
 ## Deleted Historical Handoffs
 
@@ -100,5 +103,5 @@ The old root `SFT_PROJECT.md`, `docs/SFT_RLHF_PIPELINE.md`, and `docs/RLHF_ONBOA
 ## Obsidian Sync
 
 - Status: synced
-- Note: `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md`, `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-phase2-handoff.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-prod-rollout-handoff.md`, `docs/obsidian/notes/2026-04-27-database-structure-future-optimization-handoff.md`, `docs/obsidian/notes/2026-04-28-baileys-message-sync-repair-handoff.md`, `docs/obsidian/notes/2026-04-28-wangyouke-phone-normalization-translation-handoff.md`
+- Note: `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md`, `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-phase2-handoff.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-prod-rollout-handoff.md`, `docs/obsidian/notes/2026-04-27-database-structure-future-optimization-handoff.md`, `docs/obsidian/notes/2026-04-28-baileys-message-sync-repair-handoff.md`, `docs/obsidian/notes/2026-04-28-wangyouke-phone-normalization-translation-handoff.md`, `docs/obsidian/notes/2026-05-08-document-sync-refresh.md`, `docs/obsidian/notes/2026-05-08-stash-cleanup-audit.md`, `docs/obsidian/notes/2026-05-08-tech-debt-remediation-kickoff.md`
 - Index: `docs/obsidian/index.md`

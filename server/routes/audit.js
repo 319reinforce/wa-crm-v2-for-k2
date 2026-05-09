@@ -177,6 +177,26 @@ function buildGenerationSummary(rows) {
     };
 }
 
+function projectRecentGenerationRow(row = {}) {
+    return {
+        id: row.id,
+        client_id: row.client_id,
+        retrieval_snapshot_id: row.retrieval_snapshot_id,
+        provider: row.provider,
+        model: row.model,
+        route: row.route,
+        ab_bucket: row.ab_bucket,
+        scene: row.scene,
+        operator: row.operator,
+        message_count: row.message_count,
+        prompt_version: row.prompt_version,
+        latency_ms: row.latency_ms,
+        status: row.status,
+        error_message: row.error_message,
+        created_at: row.created_at,
+    };
+}
+
 async function fetchSftRows({ startAt = null, endAt = null, owner = null, hours = null } = {}) {
     const db2 = db.getDb();
     const params = [];
@@ -255,6 +275,186 @@ function buildSftSummary(rows, skipCount) {
         retrieval_linked_count: retrievalLinked,
         retrieval_linked_rate: pct(retrievalLinked, total),
         skip_count: skipCount,
+    };
+}
+
+async function buildAbEvaluationSummary({ owner = null, startDate = null, endDate = null } = {}) {
+    const db2 = db.getDb();
+    let where = 'WHERE 1=1';
+    const params = [];
+    if (startDate) { where += ' AND sm.created_at >= ?'; params.push(startDate); }
+    if (endDate) { where += ' AND sm.created_at <= ?'; params.push(endDate); }
+
+    let joinCreators = '';
+    if (owner) {
+        joinCreators = ' LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, "$.client_id"))';
+        where += ' AND c.wa_owner = ?';
+        params.push(owner);
+    }
+
+    const countsRow = (await db2.prepare(`
+        SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN sm.human_selected = 'opt1' THEN 1 ELSE 0 END) as opt1_count,
+            SUM(CASE WHEN sm.human_selected = 'opt2' THEN 1 ELSE 0 END) as opt2_count,
+            SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
+        FROM sft_memory sm ${joinCreators} ${where}
+    `).get(...params)) || { total: 0, opt1_count: 0, opt2_count: 0, custom_count: 0 };
+    const total = countsRow.total || 0;
+    const opt1Count = countsRow.opt1_count || 0;
+    const opt2Count = countsRow.opt2_count || 0;
+    const customCount = countsRow.custom_count || 0;
+
+    const bySceneRows = await db2.prepare(`
+        SELECT
+            JSON_EXTRACT(context_json, '$.scene') as scene,
+            COUNT(*) as total,
+            SUM(CASE WHEN human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
+        FROM sft_memory sm
+        ${joinCreators}
+        ${where}
+        GROUP BY JSON_EXTRACT(context_json, '$.scene')
+        ORDER BY total DESC
+    `).all(...params);
+
+    const byScene = {};
+    for (const row of bySceneRows) {
+        const scene = row.scene || 'unknown';
+        byScene[scene] = {
+            total: row.total,
+            custom_rate: row.total > 0 ? ((row.custom_count / row.total) * 100).toFixed(1) + '%' : '0%',
+            custom_count: row.custom_count,
+        };
+    }
+
+    const byOwnerRows = await db2.prepare(`
+        SELECT
+            c.wa_owner as owner,
+            COUNT(*) as total,
+            SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
+        FROM sft_memory sm
+        LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
+        ${owner ? 'WHERE c.wa_owner = ?' : ''}
+        GROUP BY c.wa_owner
+        ORDER BY total DESC
+    `).all(...(owner ? [owner] : []));
+
+    const byOwner = {};
+    for (const row of byOwnerRows) {
+        const o = row.owner || 'Unknown';
+        byOwner[o] = {
+            total: row.total,
+            custom_rate: row.total > 0 ? ((row.custom_count / row.total) * 100).toFixed(1) + '%' : '0%',
+            custom_count: row.custom_count,
+        };
+    }
+
+    const byDayRows = await db2.prepare(`
+        SELECT
+            DATE(sm.created_at) as date,
+            COUNT(*) as total,
+            SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
+        FROM sft_memory sm
+        LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
+        WHERE sm.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        ${owner ? 'AND c.wa_owner = ?' : ''}
+        GROUP BY DATE(sm.created_at)
+        ORDER BY date ASC
+    `).all(...(owner ? [owner] : []));
+
+    const byDay = byDayRows.map(row => ({
+        date: row.date,
+        total: row.total,
+        custom_count: row.custom_count,
+        custom_rate: row.total > 0 ? ((row.custom_count / row.total) * 100).toFixed(1) + '%' : '0%',
+    }));
+
+    return {
+        total_records: total,
+        opt1_selected: opt1Count,
+        opt2_selected: opt2Count,
+        custom_input: customCount,
+        custom_rate: total > 0 ? ((customCount / total) * 100).toFixed(1) + '%' : '0%',
+        opt1_rate: total > 0 ? ((opt1Count / total) * 100).toFixed(1) + '%' : '0%',
+        opt2_rate: total > 0 ? ((opt2Count / total) * 100).toFixed(1) + '%' : '0%',
+        model_override_rate: total > 0 ? ((customCount / total) * 100).toFixed(1) + '%' : '0%',
+        by_scene: byScene,
+        by_owner: byOwner,
+        by_day: byDay,
+    };
+}
+
+async function buildGenerationStatsSummary({ owner = null, days = 7 } = {}) {
+    const db2 = db.getDb();
+    const safeDays = Math.min(Math.max(parseInt(days, 10) || 7, 1), 60);
+    const startAt = new Date(Date.now() - (safeDays * 24 * 60 * 60 * 1000))
+        .toISOString()
+        .slice(0, 19)
+        .replace('T', ' ');
+
+    let joinClause = '';
+    const params = [startAt];
+    if (owner) {
+        joinClause = 'LEFT JOIN creators c ON c.wa_phone = gl.client_id';
+    }
+
+    let whereClause = 'WHERE gl.created_at >= ?';
+    if (owner) {
+        whereClause += ' AND c.wa_owner = ?';
+        params.push(owner);
+    }
+
+    const totalRow = await db2.prepare(`
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN gl.status = 'success' THEN 1 ELSE 0 END) AS success_count,
+            SUM(CASE WHEN gl.status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+            AVG(CASE WHEN gl.latency_ms IS NOT NULL THEN gl.latency_ms END) AS avg_latency_ms
+        FROM generation_log gl
+        ${joinClause}
+        ${whereClause}
+    `).get(...params);
+
+    const byProviderRows = await db2.prepare(`
+        SELECT gl.provider, COUNT(*) AS count
+        FROM generation_log gl
+        ${joinClause}
+        ${whereClause}
+        GROUP BY gl.provider
+        ORDER BY count DESC
+    `).all(...params);
+
+    const byRouteRows = await db2.prepare(`
+        SELECT gl.route, COUNT(*) AS count
+        FROM generation_log gl
+        ${joinClause}
+        ${whereClause}
+        GROUP BY gl.route
+        ORDER BY count DESC
+    `).all(...params);
+
+    const byDayRows = await db2.prepare(`
+        SELECT DATE(gl.created_at) AS date,
+               COUNT(*) AS total,
+               SUM(CASE WHEN gl.status = 'success' THEN 1 ELSE 0 END) AS success_count,
+               SUM(CASE WHEN gl.status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+        FROM generation_log gl
+        ${joinClause}
+        ${whereClause}
+        GROUP BY DATE(gl.created_at)
+        ORDER BY date ASC
+    `).all(...params);
+
+    return {
+        window_days: safeDays,
+        owner: owner || null,
+        total: totalRow?.total || 0,
+        success_count: totalRow?.success_count || 0,
+        failed_count: totalRow?.failed_count || 0,
+        avg_latency_ms: totalRow?.avg_latency_ms ? Math.round(totalRow.avg_latency_ms) : null,
+        by_provider: byProviderRows,
+        by_route: byRouteRows,
+        by_day: byDayRows,
     };
 }
 
@@ -417,113 +617,14 @@ router.get('/audit-log', async (req, res) => {
 // GET /api/ab-evaluation
 router.get('/ab-evaluation', async (req, res) => {
     try {
-        const db2 = db.getDb();
         const { start_date, end_date } = req.query;
         const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
         if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
-
-        let where = 'WHERE 1=1';
-        const params = [];
-        if (start_date) { where += ' AND sm.created_at >= ?'; params.push(start_date); }
-        if (end_date) { where += ' AND sm.created_at <= ?'; params.push(end_date); }
-
-        let joinCreators = '';
-        if (effectiveOwner) {
-            joinCreators = ' LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, "$.client_id"))';
-            where += ' AND c.wa_owner = ?';
-            params.push(effectiveOwner);
-        }
-
-        const countsRow = (await db2.prepare(`
-            SELECT
-                COUNT(*) as total,
-                SUM(CASE WHEN sm.human_selected = 'opt1' THEN 1 ELSE 0 END) as opt1_count,
-                SUM(CASE WHEN sm.human_selected = 'opt2' THEN 1 ELSE 0 END) as opt2_count,
-                SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
-            FROM sft_memory sm ${joinCreators} ${where}
-        `).get(...params)) || { total: 0, opt1_count: 0, opt2_count: 0, custom_count: 0 };
-        const total = countsRow.total || 0;
-        const opt1Count = countsRow.opt1_count || 0;
-        const opt2Count = countsRow.opt2_count || 0;
-        const customCount = countsRow.custom_count || 0;
-
-        const bySceneRows = await db2.prepare(`
-            SELECT
-                JSON_EXTRACT(context_json, '$.scene') as scene,
-                COUNT(*) as total,
-                SUM(CASE WHEN human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
-            FROM sft_memory sm
-            ${joinCreators}
-            ${where}
-            GROUP BY JSON_EXTRACT(context_json, '$.scene')
-            ORDER BY total DESC
-        `).all(...params);
-
-        const byScene = {};
-        for (const row of bySceneRows) {
-            const scene = row.scene || 'unknown';
-            byScene[scene] = {
-                total: row.total,
-                custom_rate: row.total > 0 ? ((row.custom_count / row.total) * 100).toFixed(1) + '%' : '0%',
-                custom_count: row.custom_count,
-            };
-        }
-
-        const byOwnerRows = await db2.prepare(`
-            SELECT
-                c.wa_owner as owner,
-                COUNT(*) as total,
-                SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
-            FROM sft_memory sm
-            LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
-            ${effectiveOwner ? 'WHERE c.wa_owner = ?' : ''}
-            GROUP BY c.wa_owner
-            ORDER BY total DESC
-        `).all(...(effectiveOwner ? [effectiveOwner] : []));
-
-        const byOwner = {};
-        for (const row of byOwnerRows) {
-            const o = row.owner || 'Unknown';
-            byOwner[o] = {
-                total: row.total,
-                custom_rate: row.total > 0 ? ((row.custom_count / row.total) * 100).toFixed(1) + '%' : '0%',
-                custom_count: row.custom_count,
-            };
-        }
-
-        const byDayRows = await db2.prepare(`
-            SELECT
-                DATE(sm.created_at) as date,
-                COUNT(*) as total,
-                SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
-            FROM sft_memory sm
-            LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
-            WHERE sm.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-            ${effectiveOwner ? 'AND c.wa_owner = ?' : ''}
-            GROUP BY DATE(sm.created_at)
-            ORDER BY date ASC
-        `).all(...(effectiveOwner ? [effectiveOwner] : []));
-
-        const byDay = byDayRows.map(row => ({
-            date: row.date,
-            total: row.total,
-            custom_count: row.custom_count,
-            custom_rate: row.total > 0 ? ((row.custom_count / row.total) * 100).toFixed(1) + '%' : '0%',
+        res.json(await buildAbEvaluationSummary({
+            owner: effectiveOwner,
+            startDate: start_date,
+            endDate: end_date,
         }));
-
-        res.json({
-            total_records: total,
-            opt1_selected: opt1Count,
-            opt2_selected: opt2Count,
-            custom_input: customCount,
-            custom_rate: total > 0 ? ((customCount / total) * 100).toFixed(1) + '%' : '0%',
-            opt1_rate: total > 0 ? ((opt1Count / total) * 100).toFixed(1) + '%' : '0%',
-            opt2_rate: total > 0 ? ((opt2Count / total) * 100).toFixed(1) + '%' : '0%',
-            model_override_rate: total > 0 ? ((customCount / total) * 100).toFixed(1) + '%' : '0%',
-            by_scene: byScene,
-            by_owner: byOwner,
-            by_day: byDay,
-        });
     } catch (err) {
         console.error('GET /api/ab-evaluation error:', err);
         res.status(500).json({ error: err.message });
@@ -533,79 +634,10 @@ router.get('/ab-evaluation', async (req, res) => {
 // GET /api/generation-log/stats
 router.get('/generation-log/stats', async (req, res) => {
     try {
-        const db2 = db.getDb();
         const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 60);
         const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
         if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
-        const startAt = new Date(Date.now() - (days * 24 * 60 * 60 * 1000))
-            .toISOString()
-            .slice(0, 19)
-            .replace('T', ' ');
-
-        let joinClause = '';
-        const params = [startAt];
-        if (effectiveOwner) {
-            joinClause = 'LEFT JOIN creators c ON c.wa_phone = gl.client_id';
-        }
-
-        let whereClause = 'WHERE gl.created_at >= ?';
-        if (effectiveOwner) {
-            whereClause += ' AND c.wa_owner = ?';
-            params.push(effectiveOwner);
-        }
-
-        const totalRow = await db2.prepare(`
-            SELECT
-                COUNT(*) AS total,
-                SUM(CASE WHEN gl.status = 'success' THEN 1 ELSE 0 END) AS success_count,
-                SUM(CASE WHEN gl.status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
-                AVG(CASE WHEN gl.latency_ms IS NOT NULL THEN gl.latency_ms END) AS avg_latency_ms
-            FROM generation_log gl
-            ${joinClause}
-            ${whereClause}
-        `).get(...params);
-
-        const byProviderRows = await db2.prepare(`
-            SELECT gl.provider, COUNT(*) AS count
-            FROM generation_log gl
-            ${joinClause}
-            ${whereClause}
-            GROUP BY gl.provider
-            ORDER BY count DESC
-        `).all(...params);
-
-        const byRouteRows = await db2.prepare(`
-            SELECT gl.route, COUNT(*) AS count
-            FROM generation_log gl
-            ${joinClause}
-            ${whereClause}
-            GROUP BY gl.route
-            ORDER BY count DESC
-        `).all(...params);
-
-        const byDayRows = await db2.prepare(`
-            SELECT DATE(gl.created_at) AS date,
-                   COUNT(*) AS total,
-                   SUM(CASE WHEN gl.status = 'success' THEN 1 ELSE 0 END) AS success_count,
-                   SUM(CASE WHEN gl.status = 'failed' THEN 1 ELSE 0 END) AS failed_count
-            FROM generation_log gl
-            ${joinClause}
-            ${whereClause}
-            GROUP BY DATE(gl.created_at)
-            ORDER BY date ASC
-        `).all(...params);
-
-        res.json({
-            window_days: days,
-            owner: effectiveOwner || null,
-            total: totalRow?.total || 0,
-            success_count: totalRow?.success_count || 0,
-            failed_count: totalRow?.failed_count || 0,
-            avg_latency_ms: totalRow?.avg_latency_ms ? Math.round(totalRow.avg_latency_ms) : null,
-            by_provider: byProviderRows,
-            by_route: byRouteRows,
-            by_day: byDayRows,
-        });
+        res.json(await buildGenerationStatsSummary({ owner: effectiveOwner, days }));
     } catch (err) {
         console.error('GET /api/generation-log/stats error:', err);
         res.status(500).json({ error: err.message });
@@ -619,23 +651,7 @@ router.get('/generation-log/recent', async (req, res) => {
         const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
         if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
         const rows = await fetchGenerationRows({ owner: effectiveOwner, limit });
-        res.json(rows.map((row) => ({
-            id: row.id,
-            client_id: row.client_id,
-            retrieval_snapshot_id: row.retrieval_snapshot_id,
-            provider: row.provider,
-            model: row.model,
-            route: row.route,
-            ab_bucket: row.ab_bucket,
-            scene: row.scene,
-            operator: row.operator,
-            message_count: row.message_count,
-            prompt_version: row.prompt_version,
-            latency_ms: row.latency_ms,
-            status: row.status,
-            error_message: row.error_message,
-            created_at: row.created_at,
-        })));
+        res.json(rows.map(projectRecentGenerationRow));
     } catch (err) {
         console.error('GET /api/generation-log/recent error:', err);
         res.status(500).json({ error: err.message });
@@ -705,6 +721,74 @@ router.get('/generation-log/rag-observation', async (req, res) => {
     }
 });
 
+// GET /api/generation-log/evaluation-summary
+// SFTDashboard uses this one endpoint to avoid five independent evaluation-tab requests.
+router.get('/generation-log/evaluation-summary', async (req, res) => {
+    try {
+        const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 60);
+        const hours = Math.min(Math.max(parseInt(req.query.hours) || 24, 1), 24 * 14);
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 500);
+        const effectiveOwner = resolveRequestedOwner(req, res, req.query.owner, null);
+        if (effectiveOwner === null && getLockedOwner(req) && req.query.owner) return;
+
+        const [
+            abEvaluation,
+            generationStats,
+            generationRecentRows,
+            generationWindowRows,
+            sftRows,
+            skipCount,
+        ] = await Promise.all([
+            buildAbEvaluationSummary({
+                owner: effectiveOwner,
+                startDate: req.query.start_date,
+                endDate: req.query.end_date,
+            }),
+            buildGenerationStatsSummary({ owner: effectiveOwner, days }),
+            fetchGenerationRows({ owner: effectiveOwner, limit }),
+            fetchGenerationRows({ hours, owner: effectiveOwner, limit }),
+            fetchSftRows({ hours, owner: effectiveOwner }),
+            fetchSkipCount({ hours, owner: effectiveOwner }),
+        ]);
+
+        res.json({
+            owner: effectiveOwner || null,
+            ab_evaluation: abEvaluation,
+            generation_stats: generationStats,
+            generation_recent: generationRecentRows.map(projectRecentGenerationRow),
+            rag_observation: {
+                window_hours: hours,
+                owner: effectiveOwner || null,
+                start_at: null,
+                end_at: null,
+                generation: buildGenerationSummary(generationWindowRows),
+                sft: buildSftSummary(sftRows, skipCount),
+            },
+            rag_sources: {
+                window_hours: hours,
+                owner: effectiveOwner || null,
+                summary: buildGenerationSummary(generationWindowRows),
+                recent: generationWindowRows.map((row) => ({
+                    id: row.id,
+                    created_at: row.created_at,
+                    client_id: row.client_id,
+                    scene: row.scene,
+                    operator: row.operator,
+                    provider: row.provider,
+                    model: row.model,
+                    status: row.status,
+                    retrieval_snapshot_id: row.retrieval_snapshot_id,
+                    rag_hit_count: row.rag?.hit_count || 0,
+                    rag_sources: (row.rag?.hits || []).slice(0, 5),
+                })),
+            },
+        });
+    } catch (err) {
+        console.error('GET /api/generation-log/evaluation-summary error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // GET /api/generation-log/:id
 router.get('/generation-log/:id', async (req, res) => {
     try {
@@ -754,6 +838,10 @@ module.exports._private = {
     resolveAuditRowOwner,
     ensureAuditDetailAccess,
     fetchGenerationRows,
+    projectRecentGenerationRow,
+    buildGenerationSummary,
+    buildAbEvaluationSummary,
+    buildGenerationStatsSummary,
     fetchGenerationLogDetail,
     fetchRetrievalSnapshotDetail,
 };
