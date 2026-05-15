@@ -1,6 +1,6 @@
 # WA CRM v2 Memory Index
 
-Date: 2026-05-09
+Date: 2026-05-15
 Status: Active
 
 ## Active Standards
@@ -32,6 +32,7 @@ Status: Active
 - [[notes/2026-04-27-mysql-optimize-handoff|MySQL Optimize Handoff]]
 - [[notes/2026-04-27-mysql-optimize-phase2-handoff|MySQL Optimize Phase 2 Handoff, Operational Facts, Retention Archive Gates]]
 - [[notes/2026-04-27-mysql-optimize-prod-rollout-handoff|MySQL Optimize Prod Rollout Handoff]]
+- [[notes/2026-05-15-remote-main-db-crash-and-join-remediation|Remote Main DB Crash And JOIN Remediation]]
 - [[notes/2026-04-25-event-lifecycle-data-model|Event Lifecycle Data Model]]
 - [[notes/2026-04-27-event-decision-table-current|Event Decision Table Current]]
 - [[notes/2026-04-25-event-lifecycle-handoff|Event Lifecycle Handoff]]
@@ -62,6 +63,10 @@ Status: Active
 
 - Tech debt remediation is implemented through Phase 5.
 - SSE hardening note now covers Phase 5 client caps, scoped metadata, structured logs, and reconnect cleanup verification.
+
+## 2026-05-15 Update
+
+- Added remote main DB crash and JOIN remediation analysis: latest deploy tag was identified as the rollout trigger, while new business `LEFT JOIN` usage in `server/routes/audit.js` needs application-layer merge remediation.
 
 When adding a memory note:
 

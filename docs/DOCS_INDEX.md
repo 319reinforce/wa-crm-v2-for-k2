@@ -1,6 +1,6 @@
 # WA CRM v2 Documentation Index
 
-Date: 2026-05-09
+Date: 2026-05-15
 Status: Active
 
 This is the compact entry point for current project documentation. It intentionally avoids listing every historical handoff or generated report. Use Obsidian and `docs/archive/` for history.
@@ -34,6 +34,8 @@ Read in this order:
 | `docs/MYSQL_OPTIMIZE_HANDOFF_20260427.md` | MySQL optimize implementation report, verification notes, and future development plan. |
 | `docs/MYSQL_OPTIMIZE_PHASE2_HANDOFF_20260427.md` | Phase 2 managed migrations, runtime DDL cleanup, CreatorDetail event-first migration, creator_id backfill, and retention policy. |
 | `docs/MYSQL_OPTIMIZE_PROD_ROLLOUT_HANDOFF_20260427.md` | Production rollout confirmation: startup derived-data rebuild behavior, explicit migration requirement, and Chinese handoff summary. |
+| `docs/REMOTE_MAIN_DB_CRASH_AND_JOIN_RULE_ANALYSIS_20260515.md` | Analysis of the latest remote rollout, startup migration crash risk, and new business-query JOIN violations. |
+| `docs/JOIN_FREE_DB_REMEDIATION_CONSTRUCTION_PLAN_20260515.md` | Construction plan to remove new business LEFT JOIN usage and add static/release guardrails. |
 | `docs/AI_REPLY_GENERATION_SYSTEM.md` | AI reply generation architecture, topic detection, provider routing, and generation tracking. |
 | `docs/WA_SESSIONS_DESIGN.md` | WA multi-session design and IPC/volume planning. |
 | `docs/BAILEYS_ROLLOUT.md` | Baileys driver rollout and risk notes. |
@@ -103,5 +105,5 @@ The old root `SFT_PROJECT.md`, `docs/SFT_RLHF_PIPELINE.md`, and `docs/RLHF_ONBOA
 ## Obsidian Sync
 
 - Status: synced
-- Note: `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md`, `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-phase2-handoff.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-prod-rollout-handoff.md`, `docs/obsidian/notes/2026-04-27-database-structure-future-optimization-handoff.md`, `docs/obsidian/notes/2026-04-28-baileys-message-sync-repair-handoff.md`, `docs/obsidian/notes/2026-04-28-wangyouke-phone-normalization-translation-handoff.md`, `docs/obsidian/notes/2026-05-08-document-sync-refresh.md`, `docs/obsidian/notes/2026-05-08-stash-cleanup-audit.md`, `docs/obsidian/notes/2026-05-08-tech-debt-remediation-kickoff.md`
+- Note: `docs/obsidian/notes/2026-04-25-docs-index-and-core-modules.md`, `docs/obsidian/notes/2026-04-27-agent-current-state-and-doc-coverage.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-phase2-handoff.md`, `docs/obsidian/notes/2026-04-27-mysql-optimize-prod-rollout-handoff.md`, `docs/obsidian/notes/2026-04-27-database-structure-future-optimization-handoff.md`, `docs/obsidian/notes/2026-04-28-baileys-message-sync-repair-handoff.md`, `docs/obsidian/notes/2026-04-28-wangyouke-phone-normalization-translation-handoff.md`, `docs/obsidian/notes/2026-05-08-document-sync-refresh.md`, `docs/obsidian/notes/2026-05-08-stash-cleanup-audit.md`, `docs/obsidian/notes/2026-05-08-tech-debt-remediation-kickoff.md`, `docs/obsidian/notes/2026-05-15-remote-main-db-crash-and-join-remediation.md`
 - Index: `docs/obsidian/index.md`

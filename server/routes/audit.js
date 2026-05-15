@@ -278,6 +278,93 @@ function buildSftSummary(rows, skipCount) {
     };
 }
 
+function normalizeStringKey(value, fallback = 'Unknown') {
+    const normalized = String(value ?? '').trim();
+    return normalized || fallback;
+}
+
+function toDateKey(value) {
+    if (!value) return null;
+    if (typeof value === 'string') return value.slice(0, 10);
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString().slice(0, 10);
+    }
+    return String(value).slice(0, 10);
+}
+
+function parseSftContext(value) {
+    const parsed = parseJsonSafe(value, {});
+    return parsed && typeof parsed === 'object' ? parsed : {};
+}
+
+function getSftClientId(row = {}) {
+    const context = parseSftContext(row.context_json);
+    return String(context.client_id || '').trim();
+}
+
+function getSftScene(row = {}) {
+    const context = parseSftContext(row.context_json);
+    return normalizeStringKey(context.scene || row.scene, 'unknown');
+}
+
+async function fetchCreatorsByPhones(db2, phones = []) {
+    const uniquePhones = [...new Set(phones.map((phone) => String(phone || '').trim()).filter(Boolean))];
+    const creatorMap = new Map();
+    const chunkSize = 500;
+    for (let i = 0; i < uniquePhones.length; i += chunkSize) {
+        const chunk = uniquePhones.slice(i, i + chunkSize);
+        const rows = await db2.prepare(`
+            SELECT wa_phone, wa_owner
+            FROM creators
+            WHERE wa_phone IN (?)
+        `).all(chunk);
+        for (const row of rows) {
+            const phone = String(row.wa_phone || '').trim();
+            if (phone) creatorMap.set(phone, row);
+        }
+    }
+    return creatorMap;
+}
+
+function enrichRowsWithOwners(rows = [], creatorMap = new Map(), getClientId = () => '') {
+    return rows.map((row) => {
+        const clientId = String(getClientId(row) || '').trim();
+        const creator = clientId ? creatorMap.get(clientId) : null;
+        return {
+            ...row,
+            client_id: row.client_id ?? clientId,
+            owner: creator?.wa_owner || null,
+        };
+    });
+}
+
+function filterRowsByOwner(rows = [], owner = null) {
+    if (!owner) return rows;
+    return rows.filter((row) => row.owner === owner);
+}
+
+function incrementSummaryBucket(target, key, selected) {
+    if (!target[key]) {
+        target[key] = { total: 0, custom_count: 0, custom_rate: '0.0%' };
+    }
+    target[key].total += 1;
+    if (selected === 'custom') target[key].custom_count += 1;
+}
+
+function finalizeCustomRates(target) {
+    for (const row of Object.values(target)) {
+        row.custom_rate = pct(row.custom_count, row.total);
+    }
+}
+
+function summarizeCountRows(rows = []) {
+    const total = rows.length;
+    const opt1Count = rows.filter((row) => row.human_selected === 'opt1').length;
+    const opt2Count = rows.filter((row) => row.human_selected === 'opt2').length;
+    const customCount = rows.filter((row) => row.human_selected === 'custom').length;
+    return { total, opt1Count, opt2Count, customCount };
+}
+
 async function buildAbEvaluationSummary({ owner = null, startDate = null, endDate = null } = {}) {
     const db2 = db.getDb();
     let where = 'WHERE 1=1';
@@ -285,89 +372,44 @@ async function buildAbEvaluationSummary({ owner = null, startDate = null, endDat
     if (startDate) { where += ' AND sm.created_at >= ?'; params.push(startDate); }
     if (endDate) { where += ' AND sm.created_at <= ?'; params.push(endDate); }
 
-    let joinCreators = '';
-    if (owner) {
-        joinCreators = ' LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, "$.client_id"))';
-        where += ' AND c.wa_owner = ?';
-        params.push(owner);
-    }
-
-    const countsRow = (await db2.prepare(`
+    const baseRows = await db2.prepare(`
         SELECT
-            COUNT(*) as total,
-            SUM(CASE WHEN sm.human_selected = 'opt1' THEN 1 ELSE 0 END) as opt1_count,
-            SUM(CASE WHEN sm.human_selected = 'opt2' THEN 1 ELSE 0 END) as opt2_count,
-            SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
-        FROM sft_memory sm ${joinCreators} ${where}
-    `).get(...params)) || { total: 0, opt1_count: 0, opt2_count: 0, custom_count: 0 };
-    const total = countsRow.total || 0;
-    const opt1Count = countsRow.opt1_count || 0;
-    const opt2Count = countsRow.opt2_count || 0;
-    const customCount = countsRow.custom_count || 0;
-
-    const bySceneRows = await db2.prepare(`
-        SELECT
-            JSON_EXTRACT(context_json, '$.scene') as scene,
-            COUNT(*) as total,
-            SUM(CASE WHEN human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
+            sm.id,
+            sm.human_selected,
+            sm.context_json,
+            sm.scene,
+            sm.created_at
         FROM sft_memory sm
-        ${joinCreators}
         ${where}
-        GROUP BY JSON_EXTRACT(context_json, '$.scene')
-        ORDER BY total DESC
     `).all(...params);
 
+    const creatorMap = await fetchCreatorsByPhones(db2, baseRows.map(getSftClientId));
+    const rows = filterRowsByOwner(
+        enrichRowsWithOwners(baseRows, creatorMap, getSftClientId),
+        owner
+    );
+    const { total, opt1Count, opt2Count, customCount } = summarizeCountRows(rows);
+
     const byScene = {};
-    for (const row of bySceneRows) {
-        const scene = row.scene || 'unknown';
-        byScene[scene] = {
-            total: row.total,
-            custom_rate: row.total > 0 ? ((row.custom_count / row.total) * 100).toFixed(1) + '%' : '0%',
-            custom_count: row.custom_count,
-        };
-    }
-
-    const byOwnerRows = await db2.prepare(`
-        SELECT
-            c.wa_owner as owner,
-            COUNT(*) as total,
-            SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
-        FROM sft_memory sm
-        LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
-        ${owner ? 'WHERE c.wa_owner = ?' : ''}
-        GROUP BY c.wa_owner
-        ORDER BY total DESC
-    `).all(...(owner ? [owner] : []));
-
     const byOwner = {};
-    for (const row of byOwnerRows) {
-        const o = row.owner || 'Unknown';
-        byOwner[o] = {
-            total: row.total,
-            custom_rate: row.total > 0 ? ((row.custom_count / row.total) * 100).toFixed(1) + '%' : '0%',
-            custom_count: row.custom_count,
-        };
+    const byDay = new Map();
+    for (const row of rows) {
+        incrementSummaryBucket(byScene, getSftScene(row), row.human_selected);
+        incrementSummaryBucket(byOwner, row.owner || 'Unknown', row.human_selected);
+        const day = toDateKey(row.created_at);
+        if (day) {
+            if (!byDay.has(day)) byDay.set(day, { date: day, total: 0, custom_count: 0, custom_rate: '0.0%' });
+            const bucket = byDay.get(day);
+            bucket.total += 1;
+            if (row.human_selected === 'custom') bucket.custom_count += 1;
+        }
     }
 
-    const byDayRows = await db2.prepare(`
-        SELECT
-            DATE(sm.created_at) as date,
-            COUNT(*) as total,
-            SUM(CASE WHEN sm.human_selected = 'custom' THEN 1 ELSE 0 END) as custom_count
-        FROM sft_memory sm
-        LEFT JOIN creators c ON c.wa_phone = JSON_UNQUOTE(JSON_EXTRACT(sm.context_json, '$.client_id'))
-        WHERE sm.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-        ${owner ? 'AND c.wa_owner = ?' : ''}
-        GROUP BY DATE(sm.created_at)
-        ORDER BY date ASC
-    `).all(...(owner ? [owner] : []));
-
-    const byDay = byDayRows.map(row => ({
-        date: row.date,
-        total: row.total,
-        custom_count: row.custom_count,
-        custom_rate: row.total > 0 ? ((row.custom_count / row.total) * 100).toFixed(1) + '%' : '0%',
-    }));
+    finalizeCustomRates(byScene);
+    finalizeCustomRates(byOwner);
+    const byDayRows = [...byDay.values()]
+        .map((row) => ({ ...row, custom_rate: pct(row.custom_count, row.total) }))
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
     return {
         total_records: total,
@@ -380,8 +422,19 @@ async function buildAbEvaluationSummary({ owner = null, startDate = null, endDat
         model_override_rate: total > 0 ? ((customCount / total) * 100).toFixed(1) + '%' : '0%',
         by_scene: byScene,
         by_owner: byOwner,
-        by_day: byDay,
+        by_day: byDayRows,
     };
+}
+
+function incrementCountBucket(map, key) {
+    const normalizedKey = normalizeStringKey(key);
+    map.set(normalizedKey, (map.get(normalizedKey) || 0) + 1);
+}
+
+function mapToCountRows(map, fieldName) {
+    return [...map.entries()]
+        .map(([key, count]) => ({ [fieldName]: key, count }))
+        .sort((a, b) => b.count - a.count || String(a[fieldName]).localeCompare(String(b[fieldName])));
 }
 
 async function buildGenerationStatsSummary({ owner = null, days = 7 } = {}) {
@@ -392,69 +445,60 @@ async function buildGenerationStatsSummary({ owner = null, days = 7 } = {}) {
         .slice(0, 19)
         .replace('T', ' ');
 
-    let joinClause = '';
-    const params = [startAt];
-    if (owner) {
-        joinClause = 'LEFT JOIN creators c ON c.wa_phone = gl.client_id';
-    }
-
-    let whereClause = 'WHERE gl.created_at >= ?';
-    if (owner) {
-        whereClause += ' AND c.wa_owner = ?';
-        params.push(owner);
-    }
-
-    const totalRow = await db2.prepare(`
+    const baseRows = await db2.prepare(`
         SELECT
-            COUNT(*) AS total,
-            SUM(CASE WHEN gl.status = 'success' THEN 1 ELSE 0 END) AS success_count,
-            SUM(CASE WHEN gl.status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
-            AVG(CASE WHEN gl.latency_ms IS NOT NULL THEN gl.latency_ms END) AS avg_latency_ms
+            gl.client_id,
+            gl.provider,
+            gl.route,
+            gl.status,
+            gl.latency_ms,
+            gl.created_at
         FROM generation_log gl
-        ${joinClause}
-        ${whereClause}
-    `).get(...params);
+        WHERE gl.created_at >= ?
+    `).all(startAt);
 
-    const byProviderRows = await db2.prepare(`
-        SELECT gl.provider, COUNT(*) AS count
-        FROM generation_log gl
-        ${joinClause}
-        ${whereClause}
-        GROUP BY gl.provider
-        ORDER BY count DESC
-    `).all(...params);
-
-    const byRouteRows = await db2.prepare(`
-        SELECT gl.route, COUNT(*) AS count
-        FROM generation_log gl
-        ${joinClause}
-        ${whereClause}
-        GROUP BY gl.route
-        ORDER BY count DESC
-    `).all(...params);
-
-    const byDayRows = await db2.prepare(`
-        SELECT DATE(gl.created_at) AS date,
-               COUNT(*) AS total,
-               SUM(CASE WHEN gl.status = 'success' THEN 1 ELSE 0 END) AS success_count,
-               SUM(CASE WHEN gl.status = 'failed' THEN 1 ELSE 0 END) AS failed_count
-        FROM generation_log gl
-        ${joinClause}
-        ${whereClause}
-        GROUP BY DATE(gl.created_at)
-        ORDER BY date ASC
-    `).all(...params);
+    const creatorMap = await fetchCreatorsByPhones(db2, baseRows.map((row) => row.client_id));
+    const rows = filterRowsByOwner(
+        enrichRowsWithOwners(baseRows, creatorMap, (row) => row.client_id),
+        owner
+    );
+    const total = rows.length;
+    const successCount = rows.filter((row) => row.status === 'success').length;
+    const failedCount = rows.filter((row) => row.status === 'failed').length;
+    const latencies = rows
+        .filter((row) => row.latency_ms !== null && row.latency_ms !== undefined && row.latency_ms !== '')
+        .map((row) => Number(row.latency_ms))
+        .filter((value) => Number.isFinite(value));
+    const avgLatencyMs = latencies.length
+        ? Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length)
+        : null;
+    const providerMap = new Map();
+    const routeMap = new Map();
+    const dayMap = new Map();
+    for (const row of rows) {
+        incrementCountBucket(providerMap, row.provider);
+        incrementCountBucket(routeMap, row.route);
+        const day = toDateKey(row.created_at);
+        if (!day) continue;
+        if (!dayMap.has(day)) {
+            dayMap.set(day, { date: day, total: 0, success_count: 0, failed_count: 0 });
+        }
+        const bucket = dayMap.get(day);
+        bucket.total += 1;
+        if (row.status === 'success') bucket.success_count += 1;
+        if (row.status === 'failed') bucket.failed_count += 1;
+    }
 
     return {
         window_days: safeDays,
         owner: owner || null,
-        total: totalRow?.total || 0,
-        success_count: totalRow?.success_count || 0,
-        failed_count: totalRow?.failed_count || 0,
-        avg_latency_ms: totalRow?.avg_latency_ms ? Math.round(totalRow.avg_latency_ms) : null,
-        by_provider: byProviderRows,
-        by_route: byRouteRows,
-        by_day: byDayRows,
+        total,
+        success_count: successCount,
+        failed_count: failedCount,
+        avg_latency_ms: avgLatencyMs,
+        by_provider: mapToCountRows(providerMap, 'provider'),
+        by_route: mapToCountRows(routeMap, 'route'),
+        by_day: [...dayMap.values()].sort((a, b) => String(a.date).localeCompare(String(b.date))),
     };
 }
 

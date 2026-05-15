@@ -123,13 +123,6 @@ test('generation-log evaluation summary aggregates SFT dashboard requests behind
       preparedSql.push(sql)
       return {
         async get(...args) {
-          if (/FROM sft_memory sm/.test(sql)) {
-            assert.deepEqual(args, [])
-            return { total: 3, opt1_count: 1, opt2_count: 1, custom_count: 1 }
-          }
-          if (/FROM generation_log gl/.test(sql)) {
-            return { total: 2, success_count: 2, failed_count: 0, avg_latency_ms: 900 }
-          }
           if (/FROM sft_feedback sf/.test(sql)) {
             assert.deepEqual(args, [24])
             return { count: 1 }
@@ -137,22 +130,32 @@ test('generation-log evaluation summary aggregates SFT dashboard requests behind
           return {}
         },
         async all(...args) {
-          if (/JSON_EXTRACT\(context_json, '\$\.scene'\)/.test(sql)) {
-            assert.deepEqual(args, [])
-            return [{ scene: 'trial_intro', total: 3, custom_count: 1 }]
+          if (/FROM creators\s+WHERE wa_phone IN \(\?\)/.test(sql)) {
+            assert.ok(Array.isArray(args[0]))
+            return args[0].map((phone) => ({ wa_phone: phone, wa_owner: 'Beau' }))
           }
-          if (/c\.wa_owner as owner/.test(sql)) return [{ owner: 'Beau', total: 3, custom_count: 1 }]
-          if (/DATE\(sm\.created_at\) as date/.test(sql)) return [{ date: '2026-05-08', total: 3, custom_count: 1 }]
-          if (/SELECT gl\.provider, COUNT/.test(sql)) return [{ provider: 'openai', count: 2 }]
-          if (/SELECT gl\.route, COUNT/.test(sql)) return [{ route: 'generate-candidates', count: 2 }]
-          if (/DATE\(gl\.created_at\) AS date/.test(sql)) return [{ date: '2026-05-08', total: 2, success_count: 2, failed_count: 0 }]
+          if (/FROM sft_memory sm/.test(sql) && /sm\.status/.test(sql)) {
+            assert.deepEqual(args, [24])
+            return [{ id: 41, human_selected: 'custom', status: 'approved', context_json: '{}', created_at: '2026-05-08 10:05:00' }]
+          }
+          if (/FROM sft_memory sm/.test(sql) && /sm\.id/.test(sql)) {
+            assert.deepEqual(args, [])
+            return [
+              { id: 41, human_selected: 'opt1', scene: null, context_json: '{"client_id":"15550009","scene":"trial_intro"}', created_at: '2026-05-08 10:05:00' },
+              { id: 42, human_selected: 'opt2', scene: null, context_json: '{"client_id":"15550009","scene":"trial_intro"}', created_at: '2026-05-08 10:06:00' },
+              { id: 43, human_selected: 'custom', scene: null, context_json: '{"client_id":"15550009","scene":"trial_intro"}', created_at: '2026-05-08 10:07:00' },
+            ]
+          }
+          if (/FROM generation_log gl/.test(sql) && /gl\.latency_ms/.test(sql) && !/grounding_json/.test(sql)) {
+            assert.equal(args.length, 1)
+            return [
+              { client_id: '15550009', provider: 'openai', route: 'generate-candidates', status: 'success', latency_ms: 900, created_at: '2026-05-08 10:00:00' },
+              { client_id: '15550009', provider: 'openai', route: 'generate-candidates', status: 'success', latency_ms: 900, created_at: '2026-05-08 10:01:00' },
+            ]
+          }
           if (/FROM generation_log gl/.test(sql)) {
             assert.ok(args.includes(20) || args.includes(24))
             return generationRows
-          }
-          if (/FROM sft_memory sm/.test(sql)) {
-            assert.deepEqual(args, [24])
-            return [{ id: 41, human_selected: 'custom', status: 'approved', context_json: '{}', created_at: '2026-05-08 10:05:00' }]
           }
           return []
         },
@@ -171,6 +174,124 @@ test('generation-log evaluation summary aggregates SFT dashboard requests behind
   assert.equal(res.body.rag_observation.generation.rag_hit_count, 1)
   assert.equal(res.body.rag_sources.recent[0].rag_hit_count, 1)
   assert.ok(preparedSql.some((sql) => /generation-log\/evaluation-summary/.test(sql)) === false)
+})
+
+test('AB evaluation summary preserves LEFT semantics with app-layer owner merge', async () => {
+  const stubDb = {
+    prepare(sql) {
+      return {
+        async all(...args) {
+          if (/FROM sft_memory sm/.test(sql)) {
+            assert.doesNotMatch(sql, /\bJOIN\b/i)
+            assert.deepEqual(args, [])
+            return [
+              { id: 1, human_selected: 'opt1', context_json: '{"client_id":"phone-a","scene":"intro"}', scene: null, created_at: '2026-05-08 09:00:00' },
+              { id: 2, human_selected: 'custom', context_json: '{"client_id":"phone-missing","scene":"intro"}', scene: null, created_at: '2026-05-08 10:00:00' },
+              { id: 3, human_selected: 'opt2', context_json: '{"client_id":"phone-b","scene":"follow"}', scene: null, created_at: '2026-05-09 10:00:00' },
+            ]
+          }
+          if (/FROM creators/.test(sql)) {
+            assert.deepEqual(args, [['phone-a', 'phone-missing', 'phone-b']])
+            return [
+              { wa_phone: 'phone-a', wa_owner: 'Beau' },
+              { wa_phone: 'phone-b', wa_owner: 'Yiyun' },
+            ]
+          }
+          return []
+        },
+      }
+    },
+  }
+
+  await withDbStub(stubDb, async () => {
+    const summary = await auditRouter._private.buildAbEvaluationSummary()
+    assert.equal(summary.total_records, 3)
+    assert.equal(summary.by_owner.Beau.total, 1)
+    assert.equal(summary.by_owner.Yiyun.total, 1)
+    assert.equal(summary.by_owner.Unknown.total, 1)
+    assert.equal(summary.by_owner.Unknown.custom_count, 1)
+    assert.equal(summary.by_scene.intro.total, 2)
+    assert.deepEqual(summary.by_day.map((row) => row.date), ['2026-05-08', '2026-05-09'])
+  })
+})
+
+test('AB evaluation owner scope filters after app-layer LEFT merge', async () => {
+  const stubDb = {
+    prepare(sql) {
+      return {
+        async all() {
+          if (/FROM sft_memory sm/.test(sql)) {
+            assert.doesNotMatch(sql, /\bJOIN\b/i)
+            return [
+              { id: 1, human_selected: 'opt1', context_json: '{"client_id":"phone-a","scene":"intro"}', scene: null, created_at: '2026-05-08 09:00:00' },
+              { id: 2, human_selected: 'custom', context_json: '{"client_id":"phone-missing","scene":"intro"}', scene: null, created_at: '2026-05-08 10:00:00' },
+              { id: 3, human_selected: 'opt2', context_json: '{"client_id":"phone-b","scene":"follow"}', scene: null, created_at: '2026-05-09 10:00:00' },
+            ]
+          }
+          if (/FROM creators/.test(sql)) {
+            return [
+              { wa_phone: 'phone-a', wa_owner: 'Beau' },
+              { wa_phone: 'phone-b', wa_owner: 'Yiyun' },
+            ]
+          }
+          return []
+        },
+      }
+    },
+  }
+
+  await withDbStub(stubDb, async () => {
+    const summary = await auditRouter._private.buildAbEvaluationSummary({ owner: 'Beau' })
+    assert.equal(summary.total_records, 1)
+    assert.equal(summary.opt1_selected, 1)
+    assert.deepEqual(Object.keys(summary.by_owner), ['Beau'])
+    assert.equal(summary.by_scene.intro.total, 1)
+  })
+})
+
+test('generation stats owner scope filters after app-layer creator lookup', async () => {
+  const stubDb = {
+    prepare(sql) {
+      return {
+        async all(...args) {
+          if (/FROM generation_log gl/.test(sql)) {
+            assert.doesNotMatch(sql, /\bJOIN\b/i)
+            assert.equal(args.length, 1)
+            return [
+              { client_id: 'phone-a', provider: 'openai', route: 'reply', status: 'success', latency_ms: 100, created_at: '2026-05-08 09:00:00' },
+              { client_id: 'phone-b', provider: 'minimax', route: 'reply', status: 'failed', latency_ms: 500, created_at: '2026-05-08 10:00:00' },
+              { client_id: 'phone-missing', provider: 'openai', route: 'audit', status: 'success', latency_ms: null, created_at: '2026-05-09 10:00:00' },
+            ]
+          }
+          if (/FROM creators/.test(sql)) {
+            return [
+              { wa_phone: 'phone-a', wa_owner: 'Beau' },
+              { wa_phone: 'phone-b', wa_owner: 'Yiyun' },
+            ]
+          }
+          return []
+        },
+      }
+    },
+  }
+
+  await withDbStub(stubDb, async () => {
+    const globalSummary = await auditRouter._private.buildGenerationStatsSummary({ days: 7 })
+    assert.equal(globalSummary.total, 3)
+    assert.equal(globalSummary.success_count, 2)
+    assert.equal(globalSummary.failed_count, 1)
+    assert.equal(globalSummary.avg_latency_ms, 300)
+    assert.deepEqual(globalSummary.by_provider, [
+      { provider: 'openai', count: 2 },
+      { provider: 'minimax', count: 1 },
+    ])
+
+    const scopedSummary = await auditRouter._private.buildGenerationStatsSummary({ owner: 'Beau', days: 7 })
+    assert.equal(scopedSummary.total, 1)
+    assert.equal(scopedSummary.success_count, 1)
+    assert.deepEqual(scopedSummary.by_provider, [{ provider: 'openai', count: 1 }])
+    assert.deepEqual(scopedSummary.by_day, [{ date: '2026-05-08', total: 1, success_count: 1, failed_count: 0 }])
+  })
 })
 
 test('audit-log response redacts record_id and nested sensitive payload fields', async () => {
